@@ -156,8 +156,8 @@ fn malformed_lines_are_errors_with_line_numbers() {
 
 #[test]
 fn empty_and_comment_only_input() {
-    assert!(doc("").entries().is_empty());
-    assert!(doc("\n  \n# x\n\t# y").entries().is_empty());
+    assert_eq!(doc("").entries(), []);
+    assert_eq!(doc("\n  \n# x\n\t# y").entries(), []);
 }
 
 // ---- spans ----
