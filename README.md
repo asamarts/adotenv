@@ -7,7 +7,7 @@ edits that leave the rest of the file untouched.
 [![docs.rs](https://img.shields.io/docsrs/adotenv)](https://docs.rs/adotenv)
 [![CI](https://github.com/asamarts/adotenv/actions/workflows/ci.yml/badge.svg)](https://github.com/asamarts/adotenv/actions/workflows/ci.yml)
 
-`dotenvy` and friends exist to *load* a `.env` file into a process. `adotenv`
+Most `.env` crates exist to *load* a `.env` file into a process. `adotenv`
 is for programs that *read or rewrite* one: linters, formatters, editors and
 language servers, secret scanners, migration tools. That needs different
 guarantees:
@@ -53,6 +53,12 @@ assert_eq!(edited, "# app\nexport PORT=8080\nURL=https://example.com # base\n");
 A line with no `=`, an empty key, a key containing whitespace, or an
 unterminated quote is a parse error with a line number. Multi-line values are
 not supported yet.
+
+## Roadmap
+
+0.1 is the first step. The plan to 1.0 (a lossless document model with error
+recovery, dialects, opt-in expansion, formatting, loading and integrations) is
+in [ROADMAP.md](ROADMAP.md), with design notes in [docs/design/](docs/design/).
 
 ## Minimum supported Rust version
 
