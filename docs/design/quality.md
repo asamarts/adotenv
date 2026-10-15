@@ -299,10 +299,14 @@ The strengthened harnesses also completed fresh AddressSanitizer campaigns with
 the runner, toolchain, target and limits recorded above, using isolated generated
 corpora and the checked-in seeds as read-only inputs. Neither campaign failed:
 
+The final assignment-token completeness smoke used `-runs=200000` and additional
+bare/empty/quoted declarations and trivia fixtures.
+
 | Target | Executions | Engine time |
 |---|---:|---:|
 | Parser, strengthened oracle | 2,276,195 | 301 s |
 | Native edits, positive-case oracle and corrected seeds | 3,706,810 | 301 s |
+| Parser, final assignment-token completeness smoke | 200,000 | 14 s |
 
 Temporary consumers and mutation controls are not shipped as permanent tests.
 This evidence does not establish sustained fuzz cleanliness or conformance to

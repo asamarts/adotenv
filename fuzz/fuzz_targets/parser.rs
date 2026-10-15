@@ -61,10 +61,12 @@ fn check_tokens(source: &str, entry: Entry<'_>, item: Item<'_>, tokens: &EntryTo
     horizontal(take(source, &tokens.space_before_eq, &mut at));
     if let Some(eq) = &tokens.eq {
         assert_eq!(take(source, eq, &mut at), "=");
+        assert!(tokens.value.is_some() && tokens.body.is_some());
     } else {
         assert!(
             tokens.space_after_eq.is_empty() && tokens.value.is_none() && tokens.body.is_none()
         );
+        assert!(tokens.trailing_space.is_empty());
         assert_eq!(entry.quote(), Quote::None);
         assert_eq!(entry.value(), None);
     }
