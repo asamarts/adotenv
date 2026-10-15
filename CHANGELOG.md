@@ -37,7 +37,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Permit an explicitly uncommented region to expose its own BOM, while still
   rejecting reinterpretation of unrelated source.
 - Use logarithmic decoded-boundary lookup and indexed repeated key lookups;
-  avoid quadratic collision scans and insertion-vector shifts in large batches.
+  avoid quadratic collision scans and insertion-vector shifts in large batches,
+  reusing the existing edit buffer in place.
 - Independently constrain fuzz edits to requested raw targets, assert exact
   insertion positions, and preserve unselected items and invalid diagnostics.
 - Cover the excluded fuzz workspace in dependency updates.

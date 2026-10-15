@@ -747,7 +747,7 @@ impl Document<'_> {
         let last_retained = self.last_retained_item(plans);
         insertions.sort_by_key(|insert| insert.offset);
         let mut groups = Vec::new();
-        let mut preceding_edits = Vec::new();
+        let mut preceding_edits = 0;
         let mut final_edit = None;
         let mut pending = insertions.as_mut_slice();
         while !pending.is_empty() {
@@ -804,16 +804,15 @@ impl Document<'_> {
             if at_end {
                 final_edit = Some(insertion);
             } else {
-                preceding_edits.push(insertion);
+                edits.push(insertion);
+                preceding_edits += 1;
             }
             pending = remaining;
         }
         // Non-EOF insertions precede field insertions at the same boundary;
-        // EOF insertions follow them. Concatenate once rather than shift per group.
-        if !preceding_edits.is_empty() {
-            preceding_edits.append(edits);
-            *edits = preceding_edits;
-        }
+        // EOF insertions follow them. Rotate the appended groups once in the
+        // existing buffer rather than allocate a staging vector or shift per group.
+        edits.rotate_right(preceding_edits);
         if let Some(edit) = final_edit {
             edits.push(edit);
         }

@@ -222,8 +222,8 @@ and initial parsing excluded:
 
 | Operation | Size | Before audit fixes | After audit fixes |
 |---|---:|---:|---:|
-| Whole-batch rename | 4,000 entries | 161.469 ms | 3.140 ms |
-| Sorted insertion batch | 4,000 insertions | 42.867 ms | 6.459 ms |
+| Whole-batch rename | 4,000 entries | 161.469 ms | 3.326 ms |
+| Sorted insertion batch | 4,000 insertions | 42.867 ms | 5.658 ms |
 | Every decoded boundary | 16,000 escapes | 186.755 ms | 0.451 ms |
 
 The fixes replace repeated original-key scans, pairwise collision checks,
@@ -235,14 +235,14 @@ are scaling smoke evidence, not statistically controlled regression thresholds.
 Local runner: cargo-fuzz 0.13.2, rustc 1.100.0-nightly (`67eda617e`,
 2026-09-10), x86_64-unknown-linux-gnu, default features and AddressSanitizer.
 The parser and native-edit campaigns completed normally with no crash, panic or
-invariant failure. The final oracle additionally ran a fixed-count smoke after
-its range-lookup/order checks were finalized:
+invariant failure. A fixed-count smoke additionally exercised the finalized
+range/order oracle and in-place native insertion buffer:
 
 | Target | Executions | Engine time |
 |---|---:|---:|
 | Parser | 1,805,672 | 301 s |
 | Native edits, final EOF/BOM behavior | 1,698,495 | 301 s |
-| Native edits, final oracle smoke | 200,000 | 26 s |
+| Native edits, final oracle/buffer smoke | 200,000 | 19 s |
 
 The timed campaigns used `-max_total_time=300`; the fixed-count smoke used
 `-runs=200000`. Both used `-timeout=10 -rss_limit_mb=2048 -max_len=65536`.
