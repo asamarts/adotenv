@@ -1,6 +1,8 @@
 # References and expansion
 
-Status: planned for 0.4.
+Status: future 0.4 design. No reference inspection, resolution, command
+callback, `exec` feature or CLI described here is available in 0.2. The current
+core only parses literal values and never expands or executes them.
 
 Variable expansion is where `.env` handling most often goes wrong silently: a
 `$` inside a password or hash gets replaced, a variable name is cut short, a
@@ -8,7 +10,7 @@ self-reference loops, or a command in a file runs on load. adotenv therefore
 separates finding references from resolving them, and resolves nothing unless
 asked.
 
-## References (always available, nothing resolved)
+## References (future 0.4; inspection without resolution)
 
 `entry.references()` returns recognized reference candidates in the raw value,
 without deciding that they are eligible for expansion:
@@ -37,7 +39,7 @@ cycle and unused-key findings may be potential rather than certain.
 
 ## Resolution (opt-in)
 
-```rust
+```rust,ignore
 let resolved = doc.resolve(&lookup, &ExpandOptions::compose())?;
 ```
 
@@ -100,6 +102,6 @@ it never silently falls back to the host process's working directory.
 It runs each command through the system shell exactly as written, in the
 selected directory, with output trimmed of one trailing newline. Its
 documentation is explicit that it runs arbitrary commands and must only be
-used with trusted files. It is never enabled by default, and the core crate
-contains no process-spawning code without the `exec` feature. The CLI offers
-the same through `--allow-commands`.
+used with trusted files. This proposed helper will never be enabled by default;
+0.2 contains no process-spawning code under any feature. The future CLI will
+offer the same explicit trust decision through `--allow-commands`.

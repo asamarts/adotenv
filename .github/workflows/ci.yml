@@ -29,9 +29,11 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo doc --no-deps
+      - run: cargo fmt --all --check
+      - run: cargo fmt --manifest-path fuzz/Cargo.toml --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo clippy -p adotenv --lib --no-default-features --locked -- -D warnings
+      - run: cargo doc -p adotenv --no-deps --locked
         env:
           RUSTDOCFLAGS: -D warnings
 
@@ -51,12 +53,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           toolchain: stable
-      - run: cargo test
+      - run: cargo test --workspace --locked
         env:
           PROPTEST_CASES: "2000"
 
   msrv:
-    name: MSRV (1.74)
+    name: MSRV (1.81)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -66,9 +68,10 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
-          toolchain: "1.74"
+          toolchain: "1.81"
       # The library only: dev-dependencies may need a newer toolchain.
-      - run: cargo build --lib --locked
+      - run: cargo build -p adotenv --lib --locked
+      - run: cargo build -p adotenv --lib --no-default-features --locked
 
   package:
     name: package
@@ -82,4 +85,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           toolchain: stable
-      - run: cargo package --locked
+      - run: cargo package -p adotenv --locked
+      - run: cargo bench -p adotenv --bench core --locked -- --test
+
+  no-std:
+    name: alloc-only core
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: stable
+          targets: thumbv7em-none-eabi
+      - run: cargo build -p adotenv --lib --no-default-features --target thumbv7em-none-eabi --locked
+      - run: cargo test -p adotenv --no-default-features --locked

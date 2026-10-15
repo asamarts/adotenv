@@ -1,21 +1,34 @@
+[workspace]
+members = ["."]
+exclude = ["fuzz"]
+resolver = "2"
+
 [package]
 name = "adotenv"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
-rust-version = "1.74"
+rust-version = "1.81"
 description = "A tooling-grade .env parser: literal values (no variable expansion), exact byte spans, and edits that leave the rest of the file untouched."
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/asamarts/adotenv"
 documentation = "https://docs.rs/adotenv"
-readme = "README.md"
 keywords = ["dotenv", "env", "parser", "linter", "lossless"]
 categories = ["parser-implementations", "config", "development-tools"]
-include = ["src/**/*.rs", "README.md", "CHANGELOG.md", "LICENSE-APACHE", "LICENSE-MIT"]
+include = ["src/**/*.rs", "benches/**/*.rs", "README.md", "CHANGELOG.md", "ROADMAP.md", "docs/design/*.md", "LICENSE-APACHE", "LICENSE-MIT"]
+
+[features]
+default = ["std"]
+std = []
 
 [dependencies]
 
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "core"
+harness = false
 
 [lints.rust]
 unsafe_code = "forbid"

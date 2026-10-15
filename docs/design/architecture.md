@@ -1,7 +1,8 @@
 # Architecture
 
-Status: planned for 0.2. 0.1 has a simpler model (a list of entries with
-spans); this document describes where it is going.
+Status: the 0.2 lossless core and native edit model are implemented. Sections
+explicitly marked future describe later milestones, not additional APIs
+shipped by 0.2.
 
 ## Document model
 
@@ -11,20 +12,21 @@ spanning several lines breaks that. So the model is a flat, ordered list of
 items rather than a general syntax tree:
 
 ```text
-Document<'src> {
-  source: Cow<'src, str>, items: Vec<Item>, bom: bool, final_newline: bool
-}
+Document<'src>
+  source: Cow<'src, str>
+  item/entry metadata: vectors of spans and indexes (no self-references)
+  bom: bool
 
-Item
-  Blank   { span, line_ending }
-  Comment { span, text_span, line_ending }
-  Entry   { span, line_ending, tokens }
-  Invalid { span, line_ending, diagnostic }
+Item view
+  kind: Blank | Comment | Entry | Invalid
+  span, line_ending, optional entry or primary diagnostic
 
-Entry tokens (each is a span into the source; absent tokens are None)
-  indent  export  key  space_before_eq  eq  space_after_eq
-  value { quote: None | Single | Double, raw, body }
-  trailing_space  inline_comment
+Entry view
+  snapshot-local id and item_id, quote, assignment state, optional decoded value
+
+EntryTokens (byte ranges; optional syntax uses Option<Range<usize>>)
+  indent  export  space_after_export  key  space_before_eq  eq  space_after_eq
+  value  body  trailing_space  inline_comment
 ```
 
 Rules the model guarantees:
@@ -32,14 +34,15 @@ Rules the model guarantees:
 - **Lossless.** Printing the document reproduces any UTF-8 input byte for
   byte, including the BOM, comments, blank lines and malformed `.env` syntax.
   A property test asserts this.
-- **Raw first.** Tokens keep the text as written. The decoded value
-  (unquoted, unescaped) is computed from the raw value under the active
-  dialect, together with a map from decoded offsets back to raw offsets, so a
-  finding inside a decoded value (for example a secret) can be placed exactly.
+- **Raw first.** Tokens keep the text as written. Literal values borrow their
+  raw body; only actual double-quote unescaping allocates decoded text.
+  `decoded_offset_to_raw` and `decoded_span_to_raw` map decoded UTF-8 byte
+  boundaries back to original-source regions, including escape spellings.
 - **Assignment state.** An entry is `KEY=value`, `KEY=` (empty), or `KEY`
-  with no `=` (bare). Tools disagree about what a bare key means, so the model
-  keeps it distinct. The selected dialect and explicit interpretation policy
-  decide its meaning; parsing never performs an implicit environment lookup.
+  with no `=` (bare). `value()` is `None` for bare and `Some("")` for assigned
+  empty values. `AssignmentState` distinguishes Bare/Empty/Value; parsing
+  never performs an implicit environment lookup. Future dialect/loading
+  policies may interpret bare syntax differently.
 - **Multi-line values** are one entry whose span covers several lines.
 
 Generic syntax-tree libraries were considered and rejected for this format:
@@ -66,7 +69,7 @@ documents use the same model without self-referential structures. Keys and
 values that need no unescaping borrow source text; decoded values allocate
 only when needed.
 
-## Dialect-specific structure
+## Dialect-specific structure (future 0.3)
 
 A document's items, entries and diagnostics belong to the grammar used to
 parse it. Dialects can change statement boundaries, not just decoded values:
@@ -86,28 +89,37 @@ as well as the document API; there is no implicit 0.1 compatibility grammar.
 
 Two surfaces over one model:
 
-- **Entries** for the common case: `doc.get("K")`, `doc.entries()`,
-  `doc.get_all("K")` (duplicates in order), and per entry `key()`, `value()`
-  (decoded), `raw_value()`, `quote()`, spans, `inline_comment()`.
-- **Items and tokens** for formatters and editors: every blank line, comment
-  and token with its span.
+- **Entries** for the common case: `doc.get("K")`, `get_entry("K")`,
+  `get_all("K")` (duplicates in order), `unique("K")` and per-entry `key()`,
+  optional decoded `value()`, optional `raw_value()`, `quote()`, spans and
+  `inline_comment()`.
+- **Items and tokens** for formatters and editors: every blank line, comment,
+  invalid statement and raw token span.
 
-Lookups use the dialect's duplicate policy (last wins by default); duplicates
-are always kept and reported.
+`entries()` and `items()` return exact-size double-ended view iterators, not
+slices. `entry(id)` and `item(id)` return optional views for zero-based IDs
+local to this exact snapshot. Views are borrowed from the document.
+
+Duplicates are always retained and diagnosed. 0.2 lookups use the last
+declaration; a last bare entry means `get()` is `None`, not an earlier value.
 
 ## Diagnostics
 
 `parse` never fails. It returns the document and a list of diagnostics:
 
 ```rust
+let text = "A=value\n";
 let (doc, diagnostics) = adotenv::parse(text);
+assert_eq!(doc.get("A"), Some("value"));
+assert!(diagnostics.is_empty());
 ```
 
 Each diagnostic has a stable code (an enum with documented meanings, never
 renumbered), a severity, a primary span, an optional secondary span, and a
-message. Examples: unterminated quote, invalid key character, text after a
-closing quote, unknown escape, missing `=`, duplicate key, `#` without a
-space before it, a lone carriage return.
+message. `DiagnosticCode::as_str()` is a stable machine identity, independent
+of enum order or wording. Errors: invalid key, unterminated quote, quoted
+trailing text. Warnings: unknown escape, duplicates, bare key, non-POSIX key,
+tight hash, unquoted backticks, lone CR. A leading BOM is informational.
 
 An unparsable statement becomes an `Invalid` item; parsing resumes at its
 next boundary. Multiline quotes follow the grammar: assignment-looking
@@ -132,10 +144,11 @@ conversion. Existing one-based line-number accessors remain documented as
 such. Scalar columns are not terminal cell widths.
 
 Conversions are checked: out-of-range or unrepresentable positions return
-an error, never a clamped or rounded location. Unicode conversions reject
-interior UTF-8 bytes and split UTF-16 surrogate pairs. Raw byte coordinates
-remain source-exact; text edits additionally require UTF-8 character
-boundaries. `LineIndex` treats LF, CRLF and lone CR as source line breaks,
+an error, never a clamped or rounded location. Scalar and UTF-16 conversions
+reject interior UTF-8 bytes; UTF-8 columns retain byte-exact interior offsets.
+UTF-16 also rejects split surrogate pairs. Text-edit ranges must be UTF-8
+boundaries. `Position::one_based()` uses checked addition.
+`LineIndex` treats LF, CRLF and lone CR as source line breaks,
 independently of dialect syntax. EOF is valid; a final line break creates
 a final empty line.
 Line-ending starts map to the preceding content's end, while a position
@@ -148,14 +161,27 @@ Acceptance tests must cover exact round trips and rejection at these boundaries.
 An edit is data:
 
 ```rust
-struct TextEdit { range: Range<usize>, replacement: String }
+// Public shape; use adotenv::TextEdit in programs.
+struct TextEdit { range: core::ops::Range<usize>, replacement: String }
 ```
 
-Edit operations take a document and return text edits: set a value, remove an
-entry (optionally with explicitly selected comments), rename a key, insert an
-entry (at the end, after a key, or in sorted position), comment or uncomment
-an entry, toggle `export`. Callers can apply the edits themselves (a
-linter's fix list, an editor's workspace edit) or ask adotenv to apply them.
+`Document::edit(&[Edit])` produces a `VerifiedEdits` containing native ranges
+and the complete verified output. `Edit` variants are Set, Remove, Rename,
+Insert, Comment, Uncomment and Export. Entry selectors and item selectors
+are separate, zero-based snapshot-local IDs; invalid IDs return an error.
+`InsertPosition` supports End, AfterKey, AfterEntry and Sorted.
+Sorted means before the first greater original key in source order, even when
+the original entries are unsorted. Repeated key lookups share a batch-local
+index; single lookups do not allocate one. Insertion separators are based on
+surviving output, retaining the original final-newline policy.
+
+Document convenience methods `set`, `remove`, `rename`, `insert`, `comment`,
+`uncomment` and `set_export` use the same producer. Free `set` / `remove`
+parse recovering Portable syntax and return `Result<String, EditError>`.
+No legacy grammar adapter remains.
+
+`VerifiedEdits::edits()` borrows text edits; `into_edits()` consumes them.
+`as_str()` borrows the verified output; `into_string()` consumes it.
 
 Key-only convenience edits require a unique matching entry and reject
 duplicates. Native operations also accept an explicitly selected occurrence
@@ -167,11 +193,17 @@ items/spans to remove with an entry in the same verified batch. Automatic
 attachment-based shortcuts arrive with the 0.5 comment/group model, not
 through guessed ownership in 0.2.
 
+Uncommenting removes one marker and at most one following space. Empty EOF
+comments may disappear, and adjacent selected comment regions may restore one
+multiline statement across explicitly removed intervening items. An insertion
+between those regions prevents them from merging. An explicitly uncommented
+leading region may expose its own BOM; unrelated BOM exposure is still refused.
+
 Every operation is verified before it returns: the edited text is parsed and
 checked to read back the intended value, and all other entries are checked
 to be unchanged. An edit that cannot be expressed exactly is an error, never
-an approximation. Quoting is chosen per value: the existing style is kept
-when it can represent the new value, otherwise the minimal style that can.
+an approximation. Quoting preserves the existing style when exactly
+representable and otherwise chooses an exact safe style.
 
 Verified operations may edit explicitly identified valid targets even when
 unrelated parts of the document are invalid. Re-parsing must preserve
@@ -182,26 +214,31 @@ repairs require an explicit item or span and defined postconditions.
 
 Text edits refer to the exact source snapshot used to produce them.
 External appliers are responsible for document-version checks.
+When applying ranges externally, apply them from highest offset to lowest;
+they do not refer to successively modified versions of the source.
 
 An operation's edit batch is verified as a whole against one source
 snapshot; individually valid edits do not waive final batch verification.
 
 ## Crate layout and platform
 
-The repository becomes a Cargo workspace in 0.2. The `adotenv` crate is the
-core: zero dependencies, `#![no_std]` with `alloc`, `#![forbid(unsafe_code)]`.
-A default-on `std` feature enables std-only integration and is required by
-the loader; `core::error::Error` implementations do not require it.
+The repository is a Cargo workspace with the core package at the root
+(`members = ["."]`). Fuzzing has an excluded, separate workspace. `adotenv`
+has zero runtime dependencies, `#![no_std]` with `alloc`, and unconditional
+`#![forbid(unsafe_code)]`. Default feature `std` can be disabled without losing
+core parsing/editing/position APIs or `core::error::Error` implementations.
+There is no I/O or environment/process integration in 0.2 under either mode.
 
-The unsafe prohibition in `adotenv` is unconditional, including its optional
-features. A future opt-in std-only `adotenv-process` adapter owns the narrowly
-documented `unsafe fn` for applying validated values to the process
-environment. Loading files and returning maps remain `adotenv` features.
-Other later crates (`adotenv-cli`, `adotenv-config`, `adotenv-figment`) share
-the workspace. All workspace crates are versioned and released independently.
+The unsafe prohibition in `adotenv` is unconditional. A future opt-in,
+std-only `adotenv-process` adapter will own the narrowly documented unsafe
+function for applying validated values to the process environment. Future
+file loading and map generation remain safe `adotenv` features, not current
+core behavior. Later CLI/config/figment crates will join the workspace;
+workspace crates will be versioned and released independently.
 
 ## Error types
 
-Fallible operations return specific error enums (`EditError`, `ResolveError`,
-`LoadError`), marked `#[non_exhaustive]`, each with a `Display` message and,
-from Rust 1.81, a `core::error::Error` implementation.
+0.2 fallible APIs use specific non-exhaustive `EditError` and `PositionError`
+enums; strict parsing returns a `Diagnostic`. Each implements `Display` and
+`core::error::Error` on MSRV 1.81. `ResolveError` and `LoadError` belong to
+future expansion and loading milestones.

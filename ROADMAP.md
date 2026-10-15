@@ -14,6 +14,11 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [expansion.md](docs/design/expansion.md) | `${VAR}` references, opt-in resolution, command substitution |
 | [quality.md](docs/design/quality.md) | Testing, fuzzing, conformance, benchmarks, MSRV and semver policy |
 
+**Current status:** 0.2.0 is the lossless-core release. Its native edits,
+alloc-only platform support and quality harnesses are described below;
+benchmark measurements and bounded fuzz execution evidence are recorded in
+the quality notes. Everything from 0.3 onward is future work, not a current API.
+
 ## Goals
 
 1. **Lossless.** Parsing then printing reproduces any UTF-8 input byte for
@@ -26,10 +31,9 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 3. **Precise.** Every token has a byte span. Position conversions use explicit
    UTF-8, scalar or UTF-16 units and reject coordinates that are out of range
    or unrepresentable in the requested encoding, never silently clamp them.
-4. **Explicit about dialects.** `.env` has no standard, and common
-   implementations read the same line differently. adotenv defines a portable
-   default, can read the way other implementations do, and can point out lines
-   whose meaning depends on which tool reads them.
+4. **Explicit about syntax.** `.env` has no standard. 0.2 defines Portable
+   rules and reports ambiguity. Future dialect presets will read like other
+   implementations and compare their interpretations.
 5. **Safe by default.** No I/O, no environment access and no variable
    expansion unless asked for. Commands in a file are never run unless the
    caller supplies a way to run them. The core forbids unsafe code; changing
@@ -64,7 +68,7 @@ Literal parsing into ordered entries with key, value and line spans;
 `encode_value`; verified `set` and `remove`. Extracted from
 [alint](https://github.com/asamarts/alint).
 
-### 0.2: Lossless core (breaking)
+### 0.2: Lossless core (released 2026-10-15; breaking)
 
 - Portable default syntax, including explicit diagnostics for ambiguous or
   invalid input. Syntax changes are part of the 0.2 migration, not a second
@@ -76,18 +80,22 @@ Literal parsing into ordered entries with key, value and line spans;
 - Multi-line quoted values; bare `KEY` lines as a distinct state from `KEY=`
   and `KEY=""`.
 - Spacing, comments, line endings, BOM and final-newline state in the model.
-- `LineIndex`: offsets to line and column in UTF-8 and UTF-16.
-- Edits as text edits: set, remove (optionally with explicitly selected
-  comments), rename, insert (at end, after a key, or in sorted position),
-  comment, uncomment and toggle `export`. Every edit verified by re-parsing.
+- `LineIndex`: checked offsets/positions in UTF-8, scalar and UTF-16 units;
+  explicit one-based display conversion and decoded-value source mapping.
+- Edits as text edits and a verified output: set, explicit item removal,
+  rename, insert (end, after a key/entry, or sorted), comment, uncomment and
+  toggle `export`. Every complete batch is verified by re-parsing.
 - Key-only edits require unique keys; native operations also accept explicit
   occurrences and support verified edits around unrelated syntax errors.
   Automatic comment attachments remain part of 0.5.
 - `#![no_std]` with `alloc`; MSRV 1.81; the repository becomes a Cargo
   workspace.
-- Fuzzing and property tests for the round trip and for edits.
+- Property tests and runnable parser/edit fuzz harnesses with synthetic public
+  seeds; scheduled bounded fuzz CI and Criterion parse/native-edit workloads.
+  Workload availability alone is not evidence of a completed campaign or
+  measured performance.
 
-### 0.3: Dialects
+### 0.3: Dialects (future)
 
 - Configurable dialect switches and presets that read like Docker Compose,
   the Node `dotenv` package, `docker run --env-file` and `python-dotenv`,
@@ -97,7 +105,7 @@ Literal parsing into ordered entries with key, value and line spans;
   whose meaning differs.
 - A public conformance corpus with the expected result for each preset.
 
-### 0.4: References and expansion
+### 0.4: References and expansion (future)
 
 - `references()`: every `$VAR`, `${VAR}`, `${VAR:-default}`-style reference
   and `$(command)` with spans, operator and default; nothing resolved.
@@ -109,7 +117,7 @@ Literal parsing into ordered entries with key, value and line spans;
   an `exec::shell` callback for trusted files behind the `exec` feature,
   requiring explicit execution-directory/origin context.
 
-### 0.5: Formatting and structure
+### 0.5: Formatting and structure (future)
 
 - Comments attached to the entries they document (leading block, inline
   comment), a file header, and groups separated by blank lines.
@@ -120,7 +128,7 @@ Literal parsing into ordered entries with key, value and line spans;
 - Comparing files by key (missing, extra, empty versus unset), and generating
   an example file with values blanked and comments kept.
 
-### 0.6: Loading
+### 0.6: Loading (future)
 
 - Reading files and the `.env`, `.env.local`, `.env.{mode}` cascade, behind a
   `load` feature.
@@ -134,14 +142,14 @@ Literal parsing into ordered entries with key, value and line spans;
 - A `serde` feature: deserialize a document into a struct, with errors that
   point at the line.
 
-### 0.7: Integrations and tools
+### 0.7: Integrations and tools (future)
 
 - `adotenv-cli`: `get`, `set`, `fmt`, `check`, `diff` and `run`, with
   `--allow-commands` for trusted files.
 - `adotenv-config` (a `config` crate source) and `adotenv-figment` (a figment
   provider).
 
-### 1.0: Stable API
+### 1.0: Stable API (future)
 
 The core API is frozen and follows semver. Criteria:
 
