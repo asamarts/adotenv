@@ -37,8 +37,11 @@ The excluded `fuzz/` package has its own workspace and uses `cargo-fuzz` with
 UTF-8 before parsing rather than decoded lossily.
 
 - `parser`: exact source/print round trip, contiguous item coverage, bounded
-  token and diagnostic spans, borrowed/owned agreement, strict/recovering
-  agreement, decoded-to-raw boundaries and checked position round trips.
+  token and diagnostic spans, lexical token roles and complete trivia layout,
+  borrowed/owned and strict/recovering agreement. An independent streaming
+  decoder checks cooked values and exact sampled raw mappings, including both
+  endpoints and invalid UTF-8 interiors. Position checks require success or
+  the specific error according to the coordinate's representability.
 - `edits`: native set/remove/rename/insert/comment/uncomment/export and batches,
   valid and invalid selectors, arbitrary values/keys and unrelated syntax
   errors. Successful results are independently replayed in the returned order;
@@ -46,8 +49,12 @@ UTF-8 before parsing rather than decoded lossily.
   from the requested operations. Ordered meanings include exact insertion
   positions. Unselected raw items, classifications and invalid diagnostic
   identities must survive. Multiline restoration also crosses explicitly
-  removed comments. Refusing an unsafe edit is expected; success must satisfy
-  these postconditions.
+  removed comments. An independent conservative positive-case classifier also
+  requires success for ordinary supported edits, standalone valid comment
+  restoration and generated conflict-free batches. Malformed source and
+  ambiguous preservation contexts are excluded from that positive domain;
+  refusals remain allowed there. Every successful edit must satisfy the
+  preservation and meaning postconditions.
 
 Checked-in seeds are newly authored, public synthetic examples, with no real
 credentials or private compatibility results. The edit input format is an
@@ -138,7 +145,11 @@ benchmark smoke, Rust 1.81 library builds with and without defaults, and an
 alloc-only build for `thumbv7em-none-eabi` where `std` is unavailable. MSRV jobs
 build only the library because dev/fuzz dependencies can require newer Rust.
 Release metadata and publishing select the package by name, not workspace
-package order.
+package order. Tag publication depends on the complete reusable CI workflow at
+the same commit, including all platforms, MSRV, embedded, package and benchmark
+gates. A manually dispatched Release runs only those checks and cannot publish.
+Ordinary CI and the release's called CI have distinct concurrency groups so one
+cannot cancel the other.
 
 Representative local checks (after updating the root lockfile):
 
@@ -258,6 +269,44 @@ cargo +nightly fuzz run edits --target x86_64-unknown-linux-gnu /tmp/generated-e
 Create the temporary directories before running. These bounded local
 campaigns are not a claim of sustained fuzz cleanliness or cross-dialect
 conformance. Invalid UTF-8 inputs are skipped, not parsed lossily.
+
+### Post-publication adversarial audit (2026-10-15)
+
+Baseline: published 0.2.0 and release commit
+`046b26ac7636b2c584ef278c9125b0235c78711f`. This pass found fuzz-oracle,
+seed-dispatch and release-gating gaps, not a reproduced core defect; parser
+and edit semantics are unchanged.
+
+- Both the local core and the exact crates.io `=0.2.0` package passed an
+  independent alloc-only consumer: 719,815 conflict-free two/four-operation
+  batches over thirteen BOM, mixed-ending, multiline, trivia and EOF fixtures.
+- Both passed all 1,112,064 Unicode scalar values for literal parsing, raw
+  mappings, value/neighbor edits and independently computed all-byte
+  UTF-8/scalar/UTF-16 positions.
+- All 47 unit/property tests and four doctests passed in both feature modes
+  with `PROPTEST_CASES=4000`; strict Clippy, rustdoc, both Rust 1.81 library
+  builds, the embedded alloc-only build and all nine benchmark smoke workloads
+  also passed. Root/fuzz advisory checks found no matches against 1,329 loaded
+  advisories. Workflow syntax passed actionlint 1.7.7.
+- Four temporary semantic mutation controls were accepted by the old fuzz
+  oracles and rejected by the strengthened ones: blanket edit refusal,
+  blanket position-conversion refusal, constant raw mappings and an invalid
+  indent token covering the entire declaration. Their unmodified controls
+  passed. Another eighteen positive fixtures exercised all eleven edit modes,
+  all insertion anchors, no-op renaming, export removal and EOF/BOM restoration.
+
+The strengthened harnesses also completed fresh AddressSanitizer campaigns with
+the runner, toolchain, target and limits recorded above, using isolated generated
+corpora and the checked-in seeds as read-only inputs. Neither campaign failed:
+
+| Target | Executions | Engine time |
+|---|---:|---:|
+| Parser, strengthened oracle | 2,276,195 | 301 s |
+| Native edits, positive-case oracle and corrected seeds | 3,706,810 | 301 s |
+
+Temporary consumers and mutation controls are not shipped as permanent tests.
+This evidence does not establish sustained fuzz cleanliness or conformance to
+other dotenv implementations.
 
 ## Future conformance corpus (0.3)
 

@@ -26,27 +26,101 @@ fn insertion_anchor(
     document: &Document<'_>,
     key: &str,
     position: InsertPosition<'_>,
-) -> (usize, usize) {
-    match position {
+) -> Option<(usize, usize)> {
+    Some(match position {
         InsertPosition::End => (document.source().len(), document.entries().len()),
         InsertPosition::Sorted => document.entries().find(|entry| entry.key() > key).map_or(
             (document.source().len(), document.entries().len()),
             |entry| (entry.line_span().start, entry.id()),
         ),
         InsertPosition::AfterEntry(id) => {
-            let entry = document
-                .entry(id)
-                .expect("successful insertion requires a valid anchor");
+            let entry = document.entry(id)?;
             (entry.line_span().end, id + 1)
         }
         InsertPosition::AfterKey(key) => {
-            let entry = document
-                .unique(key)
-                .expect("successful insertion requires a unique anchor");
+            let entry = document.unique(key).ok()?;
             (entry.line_span().end, entry.id() + 1)
         }
         _ => unreachable!("update the fuzz oracle for new insertion modes"),
+    })
+}
+
+fn valid_key(key: &str) -> bool {
+    !key.is_empty()
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
+}
+
+fn valid_value(value: &str) -> bool {
+    value
+        .chars()
+        .all(|ch| !ch.is_control() || matches!(ch, '\r' | '\n' | '\t'))
+}
+
+// Positive cases only: uncertain contexts may be rejected, but ordinary valid
+// edits must not silently turn into blanket refusal. The generated batches use
+// distinct properties/targets except the intentional remove-plus-EOF insertion.
+fn known_safe(document: &Document<'_>, operations: &[Edit<'_>]) -> bool {
+    if document
+        .items()
+        .any(|item| item.kind() == ItemKind::Invalid)
+    {
+        return false;
     }
+    operations.iter().all(|operation| match *operation {
+        Edit::Set { entry, value } => document.entry(entry).is_some() && valid_value(value),
+        Edit::Rename { entry, key } => document.entry(entry).is_some_and(|entry| {
+            valid_key(key)
+                && key != "export"
+                && (key == entry.key() || document.get_entry(key).is_none())
+        }),
+        Edit::Export { entry, enabled } => document
+            .entry(entry)
+            .is_some_and(|entry| enabled || !entry.exported() || entry.key() != "export"),
+        Edit::Comment { item } => document.item(item).is_some(),
+        Edit::Remove { item } => document.item(item).is_some_and(|item| {
+            let span = item.span();
+            !(document.source()[..span.start].ends_with('\r')
+                && document.source()[span.end..].starts_with('\n'))
+        }),
+        Edit::Insert {
+            key,
+            value,
+            position,
+        } => {
+            valid_key(key)
+                && value.is_none_or(valid_value)
+                && insertion_anchor(document, key, position).is_some_and(|(offset, _)| {
+                    document.source().as_bytes().get(offset) != Some(&b'\n')
+                })
+        }
+        Edit::Uncomment { item } => {
+            document.items().len() == 1
+                && document.item(item).is_some_and(|item| {
+                    if item.kind() != ItemKind::Comment {
+                        return false;
+                    }
+                    let raw = item.raw();
+                    let indent = raw
+                        .bytes()
+                        .take_while(|b| matches!(b, b' ' | b'\t'))
+                        .count();
+                    assert_eq!(raw.as_bytes().get(indent), Some(&b'#'));
+                    let mut body = indent + 1;
+                    if raw.as_bytes().get(body) == Some(&b' ') {
+                        body += 1;
+                    }
+                    let mut restored = document.source()[..item.span().start].to_owned();
+                    restored.push_str(&raw[..indent]);
+                    restored.push_str(&raw[body..]);
+                    let (after, _) = parse(&restored);
+                    after.has_bom() == document.has_bom()
+                        && after.items().all(|item| item.kind() != ItemKind::Invalid)
+                })
+        }
+        _ => unreachable!("update the positive oracle for new edit operations"),
+    })
 }
 
 fn commented(raw: &str) -> String {
@@ -118,7 +192,7 @@ fn check_targets(document: &Document<'_>, operations: &[Edit<'_>], verified: &Ve
                 required.push((range, replacement));
             }
             Edit::Insert { key, position, .. } => {
-                let (offset, _) = insertion_anchor(document, key, position);
+                let (offset, _) = insertion_anchor(document, key, position).unwrap();
                 eof_insertion |= offset == document.source().len();
                 allowed.push(offset..offset);
             }
@@ -392,6 +466,12 @@ fuzz_target!(|bytes: &[u8]| {
     if invalid_target {
         assert!(result.is_err());
     }
+    if known_safe(&document, &operations) {
+        assert!(
+            result.is_ok(),
+            "known-safe edit was refused: {operations:?}: {result:?}"
+        );
+    }
     let Ok(verified) = result else {
         return;
     };
@@ -400,7 +480,7 @@ fuzz_target!(|bytes: &[u8]| {
     let (after, _) = parse(verified.as_str());
     let actual = meanings(&after);
     if let Some((inserted, position)) = insertion {
-        let (_, original_index) = insertion_anchor(&document, key, position);
+        let (_, original_index) = insertion_anchor(&document, key, position).unwrap();
         let removed_before = operations
             .iter()
             .filter(|operation| match operation {

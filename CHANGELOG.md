@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Require successful native edits for independently classified safe fuzz inputs,
+  rather than accepting a regression that rejects every request.
+- Check parser token roles and complete trivia layout, independently decoded
+  values and exact sampled raw mappings, and valid/error position domains.
+- Correct the nine original named edit seeds for the eleven-operation dispatch.
+- Gate tag publication on the complete reusable, same-commit CI matrix.
+  Manual Release dispatch runs those checks without publishing; its concurrency
+  group is separate from ordinary CI.
+
 ## [0.2.0] - 2026-10-15
 
 ### Added
