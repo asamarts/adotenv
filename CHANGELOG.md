@@ -6,6 +6,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `EditError::WouldChangeMeaning`: refuse an edit that would invalidate or
+  reinterpret the remaining assignments.
+
+### Fixed
+
+- Verify removals by re-parsing and comparing the remaining ordered
+  assignments and BOM state. Deleting the first line can no longer expose an
+  embedded BOM and silently rename or drop another key.
+- Build `set`'s double-quoted fallback only when the first encoding fails
+  contextual readback, without repeating an already quoted candidate.
+- Clarify that entry spans and `encode_value` alone do not guarantee a safe
+  contextual edit; use the verified `set` and `remove` operations.
+- Describe encoder failures without claiming that every `.env` reader rejects
+  the value, and explicitly document 0.1's permissive quoted-tail behavior.
+
 ## [0.1.0] - 2026-10-13
 
 First release, extracted from [alint](https://github.com/asamarts/alint)'s

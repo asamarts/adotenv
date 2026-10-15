@@ -1,6 +1,7 @@
 # Dialects
 
-Status: planned for 0.3.
+Status: Portable syntax is planned as the 0.2 default. Named presets and
+configurable dialect switches are planned for 0.3.
 
 There is no `.env` standard. Implementations agree on the simple cases
 (`KEY=value`, `#` comment lines) and differ on many others. For example, the
@@ -20,9 +21,13 @@ adotenv therefore makes the reading rules explicit and selectable.
 
 ## How dialects work
 
-The syntax layer always keeps raw tokens (see
-[architecture.md](architecture.md)), so one parse serves any dialect. A
-`Dialect` decides how tokens are recognized and what they mean. It is a
+Each parse retains the original source and raw tokens (see
+[architecture.md](architecture.md)), but its entries and diagnostics belong
+to the selected dialect. Changing dialect reparses the retained text:
+multiline, raw-value and line-break rules can change statement boundaries.
+Borrowed interpretations share the source without copying it.
+
+A `Dialect` decides how tokens are recognized and what they mean. It is a
 struct of independent switches:
 
 | Switch | Choices |
@@ -33,12 +38,12 @@ struct of independent switches:
 | Backticks | a quote style, or literal text |
 | `KEY: value` | accepted or not |
 | Key characters | POSIX names, plus `.` and `-`, any Unicode letters, or anything but whitespace |
-| Bare `KEY` | skipped, empty, unset, inherited, or an error |
+| Bare `KEY` policy | skipped, empty, unset, inherited through a caller lookup, or an error; syntax state is always retained |
 | Raw values | quotes and whitespace processed, or kept exactly (as `docker run` does) |
 | Line breaks | how a lone `\r` is treated |
 | Byte-order mark | stripped, part of the key, or an error |
 | Duplicates | last wins or first wins |
-| Text after a closing quote | ignored, appended, or an error |
+| Text after a closing quote | ignored, appended, literal fallback, skipped with a diagnostic, or an error |
 | Multi-line values | which quote styles may span lines |
 
 Presets are named sets of switches. Callers can start from a preset and
@@ -61,7 +66,9 @@ Portable is strict where implementations disagree and literal everywhere:
 - Text after a closing quote is an error diagnostic.
 - A bare `KEY` is kept as its own state with a diagnostic.
 - Duplicates: last wins, with a diagnostic.
-- An unterminated quote is an error that ends at the end of its line.
+- An unmatched quote is diagnosed at EOF; its opening physical line is kept
+  as invalid and parsing resumes at the following line. A matching quote
+  follows the grammar even when its value contains assignment-looking lines.
 - A leading BOM is stripped, with an informational diagnostic; lone carriage
   returns get a diagnostic.
 - No expansion: `$` is literal unless the caller resolves references (see
@@ -69,10 +76,10 @@ Portable is strict where implementations disagree and literal everywhere:
 
 ## Presets in 0.3
 
-| Preset | Reads like |
+| Preset | Syntax reads like |
 |---|---|
 | `Portable` | the default above |
-| `Compose` | Docker Compose `env_file` and `.env`, per the Compose specification |
+| `Compose` | Docker Compose syntax, with an explicit project `.env` or service `env_file` role policy |
 | `NodeDotenv` | the `dotenv` package on npm |
 | `DockerRaw` | `docker run --env-file` (values kept exactly as written) |
 | `PythonDotenv` | the `python-dotenv` package |
@@ -83,6 +90,18 @@ recorded. A preset imitates documented behavior; where an implementation has
 behavior that looks accidental, the preset follows it but the difference from
 Portable is reported. More presets are added on request, each with inputs and
 outputs from the implementation it imitates.
+
+Presets select syntax and literal-value rules, not implicit expansion or
+environment access. Resolution remains opt-in in 0.4; loading remains 0.6.
+
+Compose has one syntax preset but distinct file-role policies. A project
+`.env` bare declaration may inherit through an explicitly supplied lookup;
+a service `env_file` bare declaration means unset. The document retains the
+bare state in both cases. Role-dependent interpretation is selected
+explicitly during resolution/loading, never guessed by parsing.
+
+Conformance expectations identify the API, options and file role. A generic
+compose-go lookup helper is not an oracle for service `env_file` behavior.
 
 ## Encoding per dialect
 

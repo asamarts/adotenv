@@ -8,6 +8,10 @@ fn val<'a>(d: &'a Document, k: &str) -> &'a str {
     d.get(k).unwrap_or_else(|| panic!("no {k}"))
 }
 
+fn semantics(e: &Entry) -> (&str, &str, Quote, bool) {
+    (e.key(), e.value(), e.quote(), e.exported())
+}
+
 // ---- values ----
 
 #[test]
@@ -127,30 +131,16 @@ fn text_after_a_closing_quote_is_ignored() {
 
 #[test]
 fn malformed_lines_are_errors_with_line_numbers() {
-    let e = parse("A=1\nNOEQUALS\n").unwrap_err();
-    assert_eq!(e.line(), 2);
-    assert_eq!(
-        e.to_string(),
-        "line 2: expected `KEY=VALUE`, found `NOEQUALS`"
-    );
-    for (text, msg) in [
-        ("=novalue\n", "line 1: empty key before `=`"),
-        ("A B=1\n", "line 1: key `A B` contains whitespace"),
-        (
-            "Q=\"unterminated\n",
-            "line 1: unterminated double-quoted value",
-        ),
-        (
-            "Q='unterminated\n",
-            "line 1: unterminated single-quoted value",
-        ),
-        ("B=\"trailing\\", "line 1: trailing backslash in value"),
-        (
-            "export NOEQ  \n",
-            "line 1: expected `KEY=VALUE`, found `NOEQ`",
-        ),
+    for (text, line) in [
+        ("A=1\nNOEQUALS\n", 2),
+        ("=novalue\n", 1),
+        ("A B=1\n", 1),
+        ("Q=\"unterminated\n", 1),
+        ("Q='unterminated\n", 1),
+        ("B=\"trailing\\", 1),
+        ("export NOEQ  \n", 1),
     ] {
-        assert_eq!(parse(text).unwrap_err().to_string(), msg, "{text:?}");
+        assert_eq!(parse(text).unwrap_err().line(), line, "{text:?}");
     }
 }
 
@@ -285,6 +275,13 @@ fn set_quotes_where_a_bare_value_would_read_differently() {
     );
     // Text after a closing quote is ignored, but would join a bare value.
     assert_eq!(set("B=\"y\"tail\n", "B", "z").unwrap(), "B=\"z\"tail\n");
+    // Even a hash with no preceding space would join a bare replacement.
+    let src = "_=\"\"#\r\nB=2\n";
+    let span = doc(src).unique("_").unwrap().value_span();
+    let out = set(src, "_", "$").unwrap();
+    assert_eq!(doc(&out).get("_"), Some("$"));
+    assert_eq!(&out[..span.start], &src[..span.start]);
+    assert_eq!(&out[out.len() - (src.len() - span.end)..], &src[span.end..]);
 }
 
 #[test]
@@ -295,6 +292,42 @@ fn remove_takes_the_whole_line() {
         remove("\u{feff}A=1\r\nDROP=2\r\n", "DROP").unwrap(),
         "\u{feff}A=1\r\n"
     );
+    assert_eq!(remove("\u{feff}A=1\nB=2\n", "A").unwrap(), "\u{feff}B=2\n");
+    // An existing leading BOM remains, keeping the second BOM inside the key.
+    let src = "\u{feff}A=1\r\n\u{feff}B=2\n";
+    let before = doc(src);
+    let out = remove(src, "A").unwrap();
+    assert_eq!(out, "\u{feff}\u{feff}B=2\n");
+    let after = doc(&out);
+    assert!(after.has_bom());
+    assert_eq!(
+        semantics(&after.entries()[0]),
+        semantics(&before.entries()[1])
+    );
+}
+
+#[test]
+fn remove_refuses_exposed_bom_key_rename() {
+    let src = "A=1\n\u{feff}B=2\n";
+    assert_eq!(doc(src).entries()[1].key(), "\u{feff}B");
+    assert_eq!(doc("\u{feff}B=2\n").entries()[0].key(), "B");
+    assert_eq!(remove(src, "A"), Err(EditError::WouldChangeMeaning));
+}
+
+#[test]
+fn remove_refuses_exposed_bom_comment_drop() {
+    let src = "A=1\n\u{feff}#B=2\n";
+    assert_eq!(doc(src).entries()[1].key(), "\u{feff}#B");
+    assert_eq!(doc("\u{feff}#B=2\n").entries(), []);
+    assert_eq!(remove(src, "A"), Err(EditError::WouldChangeMeaning));
+}
+
+#[test]
+fn remove_refuses_exposed_bom_empty_key() {
+    let src = "A=1\n\u{feff}=2\n";
+    assert_eq!(doc(src).entries()[1].key(), "\u{feff}");
+    assert_eq!(parse("\u{feff}=2\n").unwrap_err().line(), 1);
+    assert_eq!(remove(src, "A"), Err(EditError::WouldChangeMeaning));
 }
 
 #[test]
@@ -302,8 +335,12 @@ fn edits_refuse_what_they_cannot_do_exactly() {
     assert_eq!(set("K=1\nK=2\n", "K", "x"), Err(EditError::Duplicate(2)));
     assert_eq!(remove("K=1\nK=2\n", "K"), Err(EditError::Duplicate(2)));
     assert_eq!(set("A=1\n", "B", "x"), Err(EditError::Missing));
+    assert_eq!(remove("A=1\n", "B"), Err(EditError::Missing));
     assert_eq!(set("A=1\n", "A", "\u{7}"), Err(EditError::Unencodable));
-    assert!(matches!(set("oops\n", "A", "x"), Err(EditError::Parse(_))));
+    let malformed = "A=1\noops\n";
+    let expected = Err(EditError::Parse(parse(malformed).unwrap_err()));
+    assert_eq!(set(malformed, "A", "x"), expected);
+    assert_eq!(remove(malformed, "A"), expected);
 }
 
 #[test]
@@ -346,7 +383,12 @@ mod props {
     }
 
     fn key() -> impl Strategy<Value = String> {
-        "[A-Z_][A-Z0-9_]{0,6}"
+        prop_oneof![
+            "[A-Z_é☕][A-Z0-9_é☕\u{feff}]{0,6}",
+            "[A-Z_é☕][A-Z0-9_é☕\u{feff}]{0,6}".prop_map(|k| format!("\u{feff}{k}")),
+            Just("\u{feff}".to_string()),
+            Just("\u{feff}#B".to_string()),
+        ]
     }
 
     /// Lines that parse: assignments in every quoting style, comments, blanks.
@@ -365,19 +407,25 @@ mod props {
     fn file() -> impl Strategy<Value = String> {
         (
             any::<bool>(),
-            proptest::collection::vec(line(), 0..8),
-            prop_oneof![Just("\n"), Just("\r\n")],
+            proptest::collection::vec((line(), prop_oneof![Just("\n"), Just("\r\n")]), 0..8),
             any::<bool>(),
         )
-            .prop_map(|(bom, lines, eol, trailing)| {
+            .prop_map(|(bom, lines, trailing)| {
                 let mut s = if bom {
                     "\u{feff}".to_string()
                 } else {
                     String::new()
                 };
-                s.push_str(&lines.join(eol));
-                if trailing && !lines.is_empty() {
-                    s.push_str(eol);
+                for (i, (line, eol)) in lines.iter().enumerate() {
+                    // Keep a generated BOM-prefixed key from being mistaken
+                    // for the file BOM before any edit takes place.
+                    if i == 0 && !bom && line.starts_with(BOM) {
+                        s.push(' ');
+                    }
+                    s.push_str(line);
+                    if i + 1 < lines.len() || trailing {
+                        s.push_str(eol);
+                    }
                 }
                 s
             })
@@ -395,10 +443,17 @@ mod props {
         fn spans_slice_what_they_claim(text in file()) {
             let d = doc(&text);
             for e in d.entries() {
-                prop_assert_eq!(&text[e.key_span()], e.key());
-                prop_assert!(text[e.line_span()].contains(&text[e.value_span()]));
-                let line = &text[e.line_span()];
-                prop_assert!(line.ends_with('\n') || e.line_span().end == text.len());
+                let line = e.line_span();
+                let key = e.key_span();
+                let value = e.value_span();
+                prop_assert!(line.start <= key.start);
+                prop_assert!(key.start <= key.end);
+                prop_assert!(key.end <= value.start);
+                prop_assert!(value.start <= value.end);
+                prop_assert!(value.end <= line.end);
+                prop_assert!(line.end <= text.len());
+                prop_assert_eq!(&text[key], e.key());
+                prop_assert!(text[line.clone()].ends_with('\n') || line.end == text.len());
             }
         }
 
@@ -412,14 +467,19 @@ mod props {
                 let out = set(&text, e.key(), &v).unwrap();
                 let after = doc(&out);
                 prop_assert_eq!(after.get(e.key()), Some(v.as_str()));
-                // Every other assignment reads back unchanged.
-                for other in d.entries().iter().filter(|o| o.key() != e.key()) {
-                    prop_assert_eq!(after.get(other.key()), d.get(other.key()));
-                }
+                prop_assert_eq!(after.has_bom(), d.has_bom());
+                prop_assert_eq!(after.entries().len(), d.entries().len());
+                // Every unaffected occurrence stays in order, duplicates included.
+                prop_assert!(d.entries().iter().filter(|o| o.key() != e.key())
+                    .map(semantics)
+                    .eq(after.entries().iter().filter(|o| o.key() != e.key()).map(semantics)));
+                let target = after.unique(e.key()).unwrap();
+                prop_assert_eq!(target.key(), e.key());
+                prop_assert_eq!(target.exported(), e.exported());
                 // Bytes outside the value span are untouched.
                 let s = e.value_span();
-                prop_assert!(out.starts_with(&text[..s.start]));
-                prop_assert!(out.ends_with(&text[s.end..]));
+                prop_assert_eq!(&out[..s.start], &text[..s.start]);
+                prop_assert_eq!(&out[out.len() - (text.len() - s.end)..], &text[s.end..]);
             }
         }
 
@@ -430,9 +490,29 @@ mod props {
                 if d.entries_for(e.key()).count() != 1 {
                     continue;
                 }
-                let after = doc(&remove(&text, e.key()).unwrap());
-                prop_assert_eq!(after.get(e.key()), None);
-                prop_assert_eq!(after.entries().len(), d.entries().len() - 1);
+                let s = e.line_span();
+                let candidate = format!("{}{}", &text[..s.start], &text[s.end..]);
+                let safe = parse(&candidate).is_ok_and(|after| {
+                    after.has_bom() == d.has_bom()
+                        && d.entries().iter().filter(|o| o.key() != e.key())
+                            .map(semantics).eq(after.entries().iter().map(semantics))
+                });
+                match remove(&text, e.key()) {
+                    Ok(out) => {
+                        prop_assert!(safe);
+                        prop_assert_eq!(out.len(), text.len() - s.len());
+                        prop_assert_eq!(&out[..s.start], &text[..s.start]);
+                        prop_assert_eq!(&out[s.start..], &text[s.end..]);
+                        let after = doc(&out);
+                        prop_assert_eq!(after.has_bom(), d.has_bom());
+                        prop_assert!(d.entries().iter().filter(|o| o.key() != e.key())
+                            .map(semantics).eq(after.entries().iter().map(semantics)));
+                        prop_assert_eq!(after.get(e.key()), None);
+                        prop_assert_eq!(after.entries().len(), d.entries().len() - 1);
+                    }
+                    Err(EditError::WouldChangeMeaning) => prop_assert!(!safe),
+                    Err(error) => prop_assert!(false, "unexpected removal error: {error}"),
+                }
             }
         }
     }

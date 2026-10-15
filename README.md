@@ -17,8 +17,9 @@ guarantees:
 - **Exact spans.** Every entry carries byte ranges for its line, key and value,
   ready for diagnostics or editor highlights.
 - **Lossless edits.** `set` and `remove` change one value or one line and keep
-  every other byte: comments, blank lines, quoting style, CRLF, a BOM. Each
-  edit is checked to read back the value it wrote.
+  every other byte: comments, blank lines, quoting style, CRLF, a BOM. `set`
+  verifies value readback; `remove` verifies the remaining assignments keep
+  their meaning, refusing a deletion that would reinterpret them.
 - **No side effects.** No file I/O, no process-environment changes, no
   dependencies, no `unsafe`.
 
@@ -46,6 +47,8 @@ assert_eq!(edited, "# app\nexport PORT=8080\nURL=https://example.com # base\n");
   with no space before it is part of the value.
 - Single-quoted values are fully literal. Double-quoted values honor `\n`,
   `\r`, `\t`, `\\` and `\"`, and keep any other backslash pair as written.
+- In 0.1, text after a closing quote is ignored, even when it is not a comment;
+  parsing a quoted value is not strict validation of its trailing text.
 - Duplicate keys are all kept as entries; lookups use the last one, and edits
   refuse an ambiguous key instead of guessing.
 - A leading UTF-8 byte-order mark is skipped.
@@ -58,7 +61,8 @@ not supported yet.
 
 0.1 is the first step. The plan to 1.0 (a lossless document model with error
 recovery, dialects, opt-in expansion, formatting, loading and integrations) is
-in [ROADMAP.md](ROADMAP.md), with design notes in [docs/design/](docs/design/).
+in [ROADMAP.md](https://github.com/asamarts/adotenv/blob/main/ROADMAP.md), with
+design notes in [docs/design/](https://github.com/asamarts/adotenv/tree/main/docs/design).
 
 ## Minimum supported Rust version
 

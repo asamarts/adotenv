@@ -114,8 +114,10 @@ impl Entry {
         self.line
     }
 
-    /// The whole line, including its line ending if it has one. Removing this
-    /// range deletes the assignment cleanly.
+    /// The whole line, including its line ending if it has one, but excluding
+    /// a file-leading BOM. Deleting this range can change how the remaining
+    /// text parses (for example, by exposing another BOM). Use [`remove`] for
+    /// a deletion that verifies the remaining entries are unchanged.
     #[must_use]
     pub fn line_span(&self) -> Range<usize> {
         self.line_span.clone()
@@ -130,8 +132,9 @@ impl Entry {
     /// The value as written: the whole quoted region (quotes included) for a
     /// quoted value, the trimmed token for an unquoted one, and an empty range
     /// right after `=` for an empty value. A trailing comment is outside it.
-    /// Replacing this range with [`encode_value`] output changes the value
-    /// without touching anything else on the line.
+    /// A replacement token can interact with the surrounding bytes, especially
+    /// text after a closing quote. Use [`set`] for a replacement that verifies
+    /// the requested value reads back correctly.
     #[must_use]
     pub fn value_span(&self) -> Range<usize> {
         self.value_span.clone()
@@ -229,8 +232,11 @@ pub enum EditError {
     Missing,
     /// The key is assigned this many times, so the edit is ambiguous.
     Duplicate(usize),
-    /// The new value contains a control character `.env` cannot represent.
+    /// The new value cannot be encoded exactly in the existing context.
     Unencodable,
+    /// The edit would make the remaining text invalid or change its BOM state
+    /// or the ordered keys, values, quoting, or export status of other entries.
+    WouldChangeMeaning,
 }
 
 impl fmt::Display for EditError {
@@ -239,8 +245,9 @@ impl fmt::Display for EditError {
             Self::Parse(e) => write!(f, "{e}"),
             Self::Missing => f.write_str("key is not assigned"),
             Self::Duplicate(n) => write!(f, "key is assigned {n} times"),
-            Self::Unencodable => {
-                f.write_str("value contains a control character .env cannot represent")
+            Self::Unencodable => f.write_str("value cannot be encoded exactly in this context"),
+            Self::WouldChangeMeaning => {
+                f.write_str("edit would change the meaning of the remaining text")
             }
         }
     }
@@ -381,11 +388,12 @@ fn parse_value(raw: &str) -> Result<(String, Quote, Range<usize>), &'static str>
     Ok((token.to_string(), Quote::None, start..start + token.len()))
 }
 
-/// Write `value` as `.env` value syntax that parses back to exactly `value`
-/// wherever it is placed after `=`: bare when that is safe, otherwise
-/// double-quoted with `\\`, `\"`, `\n`,
-/// `\r` and `\t` escaped. `None` when `value` holds any other control
-/// character, which `.env` has no way to write.
+/// Write `value` as a complete `.env` value token that parses back to exactly
+/// `value` after `=`: bare when that is safe, otherwise double-quoted with
+/// `\\`, `\"`, `\n`, `\r` and `\t` escaped. `None` when `value` holds any other
+/// control character, which this encoder deliberately declines. Existing
+/// surrounding bytes can affect readback; use [`set`] for a verified
+/// contextual replacement.
 #[must_use]
 pub fn encode_value(value: &str) -> Option<String> {
     if value
@@ -438,9 +446,15 @@ fn double_quoted(value: &str) -> String {
 pub fn set(text: &str, key: &str, value: &str) -> Result<String, EditError> {
     let doc = parse(text)?;
     let span = doc.unique(key)?.value_span();
-    let bare = encode_value(value).ok_or(EditError::Unencodable)?;
-    for encoded in [bare, double_quoted(value)] {
-        let out = splice(text, span.clone(), &encoded);
+    let encoded = encode_value(value).ok_or(EditError::Unencodable)?;
+    let out = splice(text, span.clone(), &encoded);
+    if parse(&out).is_ok_and(|d| d.get(key) == Some(value)) {
+        return Ok(out);
+    }
+    // Encoding already chose double quotes when the bare form was unsafe.
+    // Only try a different candidate if surrounding text defeated a bare one.
+    if !encoded.starts_with('"') {
+        let out = splice(text, span, &double_quoted(value));
         if parse(&out).is_ok_and(|d| d.get(key) == Some(value)) {
             return Ok(out);
         }
@@ -449,16 +463,37 @@ pub fn set(text: &str, key: &str, value: &str) -> Result<String, EditError> {
 }
 
 /// Remove the line assigning `key`, line ending included. The key must be
-/// assigned exactly once.
+/// assigned exactly once. All other bytes, including a leading BOM, are kept.
+///
+/// The result is checked: it parses with the same BOM state and the same
+/// remaining entries in source order, including their quoting and export
+/// status. In particular, removal cannot expose an embedded BOM as a new
+/// file-leading BOM.
 ///
 /// # Errors
 ///
 /// [`EditError::Parse`] if `text` does not parse, [`EditError::Missing`] or
-/// [`EditError::Duplicate`] unless `key` is assigned exactly once.
+/// [`EditError::Duplicate`] unless `key` is assigned exactly once, or
+/// [`EditError::WouldChangeMeaning`] if deletion would change how the remaining
+/// text parses.
 pub fn remove(text: &str, key: &str) -> Result<String, EditError> {
     let doc = parse(text)?;
     let span = doc.unique(key)?.line_span();
-    Ok(splice(text, span, ""))
+    let out = splice(text, span, "");
+    let after = parse(&out).map_err(|_| EditError::WouldChangeMeaning)?;
+    let remaining = doc
+        .entries()
+        .iter()
+        .filter(|e| e.key() != key)
+        .map(|e| (e.key(), e.value(), e.quote(), e.exported()));
+    let reparsed = after
+        .entries()
+        .iter()
+        .map(|e| (e.key(), e.value(), e.quote(), e.exported()));
+    if doc.has_bom() != after.has_bom() || !remaining.eq(reparsed) {
+        return Err(EditError::WouldChangeMeaning);
+    }
+    Ok(out)
 }
 
 fn splice(text: &str, span: Range<usize>, with: &str) -> String {

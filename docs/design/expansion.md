@@ -10,21 +10,30 @@ asked.
 
 ## References (always available, nothing resolved)
 
-`entry.references()` returns every reference in a value, as written:
+`entry.references()` returns recognized reference candidates in the raw value,
+without deciding that they are eligible for expansion:
 
 - `$VAR` and `${VAR}`
 - `${VAR:-default}`, `${VAR-default}`, `${VAR:?message}`, `${VAR?message}`,
   `${VAR:+alternative}`, `${VAR+alternative}`, including nested defaults
 - `$(command)`
 
-Each reference has its kind, the span of the whole reference and of the
-name, the operator, and the default or message as written. Text in single
-quotes and escaped dollars (`\$`, and `$$` in dialects that use it) are not
-references. Which forms count as references depends on the dialect.
+Each candidate has its kind, whole-form span and quote/escape context.
+Variable forms also carry a name span and any operator/default/message
+spans; command forms carry their raw payload span. Single-quoted and
+escaped-dollar candidates remain observable; their presence does not imply
+that they would expand or execute.
 
-This is enough for a linter (undefined variable, reference cycle, unused key)
-and an editor (go to definition, find references, rename a key and its uses)
-without ever expanding anything.
+A pure eligibility helper applies explicit reference/expansion rules,
+including operator support, quote activity and escaping. Resolution uses
+the same rules. Portable rules suppress single-quoted and escaped-dollar
+candidates, while other selected rules may permit single-quoted expansion.
+Inspection performs no lookup, I/O or command execution.
+
+This supports linter analysis and editor navigation/renaming without
+executing expansion. Callers must still select eligibility and binding rules.
+Without caller values or conditional-branch state, undefined-variable,
+cycle and unused-key findings may be potential rather than certain.
 
 ## Resolution (opt-in)
 
@@ -39,16 +48,22 @@ environment, which must be passed explicitly. Options:
 |---|---|
 | Operators | none, braced only (`${VAR}`), basic (`$VAR`, `${VAR}`), Compose (the full operator set, nested), or dotenv-expand style |
 | Lookup order | caller's lookup first, or the file first |
-| Scope | sequential (only keys defined earlier in the file) or the whole file |
+| Scope | sequential (latest earlier definition) or whole-file (final definition, including for self-reference) |
 | Unresolved variable | empty string, kept as written, or an error |
 | Single quotes | not expanded (default) or expanded, for dialects that do |
+
+Bindings follow the selected scope consistently, with no special fallback
+to an earlier definition for self-reference. With no caller-supplied seed,
+`A=base` followed by `A=${A}x` resolves to `basex` in sequential scope but
+is a cycle in whole-file scope. Caller/file lookup precedence remains an
+explicit, separate option.
 
 Guarantees:
 
 - `${VAR:?message}` produces a structured error naming the key, the
   reference and its span.
-- Cycles (`A=${B}`, `B=${A}`, or `A=${A}x`) are detected and reported, never
-  looped on.
+- Reachable cycles under the selected bindings (`A=${B}`, `B=${A}`, or
+  whole-file `A=${A}x`) are detected and reported, never looped on.
 - Nesting depth and the size of an expanded value are limited, with
   configurable limits.
 - Every resolved value records where each part came from: which key, which
@@ -56,31 +71,35 @@ Guarantees:
 
 ## Command substitution
 
-adotenv never runs commands on its own. `$(command)` is always reported as a
-reference, and under dialects whose original implementation runs commands,
-a diagnostic says the command would run there.
+adotenv never runs commands on its own. `$(command)` is reported as a raw
+candidate with its quote/escape context. A diagnostic says it would run under
+another implementation only when eligible under that implementation's rules;
+candidates ineligible under those rules are not labeled executable.
 
-To run commands, the caller passes a callback:
+To run commands, the caller passes a callback receiving structured context:
 
-```rust
-let options = ExpandOptions::compose().commands(|command: &str| -> Result<String, String> {
-    // the caller decides what is allowed and how to run it
-});
-```
+- The command text exactly as written.
+- The reference's source span.
+- An optional source identity supplied by the caller.
 
-The callback receives the command text exactly as written and returns its
-output or an error. Every call is recorded in the resolution's origin data.
+Source identity is opaque in the no-std core; it does not imply a filesystem
+path. The caller supplies execution context and per-source policy.
+
+The callback returns command output or an error. Every call is recorded with
+its source identity and reference span in the resolution's origin data.
+Failures retain collected call provenance too: an error does not imply that
+earlier callbacks had no side effects, and adotenv cannot roll them back.
 
 For developers working with their own, trusted files, the `exec` feature
-provides a ready-made callback:
+provides a ready-made `exec::shell` callback.
 
-```rust
-let options = ExpandOptions::compose().commands(adotenv::exec::shell());
-```
+The helper is constructed with an explicit working directory or a
+source-identity-to-origin mapping. Missing directory context is an error;
+it never silently falls back to the host process's working directory.
 
-`exec::shell()` runs each command through the system shell exactly as
-written, in the directory of the file, with output trimmed of one trailing
-newline. Its documentation is explicit that it runs arbitrary commands and
-must only be used with trusted files. It is never enabled by default, and the
-core crate contains no process-spawning code without the `exec` feature. The
-CLI offers the same through `--allow-commands`.
+It runs each command through the system shell exactly as written, in the
+selected directory, with output trimmed of one trailing newline. Its
+documentation is explicit that it runs arbitrary commands and must only be
+used with trusted files. It is never enabled by default, and the core crate
+contains no process-spawning code without the `exec` feature. The CLI offers
+the same through `--allow-commands`.
