@@ -41,6 +41,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Independently constrain fuzz edits to requested raw targets, assert exact
   insertion positions, and preserve unselected items and invalid diagnostics.
 - Cover the excluded fuzz workspace in dependency updates.
+- Replace the nightly-incompatible cargo-fuzz 0.12.0 runner with the exercised
+  0.13.2 pin, and pin crash-artifact uploads to the supported Node 24 action.
 
 ### Breaking changes and migration
 

@@ -68,11 +68,17 @@ A failed campaign reports its reproducer path and preserves available crash
 reproducers as a CI artifact for fourteen days. Save and minimize the
 reproducer before that expires.
 
+The runner is pinned to cargo-fuzz 0.13.2. The initial actual GitHub campaign
+exposed that 0.12.0's locked `rustix` 0.36.5 fails to compile on current nightly
+because of obsolete compiler-internal attributes. Updating the runner, rather
+than suppressing that failure or disabling fuzzing, keeps the gate executable.
+Crash uploads use the Node 24 artifact action.
+
 Run from the repository root after installing nightly and cargo-fuzz:
 
 ```sh
 rustup toolchain install nightly
-cargo install cargo-fuzz --version 0.12.0 --locked
+cargo install cargo-fuzz --version 0.13.2 --locked
 cargo +nightly fuzz run parser -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
 cargo +nightly fuzz run edits -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
 ```
