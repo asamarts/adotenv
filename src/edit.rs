@@ -927,7 +927,7 @@ impl Document<'_> {
         mut regions: Vec<Region<'_>>,
         ending: &str,
     ) -> Result<(), EditError> {
-        let (parsed, _) = crate::parse(output);
+        let parsed = crate::parser::parse_document(output);
         if parsed.has_bom() != self.has_bom() {
             // Only an explicitly uncommented leading region may expose its own
             // BOM. Removing text before an unrelated BOM must still be refused.
@@ -1098,8 +1098,7 @@ impl Document<'_> {
 /// # Errors
 /// Returns the native selector, encoding or verification error.
 pub fn set(text: &str, key: &str, value: &str) -> Result<String, EditError> {
-    crate::parse(text)
-        .0
+    crate::parser::parse_document(text)
         .set(key, value)
         .map(VerifiedEdits::into_string)
 }
@@ -1108,8 +1107,7 @@ pub fn set(text: &str, key: &str, value: &str) -> Result<String, EditError> {
 /// # Errors
 /// Returns the native selector or verification error.
 pub fn remove(text: &str, key: &str) -> Result<String, EditError> {
-    crate::parse(text)
-        .0
+    crate::parser::parse_document(text)
         .remove(key)
         .map(VerifiedEdits::into_string)
 }

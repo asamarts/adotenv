@@ -395,6 +395,36 @@ decoder oracle, multi-file cascade, daemon/container semantics or sustained-fuzz
 claim. Dialect parsing/encoding/portability APIs still need implementation
 against these observations. Public fuzz seeds remain separate from conformance.
 
+## Strict and native verification resource fix (0.2.1, 2026-10-16)
+
+The alint migration audit reproduced two allocation failures against 0.2.0
+under a **512 MiB child-process address-space limit** on Linux: a single
+16 MiB warning-dense line, and 4,000,000 bytes across 100,000 lone-CR-ended
+warning-dense declarations. The LF equivalent of the latter completed.
+`parse_strict` collected warning diagnostics it discarded, and lone-CR
+merging allocated a second full diagnostic vector. Native edit verification
+also requested diagnostic lists it did not use.
+
+Strict parsing and internal native verification now share the same grammar
+with diagnostic-list collection disabled. Duplicate-warning tries and
+warning-only scans are omitted; malformed items still retain their error
+records. Public `parse` and `parse_owned` retain all diagnostics.
+
+The release-mode public-API smoke passed the eight synthetic strict cases
+covering the original failures, 4 MiB warning density, 100,000 entries,
+LF/CR combinations, long keys and escape maps under the same address-space
+limit. Verified native set, free-function set and remove also passed on
+3,999,971 bytes / 100,000 CR-ended declarations with a unique target and
+unrelated duplicate warning-heavy keys. Exact output comparisons checked
+that unrelated source survived unchanged.
+
+Permanent warning-heavy BOM/multiline/duplicate tests cover every supported
+line ending and first-error precedence. The arbitrary-UTF-8 property compares
+the entire strict document or first error against recovering parsing; both
+feature modes passed with 2,000 property cases. This is a bounded Linux
+resource smoke, not a general memory ceiling or sustained-fuzz claim. Callers
+still need byte and line/declaration budgets for retained lossless data.
+
 ## Supported Rust versions and semver
 
 - MSRV is **1.81** for 0.2 (1.74 for 0.1), edition 2021. Raises happen only in

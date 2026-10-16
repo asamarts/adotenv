@@ -321,6 +321,29 @@ fn diagnostics_remain_source_ordered_across_multiline_escapes_and_lone_crs() {
     );
 }
 
+#[test]
+fn strict_parse_preserves_warning_heavy_documents_and_first_errors() {
+    for ending in ["\n", "\r\n", "\r"] {
+        let mut source = format!(
+            "\u{feff}# header{ending}export PATH.KEY=x#`{ending}PATH.KEY=\"a\\n\\q\\é${ending}next\" # tail{ending}BARE{ending}EMPTY={ending}"
+        );
+        let (document, diagnostics) = parse(&source);
+        assert!(!diagnostics.iter().any(|d| d.severity() == Severity::Error));
+        assert_eq!(parse_strict(&source), Ok(document));
+
+        source.push_str("BAD=\"x\"#tail");
+        source.push_str(ending);
+        source.push_str("LAST=\"unterminated");
+        let (_, diagnostics) = parse(&source);
+        let first_error = diagnostics
+            .into_iter()
+            .find(|d| d.severity() == Severity::Error)
+            .unwrap();
+        assert_eq!(first_error.code(), Code::TrailingText);
+        assert_eq!(parse_strict(&source), Err(first_error));
+    }
+}
+
 proptest! {
     #[test]
     fn recovering_parse_partitions_utf8_and_reports_addressable_diagnostics(
@@ -356,6 +379,8 @@ proptest! {
             }
         }
         prop_assert!(diagnostics.windows(2).all(|pair| pair[0].span().start <= pair[1].span().start));
+        let first_error = diagnostics.into_iter().find(|d| d.severity() == Severity::Error);
+        prop_assert_eq!(parse_strict(&text), first_error.map_or(Ok(doc), Err));
     }
 
     #[test]

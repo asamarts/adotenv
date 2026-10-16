@@ -13,8 +13,12 @@ use crate::{
 /// malformed statements. Lookup is literal and never consults the environment.
 #[must_use]
 pub fn parse(source: &str) -> (Document<'_>, Vec<Diagnostic>) {
+    parse_impl::<true>(source)
+}
+
+fn parse_impl<const DIAGNOSTICS: bool>(source: &str) -> (Document<'_>, Vec<Diagnostic>) {
     let bom = source.starts_with('\u{feff}');
-    let mut parser = Parser {
+    let mut parser = Parser::<DIAGNOSTICS> {
         source,
         document: Document {
             source: Cow::Borrowed(source),
@@ -28,7 +32,7 @@ pub fn parse(source: &str) -> (Document<'_>, Vec<Diagnostic>) {
         line: 1,
     };
     let mut at = if bom { 3 } else { 0 };
-    if bom {
+    if DIAGNOSTICS && bom {
         parser
             .diagnostics
             .push(Diagnostic::new(DiagnosticCode::ByteOrderMark, 0..3, 1));
@@ -39,7 +43,11 @@ pub fn parse(source: &str) -> (Document<'_>, Vec<Diagnostic>) {
         parser.line += line_breaks(&source[at..end]);
         at = end;
     }
-    let diagnostics = merge_lone_cr(source, parser.diagnostics);
+    let diagnostics = if DIAGNOSTICS {
+        merge_lone_cr(source, parser.diagnostics)
+    } else {
+        parser.diagnostics
+    };
     (parser.document, diagnostics)
 }
 
@@ -69,14 +77,22 @@ pub fn parse_owned(source: String) -> (Document<'static>, Vec<Diagnostic>) {
 /// # Errors
 /// Returns the first malformed statement's diagnostic in source order.
 pub fn parse_strict(source: &str) -> Result<Document<'_>, Diagnostic> {
-    let (document, diagnostics) = parse(source);
-    match diagnostics
-        .into_iter()
+    let document = parse_document(source);
+    let error = document
+        .items
+        .iter()
+        .filter_map(|item| item.invalid.as_ref())
         .find(|diagnostic| diagnostic.severity() == Severity::Error)
-    {
+        .cloned();
+    match error {
         Some(error) => Err(error),
         None => Ok(document),
     }
+}
+
+/// Recover the document without a diagnostic list; errors remain on invalid items.
+pub(crate) fn parse_document(source: &str) -> Document<'_> {
+    parse_impl::<false>(source).0
 }
 
 pub(crate) fn valid_key(key: &str) -> bool {
@@ -164,7 +180,7 @@ fn line_breaks(source: &str) -> usize {
         .count()
 }
 
-struct Parser<'src> {
+struct Parser<'src, const DIAGNOSTICS: bool> {
     source: &'src str,
     document: Document<'src>,
     diagnostics: Vec<Diagnostic>,
@@ -173,7 +189,7 @@ struct Parser<'src> {
     line: usize,
 }
 
-impl Parser<'_> {
+impl<const DIAGNOSTICS: bool> Parser<'_, DIAGNOSTICS> {
     fn plain_item(
         &mut self,
         kind: ItemKind,
@@ -200,7 +216,9 @@ impl Parser<'_> {
         line: usize,
     ) -> usize {
         let diagnostic = Diagnostic::new(code, span, line);
-        self.diagnostics.push(diagnostic.clone());
+        if DIAGNOSTICS {
+            self.diagnostics.push(diagnostic.clone());
+        }
         self.document.items.push(ItemData {
             kind: ItemKind::Invalid,
             span: start..physical.end,
@@ -386,7 +404,7 @@ impl Parser<'_> {
     fn entry(&mut self, start: usize, last: PhysicalLine, tokens: EntryTokens, quote: Quote) {
         let index = self.document.entries.len();
         let key = &self.source[tokens.key.clone()];
-        if !posix_key(key) {
+        if DIAGNOSTICS && !posix_key(key) {
             self.diagnostics.push(Diagnostic::new(
                 DiagnosticCode::NonPosixKey,
                 tokens.key.clone(),
@@ -394,11 +412,11 @@ impl Parser<'_> {
             ));
         }
         // A one-entry document cannot contain duplicates and needs no key index.
-        if index == 1 {
+        if DIAGNOSTICS && index == 1 {
             let first = &self.document.entries[0].tokens.key;
             self.keys.insert(&self.source[first.clone()], 0);
         }
-        if index > 0 {
+        if DIAGNOSTICS && index > 0 {
             if let Some(previous) = self.keys.insert(key, index) {
                 let mut diagnostic =
                     Diagnostic::new(DiagnosticCode::DuplicateKey, tokens.key.clone(), self.line);
@@ -408,18 +426,20 @@ impl Parser<'_> {
         }
         let (state, decoded, map) = match &tokens.body {
             None => {
-                self.diagnostics.push(Diagnostic::new(
-                    DiagnosticCode::BareKey,
-                    tokens.key.clone(),
-                    self.line,
-                ));
+                if DIAGNOSTICS {
+                    self.diagnostics.push(Diagnostic::new(
+                        DiagnosticCode::BareKey,
+                        tokens.key.clone(),
+                        self.line,
+                    ));
+                }
                 (AssignmentState::Bare, None, Vec::new())
             }
             Some(body) => {
                 let (decoded, map) = if quote == Quote::Double {
                     self.decode_double(body.clone())
                 } else {
-                    if quote == Quote::None {
+                    if DIAGNOSTICS && quote == Quote::None {
                         for at in body.clone() {
                             let code = match self.source.as_bytes()[at] {
                                 b'#' => Some(DiagnosticCode::TightHash),
@@ -499,7 +519,7 @@ impl Parser<'_> {
                         raw: at..end,
                     });
                     copied_until = end;
-                } else {
+                } else if DIAGNOSTICS {
                     self.diagnostics.push(Diagnostic::new(
                         DiagnosticCode::UnknownEscape,
                         at..end,
@@ -509,7 +529,9 @@ impl Parser<'_> {
                 }
                 at = end;
             } else {
-                if bytes[at] == b'\r' || (bytes[at] == b'\n' && (at == 0 || bytes[at - 1] != b'\r'))
+                if DIAGNOSTICS
+                    && (bytes[at] == b'\r'
+                        || (bytes[at] == b'\n' && (at == 0 || bytes[at - 1] != b'\r')))
                 {
                     line += 1;
                 }

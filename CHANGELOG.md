@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-16
+
 ### Added
 
 - Public version-pinned conformance inputs, executable real-upstream adapters,
@@ -18,6 +20,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Avoid materializing discarded diagnostic lists, duplicate-warning key tries
+  and CR diagnostic merge buffers in strict parsing and native edit verification.
+  Error records remain on invalid items; recovering diagnostics, lossless
+  documents and strict first-error behavior are unchanged.
 - Require successful native edits for independently classified safe fuzz inputs,
   rather than accepting a regression that rejects every request.
 - Check parser token roles and complete trivia layout, independently decoded

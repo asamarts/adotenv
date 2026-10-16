@@ -198,9 +198,13 @@ future dialect work. Run `python3 conformance/run.py --setup` on Linux;
 separate parsing, resolution and loading. It does not claim that Portable
 already implements those dialects.
 
-Lossless parsing retains items and diagnostics. Callers handling untrusted
-input must apply their own byte and line/declaration budgets before parsing;
-the core does not impose application-specific resource limits.
+Recovering `parse` / `parse_owned` retain items and all diagnostics. Strict
+parsing and native edit verification omit discarded diagnostic lists and
+duplicate-warning key indexes; errors remain attached to malformed items.
+Callers handling untrusted input must still apply their own byte and
+line/declaration budgets before parsing: retained documents, decoded escape
+maps and requested diagnostics consume memory. The core does not impose
+application-specific resource limits.
 
 0.2 is the lossless-core release. Dialect presets, reference analysis/expansion,
 formatting, loading and integration crates remain **future** milestones; none
