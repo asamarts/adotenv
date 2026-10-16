@@ -64,7 +64,52 @@ only to that source snapshot. Borrowed parsing does not copy the source;
 `parse_owned(String)` moves it, and `Document::into_owned()` copies only when
 necessary. Decoded values allocate only when actual unescaping is required.
 
-## Portable syntax in 0.2
+## Select a dialect (unreleased 0.3)
+
+`parse`, `parse_owned` and `parse_strict` still default to Portable.
+`parse_with`, `parse_owned_with` and `parse_strict_with` take an explicit
+`Dialect`: `PORTABLE`, `NODE_DOTENV`, `PYTHON_DOTENV`, `COMPOSE` or `DOCKER_RAW`.
+Presets select literal syntax, never interpolation, inheritance or loading.
+
+```rust
+use adotenv::{parse_with, Dialect, InlineComments};
+
+let source = "A=a#b\nB=`two words`\n";
+let (node, _) = parse_with(source, Dialect::NODE_DOTENV);
+assert_eq!(node.get("A"), Some("a"));
+assert_eq!(node.get("B"), Some("two words"));
+let (raw, _) = node.reparse(Dialect::DOCKER_RAW);
+assert_eq!(raw.get("A"), Some("a#b"));
+assert_eq!(raw.get("B"), Some("`two words`"));
+assert_eq!(raw.source(), source);
+
+let custom = Dialect {
+    inline_comments: InlineComments::None,
+    ..Dialect::NODE_DOTENV
+};
+assert_eq!(parse_with(source, custom).0.get("A"), Some("a#b"));
+```
+
+Each document retains its exact configuration. `reparse` borrows the original
+source but rebuilds dialect-specific items, entries and source maps; snapshot
+IDs must not be reused across interpretations. Typed fields control comments,
+escapes, key syntax, bare declarations, quotes, raw values, duplicate lookup,
+BOMs, line breaks and other grammar policies. See [dialect contracts and
+upstream limitations](docs/design/dialects.md).
+
+`entries()` and `get_all()` retain declarations excluded from effective lookup.
+`participates_in_lookup()` distinguishes ignored bare declarations and Node's
+special `__proto__` property. `BareKeys::Empty` changes effective `get()` to an
+empty string without changing a bare entry's `value() == None` or syntax state.
+Malformed syntax ignored by a preset remains an `ItemKind::Ignored` item with
+an `IgnoredStatement` warning; explicit forbidden-policy violations stay errors.
+
+For 0.2 consumers, Portable parsing and the existing entry/edit APIs keep their
+defaults. Code constructing `EntryTokens` must supply the new `quoted_tail`
+field (`None` when absent). Under quoted-key presets, `EntryTokens::key` covers
+the raw quote wrapper; `Entry::key_span()` covers only the semantic key.
+
+## Portable syntax (unchanged default)
 
 - Keys are nonempty ASCII letters, digits, `_`, `.` and `-`. Non-POSIX names
   such as `app.key` or `1KEY` are accepted with a portability warning.
@@ -131,13 +176,17 @@ list; `into_edits()` consumes it. `as_str()` borrows the verified output and
 editor must check the document version and apply non-overlapping ranges from
 highest offset to lowest, not reinterpret them as sequential offsets.
 
-Verification reparses the whole batch and rejects conflicting operations,
-unrepresentable values, or changed interpretation of unrelated syntax,
-including changed multiline quote grouping. Unrelated invalid statements do
-not prevent editing a valid target. Existing quotes are retained when exact;
-otherwise an exact safe style is selected. `encode_value(&str) -> Option<String>`
-encodes a standalone Portable token, not a context-safe edit by itself; control
-characters other than newline, carriage return and tab are refused.
+Verification reparses the whole batch with the document's exact `Dialect` and
+rejects conflicting operations, unrepresentable values, or changed interpretation
+of unrelated syntax, including changed multiline quote grouping. Unrelated
+invalid statements do not prevent editing a valid target. Existing quotes are
+retained when exact; otherwise a safe candidate is verified. Python key quotes,
+Node backticks, appended tails and raw Docker values retain their selected
+grammar. Candidate generation is conservative outside Portable and can refuse a
+representable value; a complete per-dialect encoder is still future work.
+`encode_value(&str) -> Option<String>` remains a standalone Portable encoder,
+not a context-safe edit by itself. Control characters other than newline,
+carriage return and tab are refused.
 
 The free `adotenv::set(text, key, value)` and `remove(text, key)` helpers still
 return `Result<String, EditError>`, but now use the recovering parser and native
@@ -192,11 +241,14 @@ runs bounded campaigns. Reproduction commands and evidence policy are in
 any particular benchmark or fuzz duration has passed.
 
 The public [upstream conformance corpus](conformance/manifest.json) records
-version-pinned real Node, Python, Compose and Docker env-file observations for
-future dialect work. Run `python3 conformance/run.py --setup` on Linux;
-[profile details and validation evidence](docs/design/quality.md#public-upstream-conformance-corpus-03-preparation)
-separate parsing, resolution and loading. It does not claim that Portable
-already implements those dialects.
+version-pinned real Node, Python, Compose and Docker env-file observations.
+Run `python3 conformance/check_adotenv.py --setup` on Linux to replay the real
+APIs and compare applicable literal results with the Rust presets.
+[Profile details and validation evidence](docs/design/quality.md#public-upstream-conformance-corpus-03-preparation)
+separate parsing, resolution and loading. Compose comparisons exclude
+dollar-containing inputs and supplied lookup environments; its real default API
+does not provide an interpolation-off oracle. Portable is not asserted equivalent
+to an upstream dialect.
 
 The runner binds declared versions to locked artifacts and executed package
 identities, validates each profile's observation protocol, and hashes exact input
@@ -206,15 +258,16 @@ Reviewed source commits remain distinct from distribution/module artifact pins.
 
 Recovering `parse` / `parse_owned` retain items and all diagnostics. Strict
 parsing and native edit verification omit discarded diagnostic lists and
-duplicate-warning key indexes; errors remain attached to malformed items.
+duplicate-warning key indexes; primary item diagnostics remain available.
 Callers handling untrusted input must still apply their own byte and
 line/declaration budgets before parsing: retained documents, decoded escape
-maps and requested diagnostics consume memory. The core does not impose
-application-specific resource limits.
+maps and requested diagnostics consume memory. Docker's preset includes its
+upstream scanner line-byte limit; this is not an application memory ceiling.
 
-0.2 is the lossless-core release. Dialect presets, reference analysis/expansion,
-formatting, loading and integration crates remain **future** milestones; none
-are available in this release. See
+0.3 development now includes explicit dialect configuration and five presets.
+Per-dialect standalone encoding and portability comparison are next; reference
+analysis/expansion, formatting, loading and integration crates remain future
+milestones. This unreleased API is not a crates.io publication. See
 [ROADMAP.md](ROADMAP.md) and [design notes](docs/design/).
 
 ## Minimum supported Rust version

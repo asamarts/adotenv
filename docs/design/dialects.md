@@ -1,8 +1,9 @@
 # Dialects
 
-Status: Portable syntax is implemented in 0.2. Named presets,
-the `Dialect` configuration API, per-dialect encoding and portability
-comparison below are future 0.3 designs, not shipped interfaces.
+Status: Portable remains the default. Explicit `Dialect` configuration, all five
+presets and selected-dialect native verification are implemented in unreleased
+0.3 development. Standalone per-dialect encoding and portability comparison
+remain future 0.3 interfaces; no 0.3 release is published yet.
 
 There is no `.env` standard. Implementations agree on the simple cases
 (`KEY=value`, `#` comment lines) and differ on many others. For example, the
@@ -20,7 +21,7 @@ same line can produce different values depending on which tool reads it:
 Docker Compose's specification is the closest thing to a written standard.
 adotenv therefore makes the reading rules explicit and selectable.
 
-## How dialects will work (future 0.3)
+## Selecting a grammar
 
 Each parse retains the original source and raw tokens (see
 [architecture.md](architecture.md)), but its entries and diagnostics belong
@@ -28,27 +29,51 @@ to the selected dialect. Changing dialect reparses the retained text:
 multiline, raw-value and line-break rules can change statement boundaries.
 Borrowed interpretations share the source without copying it.
 
-A future `Dialect` will decide how tokens are recognized and what they mean,
-using independent switches. The proposed design is:
+`parse_with(source, dialect)`, `parse_owned_with(source, dialect)` and
+`parse_strict_with(source, dialect)` take a copyable `Dialect`. Existing entry
+points use `Dialect::PORTABLE`. `Document::dialect()` retains the exact
+configuration, including overrides; `Document::reparse(dialect)` borrows its
+original source and returns a new document and diagnostics. Snapshot-local IDs
+belong only to one interpretation.
 
-| Switch | Choices |
+Start from a preset with a struct update, for example
+`Dialect { inline_comments: InlineComments::None, ..Dialect::NODE_DOTENV }`.
+Typed policies control recognition, decoding and effective lookup:
+
+| Policy | Available choices |
 |---|---|
-| Inline comments | after whitespace only, any `#`, or none |
-| Double-quote escapes | which escapes are decoded; what happens to unknown ones |
-| Single-quote escapes | none, or `\'` |
-| Backticks | a quote style, or literal text |
-| `KEY: value` | accepted or not |
-| Key characters | POSIX names, plus `.` and `-`, any Unicode letters, or anything but whitespace |
-| Bare `KEY` policy | skipped, empty, unset, inherited through a caller lookup, or an error; syntax state is always retained |
-| Raw values | quotes and whitespace processed, or kept exactly (as `docker run` does) |
-| Line breaks | how a lone `\r` is treated |
-| Byte-order mark | stripped, part of the key, or an error |
-| Duplicates | last wins or first wins |
-| Text after a closing quote | ignored, appended, literal fallback, skipped with a diagnostic, or an error |
-| Multi-line values | which quote styles may span lines |
+| `syntax` | Portable, Node, Python, Compose or Docker statement grammar |
+| `inline_comments` | configured whitespace, literal ASCII space, any hash, none, or Python's whitespace-values/tight-bare split |
+| `double_escapes` | composable `DoubleEscapes` flags, including named preset sets |
+| `unknown_escapes` | preserve, warn, drop backslash, or error |
+| `single_escapes` | none, apostrophe only, or apostrophe and backslash |
+| `backticks` | quoted values or literal text |
+| `colon` | disabled, followed by whitespace, or any colon separator |
+| `keys`, `quoted_keys` | POSIX, Portable, frozen Unicode letter/number, non-whitespace, Python, Compose or Docker; optional single-quoted keys |
+| `bare_keys` | preserve `None`, exclude from lookup, effective empty string, or error |
+| `raw_values` | retain every byte after the separator rather than process quotes/trivia |
+| `line_breaks` | universal CR/LF/CRLF, or LF-only scanning |
+| `bom` | separate retained prelude, ordinary input, or explicit error |
+| `duplicates` | first or last participating declaration wins |
+| `quoted_tail` | error, ignore, append, literal fallback, skip, or next statement |
+| `multiline` | independent single-, double- and backtick-quote permissions |
+| `whitespace` | ASCII, Unicode, ECMAScript, Python or Compose classification |
+| other syntax | export prefix, tight quoted comments, decoded newline normalization |
+| failure/compatibility | malformed-line error/ignore, Node object-key semantics, optional line-byte cap |
 
-Presets are named sets of switches. Callers can start from a preset and
-change individual switches.
+No policy performs inheritance. Bare syntax keeps `Entry::value() == None` and
+`AssignmentState::Bare`, even when `get()` returns an effective empty string.
+`entries()`, `get_all()` and uniqueness checks retain every recognized
+declaration; `participates_in_lookup()` explains lookup exclusions. Ignored
+malformed statements retain source and a primary `IgnoredStatement` warning.
+Explicit forbidden BOM/bare/escape/line-limit policies remain errors even when
+ordinary malformed syntax is ignored.
+
+Key token ranges include single-quote wrappers; `key()` and `key_span()` expose
+the inner name. Backtick quotes use `Quote::Backtick`. `quoted_tail` tokens retain
+ignored/appended noncomment text; an appended tail is included in the semantic
+value and `value_span()`. Decoded maps address original UTF-8 bytes, including
+normalized CRLF and removed syntax.
 
 ## Portable (implemented 0.2 default)
 
@@ -83,49 +108,63 @@ Portable is strict where implementations disagree and literal everywhere:
   Reference inspection and resolution remain future 0.4 interfaces (see
   [expansion.md](expansion.md)).
 
-## Presets (future 0.3)
+## Presets (implemented in unreleased 0.3)
 
-| Preset | Syntax reads like |
+| Constant | Literal compatibility surface |
 |---|---|
-| `Portable` | the default above |
-| `Compose` | Docker Compose syntax, with an explicit project `.env` or service `env_file` role policy |
-| `NodeDotenv` | the `dotenv` package on npm |
-| `DockerRaw` | `docker run --env-file` (values kept exactly as written) |
-| `PythonDotenv` | the `python-dotenv` package |
+| `Dialect::PORTABLE` | The unchanged default above |
+| `Dialect::NODE_DOTENV` | npm dotenv 18.0.8's default regex parser, not its opt-in fast parser |
+| `Dialect::PYTHON_DOTENV` | python-dotenv 1.2.4's literal text-stream parser, not file newline conversion |
+| `Dialect::COMPOSE` | compose-go 2.16.1 statement syntax and escape projection, without interpolation/inheritance |
+| `Dialect::DOCKER_RAW` | Docker CLI 29.8.2's ordered raw kvfile parser, with no lookup |
 
-Each future preset must be verified against the real implementation on the
-public conformance corpus (see [quality.md](quality.md)), with its exact
-version, API/options and file role recorded. The executable upstream
-observations are available now; the presets are not implemented yet.
-Where an implementation has behavior that looks accidental, compatibility
-must be explicit and the difference from Portable reported. More presets are
-added on request, each with inputs and outputs from its real implementation.
+The [executable comparison](quality.md#public-upstream-conformance-corpus-03-preparation)
+replays the real pinned APIs before probing Rust. Node/Python compare literal
+maps and Python error presence; Docker compares ordered output and failure.
+Compose's real parser always resolves, so only dollar-free, empty-lookup inputs
+are literal comparison oracles. Fail-fast Compose/Docker errors compare error
+presence, not recovering partial maps. Unsupported source spans, item ordering
+or diagnostic identities are not invented as upstream observations.
 
-Presets select syntax and literal-value rules, not implicit expansion or
-environment access. Resolution remains opt-in in 0.4; loading remains 0.6.
+Compatibility quirks are deliberate:
 
-Compose has one syntax preset but distinct file-role policies. A project
-`.env` bare declaration may inherit through an explicitly supplied lookup.
-The service-file reference describes a bare `env_file` declaration as unset,
-but the executed Compose 5.6.0 default and raw service loaders inherit it when
-project lookup supplies a value; with no lookup, a bare duplicate retains its
-preceding assignment. This discrepancy is recorded in
-[`conformance/manifest.json`](../../conformance/manifest.json), not normalized
-away. An explicit bare YAML `environment:` entry is a different role and can
-override a file value with unset. The document always retains bare syntax;
-role/version-dependent interpretation belongs to explicit resolution/loading,
-never to implicit parsing or ambient environment access.
+- Node normalizes decoded CRLF/CR, supports backticks and colon-plus-whitespace,
+  preserves its overlapping newline replacements and regex quote fallback,
+  and excludes `__proto__` from effective object lookup while retaining source.
+- Python permits multiline single-quoted key names and its full named escape
+  set. Original CRLF bytes remain in text-stream values. Physical source line
+  positions count CRLF once; they do not reproduce upstream's malformed-reader
+  CRLF line-number inflation.
+- Compose recognizes frozen Unicode 17 letter/number categories, its exact
+  horizontal whitespace and octal escape behavior, and reparses text after a
+  quoted value as another statement. Its EOF-only key bug is retained: a final
+  bare `A` (also before a terminal lone CR) becomes empty key with value `A`.
+  A normally LF-terminated bare declaration instead remains bare and does not
+  consult a lookup. Dollar syntax, including `$$`, remains literal.
+- Docker keeps values, hashes, quotes and internal CR bytes raw. Bare keys are
+  retained but excluded from lookup; assigned duplicates stay ordered. Its
+  scanner accepts at most 65,535 original bytes before LF, including CR and an
+  initial BOM. Only ASCII space/tab invalidate an otherwise nonempty raw key;
+  this follows the pinned implementation rather than broader documentation.
 
-Conformance expectations identify the API, options and file role. A generic
-compose-go lookup helper is not an oracle for service `env_file` behavior.
+Presets select syntax, never expansion, environment access or loading. Compose
+file roles remain distinct: the executed default/raw service loaders inherit
+bare declarations from supplied project lookup and retain a preceding value
+without lookup, while an explicit YAML `environment:` null is an unset override.
+The reference's bare-unset wording differs from these pinned loader results;
+[`conformance/manifest.json`](../../conformance/manifest.json) records this rather
+than normalizing it away. Future resolution/loading APIs must supply explicit
+role and lookup policy; parsing never infers either.
 
 ## Encoding per dialect (future 0.3)
 
-0.2 exposes `encode_value(&str) -> Option<String>` for a standalone Portable
-token, with contextual safety provided by verified native edits. A future
-per-dialect encoder will write exact values or fail when the selected dialect
-cannot represent them (for example a newline under `DockerRaw`). Its proposed
-API is `encode_value(value, dialect)`; it is not the current signature.
+`encode_value(&str) -> Option<String>` remains a standalone Portable encoder.
+Native edits generate a candidate and verify it under the document's exact
+configuration; raw values, Python key quotes, backticks and retained tails use
+their source grammar. Conservative candidate generation may refuse a value that
+another valid spelling could represent. The next encoder must write an exact
+token or report why the dialect cannot represent it (for example a newline in
+Docker raw mode). No new standalone encoder signature is implemented yet.
 
 ## Portability check (future 0.3)
 

@@ -361,7 +361,7 @@ proptest! {
                 ItemKind::Entry => {
                     let entry = item.entry().unwrap();
                     prop_assert_eq!(entry.line_span(), range.clone());
-                    prop_assert!(crate::parser::valid_key(entry.key()));
+                    prop_assert!(!entry.key().is_empty() && entry.key().bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-')));
                 }
                 ItemKind::Invalid => prop_assert_eq!(item.diagnostic().unwrap().severity(), Severity::Error),
                 _ => {}

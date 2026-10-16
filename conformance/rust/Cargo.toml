@@ -1,0 +1,12 @@
+[workspace]
+
+[package]
+name = "adotenv-conformance"
+version = "0.0.0"
+publish = false
+edition = "2021"
+rust-version = "1.81"
+
+[dependencies]
+adotenv = { path = "../..", default-features = false }
+serde_json = "=1.0.145"

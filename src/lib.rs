@@ -1,4 +1,4 @@
-//! Lossless, literal Portable `.env` parsing and verified native text edits.
+//! Lossless, literal `.env` dialect parsing and verified native text edits.
 //!
 //! Parsing borrows UTF-8 source and retains every byte, including malformed
 //! statements. It never reads files, consults the environment, or expands values.
@@ -19,6 +19,21 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
+//! # Explicit dialects
+//!
+//! [`parse`], [`parse_owned`] and [`parse_strict`] retain Portable defaults.
+//! Their `_with` variants accept a [`Dialect`]; [`Document::reparse`] borrows
+//! retained source and rebuilds its interpretation. Presets never enable
+//! interpolation, inheritance, file loading or ambient environment access.
+//!
+//! ```
+//! use adotenv::{parse_with, Dialect};
+//! let (doc, _) = parse_with("A=a#b\n", Dialect::NODE_DOTENV);
+//! assert_eq!(doc.get("A"), Some("a"));
+//! assert_eq!(doc.dialect(), Dialect::NODE_DOTENV);
+//! assert_eq!(doc.reparse(Dialect::DOCKER_RAW).0.get("A"), Some("a#b"));
+//! ```
+//!
 //! # Source and positions
 //!
 //! Ranges always address the original source, BOM included. Item ranges plus
@@ -32,13 +47,14 @@
 //! occurrences and comments from one source snapshot. Every complete batch is
 //! reparsed and checked before [`VerifiedEdits`] exposes its output or native
 //! edits. Unrelated malformed statements may remain, but must not change their
-//! interpretation. External edit appliers must check document versions.
+//! interpretation. Verification uses the exact selected dialect; conservative
+//! encoding may refuse non-Portable values. External appliers check versions.
 //!
 //! # Platform
 //!
 //! Zero runtime dependencies. Disable default features for `no_std` with `alloc`.
-//! Unsafe code is forbidden regardless of features. Dialect presets, reference
-//! resolution, loading and process-environment mutation are not part of 0.2.
+//! Unsafe code is forbidden regardless of features. Reference resolution,
+//! loading and process-environment mutation are not part of literal parsing.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
@@ -47,19 +63,29 @@
 extern crate alloc;
 
 mod diagnostic;
+mod dialect;
 mod edit;
 mod model;
 mod parser;
 mod position;
 
 pub use diagnostic::{Diagnostic, DiagnosticCode, Severity};
+pub use dialect::{
+    BareKeys, BomPolicy, ColonSeparator, Dialect, DoubleEscapes, Duplicates, InlineComments,
+    KeySyntax, LineBreaks, MalformedLines, Multiline, QuotedTail, SingleEscapes, Syntax,
+    UnknownEscapes, Whitespace,
+};
 pub use edit::{
     encode_value, remove, set, Edit, EditError, InsertPosition, TextEdit, VerifiedEdits,
 };
 pub use model::{AssignmentState, Document, Entry, EntryTokens, Item, ItemKind, LineEnding, Quote};
-pub use parser::{parse, parse_owned, parse_strict};
+pub use parser::{
+    parse, parse_owned, parse_owned_with, parse_strict, parse_strict_with, parse_with,
+};
 pub use position::{ColumnEncoding, LineIndex, Position, PositionError};
 
+#[cfg(test)]
+mod dialect_tests;
 #[cfg(test)]
 mod edit_tests;
 #[cfg(test)]

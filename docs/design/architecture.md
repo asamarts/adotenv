@@ -1,24 +1,25 @@
 # Architecture
 
-Status: the 0.2 lossless core and native edit model are implemented. Sections
-explicitly marked future describe later milestones, not additional APIs
-shipped by 0.2.
+Status: the lossless core/native edit model and unreleased 0.3 dialect
+configuration/presets are implemented. Sections explicitly marked future are
+designs, not additional shipped interfaces.
 
 ## Document model
 
-`.env` is line oriented: almost every line is exactly one of a blank line, a
-comment, an assignment, or something that does not parse. Only a quoted value
-spanning several lines breaks that. So the model is a flat, ordered list of
-items rather than a general syntax tree:
+The model is a flat, ordered list of items rather than a general syntax tree.
+The selected grammar determines their boundaries: multiline values and quoted
+keys can span physical lines, and Compose can split one physical line into
+multiple statements.
 
 ```text
 Document<'src>
   source: Cow<'src, str>
   item/entry metadata: vectors of spans and indexes (no self-references)
   bom: bool
+  dialect: Dialect (exact selected configuration)
 
 Item view
-  kind: Blank | Comment | Entry | Invalid
+  kind: Blank | Comment | Entry | Invalid | Ignored
   span, line_ending, optional entry or primary diagnostic
 
 Entry view
@@ -26,7 +27,7 @@ Entry view
 
 EntryTokens (byte ranges; optional syntax uses Option<Range<usize>>)
   indent  export  space_after_export  key  space_before_eq  eq  space_after_eq
-  value  body  trailing_space  inline_comment
+  value  body  quoted_tail  trailing_space  inline_comment
 ```
 
 Rules the model guarantees:
@@ -34,15 +35,15 @@ Rules the model guarantees:
 - **Lossless.** Printing the document reproduces any UTF-8 input byte for
   byte, including the BOM, comments, blank lines and malformed `.env` syntax.
   A property test asserts this.
-- **Raw first.** Tokens keep the text as written. Literal values borrow their
-  raw body; only actual double-quote unescaping allocates decoded text.
-  `decoded_offset_to_raw` and `decoded_span_to_raw` map decoded UTF-8 byte
-  boundaries back to original-source regions, including escape spellings.
-- **Assignment state.** An entry is `KEY=value`, `KEY=` (empty), or `KEY`
-  with no `=` (bare). `value()` is `None` for bare and `Some("")` for assigned
-  empty values. `AssignmentState` distinguishes Bare/Empty/Value; parsing
-  never performs an implicit environment lookup. Future dialect/loading
-  policies may interpret bare syntax differently.
+- **Raw first.** Tokens keep text as written. Values borrow their body until
+  unescaping, newline normalization or syntax deletion requires decoded text.
+  `decoded_offset_to_raw` and `decoded_span_to_raw` map decoded UTF-8 boundaries
+  back to original-source regions, including escapes and removed delimiters.
+- **Assignment state.** Recognized entries expose Bare/Empty/Value separately
+  from quoting. Bare `value()` is `None`; assigned empty is `Some("")`.
+  Configurable bare policies affect effective lookup or errors without
+  inheritance. Preset-specific grammar quirks remain explicit in
+  [dialects.md](dialects.md), including Compose's EOF empty-key assignment.
 - **Multi-line values** are one entry whose span covers several lines.
 
 Generic syntax-tree libraries were considered and rejected for this format:
@@ -69,21 +70,22 @@ documents use the same model without self-referential structures. Keys and
 values that need no unescaping borrow source text; decoded values allocate
 only when needed.
 
-## Dialect-specific structure (future 0.3)
+## Dialect-specific structure
 
 A document's items, entries and diagnostics belong to the grammar used to
 parse it. Dialects can change statement boundaries, not just decoded values:
 for example, a multiline quoted assignment and a raw physical-line value
 cannot share one universal entry grouping.
 
-Each selected dialect therefore parses the retained source separately.
-Borrowed interpretations share the same text without copying it. Portability
-checking performs one linear parse per dialect; it does not require a second
-neutral syntax model, a generic syntax tree or cross-dialect caches.
+Each selected dialect parses the retained source separately. `parse_with`,
+`parse_owned_with` and `parse_strict_with` take an explicit `Dialect`;
+`Document::dialect()` retains it and `reparse` returns a borrowed
+reinterpretation. Existing entry points retain Portable defaults and no legacy
+0.1 grammar is introduced.
 
-The 0.2 parser uses Portable syntax by default. Named presets and configurable
-switches arrive in 0.3. The 0.2 migration therefore includes syntax changes
-as well as the document API; there is no implicit 0.1 compatibility grammar.
+Borrowed interpretations share text without copying it. Future portability
+comparison performs one linear parse per dialect; it does not require a neutral
+syntax model, generic syntax tree or cross-dialect cache.
 
 ## Reading
 
@@ -100,8 +102,10 @@ Two surfaces over one model:
 slices. `entry(id)` and `item(id)` return optional views for zero-based IDs
 local to this exact snapshot. Views are borrowed from the document.
 
-Duplicates are always retained and diagnosed. 0.2 lookups use the last
-declaration; a last bare entry means `get()` is `None`, not an earlier value.
+Duplicates remain ordered. Effective lookup filters `participates_in_lookup()`
+and selects first or last by configuration; ignored bare keys do not erase an
+earlier assigned value. `get_all()` and uniqueness checks retain all recognized
+declarations. Portable keeps its last-bare-means-`None` behavior.
 
 ## Diagnostics
 
@@ -117,22 +121,23 @@ assert!(diagnostics.is_empty());
 Each diagnostic has a stable code (an enum with documented meanings, never
 renumbered), a severity, a primary span, an optional secondary span, and a
 message. `DiagnosticCode::as_str()` is a stable machine identity, independent
-of enum order or wording. Errors: invalid key, unterminated quote, quoted
-trailing text. Warnings: unknown escape, duplicates, bare key, non-POSIX key,
-tight hash, unquoted backticks, lone CR. A leading BOM is informational.
+of enum order or wording. Errors include invalid keys, unterminated quotes,
+quoted trailing text and explicit forbidden BOM/bare/escape/line-limit policies.
+Warnings include duplicates, ignored statements and selected grammar's
+portability diagnostics. A stripped, retained BOM prelude is informational.
 
-An unparsable statement becomes an `Invalid` item; parsing resumes at its
-next boundary. Multiline quotes follow the grammar: assignment-looking
-lines remain value content when a matching closing quote exists.
+Malformed statements become `Invalid` errors or `Ignored` warnings according to
+configuration; primary diagnostics remain on items even when a strict/native
+parse omits the side diagnostic vector. Explicit policy violations stay errors.
+Multiline quotes follow the selected grammar rather than guessed author intent.
 
-If a quote remains unmatched at EOF, report the opening quote, retain only
-its opening physical line as an `Invalid` item, and resume parsing at the
-following line. Recovery never guesses author intent or drops source bytes.
-The parser must remain linear; repeated unbounded rescans are not allowed.
+Portable unmatched quotes retain the opening physical line as invalid and resume
+at the following line. Other grammars retain their own recovery boundaries and
+literal fallback rules. The parser remains linear; repeated unbounded rescans
+are not allowed.
 
-`parse_strict` returns the first error-severity diagnostic as an error. It
-provides a strict parsing surface under Portable rules, not a compatibility
-shim for 0.1's grammar.
+`parse_strict` and `parse_strict_with` return the first error in source order.
+Warning-only ignored statements do not fail strict parsing.
 
 ## Positions
 
@@ -217,8 +222,11 @@ External appliers are responsible for document-version checks.
 When applying ranges externally, apply them from highest offset to lowest;
 they do not refer to successively modified versions of the source.
 
-An operation's edit batch is verified as a whole against one source
-snapshot; individually valid edits do not waive final batch verification.
+An operation's edit batch is verified as a whole against one source snapshot;
+individually valid edits do not waive final batch verification. Verification
+always reparses using the document's exact configuration, including custom
+overrides. Candidate encoding outside Portable remains conservative until the
+per-dialect encoder is implemented; refusal is preferable to a wrong value.
 
 ## Crate layout and platform
 
@@ -227,7 +235,7 @@ The repository is a Cargo workspace with the core package at the root
 has zero runtime dependencies, `#![no_std]` with `alloc`, and unconditional
 `#![forbid(unsafe_code)]`. Default feature `std` can be disabled without losing
 core parsing/editing/position APIs or `core::error::Error` implementations.
-There is no I/O or environment/process integration in 0.2 under either mode.
+There is no I/O or environment/process integration under either mode.
 
 The unsafe prohibition in `adotenv` is unconditional. A future opt-in,
 std-only `adotenv-process` adapter will own the narrowly documented unsafe

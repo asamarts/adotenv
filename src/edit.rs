@@ -1,11 +1,12 @@
 use alloc::{
+    borrow::Cow,
     string::{String, ToString},
     vec,
     vec::Vec,
 };
 use core::{error::Error, fmt, ops::Range};
 
-use crate::{AssignmentState, Document, ItemKind, Quote};
+use crate::{AssignmentState, Dialect, Document, ItemKind, Quote, Severity};
 
 /// A native byte-range replacement against the original document snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,12 +80,12 @@ pub enum Edit<'a> {
     Rename {
         /// The snapshot-local declaration identity.
         entry: usize,
-        /// The new Portable key spelling.
+        /// The new literal key name.
         key: &'a str,
     },
     /// Insert an assigned or bare declaration.
     Insert {
-        /// The new Portable key spelling.
+        /// The new literal key name.
         key: &'a str,
         /// An assigned literal value, or `None` for a bare declaration.
         value: Option<&'a str>,
@@ -120,7 +121,7 @@ pub enum EditError {
     Duplicate(usize),
     /// A snapshot-local identity or item kind is unsuitable.
     InvalidTarget,
-    /// The requested name is not a nonempty Portable key.
+    /// The requested name cannot be represented by the selected key grammar.
     InvalidKey,
     /// The value contains unsupported control characters.
     Unencodable,
@@ -137,7 +138,7 @@ impl fmt::Display for EditError {
                 write!(f, "key has {count} declarations; select an occurrence")
             }
             Self::InvalidTarget => f.write_str("invalid snapshot-local edit target"),
-            Self::InvalidKey => f.write_str("invalid Portable key"),
+            Self::InvalidKey => f.write_str("key cannot be represented by the selected dialect"),
             Self::Unencodable => f.write_str("value contains an unsupported control character"),
             Self::ConflictingEdits => f.write_str("conflicting operations in edit batch"),
             Self::WouldChangeMeaning => {
@@ -187,9 +188,39 @@ fn encode_with_style(value: &str, quote: Quote) -> Option<(String, Quote)> {
             token.push('\'');
             Some((token, Quote::Single))
         }
+        Quote::Backtick if !value.contains('`') => {
+            let mut token = String::with_capacity(value.len() + 2);
+            token.push('`');
+            token.push_str(value);
+            token.push('`');
+            Some((token, Quote::Backtick))
+        }
         Quote::Double => Some((double_quoted(value), Quote::Double)),
         _ if unquoted(value) => Some((value.to_string(), Quote::None)),
         _ => Some((double_quoted(value), Quote::Double)),
+    }
+}
+
+fn encode_in(value: &str, quote: Quote, dialect: Dialect) -> Option<(String, Quote)> {
+    if dialect.raw_values {
+        supported(value).then(|| (value.to_string(), Quote::None))
+    } else {
+        encode_with_style(value, quote)
+    }
+}
+
+fn key_token(key: &str, dialect: Dialect) -> Option<Cow<'_, str>> {
+    if crate::parser::valid_key_in(key, dialect) && !(dialect.quoted_keys && key.starts_with('\''))
+    {
+        Some(Cow::Borrowed(key))
+    } else if dialect.quoted_keys && !key.is_empty() && !key.contains('\'') {
+        let mut token = String::with_capacity(key.len() + 2);
+        token.push('\'');
+        token.push_str(key);
+        token.push('\'');
+        Some(Cow::Owned(token))
+    } else {
+        None
     }
 }
 
@@ -341,10 +372,26 @@ struct ItemPlan<'a> {
     fields: u8,
     desired: Option<Desired<'a>>,
 }
+impl ItemPlan<'_> {
+    fn retains(&self, item: crate::Item<'_>) -> bool {
+        match self.whole {
+            Whole::Remove => false,
+            Whole::Uncomment => {
+                item.raw().len()
+                    > 1 + usize::from(
+                        item.comment_text()
+                            .is_some_and(|body| body.starts_with(' ')),
+                    )
+            }
+            _ => true,
+        }
+    }
+}
 struct Insertion<'a> {
     offset: usize,
     desired: Desired<'a>,
     token: Option<String>,
+    key_token: Cow<'a, str>,
     sorted: bool,
 }
 enum Expect<'a> {
@@ -538,17 +585,23 @@ impl Document<'_> {
         let entry = self.entry(id).ok_or(EditError::InvalidTarget)?;
         let plan = &mut plans[entry.item_id()];
         claim(plan, 1)?;
+        let retained_tail = self.dialect().quoted_tail == crate::QuotedTail::Ignore
+            && entry.tokens().quoted_tail.is_some();
+        let style = match entry.quote() {
+            Quote::Single if retained_tail && value.contains('\'') => Quote::Double,
+            Quote::Backtick if retained_tail && value.contains('`') => Quote::Double,
+            style => style,
+        };
         let (mut token, quote) =
-            encode_with_style(value, entry.quote()).ok_or(EditError::Unencodable)?;
+            encode_in(value, style, self.dialect()).ok_or(EditError::Unencodable)?;
         let range = entry
             .value_span()
-            .unwrap_or_else(|| entry.key_span().end..entry.key_span().end);
+            .unwrap_or_else(|| entry.tokens().key.end..entry.tokens().key.end);
         if entry
             .tokens()
             .inline_comment
             .as_ref()
             .is_some_and(|comment| comment.start == range.end)
-            && !token.is_empty()
         {
             token.push(' ');
         }
@@ -578,9 +631,6 @@ impl Document<'_> {
         keys: &KeyLookup<'a>,
     ) -> Result<(), EditError> {
         let entry = self.entry(id).ok_or(EditError::InvalidTarget)?;
-        if !crate::parser::valid_key(key) {
-            return Err(EditError::InvalidKey);
-        }
         if key != entry.key() {
             let existing = keys.count(key);
             if existing != 0 {
@@ -589,10 +639,18 @@ impl Document<'_> {
         }
         let plan = &mut plans[entry.item_id()];
         claim(plan, 2)?;
-        edits.push(TextEdit {
-            range: entry.key_span(),
-            replacement: key.to_string(),
-        });
+        let (range, replacement) =
+            if entry.key_span() != entry.tokens().key && !key.is_empty() && !key.contains('\'') {
+                (entry.key_span(), key.to_string())
+            } else {
+                (
+                    entry.tokens().key.clone(),
+                    key_token(key, self.dialect())
+                        .ok_or(EditError::InvalidKey)?
+                        .into_owned(),
+                )
+            };
+        edits.push(TextEdit { range, replacement });
         if let Some(desired) = &mut plan.desired {
             desired.key = key;
         }
@@ -611,7 +669,7 @@ impl Document<'_> {
         claim(plan, 4)?;
         if enabled != entry.exported() {
             let (range, replacement) = if enabled {
-                let start = entry.key_span().start;
+                let start = entry.tokens().key.start;
                 (start..start, "export ".to_string())
             } else {
                 let export = entry
@@ -640,9 +698,7 @@ impl Document<'_> {
         insertions: &mut Vec<Insertion<'a>>,
         keys: &KeyLookup<'_>,
     ) -> Result<(), EditError> {
-        if !crate::parser::valid_key(key) {
-            return Err(EditError::InvalidKey);
-        }
+        let key_token = key_token(key, self.dialect()).ok_or(EditError::InvalidKey)?;
         let offset = match position {
             InsertPosition::End => self.source().len(),
             InsertPosition::AfterKey(key) => keys.unique(key)?.line_span().end,
@@ -657,7 +713,7 @@ impl Document<'_> {
         let (token, quote) = match value {
             Some(value) => {
                 let (token, quote) =
-                    encode_with_style(value, Quote::None).ok_or(EditError::Unencodable)?;
+                    encode_in(value, Quote::None, self.dialect()).ok_or(EditError::Unencodable)?;
                 (Some(token), quote)
             }
             None => (None, Quote::None),
@@ -671,6 +727,7 @@ impl Document<'_> {
                 exported: false,
             },
             token,
+            key_token,
             sorted: matches!(position, InsertPosition::Sorted),
         });
         Ok(())
@@ -706,17 +763,7 @@ impl Document<'_> {
         let mut retained = self
             .items()
             .rev()
-            .filter(|item| match plans[item.id()].whole {
-                Whole::Remove => false,
-                Whole::Uncomment => {
-                    item.raw().len()
-                        > 1 + usize::from(
-                            item.comment_text()
-                                .is_some_and(|body| body.starts_with(' ')),
-                        )
-                }
-                _ => true,
-            });
+            .filter(|item| plans[item.id()].retains(*item));
         let last = retained.next()?;
         // A selected comment can become the output's BOM prelude. A prelude
         // alone is not a physical item and needs no insertion separator.
@@ -733,6 +780,27 @@ impl Document<'_> {
             Some(last)
         }
     }
+    fn insertion_separator(
+        &self,
+        previous: Option<crate::Item<'_>>,
+        ending: &'static str,
+    ) -> &'static str {
+        previous.map_or("", |item| {
+            let next_statement = self.dialect().quoted_tail == crate::QuotedTail::NextStatement
+                && item
+                    .entry()
+                    .is_some_and(|entry| entry.quote() != Quote::None);
+            let needs_separator = (item.line_ending() == crate::LineEnding::None
+                && !next_statement)
+                || (self.dialect().line_breaks == crate::LineBreaks::Lf
+                    && item.line_ending() == crate::LineEnding::Cr);
+            if needs_separator {
+                ending
+            } else {
+                ""
+            }
+        })
+    }
 
     fn plan_insertions<'a>(
         &self,
@@ -745,6 +813,11 @@ impl Document<'_> {
         }
         let ending = self.preferred_ending();
         let last_retained = self.last_retained_item(plans);
+        let mut retained = self
+            .items()
+            .filter(|item| plans[item.id()].retains(*item))
+            .peekable();
+        let mut previous = None;
         insertions.sort_by_key(|insert| insert.offset);
         let mut groups = Vec::new();
         let mut preceding_edits = 0;
@@ -758,20 +831,21 @@ impl Document<'_> {
                 same.sort_by(|a, b| a.desired.key.cmp(b.desired.key));
             }
             let at_end = offset == self.source().len();
+            while retained
+                .peek()
+                .is_some_and(|item| item.span().end <= offset)
+            {
+                previous = retained.next();
+            }
             let final_in_output = remaining.is_empty()
                 && last_retained.map_or(true, |item| item.span().start < offset);
-            let prefix = if at_end
-                && last_retained.is_some_and(|item| item.line_ending() == crate::LineEnding::None)
-            {
-                ending
-            } else {
-                ""
-            };
+            let prefix =
+                self.insertion_separator(if at_end { last_retained } else { previous }, ending);
             let mut text = String::from(prefix);
             let mut entries = Vec::with_capacity(same.len());
             for (index, insertion) in same.iter().enumerate() {
                 let start = text.len();
-                text.push_str(insertion.desired.key);
+                text.push_str(&insertion.key_token);
                 if let Some(token) = &insertion.token {
                     text.push('=');
                     text.push_str(token);
@@ -927,7 +1001,7 @@ impl Document<'_> {
         mut regions: Vec<Region<'_>>,
         ending: &str,
     ) -> Result<(), EditError> {
-        let parsed = crate::parser::parse_document(output);
+        let parsed = crate::parser::parse_document(output, self.dialect());
         if parsed.has_bom() != self.has_bom() {
             // Only an explicitly uncommented leading region may expose its own
             // BOM. Removing text before an unrelated BOM must still be refused.
@@ -955,6 +1029,9 @@ impl Document<'_> {
             match region.expect {
                 Expect::Entry(desired) => {
                     if first.span() != region.range
+                        || first
+                            .diagnostic()
+                            .is_some_and(|diagnostic| diagnostic.severity() == Severity::Error)
                         || !first.entry().is_some_and(|entry| desired.matches(entry))
                     {
                         return Err(EditError::WouldChangeMeaning);
@@ -998,6 +1075,9 @@ impl Document<'_> {
                     loop {
                         if current.span().end > region.range.end
                             || current.kind() == ItemKind::Invalid
+                            || current
+                                .diagnostic()
+                                .is_some_and(|diagnostic| diagnostic.severity() == Severity::Error)
                             || (comments_only && current.kind() != ItemKind::Comment)
                         {
                             return Err(EditError::WouldChangeMeaning);
@@ -1098,7 +1178,7 @@ impl Document<'_> {
 /// # Errors
 /// Returns the native selector, encoding or verification error.
 pub fn set(text: &str, key: &str, value: &str) -> Result<String, EditError> {
-    crate::parser::parse_document(text)
+    crate::parser::parse_document(text, Dialect::PORTABLE)
         .set(key, value)
         .map(VerifiedEdits::into_string)
 }
@@ -1107,7 +1187,7 @@ pub fn set(text: &str, key: &str, value: &str) -> Result<String, EditError> {
 /// # Errors
 /// Returns the native selector or verification error.
 pub fn remove(text: &str, key: &str) -> Result<String, EditError> {
-    crate::parser::parse_document(text)
+    crate::parser::parse_document(text, Dialect::PORTABLE)
         .remove(key)
         .map(VerifiedEdits::into_string)
 }

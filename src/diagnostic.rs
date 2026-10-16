@@ -4,7 +4,7 @@ use core::{error::Error, fmt, ops::Range};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Severity {
-    /// The statement cannot be interpreted as a Portable assignment.
+    /// The statement or policy is invalid under the selected dialect.
     Error,
     /// Valid syntax whose interpretation is non-portable or ambiguous.
     Warning,
@@ -16,7 +16,7 @@ pub enum Severity {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum DiagnosticCode {
-    /// A key is empty or contains a character outside the Portable key alphabet.
+    /// A key is empty or contains a character outside the selected key alphabet.
     InvalidKey,
     /// A quoted value has no matching delimiter before EOF.
     UnterminatedQuote,
@@ -38,6 +38,16 @@ pub enum DiagnosticCode {
     ByteOrderMark,
     /// A lone carriage return is retained as a source line ending.
     LoneCarriageReturn,
+    /// The selected policy forbids key-only declarations.
+    ForbiddenBareKey,
+    /// The selected policy forbids a leading byte-order mark.
+    ForbiddenByteOrderMark,
+    /// The selected policy rejects an unrecognized escape.
+    InvalidEscape,
+    /// A statement is retained but ignored by the selected dialect.
+    IgnoredStatement,
+    /// A source line exceeds the selected scanner's byte limit.
+    LineTooLong,
 }
 
 impl DiagnosticCode {
@@ -56,14 +66,25 @@ impl DiagnosticCode {
             Self::Backtick => "dotenv.backtick",
             Self::ByteOrderMark => "dotenv.bom",
             Self::LoneCarriageReturn => "dotenv.lone-cr",
+            Self::ForbiddenBareKey => "dotenv.forbidden-bare-key",
+            Self::ForbiddenByteOrderMark => "dotenv.forbidden-bom",
+            Self::InvalidEscape => "dotenv.invalid-escape",
+            Self::IgnoredStatement => "dotenv.ignored-statement",
+            Self::LineTooLong => "dotenv.line-too-long",
         }
     }
 
-    /// The severity assigned by Portable syntax.
+    /// The default severity assigned to this diagnostic identity.
     #[must_use]
     pub const fn severity(self) -> Severity {
         match self {
-            Self::InvalidKey | Self::UnterminatedQuote | Self::TrailingText => Severity::Error,
+            Self::InvalidKey
+            | Self::UnterminatedQuote
+            | Self::TrailingText
+            | Self::ForbiddenBareKey
+            | Self::ForbiddenByteOrderMark
+            | Self::InvalidEscape
+            | Self::LineTooLong => Severity::Error,
             Self::ByteOrderMark => Severity::Info,
             _ => Severity::Warning,
         }
@@ -73,17 +94,24 @@ impl DiagnosticCode {
     #[must_use]
     pub const fn message(self) -> &'static str {
         match self {
-            Self::InvalidKey => "expected a non-empty Portable key",
+            Self::InvalidKey => "key does not match the selected dialect",
             Self::UnterminatedQuote => "quoted value has no closing delimiter",
             Self::TrailingText => "unexpected text after the closing quote",
             Self::UnknownEscape => "unknown escape retained literally",
-            Self::DuplicateKey => "duplicate key; lookup uses the last declaration",
+            Self::DuplicateKey => "duplicate key; lookup follows the selected dialect policy",
             Self::BareKey => "bare declaration retained without assigning a value",
             Self::NonPosixKey => "key is not a POSIX shell variable name",
             Self::TightHash => "hash without preceding whitespace is literal",
             Self::Backtick => "backticks are literal in Portable syntax",
             Self::ByteOrderMark => "leading UTF-8 byte-order mark retained",
             Self::LoneCarriageReturn => "lone carriage return retained as a line ending",
+            Self::ForbiddenBareKey => "bare declaration forbidden by the selected policy",
+            Self::ForbiddenByteOrderMark => {
+                "leading byte-order mark forbidden by the selected policy"
+            }
+            Self::InvalidEscape => "escape rejected by the selected policy",
+            Self::IgnoredStatement => "statement ignored by the selected dialect",
+            Self::LineTooLong => "source line exceeds the selected scanner byte limit",
         }
     }
 }
@@ -112,7 +140,7 @@ impl Diagnostic {
     pub const fn code(&self) -> DiagnosticCode {
         self.code
     }
-    /// Portable severity of this diagnostic.
+    /// The severity of this diagnostic.
     #[must_use]
     pub const fn severity(&self) -> Severity {
         self.code.severity()

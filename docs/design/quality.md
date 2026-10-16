@@ -1,10 +1,10 @@
 # Quality, testing and compatibility
 
-Status: 0.2 quality harnesses are implemented. Unit/property and documentation
-tests, Criterion benchmarks, public synthetic parser/edit fuzz seeds, and CI
-definitions are part of the repository. This document distinguishes runnable
-checks from recorded execution evidence. Dialect conformance and resolution
-workloads are future 0.3/0.4 work.
+Status: lossless-core quality harnesses and unreleased 0.3 dialect checks are
+implemented: unit/property/documentation tests, public synthetic fuzz seeds,
+Criterion workloads, real pinned upstream replay and a public-API Rust probe.
+This document distinguishes runnable checks from recorded execution evidence.
+Standalone dialect encoding, portability and resolution workloads remain future.
 
 ## Permanent test expectations
 
@@ -42,6 +42,9 @@ UTF-8 before parsing rather than decoded lossily.
   decoder checks cooked values and exact sampled raw mappings, including both
   endpoints and invalid UTF-8 interiors. Position checks require success or
   the specific error according to the coordinate's representability.
+  The independent Portable oracle remains intact. All five presets and custom
+  configurations additionally check source/token partitioning, decoded-map
+  boundaries, strict/owned agreement, policy errors and scanner limits.
 - `edits`: native set/remove/rename/insert/comment/uncomment/export and batches,
   valid and invalid selectors, arbitrary values/keys and unrelated syntax
   errors. Successful results are independently replayed in the returned order;
@@ -55,6 +58,9 @@ UTF-8 before parsing rather than decoded lossily.
   ambiguous preservation contexts are excluded from that positive domain;
   refusals remain allowed there. Every successful edit must satisfy the
   preservation and meaning postconditions.
+  Preset/custom set, remove, rename and export paths also check ordered meanings,
+  authorized token ranges and unselected raw/diagnostic preservation; conservative
+  non-Portable encoder refusal is not treated as proof of successful encoding.
 
 Checked-in seeds are newly authored, public synthetic examples, with no real
 credentials or private compatibility results. The edit input format is an
@@ -135,7 +141,7 @@ workspace. `std` is default-on but adds no I/O or environment/process behavior.
 own allocator on targets that require one.
 
 `#![forbid(unsafe_code)]` is unconditional in the core. No core feature in 0.2
-loads files, changes environment variables, executes commands or expands
+or 0.3 loads files, changes environment variables, executes commands or expands
 values. Loading/expansion/command helpers remain later opt-in work. A future
 process adapter, not core, will own any unsafe environment application API.
 
@@ -156,8 +162,10 @@ Representative local checks (after updating the root lockfile):
 ```sh
 cargo fmt --all --check
 cargo fmt --manifest-path fuzz/Cargo.toml --all --check
+cargo fmt --manifest-path conformance/rust/Cargo.toml --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo clippy -p adotenv --lib --no-default-features --locked -- -D warnings
+cargo clippy --manifest-path conformance/rust/Cargo.toml --all-targets --locked -- -D warnings
 PROPTEST_CASES=2000 cargo test --workspace --locked
 cargo test -p adotenv --no-default-features --locked
 RUSTDOCFLAGS="-D warnings" cargo doc -p adotenv --no-deps --locked
@@ -165,8 +173,63 @@ cargo +1.81 build -p adotenv --lib --locked
 cargo +1.81 build -p adotenv --lib --no-default-features --locked
 rustup target add thumbv7em-none-eabi
 cargo build -p adotenv --lib --no-default-features --target thumbv7em-none-eabi --locked
+python3 conformance/check_adotenv.py --setup
 cargo package -p adotenv --locked
 ```
+
+## Unreleased 0.3 dialect execution evidence
+
+Tested source: the 0.3 implementation working tree based on
+`3cae7045fc6f1905dbb5c25eb31119f36844ff5d`, not that unchanged commit.
+Host/compiler: Linux x86_64, stable rustc 1.99.0 (`b940084d7`, LLVM 23.1.1).
+These checks exercise literal syntax only, not expansion or loading.
+
+- All 76 unit/property tests and six doctests pass with and without default
+  features, with `PROPTEST_CASES=2000` in both runs. Strict all-target core and
+  probe Clippy, alloc-only Clippy, formatting and warning-denied rustdoc pass.
+- Rust 1.81.0 library builds pass with and without defaults, along with an
+  alloc-only `thumbv7em-none-eabi` build, verified package construction and all
+  nine Criterion smoke workloads.
+  Smoke execution is not a new performance measurement.
+- Real upstream replay matches all 1,420 recorded observations across 71 cases
+  and 20 profiles. Selected-preset comparisons check 409 applicable observations
+  and 798 fields; 20 fail-fast observations compare only the error flag, not a
+  nonexistent recovered upstream map. The remaining profiles/cases are explicitly
+  excluded, not counted as matching literal behavior.
+- An isolated deterministic differential run (seed 30017) covers 9,719 synthetic
+  grammar/Unicode sources: 57,358 applicable observations, 103,772 field
+  comparisons and 10,944 fail-fast-error-only observations, all matching.
+  Actual runtimes: Node v26.5.0/dotenv 18.0.8, Python 3.14.7/python-dotenv 1.2.4,
+  Go 1.27.1-X:nodwarf5/compose-go 2.16.1 and Docker CLI 29.8.2.
+- Negative controls reject malformed probe coverage/types, invented non-Docker
+  ordered lines, a schema-valid wrong Node value and contradictory replay flags.
+- A separate alloc-only public-API consumer runs under a 512 MiB address-space
+  limit: all five presets, owned/strict/reparse, native batches, comment
+  restoration, export, literal dollars, explicit policy errors, 100,000 ignored
+  lines with a native edit, and Docker's 65,535/65,536-byte scanner boundary.
+- Reproduced-before/passing-after regressions cover terminal-CR insertion,
+  Node regex statement boundaries, Compose next-statement insertion, quoted-key
+  rename, ignored tails/diagnostics, malformed octal mapping, unknown-escape
+  newline normalization, tight-comment policy and whole-line scanner rejection.
+- `cargo-audit` finds no advisory matches in the root, Rust probe or fuzz
+  lockfiles against 1,329 loaded RustSec advisories. This is a dated advisory
+  snapshot, not a claim that dependencies are vulnerability-free.
+- Workflow syntax passes actionlint 1.7.7, built in an isolated temporary directory.
+
+Bounded AddressSanitizer campaigns use cargo-fuzz 0.13.2, nightly rustc 1.100.0
+(`67eda617e`, 2026-09-10), explicit `--target x86_64-unknown-linux-gnu`, isolated
+temporary mutation corpora, `-runs=100000 -max_len=65536 -rss_limit_mb=2048
+-timeout=10`. Both complete without sanitizer or invariant failures:
+
+| Target | Executed inputs | Engine seconds | Peak RSS (MiB) |
+| --- | ---: | ---: | ---: |
+| Parser | 100,000 | 33 | 464 |
+| Native edits, after final separator fixes | 100,000 | 32 | 478 |
+
+The initial host-default musl build failed before fuzz execution because its
+C++/sanitizer setup was unavailable; the explicit GNU target above is the actual
+successful campaign. These are bounded smoke campaigns, not sustained fuzz
+coverage. No measured multi-dialect performance baseline is claimed.
 
 ## Local execution evidence (2026-10-15)
 
@@ -316,9 +379,9 @@ other dotenv implementations.
 
 [`conformance/`](../../conformance/manifest.json) contains fresh synthetic UTF-8
 inputs, executable upstream adapters, integrity locks, API/profile metadata and
-recorded observations. It currently covers **67 cases across 20 profiles
-(1,340 executed observations)**. It is an oracle for future dialect work, not a
-claim that Portable 0.2 already matches those implementations.
+recorded observations. It currently covers **71 cases across 20 profiles
+(1,420 executed observations)**. Applicable literal profiles also compare against
+the unreleased Rust presets; Portable is not asserted equivalent to an upstream.
 
 | Implementation | Exact pin | Observation surfaces |
 |---|---|---|
@@ -330,7 +393,7 @@ claim that Portable 0.2 already matches those implementations.
 Reproduce on Linux with Node, Python (venv/pip) and Go installed:
 
 ```sh
-python3 conformance/run.py --setup
+python3 conformance/check_adotenv.py --setup
 # Only after reviewing intentional input, API or dependency changes:
 python3 conformance/run.py --record
 ```
@@ -347,7 +410,11 @@ must agree. Every profile's observation fields and JSON types are validated befo
 recording. Required runtime/time/platform provenance is retained; compiler/runtime
 versions need not equal the recording host. Duplicate JSON keys and nonstandard
 numeric constants are rejected.
-The reusable CI matrix runs this checker, including before a tagged release.
+The reusable CI matrix replays every upstream profile, then builds the locked
+Rust probe and compares applicable literal observations, including before a tag.
+The probe's isolated workspace uses harness-only `serde_json`; it adds no core
+runtime dependency. `--skip-upstream-replay` is explicitly local iteration only;
+it still validates recorded provenance, artifacts, types and input hashes.
 
 Every API call uses an isolated controlled environment and explicit synthetic
 input. No ambient lookup, file discovery, Docker daemon, container image,
@@ -412,8 +479,11 @@ from either documentation or a generic parser helper.
 
 Scope limits: UTF-8 inputs and Linux environment behavior; no invalid-byte
 decoder oracle, multi-file cascade, daemon/container semantics or sustained-fuzz
-claim. Dialect parsing/encoding/portability APIs still need implementation
-against these observations. Public fuzz seeds remain separate from conformance.
+claim. The implemented literal comparison excludes resolution/loading profiles,
+Node's opt-in fast parser and Python's file newline conversion. Compose excludes
+dollar-containing sources or supplied lookup; fail-fast errors compare only
+error presence, not partial recovering maps. Encoding/portability remain next.
+Public fuzz seeds remain separate from conformance.
 
 ## Strict and native verification resource fix (0.2.1, 2026-10-16)
 
@@ -447,7 +517,7 @@ still need byte and line/declaration budgets for retained lossless data.
 
 ## Supported Rust versions and semver
 
-- MSRV is **1.81** for 0.2 (1.74 for 0.1), edition 2021. Raises happen only in
+- MSRV is **1.81** for 0.2/0.3 (1.74 for 0.1), edition 2021. Raises happen only in
   minor releases and stay at least six months behind the latest stable Rust.
 - Before 1.0, breaking changes belong in minor releases with explicit migration
   guidance in the changelog and README. 0.2 includes both Portable syntax and

@@ -6,12 +6,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Unreleased 0.3 literal `Dialect` configuration and `PORTABLE`, `NODE_DOTENV`,
+  `PYTHON_DOTENV`, `COMPOSE` and `DOCKER_RAW` presets. `parse_with`,
+  `parse_owned_with`, `parse_strict_with`, retained configuration and borrowed
+  `Document::reparse` preserve Portable defaults without enabling expansion,
+  inheritance or loading.
+- Typed syntax/escape/lookup/error policies; backtick quotes, Python quoted keys,
+  ignored-statement metadata, appended-tail source maps and Docker scanner
+  boundaries. Native edits verify with the exact selected configuration;
+  conservative non-Portable candidate refusal remains until the full encoder.
+- Public Rust probe and CI comparisons against applicable real pinned upstream
+  profiles. Four Compose EOF/Unicode regressions extend the corpus to 71 cases
+  and 1,420 actual observations; resolution/loading exclusions are explicit.
+- Property and sanitizer fuzz invariants across five presets and custom policies,
+  retaining independent Portable semantic and positive-edit oracles.
+
 ### Fixed
 
 - Reject conformance recordings with inconsistent declared/locked/executed
   package identities or malformed profile observations. Snapshot and hash exact
   corpus, profile, manifest and lock bytes before setup/execution, rejecting
   changed inputs before golden recording or comparison.
+- Preserve ignored-line diagnostic metadata during native verification; repair
+  quoted-key style changes, tight bare comments, ignored quote tails and generated
+  LF-mode ending selection and insertion separators at terminal CR, Node regex
+  and Compose next-statement boundaries. Map every boundary after malformed
+  Compose octal deletion, keep newline normalization independent of unknown-escape
+  handling, enforce tight-comment policy and consume whole rejected scanner lines.
 
 ## [0.2.1] - 2026-10-16
 

@@ -1,7 +1,10 @@
 use alloc::{borrow::Cow, string::String, vec::Vec};
 use core::{fmt, ops::Range};
 
-use crate::{Diagnostic, DiagnosticCode, EditError, LineIndex, PositionError};
+use crate::{
+    BareKeys, Diagnostic, DiagnosticCode, Dialect, Duplicates, EditError, LineIndex, PositionError,
+    QuotedTail,
+};
 
 /// Quoting used by a literal value in the source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -9,17 +12,19 @@ use crate::{Diagnostic, DiagnosticCode, EditError, LineIndex, PositionError};
 pub enum Quote {
     /// An unquoted value.
     None,
-    /// Fully literal single quotes.
+    /// A single-quoted value, with the selected dialect's escape rules.
     Single,
-    /// Double quotes with Portable escapes.
+    /// A double-quoted value, with the selected dialect's escape rules.
     Double,
+    /// A backtick-quoted value.
+    Backtick,
 }
 
 /// A declaration's assignment state, independent of any environment lookup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum AssignmentState {
-    /// A declaration without `=`; this is not an empty string assignment.
+    /// A key-only declaration, with no assigned value.
     Bare,
     /// An assigned empty string; quoting is recorded separately.
     Empty,
@@ -65,29 +70,33 @@ pub enum ItemKind {
     Entry,
     /// A malformed statement retained verbatim.
     Invalid,
+    /// Syntax ignored by the selected dialect, retained with its diagnostic.
+    Ignored,
 }
 
 /// Raw token ranges into a document's source; absent syntax is represented by `None`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntryTokens {
-    /// Leading spaces or tabs.
+    /// Leading whitespace, as recognized by the selected dialect.
     pub indent: Range<usize>,
     /// The optional `export` keyword, excluding its separator.
     pub export: Option<Range<usize>>,
     /// Whitespace after the export keyword.
     pub space_after_export: Range<usize>,
-    /// The key spelling.
+    /// The complete raw key token, including any key quotes.
     pub key: Range<usize>,
-    /// Whitespace between the key and equals sign (or bare declaration tail).
+    /// Whitespace between the key and assignment separator (or bare tail).
     pub space_before_eq: Range<usize>,
-    /// The equals sign; absent for bare declarations.
+    /// The assignment separator (`=` or an enabled `:`); absent for bare keys.
     pub eq: Option<Range<usize>>,
-    /// Whitespace between equals and the value.
+    /// Whitespace between the separator and the value.
     pub space_after_eq: Range<usize>,
     /// The raw value token, including any quotes; absent for bare declarations.
     pub value: Option<Range<usize>>,
     /// The raw value body, excluding quotes.
     pub body: Option<Range<usize>>,
+    /// Text after a closing quote, retained when ignored or appended by policy.
+    pub quoted_tail: Option<Range<usize>>,
     /// Whitespace after the value and before any comment.
     pub trailing_space: Range<usize>,
     /// An inline comment, including its hash.
@@ -107,6 +116,8 @@ pub(crate) struct EntryData {
     pub tokens: EntryTokens,
     pub quote: Quote,
     pub state: AssignmentState,
+    pub key_quoted: bool,
+    pub participates: bool,
     pub decoded: Option<String>,
     pub map: Vec<DecodeSegment>,
 }
@@ -121,13 +132,14 @@ pub(crate) struct ItemData {
     pub invalid: Option<Diagnostic>,
 }
 
-/// A lossless Portable document retaining borrowed or explicitly owned UTF-8 source.
+/// A lossless document interpreted under one explicit literal syntax configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document<'src> {
     pub(crate) source: Cow<'src, str>,
     pub(crate) items: Vec<ItemData>,
     pub(crate) entries: Vec<EntryData>,
     pub(crate) bom: bool,
+    pub(crate) dialect: Dialect,
 }
 
 impl Document<'_> {
@@ -135,6 +147,16 @@ impl Document<'_> {
     #[must_use]
     pub fn source(&self) -> &str {
         &self.source
+    }
+    /// The exact syntax and literal lookup policy used for this interpretation.
+    #[must_use]
+    pub const fn dialect(&self) -> Dialect {
+        self.dialect
+    }
+    /// Interpret the retained text again, borrowing it without copying source bytes.
+    #[must_use]
+    pub fn reparse(&self, dialect: Dialect) -> (Document<'_>, Vec<Diagnostic>) {
+        crate::parse_with(self.source(), dialect)
     }
     /// All source items in order; a leading BOM is the separate prelude.
     pub fn items(&self) -> impl DoubleEndedIterator<Item = Item<'_>> + ExactSizeIterator {
@@ -176,15 +198,30 @@ impl Document<'_> {
     {
         self.entries().filter(move |entry| entry.key() == key)
     }
-    /// The last declaration of a key, retaining its bare/empty/value state.
+    /// The winning participating declaration according to the dialect's policy.
     #[must_use]
     pub fn get_entry(&self, key: &str) -> Option<Entry<'_>> {
-        self.entries().rev().find(|entry| entry.key() == key)
+        let mut entries = self
+            .entries()
+            .filter(|entry| entry.participates_in_lookup() && entry.key() == key);
+        match self.dialect.duplicates {
+            Duplicates::First => entries.next(),
+            Duplicates::Last => entries.next_back(),
+        }
     }
-    /// The last assigned literal value. A final bare declaration returns `None`.
+    /// The effective literal lookup value, without environment inheritance.
+    ///
+    /// `BareKeys::Empty` returns `Some("")` for a winning bare declaration,
+    /// while that declaration's [`Entry::value`] and syntax state remain bare.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.get_entry(key).and_then(Entry::value)
+        self.get_entry(key).and_then(|entry| {
+            entry.value().or_else(|| {
+                (entry.state() == AssignmentState::Bare
+                    && self.dialect.bare_keys == BareKeys::Empty)
+                    .then_some("")
+            })
+        })
     }
     /// Select a unique declaration without guessing between duplicate occurrences.
     ///
@@ -200,7 +237,7 @@ impl Document<'_> {
             Err(EditError::Duplicate(remaining + 1))
         }
     }
-    /// Whether the input begins with one retained UTF-8 BOM.
+    /// Whether one leading UTF-8 BOM is retained as a separate source prelude.
     #[must_use]
     pub const fn has_bom(&self) -> bool {
         self.bom
@@ -228,6 +265,7 @@ impl Document<'_> {
             items: self.items,
             entries: self.entries,
             bom: self.bom,
+            dialect: self.dialect,
         }
     }
     /// The dominant source line ending, or LF for a document without endings.
@@ -241,7 +279,7 @@ impl Document<'_> {
                     counts[1] += 1;
                     at += 1;
                 }
-                b'\r' => counts[2] += 1,
+                b'\r' if self.dialect.line_breaks == crate::LineBreaks::Universal => counts[2] += 1,
                 b'\n' => counts[0] += 1,
                 _ => {}
             }
@@ -249,7 +287,10 @@ impl Document<'_> {
         }
         if counts[1] > counts[0] && counts[1] >= counts[2] {
             "\r\n"
-        } else if counts[2] > counts[0] && counts[2] > counts[1] {
+        } else if self.dialect.line_breaks == crate::LineBreaks::Universal
+            && counts[2] > counts[0]
+            && counts[2] > counts[1]
+        {
             "\r"
         } else {
             "\n"
@@ -283,10 +324,10 @@ impl<'doc> Entry<'doc> {
     pub fn item_id(self) -> usize {
         self.data().item
     }
-    /// The original key spelling, borrowed without copying.
+    /// The literal key name, excluding any key quotes, borrowed without copying.
     #[must_use]
     pub fn key(self) -> &'doc str {
-        &self.document.source[self.data().tokens.key.clone()]
+        &self.document.source[self.key_span()]
     }
     /// Literal decoded value; `None` is a bare declaration, not an empty string.
     #[must_use]
@@ -298,14 +339,18 @@ impl<'doc> Entry<'doc> {
                 .unwrap_or(&self.document.source[body.clone()])
         })
     }
-    /// Exact original token, including quotes, or `None` for a bare declaration.
+    /// Exact original value token, including quotes and any appended quoted tail.
     #[must_use]
     pub fn raw_value(self) -> Option<&'doc str> {
-        self.data()
-            .tokens
-            .value
-            .as_ref()
-            .map(|span| &self.document.source[span.clone()])
+        self.value_span().map(|span| &self.document.source[span])
+    }
+    /// Whether this source declaration participates in literal key lookup.
+    ///
+    /// Ignored bare declarations and Node's `__proto__` object-assignment quirk
+    /// remain inspectable and editable even when they do not participate.
+    #[must_use]
+    pub fn participates_in_lookup(self) -> bool {
+        self.data().participates
     }
     /// How the assigned value is quoted.
     #[must_use]
@@ -332,15 +377,30 @@ impl<'doc> Entry<'doc> {
     pub fn line_span(self) -> Range<usize> {
         self.document.items[self.item_id()].span.clone()
     }
-    /// Original key byte range.
+    /// Original key-name byte range, excluding any key quotes.
     #[must_use]
     pub fn key_span(self) -> Range<usize> {
-        self.data().tokens.key.clone()
+        let range = self.data().tokens.key.clone();
+        if self.data().key_quoted {
+            range.start + 1..range.end - 1
+        } else {
+            range
+        }
     }
-    /// Original value token byte range, or `None` for bare declarations.
+    /// Original value token range, including a tail only when it is appended.
     #[must_use]
     pub fn value_span(self) -> Option<Range<usize>> {
-        self.data().tokens.value.clone()
+        self.data().tokens.value.as_ref().map(|range| {
+            range.start..if self.document.dialect.quoted_tail == QuotedTail::Append {
+                self.data()
+                    .tokens
+                    .quoted_tail
+                    .as_ref()
+                    .map_or(range.end, |tail| tail.end)
+            } else {
+                range.end
+            }
+        })
     }
     /// All raw token metadata.
     #[must_use]
@@ -460,12 +520,12 @@ impl<'doc> Item<'doc> {
             .as_ref()
             .map(|span| &self.document.source[span.clone()])
     }
-    /// The error explaining an invalid statement, if this item is invalid.
+    /// The primary syntax or policy diagnostic retained on this item, if any.
     #[must_use]
     pub fn diagnostic(self) -> Option<&'doc Diagnostic> {
         self.data().invalid.as_ref()
     }
-    /// Stable invalid-statement identity, convenient for source-preserving checks.
+    /// Stable primary diagnostic identity, convenient for source-preserving checks.
     #[must_use]
     pub fn invalid_code(self) -> Option<DiagnosticCode> {
         self.diagnostic().map(Diagnostic::code)

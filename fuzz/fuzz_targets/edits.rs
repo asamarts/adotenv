@@ -1,7 +1,9 @@
 #![no_main]
 #![forbid(unsafe_code)]
 
-use adotenv::{parse, Document, Edit, InsertPosition, ItemKind, VerifiedEdits};
+use adotenv::{
+    parse, parse_with, Dialect, Document, Edit, InsertPosition, ItemKind, VerifiedEdits,
+};
 use libfuzzer_sys::fuzz_target;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -278,6 +280,94 @@ fn check_replay(source: &str, verified: &VerifiedEdits) {
     assert_eq!(replay, verified.as_str());
 }
 
+fn check_selected(source: &str, value: &str, operation: u8, selector: u8, dialect: Dialect) {
+    let (document, _) = parse_with(source, dialect);
+    let count = document.entries().len();
+    if count == 0 {
+        return;
+    }
+    let target = usize::from(selector) % count;
+    let entry = document.entry(target).unwrap();
+    let item_id = entry.item_id();
+    let records = |doc: &Document<'_>, omit: Option<usize>| {
+        doc.items()
+            .filter(|item| Some(item.id()) != omit)
+            .map(|item| {
+                let diagnostic = item.diagnostic().map(|d| {
+                    let span = d.span();
+                    (
+                        d.code(),
+                        span.start - item.span().start,
+                        span.end - item.span().start,
+                    )
+                });
+                (item.kind(), item.raw().to_owned(), diagnostic)
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut expected = meanings(&document);
+    let (edit, allowed) = match operation % 4 {
+        0 => {
+            expected[target].value = Some(value.to_owned());
+            let range = entry
+                .value_span()
+                .unwrap_or(entry.tokens().key.end..entry.tokens().key.end);
+            (
+                Edit::Set {
+                    entry: target,
+                    value,
+                },
+                range,
+            )
+        }
+        1 => {
+            expected.remove(target);
+            (Edit::Remove { item: item_id }, entry.line_span())
+        }
+        2 => {
+            expected[target].key = value.to_owned();
+            (
+                Edit::Rename {
+                    entry: target,
+                    key: value,
+                },
+                entry.tokens().key.clone(),
+            )
+        }
+        _ => {
+            expected[target].exported = !entry.exported();
+            let range = if let Some(export) = &entry.tokens().export {
+                export.start..entry.tokens().space_after_export.end
+            } else {
+                entry.tokens().key.start..entry.tokens().key.start
+            };
+            (
+                Edit::Export {
+                    entry: target,
+                    enabled: !entry.exported(),
+                },
+                range,
+            )
+        }
+    };
+    let Ok(verified) = document.edit(&[edit]) else {
+        return;
+    };
+    check_replay(source, &verified);
+    for replacement in verified.edits() {
+        assert!(allowed.start <= replacement.range.start && replacement.range.end <= allowed.end);
+    }
+    let (after, _) = parse_with(verified.as_str(), dialect);
+    assert_eq!(meanings(&after), expected);
+    let before_records = records(&document, Some(item_id));
+    let after_item = if operation % 4 == 1 {
+        None
+    } else {
+        Some(after.entry(target).unwrap().item_id())
+    };
+    assert_eq!(records(&after, after_item), before_records);
+}
+
 fuzz_target!(|bytes: &[u8]| {
     // Header: operation byte, selector byte, UTF-8 source, NUL, UTF-8 value/key.
     let Some((&operation, rest)) = bytes.split_first() else {
@@ -298,6 +388,23 @@ fuzz_target!(|bytes: &[u8]| {
     ) else {
         return;
     };
+    for dialect in [
+        Dialect::PORTABLE,
+        Dialect::NODE_DOTENV,
+        Dialect::PYTHON_DOTENV,
+        Dialect::COMPOSE,
+        Dialect::DOCKER_RAW,
+    ] {
+        check_selected(source, value, operation, selector, dialect);
+        let custom = Dialect {
+            quoted_tail: adotenv::QuotedTail::Ignore,
+            inline_comments: adotenv::InlineComments::AnyHash,
+            quoted_comments: false,
+            raw_values: false,
+            ..dialect
+        };
+        check_selected(source, value, operation, selector, custom);
+    }
     let (document, _) = parse(source);
     let before = meanings(&document);
     let mut expected = before.clone();

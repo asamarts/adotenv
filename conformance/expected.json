@@ -1,6 +1,6 @@
 {
   "inputs": {
-    "cases_sha256": "f15acf21cdc27ce8480bbc0ba21edaa784b399c2989d065e2c1a510700f4de96",
+    "cases_sha256": "79141e52a34b85e0a9a1bf95fd612ccf922659b0778ddb4311641bccbcc85cb1",
     "locks_sha256": {
       "go/go.mod": "48e6f8966e9c647e6a23ceb744ef882b0ae42ea9e2213abe3adf9d17bfb0f186",
       "go/go.sum": "430e52eda01eaf979d93a54663eb64db56b72041da8bb0a9ea924f9167ee312c",
@@ -84,6 +84,26 @@
         "values": {
           "A": "value"
         }
+      },
+      "compose-eof-cr-after-quoted-tail": {
+        "error": false,
+        "values": {
+          "": "tail"
+        }
+      },
+      "compose-eof-cr-bare": {
+        "error": false,
+        "values": {
+          "": "A B"
+        }
+      },
+      "compose-export-only-eof": {
+        "error": true,
+        "values": {}
+      },
+      "compose-unsupported-key-tail-space": {
+        "error": true,
+        "values": {}
       },
       "dot-hyphen-key": {
         "error": false,
@@ -513,6 +533,26 @@
           "A": "value"
         }
       },
+      "compose-eof-cr-after-quoted-tail": {
+        "error": false,
+        "values": {
+          "": "tail"
+        }
+      },
+      "compose-eof-cr-bare": {
+        "error": false,
+        "values": {
+          "": "A B"
+        }
+      },
+      "compose-export-only-eof": {
+        "error": true,
+        "values": null
+      },
+      "compose-unsupported-key-tail-space": {
+        "error": true,
+        "values": null
+      },
       "dot-hyphen-key": {
         "error": false,
         "values": {
@@ -941,6 +981,26 @@
           "A": "value"
         }
       },
+      "compose-eof-cr-after-quoted-tail": {
+        "error": false,
+        "values": {
+          "": "tail"
+        }
+      },
+      "compose-eof-cr-bare": {
+        "error": false,
+        "values": {
+          "": "A B"
+        }
+      },
+      "compose-export-only-eof": {
+        "error": true,
+        "values": null
+      },
+      "compose-unsupported-key-tail-space": {
+        "error": true,
+        "values": null
+      },
       "dot-hyphen-key": {
         "error": false,
         "values": {
@@ -1366,6 +1426,25 @@
       "colon-tight": {
         "error": false,
         "values": {}
+      },
+      "compose-eof-cr-after-quoted-tail": {
+        "error": true,
+        "values": null
+      },
+      "compose-eof-cr-bare": {
+        "error": true,
+        "values": null
+      },
+      "compose-export-only-eof": {
+        "error": true,
+        "values": null
+      },
+      "compose-unsupported-key-tail-space": {
+        "error": false,
+        "values": {
+          "A\u1680": "x",
+          "GOOD": "y"
+        }
       },
       "dot-hyphen-key": {
         "error": false,
@@ -1799,6 +1878,25 @@
         "error": false,
         "lines": []
       },
+      "compose-eof-cr-after-quoted-tail": {
+        "error": true,
+        "lines": []
+      },
+      "compose-eof-cr-bare": {
+        "error": true,
+        "lines": []
+      },
+      "compose-export-only-eof": {
+        "error": true,
+        "lines": []
+      },
+      "compose-unsupported-key-tail-space": {
+        "error": false,
+        "lines": [
+          "A\u1680=x",
+          "GOOD=y"
+        ]
+      },
       "dot-hyphen-key": {
         "error": false,
         "lines": [
@@ -2228,6 +2326,25 @@
       "colon-tight": {
         "error": false,
         "lines": []
+      },
+      "compose-eof-cr-after-quoted-tail": {
+        "error": true,
+        "lines": []
+      },
+      "compose-eof-cr-bare": {
+        "error": true,
+        "lines": []
+      },
+      "compose-export-only-eof": {
+        "error": true,
+        "lines": []
+      },
+      "compose-unsupported-key-tail-space": {
+        "error": false,
+        "lines": [
+          "A\u1680=x",
+          "GOOD=y"
+        ]
       },
       "dot-hyphen-key": {
         "error": false,
@@ -2727,6 +2844,44 @@
         "environment_prototype": "null",
         "error": null,
         "parsed": {},
+        "parsed_prototype": "Object.prototype"
+      },
+      "compose-eof-cr-after-quoted-tail": {
+        "diagnostics_supported": false,
+        "environment": {},
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {},
+        "parsed_prototype": "Object.prototype"
+      },
+      "compose-eof-cr-bare": {
+        "diagnostics_supported": false,
+        "environment": {},
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {},
+        "parsed_prototype": "Object.prototype"
+      },
+      "compose-export-only-eof": {
+        "diagnostics_supported": false,
+        "environment": {},
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {},
+        "parsed_prototype": "Object.prototype"
+      },
+      "compose-unsupported-key-tail-space": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "x",
+          "GOOD": "y"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "x",
+          "GOOD": "y"
+        },
         "parsed_prototype": "Object.prototype"
       },
       "dot-hyphen-key": {
@@ -3600,6 +3755,44 @@
         "parsed": {},
         "parsed_prototype": "Object.prototype"
       },
+      "compose-eof-cr-after-quoted-tail": {
+        "diagnostics_supported": false,
+        "environment": {},
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {},
+        "parsed_prototype": "Object.prototype"
+      },
+      "compose-eof-cr-bare": {
+        "diagnostics_supported": false,
+        "environment": {},
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {},
+        "parsed_prototype": "Object.prototype"
+      },
+      "compose-export-only-eof": {
+        "diagnostics_supported": false,
+        "environment": {},
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {},
+        "parsed_prototype": "Object.prototype"
+      },
+      "compose-unsupported-key-tail-space": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "x",
+          "GOOD": "y"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "x",
+          "GOOD": "y"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
       "dot-hyphen-key": {
         "diagnostics_supported": false,
         "environment": {
@@ -4413,6 +4606,29 @@
         "prototype": "Object.prototype",
         "values": {}
       },
+      "compose-eof-cr-after-quoted-tail": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {}
+      },
+      "compose-eof-cr-bare": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {}
+      },
+      "compose-export-only-eof": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {}
+      },
+      "compose-unsupported-key-tail-space": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "x",
+          "GOOD": "y"
+        }
+      },
       "dot-hyphen-key": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
@@ -4911,6 +5127,29 @@
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
         "values": {}
+      },
+      "compose-eof-cr-after-quoted-tail": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {}
+      },
+      "compose-eof-cr-bare": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {}
+      },
+      "compose-export-only-eof": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {}
+      },
+      "compose-unsupported-key-tail-space": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "x",
+          "GOOD": "y"
+        }
       },
       "dot-hyphen-key": {
         "diagnostics_supported": false,
@@ -5411,6 +5650,29 @@
         "prototype": "Object.prototype",
         "values": {}
       },
+      "compose-eof-cr-after-quoted-tail": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {}
+      },
+      "compose-eof-cr-bare": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {}
+      },
+      "compose-export-only-eof": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {}
+      },
+      "compose-unsupported-key-tail-space": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "x",
+          "GOOD": "y"
+        }
+      },
       "dot-hyphen-key": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
@@ -5909,6 +6171,29 @@
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
         "values": {}
+      },
+      "compose-eof-cr-after-quoted-tail": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {}
+      },
+      "compose-eof-cr-bare": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {}
+      },
+      "compose-export-only-eof": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {}
+      },
+      "compose-unsupported-key-tail-space": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "x",
+          "GOOD": "y"
+        }
       },
       "dot-hyphen-key": {
         "diagnostics_supported": false,
@@ -6529,6 +6814,67 @@
               "string": "A:value\n"
             },
             "value": null
+          }
+        ]
+      },
+      "compose-eof-cr-after-quoted-tail": {
+        "bindings": [
+          {
+            "error": true,
+            "key": null,
+            "original": {
+              "line": 1,
+              "string": " = \"x\"tail\r"
+            },
+            "value": null
+          }
+        ]
+      },
+      "compose-eof-cr-bare": {
+        "bindings": [
+          {
+            "error": true,
+            "key": null,
+            "original": {
+              "line": 1,
+              "string": "\tA B\r"
+            },
+            "value": null
+          }
+        ]
+      },
+      "compose-export-only-eof": {
+        "bindings": [
+          {
+            "error": true,
+            "key": null,
+            "original": {
+              "line": 1,
+              "string": "export "
+            },
+            "value": null
+          }
+        ]
+      },
+      "compose-unsupported-key-tail-space": {
+        "bindings": [
+          {
+            "error": false,
+            "key": "A",
+            "original": {
+              "line": 1,
+              "string": "A\u1680=x\n"
+            },
+            "value": "x"
+          },
+          {
+            "error": false,
+            "key": "GOOD",
+            "original": {
+              "line": 2,
+              "string": "GOOD=y\n"
+            },
+            "value": "y"
           }
         ]
       },
@@ -7832,6 +8178,29 @@
         "error": null,
         "loaded": true
       },
+      "compose-eof-cr-after-quoted-tail": {
+        "environment": {},
+        "error": null,
+        "loaded": false
+      },
+      "compose-eof-cr-bare": {
+        "environment": {},
+        "error": null,
+        "loaded": false
+      },
+      "compose-export-only-eof": {
+        "environment": {},
+        "error": null,
+        "loaded": false
+      },
+      "compose-unsupported-key-tail-space": {
+        "environment": {
+          "A": "x",
+          "GOOD": "y"
+        },
+        "error": null,
+        "loaded": true
+      },
       "dot-hyphen-key": {
         "environment": {
           "A.B-C": "value"
@@ -8334,6 +8703,29 @@
       },
       "colon-tight": {
         "environment": {},
+        "error": null,
+        "loaded": true
+      },
+      "compose-eof-cr-after-quoted-tail": {
+        "environment": {},
+        "error": null,
+        "loaded": false
+      },
+      "compose-eof-cr-bare": {
+        "environment": {},
+        "error": null,
+        "loaded": false
+      },
+      "compose-export-only-eof": {
+        "environment": {},
+        "error": null,
+        "loaded": false
+      },
+      "compose-unsupported-key-tail-space": {
+        "environment": {
+          "A": "x",
+          "GOOD": "y"
+        },
         "error": null,
         "loaded": true
       },
@@ -8842,6 +9234,29 @@
         "error": null,
         "loaded": true
       },
+      "compose-eof-cr-after-quoted-tail": {
+        "environment": {},
+        "error": null,
+        "loaded": false
+      },
+      "compose-eof-cr-bare": {
+        "environment": {},
+        "error": null,
+        "loaded": false
+      },
+      "compose-export-only-eof": {
+        "environment": {},
+        "error": null,
+        "loaded": false
+      },
+      "compose-unsupported-key-tail-space": {
+        "environment": {
+          "A": "x",
+          "GOOD": "y"
+        },
+        "error": null,
+        "loaded": true
+      },
       "dot-hyphen-key": {
         "environment": {
           "A.B-C": "value"
@@ -9347,6 +9762,29 @@
         "error": null,
         "loaded": true
       },
+      "compose-eof-cr-after-quoted-tail": {
+        "environment": {},
+        "error": null,
+        "loaded": false
+      },
+      "compose-eof-cr-bare": {
+        "environment": {},
+        "error": null,
+        "loaded": false
+      },
+      "compose-export-only-eof": {
+        "environment": {},
+        "error": null,
+        "loaded": false
+      },
+      "compose-unsupported-key-tail-space": {
+        "environment": {
+          "A": "x",
+          "GOOD": "y"
+        },
+        "error": null,
+        "loaded": true
+      },
       "dot-hyphen-key": {
         "environment": {
           "A.B-C": "value"
@@ -9832,6 +10270,21 @@
           "A:value": null
         }
       },
+      "compose-eof-cr-after-quoted-tail": {
+        "values": {}
+      },
+      "compose-eof-cr-bare": {
+        "values": {}
+      },
+      "compose-export-only-eof": {
+        "values": {}
+      },
+      "compose-unsupported-key-tail-space": {
+        "values": {
+          "A": "x",
+          "GOOD": "y"
+        }
+      },
       "dot-hyphen-key": {
         "values": {
           "A.B-C": "value"
@@ -10212,6 +10665,21 @@
       "colon-tight": {
         "values": {
           "A:value": null
+        }
+      },
+      "compose-eof-cr-after-quoted-tail": {
+        "values": {}
+      },
+      "compose-eof-cr-bare": {
+        "values": {}
+      },
+      "compose-export-only-eof": {
+        "values": {}
+      },
+      "compose-unsupported-key-tail-space": {
+        "values": {
+          "A": "x",
+          "GOOD": "y"
         }
       },
       "dot-hyphen-key": {
@@ -10596,6 +11064,21 @@
           "A:value": null
         }
       },
+      "compose-eof-cr-after-quoted-tail": {
+        "values": {}
+      },
+      "compose-eof-cr-bare": {
+        "values": {}
+      },
+      "compose-export-only-eof": {
+        "values": {}
+      },
+      "compose-unsupported-key-tail-space": {
+        "values": {
+          "A": "x",
+          "GOOD": "y"
+        }
+      },
       "dot-hyphen-key": {
         "values": {
           "A.B-C": "value"
@@ -10934,7 +11417,7 @@
         "package": "1.2.4"
       }
     },
-    "utc": "2026-10-16T14:45:11.033993+00:00"
+    "utc": "2026-10-16T20:28:08.015562+00:00"
   },
   "schema": 1
 }

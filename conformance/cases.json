@@ -366,6 +366,26 @@
       "id": "duplicate-last-bare-no-lookup",
       "source": "A=first\nA\n",
       "environment": {}
+    },
+    {
+      "id": "compose-eof-cr-bare",
+      "source": "\tA B\r",
+      "environment": {}
+    },
+    {
+      "id": "compose-eof-cr-after-quoted-tail",
+      "source": " = \"x\"tail\r",
+      "environment": {}
+    },
+    {
+      "id": "compose-export-only-eof",
+      "source": "export ",
+      "environment": {}
+    },
+    {
+      "id": "compose-unsupported-key-tail-space",
+      "source": "A\u1680=x\nGOOD=y\n",
+      "environment": {}
     }
   ]
 }

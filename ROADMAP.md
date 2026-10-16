@@ -14,11 +14,11 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [expansion.md](docs/design/expansion.md) | `${VAR}` references, opt-in resolution, command substitution |
 | [quality.md](docs/design/quality.md) | Testing, fuzzing, conformance, benchmarks, MSRV and semver policy |
 
-**Current status:** 0.2.0 is the lossless-core release. Its native edits,
-alloc-only platform support and quality harnesses are described below;
-benchmark measurements and bounded fuzz execution evidence are recorded in
-the quality notes. The public upstream conformance corpus is available as 0.3
-preparation; dialect APIs and everything from 0.4 onward remain future work.
+**Current status:** 0.2.1 is published. Unreleased 0.3 development implements
+explicit dialect configuration, all five syntax presets, selected-dialect native
+verification and applicable pinned-upstream comparison. Per-dialect standalone
+encoding and portability comparison remain the next 0.3 work; everything from
+0.4 onward remains future work. Execution evidence is in the quality notes.
 
 ## Goals
 
@@ -32,9 +32,9 @@ preparation; dialect APIs and everything from 0.4 onward remain future work.
 3. **Precise.** Every token has a byte span. Position conversions use explicit
    UTF-8, scalar or UTF-16 units and reject coordinates that are out of range
    or unrepresentable in the requested encoding, never silently clamp them.
-4. **Explicit about syntax.** `.env` has no standard. 0.2 defines Portable
-   rules and reports ambiguity. Future dialect presets will read like other
-   implementations and compare their interpretations.
+4. **Explicit about syntax.** `.env` has no standard. Portable remains the
+   default; explicit presets interpret retained text under other grammars.
+   Cross-dialect portability reporting remains the next 0.3 task.
 5. **Safe by default.** No I/O, no environment access and no variable
    expansion unless asked for. Commands in a file are never run unless the
    caller supplies a way to run them. The core forbids unsafe code; changing
@@ -96,17 +96,22 @@ Literal parsing into ordered entries with key, value and line spans;
   Workload availability alone is not evidence of a completed campaign or
   measured performance.
 
-### 0.3: Dialects (future)
+### 0.3: Dialects (in development; not published)
 
-- Configurable dialect switches and presets that read like Docker Compose,
-  the Node `dotenv` package, `docker run --env-file` and `python-dotenv`,
-  alongside the Portable default introduced in 0.2.
-- Encoding per dialect, with an error for values a dialect cannot represent.
-- A portability check: parse under several dialects and report every line
-  whose meaning differs.
-- A public conformance corpus with version-pinned upstream observations is
-  available now; preset implementations still need to pass it. See the
-  [execution evidence](docs/design/quality.md#public-upstream-conformance-corpus-03-preparation).
+- **Implemented:** configurable `Dialect` and `parse_with`, `parse_owned_with`,
+  `parse_strict_with`; retained configuration and borrowed `Document::reparse`.
+- **Implemented:** `PORTABLE`, `NODE_DOTENV`, `PYTHON_DOTENV`, `COMPOSE` and
+  `DOCKER_RAW` syntax presets. Native edits verify with the selected configuration.
+  No preset enables expansion, inheritance or loading.
+- **Implemented:** real, artifact-pinned upstream observation replay plus Rust
+  comparison for applicable literal profiles. Resolution/loading, Node's opt-in
+  fast grammar and Python's file-newline conversion are explicitly excluded.
+  See [execution evidence](docs/design/quality.md#public-upstream-conformance-corpus-03-preparation).
+- **Next:** complete per-dialect standalone encoding, with an error for values
+  the dialect cannot represent; current non-Portable native candidates can
+  conservatively refuse otherwise representable values.
+- **Next:** portability comparison that reparses under selected configurations
+  and reports differing declarations, values and statement grouping.
 
 ### 0.4: References and expansion (future)
 

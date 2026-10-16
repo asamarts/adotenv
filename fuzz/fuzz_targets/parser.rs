@@ -4,8 +4,9 @@
 use std::ops::Range;
 
 use adotenv::{
-    parse, parse_owned, parse_strict, AssignmentState, ColumnEncoding, Entry, EntryTokens, Item,
-    PositionError, Quote, Severity,
+    parse, parse_owned, parse_owned_with, parse_strict, parse_strict_with, parse_with,
+    AssignmentState, BareKeys, BomPolicy, ColumnEncoding, Dialect, Entry, EntryTokens, Item,
+    PositionError, Quote, QuotedTail, Severity,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -106,6 +107,7 @@ fn check_tokens(source: &str, entry: Entry<'_>, item: Item<'_>, tokens: &EntryTo
             Some(_) => AssignmentState::Value,
         }
     );
+    assert!(tokens.quoted_tail.is_none());
     horizontal(take(source, &tokens.trailing_space, &mut at));
     if let Some(comment) = &tokens.inline_comment {
         assert!(comment.start > 0 && matches!(source.as_bytes()[comment.start - 1], b' ' | b'\t'));
@@ -172,10 +174,121 @@ fn check_mapping(source: &str, entry: Entry<'_>) {
     }
 }
 
+fn check_selected(source: &str, dialect: Dialect) {
+    let (doc, diagnostics) = parse_with(source, dialect);
+    let mut end = doc.bom_span().map_or(0, |span| span.end);
+    for item in doc.items() {
+        let span = item.span();
+        check_span(source, span.clone());
+        assert_eq!(span.start, end);
+        assert!(span.end > span.start);
+        end = span.end;
+        if let Some(entry) = item.entry() {
+            let t = entry.tokens();
+            let mut cursor = span.start;
+            for token in [
+                Some(&t.indent),
+                t.export.as_ref(),
+                Some(&t.space_after_export),
+                Some(&t.key),
+                Some(&t.space_before_eq),
+                t.eq.as_ref(),
+                Some(&t.space_after_eq),
+                t.value.as_ref(),
+                t.quoted_tail.as_ref(),
+                Some(&t.trailing_space),
+                t.inline_comment.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                check_span(source, token.clone());
+                assert_eq!(token.start, cursor);
+                cursor = token.end;
+            }
+            assert_eq!(cursor, item.content_span().end);
+            assert_eq!(&source[entry.key_span()], entry.key());
+            if let Some(value) = entry.value() {
+                let token = entry.value_span().unwrap();
+                let mut previous = token.start;
+                for offset in [0, value.len() / 2, value.len()] {
+                    if !value.is_char_boundary(offset) {
+                        assert_eq!(
+                            entry.decoded_offset_to_raw(offset),
+                            Err(PositionError::InvalidUtf8Boundary)
+                        );
+                        continue;
+                    }
+                    let raw = entry.decoded_offset_to_raw(offset).unwrap();
+                    assert!(source.is_char_boundary(raw));
+                    assert!(previous <= raw && raw <= token.end);
+                    previous = raw;
+                }
+            }
+        }
+    }
+    assert_eq!(end, source.len());
+    for diagnostic in &diagnostics {
+        check_span(source, diagnostic.span());
+        if let Some(span) = diagnostic.secondary_span() {
+            check_span(source, span);
+        }
+    }
+    assert!(diagnostics
+        .windows(2)
+        .all(|pair| pair[0].span().start <= pair[1].span().start));
+    let first = diagnostics
+        .iter()
+        .find(|d| d.severity() == Severity::Error)
+        .cloned();
+    assert_eq!(
+        parse_strict_with(source, dialect),
+        first.map_or(Ok(doc.clone()), Err)
+    );
+    let (owned, owned_diagnostics) = parse_owned_with(source.to_owned(), dialect);
+    assert_eq!(owned_diagnostics, diagnostics);
+    assert_eq!(owned, doc.into_owned());
+}
+
 fuzz_target!(|bytes: &[u8]| {
     let Ok(source) = std::str::from_utf8(bytes) else {
         return;
     };
+    let presets = [
+        Dialect::PORTABLE,
+        Dialect::NODE_DOTENV,
+        Dialect::PYTHON_DOTENV,
+        Dialect::COMPOSE,
+        Dialect::DOCKER_RAW,
+    ];
+    for dialect in presets {
+        check_selected(source, dialect);
+    }
+    let selector = bytes.first().copied().unwrap_or(0);
+    let mut custom = presets[usize::from(selector) % presets.len()];
+    custom.bom = if selector & 8 != 0 {
+        BomPolicy::Error
+    } else {
+        BomPolicy::Keep
+    };
+    custom.bare_keys = if selector & 16 != 0 {
+        BareKeys::Empty
+    } else {
+        BareKeys::Error
+    };
+    custom.quoted_tail = if selector & 32 != 0 {
+        QuotedTail::Append
+    } else {
+        QuotedTail::Ignore
+    };
+    custom.raw_values = selector & 64 != 0;
+    custom.normalize_newlines = selector & 128 != 0;
+    custom.line_byte_limit = if selector & 4 != 0 {
+        Some(bytes.len() % 32)
+    } else {
+        None
+    };
+    check_selected(source, custom);
     let (document, diagnostics) = parse(source);
     assert_eq!(document.source(), source);
     assert_eq!(document.to_string(), source);
