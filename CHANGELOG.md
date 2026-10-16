@@ -35,6 +35,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and Compose next-statement boundaries. Map every boundary after malformed
   Compose octal deletion, keep newline normalization independent of unknown-escape
   handling, enforce tight-comment policy and consume whole rejected scanner lines.
+- Exclude the isolated Rust probe's generated build directory from version control.
 
 ## [0.2.1] - 2026-10-16
 

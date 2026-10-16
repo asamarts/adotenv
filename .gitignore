@@ -1,2 +1,3 @@
 /target
+/conformance/rust/target
 Cargo.lock.bak
