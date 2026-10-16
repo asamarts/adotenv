@@ -1,0 +1,104 @@
+{
+  "implementation": "python-dotenv",
+  "version": "1.2.4",
+  "source_commit": "a565c2cc41599c48eabc6b7b7f5b826d43c5a6d7",
+  "artifact": {
+    "kind": "universal-wheel",
+    "url": "https://files.pythonhosted.org/packages/60/d1/38f3a3405989a89ac18390803e70c6ad7c7760da4f9b83cbeca0c44a0c72/python_dotenv-1.2.4-py3-none-any.whl",
+    "sha256": "42269a8a5b3fd54ffa6f3d84b18abed50064717576b4ecf03dc4a55d8aa04fdc"
+  },
+  "sources": [
+    "https://pypi.org/pypi/python-dotenv/1.2.4/json",
+    "https://github.com/theskumar/python-dotenv/blob/a565c2cc41599c48eabc6b7b7f5b826d43c5a6d7/src/dotenv/parser.py",
+    "https://github.com/theskumar/python-dotenv/blob/a565c2cc41599c48eabc6b7b7f5b826d43c5a6d7/src/dotenv/main.py",
+    "https://github.com/theskumar/python-dotenv/blob/a565c2cc41599c48eabc6b7b7f5b826d43c5a6d7/src/dotenv/variables.py"
+  ],
+  "notes": [
+    "Requires Python >=3.10. Installed distribution version is asserted using importlib.metadata.version.",
+    "Every profile/case call clears os.environ, installs exactly case.environment (default {}), and restores the prior environment in finally. No inherited PYTHON_DOTENV_DISABLED is retained; if explicitly present in case.environment it remains part of the controlled input.",
+    "Every stream is a fresh io.StringIO(source), with default newline='\\n': supplied CR and CRLF spelling is retained. Streams are text, not bytes.",
+    "The file profile writes exact UTF-8 source bytes to a synthetic temporary file and passes its explicit path. Upstream open(encoding='utf-8') uses newline=None universal-newline translation. No dotenv path discovery is used.",
+    "Bare keys yield Python None (JSON null) in binding and values observations. load_dotenv skips None values, but its boolean can still be true for a nonempty bare-only mapping or when all assignments were skipped.",
+    "Values observations are final maps, not ordered declarations; duplicate keys collapse. Only the bindings array preserves every yielded binding in order, including blank/comment and error bindings.",
+    "Binding diagnostics expose only error boolean and original starting line/source chunk, not code, reason, severity, span or stable message identity. Original strings are consumed chunks, not raw-value tokens; upstream strips one leading BOM.",
+    "High-level APIs log and omit invalid bindings, without returning diagnostics. Their logger is disabled and restored with a context manager; warning prose is not recorded.",
+    "Loading records an actual ValueError from the process-environment API by exception class only, with loaded:null and the resulting possibly partially mutated environment. Adapter/programming exceptions are not swallowed.",
+    "Resolved values consult the exact controlled environment without mutating it. Resolved loading combines interpolation and assignment; override controls both lookup precedence and environment assignment.",
+    "Wheel integrity and reviewed source commit are separate provenance claims; PyPI metadata does not cryptographically attest the wheel-to-commit relationship. Environment behavior is platform-dependent."
+  ],
+  "profiles": [
+    {
+      "id": "python-bindings-stream",
+      "stage": "literal",
+      "api": "dotenv.parser.parse_stream",
+      "api_stability": "pinned_module_api",
+      "options": {},
+      "input_kind": "text-stream",
+      "file_role": "literal text",
+      "capabilities": {"ordered_bindings": true, "diagnostics": "binding-error-and-line", "diagnostic_identity_supported": false}
+    },
+    {
+      "id": "python-values-literal-stream",
+      "stage": "literal",
+      "api": "dotenv.dotenv_values",
+      "options": {"interpolate": false, "verbose": false, "encoding": "utf-8"},
+      "input_kind": "text-stream",
+      "file_role": "literal text",
+      "capabilities": {"ordered_bindings": false, "diagnostics": "none"}
+    },
+    {
+      "id": "python-values-literal-file",
+      "stage": "literal",
+      "api": "dotenv.dotenv_values",
+      "options": {"interpolate": false, "verbose": false, "encoding": "utf-8"},
+      "input_kind": "file",
+      "file_role": "application dotenv file",
+      "capabilities": {"ordered_bindings": false, "diagnostics": "none"}
+    },
+    {
+      "id": "python-values-resolved-stream",
+      "stage": "resolution",
+      "api": "dotenv.dotenv_values",
+      "options": {"interpolate": true, "verbose": false, "encoding": "utf-8"},
+      "input_kind": "text-stream",
+      "file_role": "application dotenv text stream",
+      "capabilities": {"ordered_bindings": false, "diagnostics": "none"}
+    },
+    {
+      "id": "python-load-literal-keep",
+      "stage": "loading",
+      "api": "dotenv.load_dotenv",
+      "options": {"interpolate": false, "override": false, "verbose": false, "encoding": "utf-8"},
+      "input_kind": "text-stream",
+      "file_role": "application dotenv text stream",
+      "capabilities": {"ordered_bindings": false, "diagnostics": "none"}
+    },
+    {
+      "id": "python-load-literal-override",
+      "stage": "loading",
+      "api": "dotenv.load_dotenv",
+      "options": {"interpolate": false, "override": true, "verbose": false, "encoding": "utf-8"},
+      "input_kind": "text-stream",
+      "file_role": "application dotenv text stream",
+      "capabilities": {"ordered_bindings": false, "diagnostics": "none"}
+    },
+    {
+      "id": "python-load-resolved-keep",
+      "stage": "loading",
+      "api": "dotenv.load_dotenv",
+      "options": {"interpolate": true, "override": false, "verbose": false, "encoding": "utf-8"},
+      "input_kind": "text-stream",
+      "file_role": "application dotenv text stream",
+      "capabilities": {"ordered_bindings": false, "diagnostics": "none"}
+    },
+    {
+      "id": "python-load-resolved-override",
+      "stage": "loading",
+      "api": "dotenv.load_dotenv",
+      "options": {"interpolate": true, "override": true, "verbose": false, "encoding": "utf-8"},
+      "input_kind": "text-stream",
+      "file_role": "application dotenv text stream",
+      "capabilities": {"ordered_bindings": false, "diagnostics": "none"}
+    }
+  ]
+}

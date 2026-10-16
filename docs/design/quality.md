@@ -312,15 +312,88 @@ Temporary consumers and mutation controls are not shipped as permanent tests.
 This evidence does not establish sustained fuzz cleanliness or conformance to
 other dotenv implementations.
 
-## Future conformance corpus (0.3)
+## Public upstream conformance corpus (0.3 preparation)
 
-A later public corpus will record each preset's expected items, decoded values
-and diagnostics. Expectations must come from the actual implementation being
-imitated, with exact version, API/options, controlled lookup and file role.
-Literal parsing, expansion and environment loading are separate observations;
-a generic helper cannot stand in for a different file context. Cases where
-implementations disagree are described in [dialects.md](dialects.md). Current
-synthetic fuzz seeds are not represented as cross-implementation evidence.
+[`conformance/`](../../conformance/manifest.json) contains fresh synthetic UTF-8
+inputs, executable upstream adapters, integrity locks, API/profile metadata and
+recorded observations. It currently covers **67 cases across 20 profiles
+(1,340 executed observations)**. It is an oracle for future dialect work, not a
+claim that Portable 0.2 already matches those implementations.
+
+| Implementation | Exact pin | Observation surfaces |
+|---|---|---|
+| Node `dotenv` | 18.0.8, npm SHA-512 lock | Default regex and opt-in fast parsing, string/buffer inputs, controlled loading with both override policies |
+| `python-dotenv` | 1.2.4, wheel SHA-256 | Ordered bindings, literal stream/file values, resolution, literal/resolved loading with both override policies |
+| Docker Compose | 5.6.0's compose-go 2.16.1 and Docker CLI 29.8.2 pins | Parser/resolution, project `.env`, actual service `env_file` default/raw loading |
+| Docker CLI | 29.8.2, Go module checksums | Ordered raw env-file output, with no lookup or a controlled client lookup |
+
+Reproduce on Linux with Node, Python (venv/pip) and Go installed:
+
+```sh
+python3 conformance/run.py --setup
+# Only after reviewing intentional input, API or dependency changes:
+python3 conformance/run.py --record
+```
+
+`--setup` installs locked dependencies with npm scripts disabled and forcibly
+reinstalls the hash-checked Python wheel. Go modules are verified before every
+build; local workspaces, overlays, build flags and persisted Go configuration
+cannot alter the oracle. Normal execution compares every profile/case and
+never updates goldens. Explicit recording first re-establishes those locked
+dependencies, then executes the real APIs. Input, profile, manifest and
+dependency-lock hashes bind its output. Required runtime/time/platform
+provenance is validated but not compared to the current runtime. JSON types,
+duplicate keys and nonstandard numeric constants are checked strictly.
+The reusable CI matrix runs this checker, including before a tagged release.
+
+Every API call uses an isolated controlled environment and explicit synthetic
+input. No ambient lookup, file discovery, Docker daemon, container image,
+shell evaluation or private corpus is used. Core Cargo dependencies and MSRV
+are unchanged; the oracle harness is excluded from the published crate.
+Literal parsing, resolution and loading have
+separate profiles; Compose default parsing cannot disable interpolation and is
+explicitly labeled resolution. `$`-free cases expose its literal syntax without
+claiming a nonexistent interpolation-off API.
+
+Only Python's pinned module-level `parse_stream` exposes ordered bindings and
+syntax-error flags/starting lines. Node final maps expose neither declarations
+nor syntax diagnostics. Docker raw output preserves ordered duplicates without
+claiming a container-runtime winner. Unsupported items, spans and diagnostic
+identities are not synthesized; human error prose is not pinned. Python file
+versus stream newline behavior and actual loading exceptions/partial mutation
+are separate observations.
+
+### Validation evidence (2026-10-16)
+
+The recorded corpus was replayed successfully using the runtimes in
+`conformance/expected.json`. All **134** default/raw service observations were
+also corroborated against the actual installed **Docker Compose 5.6.0 CLI**,
+including error outcomes and explicit YAML-equivalent null overrides. The
+black-box comparison removed only the CLI renderer's dollar doubling; no
+containers or images were started or fetched. The lean raw registration glue
+therefore has independent executable corroboration.
+
+Five initial negative controls were rejected: a wrong value, a missing case,
+a wrong service-role interpretation, a missing profile and stale input
+provenance. Further controls reproduced then rejected boolean/numeric
+conflation and missing execution provenance, and rejected malformed schema
+types, manifest/profile data, duplicate keys and non-JSON constants. Hostile
+Go workspace/overlay/toolchain/configuration variables did not alter a full
+setup/check. A modified same-version Python module failed execution, and
+`--setup` restored the hash-pinned wheel and matching observations. These
+throwaway controls are not shipped as permanent tests.
+
+The pinned Compose service loaders inherit a bare key from project lookup when
+available and retain a preceding value when a bare duplicate has no lookup.
+This conflicts with the service-file reference's bare-unset wording; see
+[dialects.md](dialects.md). Explicit YAML `environment:` null remains a distinct
+override. The corpus records the observed implementation instead of guessing
+from either documentation or a generic parser helper.
+
+Scope limits: UTF-8 inputs and Linux environment behavior; no invalid-byte
+decoder oracle, multi-file cascade, daemon/container semantics or sustained-fuzz
+claim. Dialect parsing/encoding/portability APIs still need implementation
+against these observations. Public fuzz seeds remain separate from conformance.
 
 ## Supported Rust versions and semver
 

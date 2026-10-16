@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Public version-pinned conformance inputs, executable real-upstream adapters,
+  integrity locks and 1,340 observations across 67 cases and 20 profiles.
+  Node dotenv 18.0.8, python-dotenv 1.2.4, Compose 5.6.0's role-specific APIs
+  and Docker CLI 29.8.2 keep literal parsing, resolution and loading distinct.
+- Reproducible Linux corpus checking in reusable CI, with explicit golden
+  recording, controlled lookup, profile/input/lock provenance and actual
+  Compose CLI corroboration. Dialect presets remain future APIs.
+
 ### Fixed
 
 - Require successful native edits for independently classified safe fuzz inputs,

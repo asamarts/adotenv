@@ -1,0 +1,103 @@
+{
+  "implementation": "dotenv",
+  "version": "18.0.8",
+  "source_commit": "e2fe95e8e952e881787d8207b654c80326f821d8",
+  "artifact": {
+    "url": "https://registry.npmjs.org/dotenv/-/dotenv-18.0.8.tgz",
+    "integrity": "sha512-2KDeoFoK/zRtcnbunCDlLG5VWVMcyqeQc6iK65o231nfNAcuGrKoqUQfJFUtBI+QlShk5HKIHxwebBtUl3rEfA=="
+  },
+  "sources": [
+    "https://registry.npmjs.org/dotenv/18.0.8",
+    "https://github.com/motdotla/dotenv/blob/e2fe95e8e952e881787d8207b654c80326f821d8/lib/main.js",
+    "https://github.com/motdotla/dotenv/blob/e2fe95e8e952e881787d8207b654c80326f821d8/lib/config-options.js",
+    "https://unpkg.com/dotenv@18.0.8/dist/index.cjs"
+  ],
+  "notes": [
+    "The installed published CommonJS entry point is used, with its package version asserted at startup.",
+    "Every profile runs every case independently. process.env is replaced with a fresh null-prototype copy of case.environment for each call and restored in finally. Loading uses a separate fresh null-prototype processEnv target.",
+    "Parsing is literal: no interpolation or ordered bindings, and no syntax diagnostics are exposed. Loading also has no interpolation; it only parses and applies assignment precedence.",
+    "Parse values and loading parsed/environment fields are JSON maps containing only actual own keys. Prototype labels describe the original API result or loading target, not the serialization map. constructor and toString are retained if own; __proto__ is not fabricated if absent.",
+    "Object key enumeration is not declaration order. Duplicate declarations have already collapsed in the upstream result.",
+    "Buffers are constructed with Buffer.from(case.source, 'utf8'). Source files are written as UTF-8 with no added BOM, newline translation, or trailing newline. dotenv itself normalizes CRLF and CR to LF.",
+    "Each loading call creates and removes its own temporary directory in finally. The temporary root is obtained with an empty environment so case TMPDIR and ambient defaults cannot select it. No file discovery, multiple-file loading, populate-only profile, or stream API is used.",
+    "Only upstream returned operational errors are observations: error is null or contains exposed stable name/code strings (null when unavailable), never human messages or temporary paths. Adapter failures remain nonzero errors."
+  ],
+  "profiles": [
+    {
+      "id": "node-parse-regex-string",
+      "stage": "literal",
+      "api": "dotenv.parse",
+      "options": { "fast": false },
+      "input_kind": "string",
+      "file_role": "literal text",
+      "capabilities": { "ordered_bindings": false, "diagnostics": "none", "interpolation": false },
+      "notes": ["Pass case.source directly as the first argument."]
+    },
+    {
+      "id": "node-parse-regex-buffer",
+      "stage": "literal",
+      "api": "dotenv.parse",
+      "options": { "fast": false },
+      "input_kind": "buffer",
+      "file_role": "literal UTF-8 bytes",
+      "capabilities": { "ordered_bindings": false, "diagnostics": "none", "interpolation": false },
+      "notes": ["Pass Buffer.from(case.source, 'utf8') as the first argument; dotenv decodes the buffer."]
+    },
+    {
+      "id": "node-parse-fast-string",
+      "stage": "literal",
+      "api": "dotenv.parse",
+      "options": { "fast": true },
+      "input_kind": "string",
+      "file_role": "literal text",
+      "capabilities": { "ordered_bindings": false, "diagnostics": "none", "interpolation": false },
+      "notes": ["Pass case.source directly as the first argument; execute the fast scanner independently of regex profiles."]
+    },
+    {
+      "id": "node-parse-fast-buffer",
+      "stage": "literal",
+      "api": "dotenv.parse",
+      "options": { "fast": true },
+      "input_kind": "buffer",
+      "file_role": "literal UTF-8 bytes",
+      "capabilities": { "ordered_bindings": false, "diagnostics": "none", "interpolation": false },
+      "notes": ["Pass Buffer.from(case.source, 'utf8') as the first argument; execute the fast scanner independently of regex profiles."]
+    },
+    {
+      "id": "node-load-keep",
+      "stage": "loading",
+      "api": "dotenv.config",
+      "options": {
+        "path": "<fresh temporary UTF-8 source file>",
+        "encoding": "utf8",
+        "quiet": true,
+        "debug": false,
+        "fast": false,
+        "override": false,
+        "processEnv": "<fresh null-prototype own-key copy of case.environment>"
+      },
+      "input_kind": "file",
+      "file_role": "application dotenv file",
+      "capabilities": { "ordered_bindings": false, "diagnostics": "none", "interpolation": false, "operational_error": "name-and-code" },
+      "notes": ["Return the actual parsed map and final target environment; existing target keys win. All environment-driven configuration defaults are explicitly overridden."]
+    },
+    {
+      "id": "node-load-override",
+      "stage": "loading",
+      "api": "dotenv.config",
+      "options": {
+        "path": "<fresh temporary UTF-8 source file>",
+        "encoding": "utf8",
+        "quiet": true,
+        "debug": false,
+        "fast": false,
+        "override": true,
+        "processEnv": "<fresh null-prototype own-key copy of case.environment>"
+      },
+      "input_kind": "file",
+      "file_role": "application dotenv file",
+      "capabilities": { "ordered_bindings": false, "diagnostics": "none", "interpolation": false, "operational_error": "name-and-code" },
+      "notes": ["Return the actual parsed map and final target environment; parsed values replace existing target keys. All environment-driven configuration defaults are explicitly overridden."]
+    }
+  ]
+}

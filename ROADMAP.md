@@ -17,7 +17,8 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 **Current status:** 0.2.0 is the lossless-core release. Its native edits,
 alloc-only platform support and quality harnesses are described below;
 benchmark measurements and bounded fuzz execution evidence are recorded in
-the quality notes. Everything from 0.3 onward is future work, not a current API.
+the quality notes. The public upstream conformance corpus is available as 0.3
+preparation; dialect APIs and everything from 0.4 onward remain future work.
 
 ## Goals
 
@@ -103,7 +104,9 @@ Literal parsing into ordered entries with key, value and line spans;
 - Encoding per dialect, with an error for values a dialect cannot represent.
 - A portability check: parse under several dialects and report every line
   whose meaning differs.
-- A public conformance corpus with the expected result for each preset.
+- A public conformance corpus with version-pinned upstream observations is
+  available now; preset implementations still need to pass it. See the
+  [execution evidence](docs/design/quality.md#public-upstream-conformance-corpus-03-preparation).
 
 ### 0.4: References and expansion (future)
 

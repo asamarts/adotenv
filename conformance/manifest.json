@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "purpose": "Executed public upstream observations for the future adotenv 0.3 dialect implementation, not a claim that Portable already conforms to these profiles.",
+  "platform": "Linux; UTF-8 input; case-sensitive process environment",
+  "inputs": {
+    "source": "Fresh synthetic UTF-8 text in cases.json; CR, LF and BOM spelling is intentional.",
+    "environment": "Complete controlled lookup/initial loading target; no ambient variables.",
+    "service_environment": "Optional explicit Compose service environment map; null is YAML-equivalent bare/unset. Only the two service-role profiles use this field."
+  },
+  "implementations": {
+    "node": {"package": "dotenv", "version": "18.0.8", "integrity_file": "node/package-lock.json", "profiles": "node/profiles.json"},
+    "python": {"package": "python-dotenv", "version": "1.2.4", "integrity_file": "python/requirements.txt", "profiles": "python/profiles.json"},
+    "go": {"compose": "5.6.0", "compose_go": "v2.16.1", "docker_cli": "v29.8.2+incompatible", "integrity_files": ["go/go.mod", "go/go.sum"], "profiles": "go/profiles.json"}
+  },
+  "observation_policy": [
+    "Every declared profile executes every case independently. Expectations are recorded only from successful adapter execution against pinned distributions/modules.",
+    "Literal parsing, interpolation/resolution, project environment preparation and application/service loading have separate named profiles. Compose default parsing always expands; no nonexistent interpolation-off option is claimed.",
+    "Final maps are not ordered declaration streams. Only Python Binding records and Docker raw KEY=VALUE lists retain upstream order. JSON null is distinct from an empty string and from an absent key.",
+    "Unsupported source items/spans/diagnostic identities are declared in profile metadata, not synthesized. Human warning/error prose and temporary file paths are excluded.",
+    "Adapter failures and missing profiles/cases fail the runner; they are never accepted as upstream parse results. Actual documented API exception/error surfaces are observed separately.",
+    "Runtime versions and execution time are recorded as provenance, not compared as semantic golden data. Dependency lock and API-profile hashes bind expected observations to their inputs.",
+    "No private corpus, local dotenv files, process credentials, shell evaluation, Docker daemon or container image is used by the runner. Core Cargo dependencies and MSRV are unaffected."
+  ],
+  "known_discrepancies": [
+    {
+      "topic": "Compose service env_file bare keys",
+      "documentation": "Service env_file reference describes a bare key as unset.",
+      "observed": "Pinned Compose default and raw service loaders inherit A=external for source A followed by LF when project environment supplies A=external; unresolved bare entries do not delete prior assignments. Explicit YAML service_environment null is a separate role and can override file values with unset.",
+      "cases": ["bare-inherited", "duplicate-last-bare", "service-explicit-precedence", "service-bare-yaml-override"],
+      "source": "https://docs.docker.com/reference/compose-file/services/#env_file"
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "implementation": "Docker Compose role APIs and Docker CLI kvfile",
+  "version": "Compose 5.6.0 / compose-go 2.16.1 / Docker CLI 29.8.2",
+  "source_commit": "42f48072bbf92ee9b0e43f9fdf2008d03546e7ca",
+  "dependencies": {
+    "github.com/compose-spec/compose-go/v2": {"version": "v2.16.1", "source_commit": "32d8d5d602975fae367ba521b2af2ce97753ff05"},
+    "github.com/docker/cli": {"version": "v29.8.2+incompatible", "source_commit": "7fc2dff9bceb96b266a3b2c3117c0955a0d9e616"}
+  },
+  "sources": [
+    "https://github.com/docker/compose/blob/42f48072bbf92ee9b0e43f9fdf2008d03546e7ca/go.mod",
+    "https://github.com/compose-spec/compose-go/blob/32d8d5d602975fae367ba521b2af2ce97753ff05/cli/options.go",
+    "https://github.com/compose-spec/compose-go/blob/32d8d5d602975fae367ba521b2af2ce97753ff05/dotenv/parser.go",
+    "https://github.com/compose-spec/compose-go/blob/32d8d5d602975fae367ba521b2af2ce97753ff05/types/project.go",
+    "https://github.com/docker/compose/blob/42f48072bbf92ee9b0e43f9fdf2008d03546e7ca/cmd/compose/compose.go",
+    "https://github.com/docker/cli/blob/7fc2dff9bceb96b266a3b2c3117c0955a0d9e616/pkg/kvfile/kvfile.go",
+    "https://github.com/docker/cli/blob/7fc2dff9bceb96b266a3b2c3117c0955a0d9e616/opts/parse.go",
+    "https://docs.docker.com/reference/compose-file/services/#env_file"
+  ],
+  "notes": [
+    "These are pinned upstream Go APIs, not a substitute dotenv implementation. No Docker daemon or image is needed.",
+    "Compose default grammar always interpolates: nil lookup would not disable intra-file expansion. Its parser profile is therefore resolution, not a pure literal oracle.",
+    "Project options omit WithOsEnv and always name an explicit synthetic env file. The complete supplied lookup replaces only the nondeterministic OS source.",
+    "Service observations call Project.WithServicesEnvironmentResolved(true), not a generic parser helper. The source field is its sole required env_file; case.service_environment supplies explicit YAML-equivalent environment entries, including null/unset.",
+    "The raw registration re-expresses Compose's small kvfile-to-map integration using public APIs; all parsing and service resolution still execute the pinned upstream packages. Black-box CLI corroboration is recorded separately.",
+    "Errors retain only the actual API error presence. Upstream prose and temporary paths are not diagnostic identities. A null result on error is not an empty successful environment.",
+    "Docker raw results retain the ordered parser output and duplicates; this does not assert a daemon/container duplicate winner. A nil output slice is normalized to an empty JSON array.",
+    "Bare service env_file behavior must be observed, not inferred from specification wording. Bare entries in service_environment are a separate YAML role."
+  ],
+  "profiles": [
+    {
+      "id": "compose-parser-default", "stage": "resolution",
+      "api": "dotenv.ParseWithLookup(strings.NewReader(source), controlledLookup)",
+      "options": {"lookup": "case.environment", "interpolation": "upstream default; cannot disable"},
+      "input_kind": "text-stream", "file_role": "parser-only, not project or service loading",
+      "capabilities": {"ordered_bindings": false, "diagnostics": "error-presence-only"}
+    },
+    {
+      "id": "compose-project-environment", "stage": "loading",
+      "api": "cli.NewProjectOptions(nil, cli.WithEnv(controlledEnvironment), cli.WithEnvFiles(path), cli.WithDotEnv).Environment",
+      "options": {"lookup": "case.environment", "WithOsEnv": false, "env_files": "one explicit synthetic UTF-8 file", "interpolation": "upstream default"},
+      "input_kind": "file", "file_role": "Compose project .env / global --env-file",
+      "capabilities": {"ordered_bindings": false, "diagnostics": "error-presence-only"}
+    },
+    {
+      "id": "compose-service-default", "stage": "loading",
+      "api": "types.Project.WithServicesEnvironmentResolved(true)",
+      "options": {"project_environment": "case.environment", "service_environment": "case.service_environment or empty", "format": "", "required": true, "discardEnvFiles": true},
+      "input_kind": "file", "file_role": "Compose service env_file, default format",
+      "capabilities": {"ordered_bindings": false, "diagnostics": "error-presence-only", "unset": "JSON null"}
+    },
+    {
+      "id": "compose-service-raw", "stage": "loading",
+      "api": "types.Project.WithServicesEnvironmentResolved(true) after Compose-compatible raw registration",
+      "options": {"project_environment": "case.environment", "service_environment": "case.service_environment or empty", "format": "raw", "required": true, "discardEnvFiles": true},
+      "input_kind": "file", "file_role": "Compose service env_file, raw format",
+      "capabilities": {"ordered_bindings": false, "diagnostics": "error-presence-only", "unset": "JSON null"}
+    },
+    {
+      "id": "docker-raw-no-lookup", "stage": "literal",
+      "api": "kvfile.ParseFromReader(strings.NewReader(source), nil)",
+      "options": {"lookup": null}, "input_kind": "text-stream", "file_role": "Docker CLI env-file syntax without client inheritance",
+      "capabilities": {"ordered_bindings": true, "diagnostics": "error-presence-only"}
+    },
+    {
+      "id": "docker-raw-lookup", "stage": "loading",
+      "api": "kvfile.ParseFromReader(strings.NewReader(source), controlledLookup)",
+      "options": {"lookup": "case.environment replaces docker run's os.LookupEnv"},
+      "input_kind": "text-stream", "file_role": "docker run --env-file client parser, not container execution",
+      "capabilities": {"ordered_bindings": true, "diagnostics": "error-presence-only"}
+    }
+  ]
+}

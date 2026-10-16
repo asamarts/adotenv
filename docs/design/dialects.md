@@ -93,21 +93,28 @@ Portable is strict where implementations disagree and literal everywhere:
 | `DockerRaw` | `docker run --env-file` (values kept exactly as written) |
 | `PythonDotenv` | the `python-dotenv` package |
 
-Each preset is verified against the real implementation on the conformance
-corpus (see [quality.md](quality.md)), with the implementation's version
-recorded. A preset imitates documented behavior; where an implementation has
-behavior that looks accidental, the preset follows it but the difference from
-Portable is reported. More presets are added on request, each with inputs and
-outputs from the implementation it imitates.
+Each future preset must be verified against the real implementation on the
+public conformance corpus (see [quality.md](quality.md)), with its exact
+version, API/options and file role recorded. The executable upstream
+observations are available now; the presets are not implemented yet.
+Where an implementation has behavior that looks accidental, compatibility
+must be explicit and the difference from Portable reported. More presets are
+added on request, each with inputs and outputs from its real implementation.
 
 Presets select syntax and literal-value rules, not implicit expansion or
 environment access. Resolution remains opt-in in 0.4; loading remains 0.6.
 
 Compose has one syntax preset but distinct file-role policies. A project
-`.env` bare declaration may inherit through an explicitly supplied lookup;
-a service `env_file` bare declaration means unset. The document retains the
-bare state in both cases. Role-dependent interpretation is selected
-explicitly during resolution/loading, never guessed by parsing.
+`.env` bare declaration may inherit through an explicitly supplied lookup.
+The service-file reference describes a bare `env_file` declaration as unset,
+but the executed Compose 5.6.0 default and raw service loaders inherit it when
+project lookup supplies a value; with no lookup, a bare duplicate retains its
+preceding assignment. This discrepancy is recorded in
+[`conformance/manifest.json`](../../conformance/manifest.json), not normalized
+away. An explicit bare YAML `environment:` entry is a different role and can
+override a file value with unset. The document always retains bare syntax;
+role/version-dependent interpretation belongs to explicit resolution/loading,
+never to implicit parsing or ambient environment access.
 
 Conformance expectations identify the API, options and file role. A generic
 compose-go lookup helper is not an oracle for service `env_file` behavior.

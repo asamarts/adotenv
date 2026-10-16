@@ -191,6 +191,17 @@ runs bounded campaigns. Reproduction commands and evidence policy are in
 [quality.md](docs/design/quality.md). Harness availability is not a claim that
 any particular benchmark or fuzz duration has passed.
 
+The public [upstream conformance corpus](conformance/manifest.json) records
+version-pinned real Node, Python, Compose and Docker env-file observations for
+future dialect work. Run `python3 conformance/run.py --setup` on Linux;
+[profile details and validation evidence](docs/design/quality.md#public-upstream-conformance-corpus-03-preparation)
+separate parsing, resolution and loading. It does not claim that Portable
+already implements those dialects.
+
+Lossless parsing retains items and diagnostics. Callers handling untrusted
+input must apply their own byte and line/declaration budgets before parsing;
+the core does not impose application-specific resource limits.
+
 0.2 is the lossless-core release. Dialect presets, reference analysis/expansion,
 formatting, loading and integration crates remain **future** milestones; none
 are available in this release. See

@@ -1,0 +1,371 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "id": "empty",
+      "source": "",
+      "environment": {}
+    },
+    {
+      "id": "blank-comments",
+      "source": "\n  # synthetic comment\n\t\n",
+      "environment": {}
+    },
+    {
+      "id": "basic",
+      "source": "FIRST=one\nSECOND=two\n",
+      "environment": {}
+    },
+    {
+      "id": "export-space",
+      "source": "export A=value\n",
+      "environment": {}
+    },
+    {
+      "id": "export-tab",
+      "source": "export\tA=value\n",
+      "environment": {}
+    },
+    {
+      "id": "spaces-around-equals",
+      "source": "  A =  value  \n",
+      "environment": {}
+    },
+    {
+      "id": "bare-inherited",
+      "source": "A\n",
+      "environment": {
+        "A": "external"
+      }
+    },
+    {
+      "id": "bare-unset",
+      "source": "A\n",
+      "environment": {
+        "OTHER": "external"
+      }
+    },
+    {
+      "id": "assigned-empty",
+      "source": "A=\nB=\"\"\nC=''\n",
+      "environment": {
+        "A": "external"
+      }
+    },
+    {
+      "id": "duplicate-assigned",
+      "source": "A=first\nA=second\n",
+      "environment": {}
+    },
+    {
+      "id": "duplicate-last-bare",
+      "source": "A=first\nA\n",
+      "environment": {
+        "A": "external"
+      }
+    },
+    {
+      "id": "duplicate-first-bare",
+      "source": "A\nA=second\n",
+      "environment": {
+        "A": "external"
+      }
+    },
+    {
+      "id": "tight-hash",
+      "source": "A=a#b\n",
+      "environment": {}
+    },
+    {
+      "id": "spaced-hash",
+      "source": "A=a #b\n",
+      "environment": {}
+    },
+    {
+      "id": "empty-spaced-hash",
+      "source": "A= #b\n",
+      "environment": {}
+    },
+    {
+      "id": "hash-only",
+      "source": "A=#b\n",
+      "environment": {}
+    },
+    {
+      "id": "colon-space",
+      "source": "A: value\n",
+      "environment": {}
+    },
+    {
+      "id": "colon-tight",
+      "source": "A:value\n",
+      "environment": {}
+    },
+    {
+      "id": "dot-hyphen-key",
+      "source": "A.B-C=value\n",
+      "environment": {}
+    },
+    {
+      "id": "numeric-key",
+      "source": "1KEY=value\n2=two\n10=ten\n",
+      "environment": {}
+    },
+    {
+      "id": "unicode-key",
+      "source": "CAFÉ=value\n",
+      "environment": {}
+    },
+    {
+      "id": "punctuation-key",
+      "source": "A/B=value\n",
+      "environment": {}
+    },
+    {
+      "id": "quoted-key",
+      "source": "'A B'=value\n",
+      "environment": {}
+    },
+    {
+      "id": "invalid-key-space",
+      "source": "A B=value\nNEXT=retained\n",
+      "environment": {}
+    },
+    {
+      "id": "prototype-keys",
+      "source": "__proto__=value\nconstructor=ctor\nprototype=proto\ntoString=string\nhasOwnProperty=own\n",
+      "environment": {}
+    },
+    {
+      "id": "unicode-whitespace",
+      "source": " A = value \n",
+      "environment": {}
+    },
+    {
+      "id": "double-escapes",
+      "source": "A=\"a\\nb\\rc\\td\\\\e\\\"f\\$g\\q\"\n",
+      "environment": {}
+    },
+    {
+      "id": "single-escapes",
+      "source": "A='a\\'b\\\\c'\n",
+      "environment": {}
+    },
+    {
+      "id": "double-extended-escapes",
+      "source": "A=\"\\a\\b\\f\\v\\'\"\n",
+      "environment": {}
+    },
+    {
+      "id": "backticks",
+      "source": "A=`one # two`\n",
+      "environment": {}
+    },
+    {
+      "id": "unquoted-backslash",
+      "source": "A=one\\ two\\#three\n",
+      "environment": {}
+    },
+    {
+      "id": "quoted-tail",
+      "source": "A=\"one\"tail\nNEXT=retained\n",
+      "environment": {}
+    },
+    {
+      "id": "quoted-tight-comment",
+      "source": "A=\"one\"#comment\n",
+      "environment": {}
+    },
+    {
+      "id": "quoted-spaced-comment",
+      "source": "A=\"one\" #comment\n",
+      "environment": {}
+    },
+    {
+      "id": "unterminated-double",
+      "source": "A=\"broken\nNEXT=retained\n",
+      "environment": {}
+    },
+    {
+      "id": "unterminated-single",
+      "source": "A='broken\nNEXT=retained\n",
+      "environment": {}
+    },
+    {
+      "id": "unterminated-backtick",
+      "source": "A=`broken\nNEXT=retained\n",
+      "environment": {}
+    },
+    {
+      "id": "multiline-double",
+      "source": "A=\"one\nINNER=not-a-declaration\ntwo\"\nNEXT=retained\n",
+      "environment": {}
+    },
+    {
+      "id": "multiline-single",
+      "source": "A='one\nINNER=not-a-declaration\ntwo'\nNEXT=retained\n",
+      "environment": {}
+    },
+    {
+      "id": "multiline-backtick",
+      "source": "A=`one\nINNER=not-a-declaration\ntwo`\nNEXT=retained\n",
+      "environment": {}
+    },
+    {
+      "id": "no-final-newline",
+      "source": "A=one",
+      "environment": {}
+    },
+    {
+      "id": "bare-no-final-newline",
+      "source": "A",
+      "environment": {}
+    },
+    {
+      "id": "empty-no-final-newline",
+      "source": "A=",
+      "environment": {}
+    },
+    {
+      "id": "multiple-equals",
+      "source": "A=one=two\n",
+      "environment": {}
+    },
+    {
+      "id": "nul-value",
+      "source": "A=one\u0000two\n",
+      "environment": {}
+    },
+    {
+      "id": "invalid-empty-key",
+      "source": "=value\nNEXT=retained\n",
+      "environment": {}
+    },
+    {
+      "id": "literal-command",
+      "source": "A=$(printf SYNTHETIC_NOT_EXECUTED)\n",
+      "environment": {}
+    },
+    {
+      "id": "multiline-lf",
+      "source": "A=\"one\ntwo\"\nB=kept\n",
+      "environment": {}
+    },
+    {
+      "id": "multiline-crlf",
+      "source": "A=\"one\r\ntwo\"\r\nB=kept\r\n",
+      "environment": {}
+    },
+    {
+      "id": "multiline-cr",
+      "source": "A=\"one\rtwo\"\rB=kept\r",
+      "environment": {}
+    },
+    {
+      "id": "mixed-endings",
+      "source": "A=one\r\nB=two\rC=three\n",
+      "environment": {}
+    },
+    {
+      "id": "bom-leading",
+      "source": "﻿A=one\n",
+      "environment": {}
+    },
+    {
+      "id": "bom-double",
+      "source": "﻿﻿A=one\n",
+      "environment": {}
+    },
+    {
+      "id": "bom-later",
+      "source": "A=one\n﻿B=two\n",
+      "environment": {}
+    },
+    {
+      "id": "references-by-quote",
+      "source": "BASE=file\nA=${BASE}\nB='${BASE}'\nC=\"${BASE}\"\nD=$BASE\nE=\\${BASE}\n",
+      "environment": {
+        "BASE": "external"
+      }
+    },
+    {
+      "id": "resolution-order",
+      "source": "BEFORE=${BASE}\nBASE=file\nAFTER=${BASE}\nFORWARD=${LATER}\nLATER=late\nSELF=${SELF:-fallback}\nEMPTY_COPY=${EMPTY_EXTERNAL:-fallback}\nUNSET\nUNSET_COPY=${UNSET:-fallback}\nDUP=first\nDUP=${DUP}-second\n",
+      "environment": {
+        "BASE": "external",
+        "LATER": "external-later",
+        "SELF": "external-self",
+        "EMPTY_EXTERNAL": ""
+      }
+    },
+    {
+      "id": "resolution-operators",
+      "source": "A=${MISSING-default}\nB=${MISSING:-default}\nC=${PRESENT+alternate}\nD=${PRESENT:+alternate}\nE=$$PRESENT\n",
+      "environment": {
+        "PRESENT": "external"
+      }
+    },
+    {
+      "id": "resolution-required",
+      "source": "A=${MISSING:?synthetic-required}\n",
+      "environment": {}
+    },
+    {
+      "id": "resolution-nonrecursive",
+      "source": "A=${EXTERNAL}\n",
+      "environment": {
+        "EXTERNAL": "${OTHER}",
+        "OTHER": "external-other"
+      }
+    },
+    {
+      "id": "load-precedence",
+      "source": "A=file\nEMPTY_EXTERNAL=file\nNEW=new\nBARE\nEMPTY=\nCOPY=${A}\n",
+      "environment": {
+        "A": "external",
+        "EMPTY_EXTERNAL": "",
+        "UNCHANGED": "external"
+      }
+    },
+    {
+      "id": "load-collision-only",
+      "source": "A=file\n",
+      "environment": {
+        "A": "external"
+      }
+    },
+    {
+      "id": "load-bare-only",
+      "source": "A\n",
+      "environment": {}
+    },
+    {
+      "id": "load-partial-nul-error",
+      "source": "FIRST=assigned\nBROKEN=one\u0000two\nLAST=not-reached\n",
+      "environment": {}
+    },
+    {
+      "id": "service-explicit-precedence",
+      "source": "A=file\nCOPY=${A}\nEMPTY=file\nBARE=file\n",
+      "environment": {"A": "project"},
+      "service_environment": {"A": "service", "EMPTY": "", "BARE": null, "UNSET": null}
+    },
+    {
+      "id": "service-lookup-fallback",
+      "source": "COPY=${A}\nBARE\n",
+      "environment": {},
+      "service_environment": {"A": "service", "BARE": "service-bare", "UNSET": null}
+    },
+    {
+      "id": "service-bare-yaml-override",
+      "source": "A=file\nB=file\n",
+      "environment": {"A": "project"},
+      "service_environment": {"A": null, "B": null}
+    },
+    {
+      "id": "duplicate-last-bare-no-lookup",
+      "source": "A=first\nA\n",
+      "environment": {}
+    }
+  ]
+}
