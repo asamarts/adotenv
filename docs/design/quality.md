@@ -340,10 +340,13 @@ reinstalls the hash-checked Python wheel. Go modules are verified before every
 build; local workspaces, overlays, build flags and persisted Go configuration
 cannot alter the oracle. Normal execution compares every profile/case and
 never updates goldens. Explicit recording first re-establishes those locked
-dependencies, then executes the real APIs. Input, profile, manifest and
-dependency-lock hashes bind its output. Required runtime/time/platform
-provenance is validated but not compared to the current runtime. JSON types,
-duplicate keys and nonstandard numeric constants are checked strictly.
+dependencies, then executes the real APIs. Exact input, profile, manifest and
+dependency-lock snapshots are hashed before setup and execution; changed files
+abort recording and comparison. Declared, locked and executed artifact identities
+must agree. Every profile's observation fields and JSON types are validated before
+recording. Required runtime/time/platform provenance is retained; compiler/runtime
+versions need not equal the recording host. Duplicate JSON keys and nonstandard
+numeric constants are rejected.
 The reusable CI matrix runs this checker, including before a tagged release.
 
 Every API call uses an isolated controlled environment and explicit synthetic
@@ -382,6 +385,23 @@ Go workspace/overlay/toolchain/configuration variables did not alter a full
 setup/check. A modified same-version Python module failed execution, and
 `--setup` restored the hash-pinned wheel and matching observations. These
 throwaway controls are not shipped as permanent tests.
+
+The next adversarial pass reproduced three recorder defects in a disposable
+copy using the actual adapters: declaring Node 18.0.9 while executing locked
+18.0.8, recording and subsequently accepting an empty observation, and binding
+old observations to a fixture changed during execution. All three are now
+rejected without replacing the golden. Wrong executed package identity and six
+wrongly typed profile payloads are also rejected. A valid temporary recording
+and its complete 1,340-observation replay still pass after a fresh locked setup.
+
+The accompanying isolated alint audit fixed original-BOM byte accounting,
+repeated-BOM native range offsets and pre-verification generated-output budgets.
+Actual `check`, `fix`, `check` scenarios under a 512 MiB address-space limit
+preserved repeated BOM bytes and CRLF, rejected over-budget raw/generated
+documents without modifying files, reduced a nearly 100,000-line quoted value,
+and fixed a 3,999,966-byte lone-CR warning-dense document. Conservative output
+size bounds can decline a near-limit edit even when a shorter encoding would
+fit. The primary alint checkout and its concurrent changes were not modified.
 
 The pinned Compose service loaders inherit a bare key from project lookup when
 available and retain a preceding value when a bare duplicate has no lookup.

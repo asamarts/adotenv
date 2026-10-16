@@ -198,6 +198,12 @@ future dialect work. Run `python3 conformance/run.py --setup` on Linux;
 separate parsing, resolution and loading. It does not claim that Portable
 already implements those dialects.
 
+The runner binds declared versions to locked artifacts and executed package
+identities, validates each profile's observation protocol, and hashes exact input
+snapshots before setup/execution. Changes to cases, profiles, manifest or locks
+during a run abort comparison/recording rather than blessing mixed inputs.
+Reviewed source commits remain distinct from distribution/module artifact pins.
+
 Recovering `parse` / `parse_owned` retain items and all diagnostics. Strict
 parsing and native edit verification omit discarded diagnostic lists and
 duplicate-warning key indexes; errors remain attached to malformed items.

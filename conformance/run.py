@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -42,8 +43,30 @@ def load(path):
     return decode(path.read_text(encoding="utf-8"))
 
 
-def digest(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def snapshot_inputs():
+    paths = ("cases.json", "manifest.json", *(f"{name}/profiles.json" for name in ADAPTERS),
+             *(path for paths in LOCK_FILES.values() for path in paths))
+    snapshot = {path: (ROOT / path).read_bytes() for path in paths}
+    require_unchanged(snapshot)
+    return snapshot
+
+
+def require_unchanged(snapshot):
+    for path, content in snapshot.items():
+        if (ROOT / path).read_bytes() != content:
+            raise ValueError(f"conformance input changed during execution: {path}")
+
+
+def snapshot_document(snapshot, path):
+    return decode(snapshot[path].decode("utf-8"))
+
+
+def input_hashes(snapshot):
+    hashes = {path: hashlib.sha256(content).hexdigest() for path, content in snapshot.items()}
+    return {"cases_sha256": hashes["cases.json"],
+            "profiles_sha256": {name: hashes[f"{name}/profiles.json"] for name in ADAPTERS},
+            "manifest_sha256": hashes["manifest.json"],
+            "locks_sha256": {path: hashes[path] for paths in LOCK_FILES.values() for path in paths}}
 
 
 def canonical(value):
@@ -57,20 +80,25 @@ def require_schema(document, name):
 
 
 def validate_provenance(provenance):
-    if not isinstance(provenance, dict) or not isinstance(provenance.get("platform"), str) or not provenance["platform"]:
-        raise ValueError("recorded_with requires platform provenance")
+    if (not isinstance(provenance, dict)
+            or not isinstance(provenance.get("platform"), str) or not provenance["platform"]
+            or not isinstance(provenance.get("utc"), str)
+            or not isinstance(provenance.get("runtimes"), dict)):
+        raise ValueError("recorded_with requires platform, timestamp and runtime provenance")
     timestamp = datetime.datetime.fromisoformat(provenance["utc"])
     if timestamp.tzinfo is None:
         raise ValueError("recorded_with requires a timezone-aware timestamp")
     if set(provenance["runtimes"]) != set(ADAPTERS):
         raise ValueError("recorded_with requires every adapter runtime")
     for runtime in provenance["runtimes"].values():
-        if not all(isinstance(runtime.get(field), str) and runtime[field] for field in ("language", "package")):
+        if not isinstance(runtime, dict) or not all(
+            isinstance(runtime.get(field), str) and runtime[field] for field in ("language", "package")
+        ):
             raise ValueError("runtime provenance requires language and package versions")
 
 
-def validate_manifest(metadata):
-    manifest = load(ROOT / "manifest.json")
+def validate_manifest(metadata, snapshot):
+    manifest = snapshot_document(snapshot, "manifest.json")
     require_schema(manifest, "manifest.json")
     if set(manifest["implementations"]) != set(ADAPTERS):
         raise ValueError("manifest must identify every adapter")
@@ -92,6 +120,125 @@ def validate_manifest(metadata):
                 raise ValueError(f"invalid profile stage: {profile['id']}")
             if type(profile["capabilities"]["ordered_bindings"]) is not bool:
                 raise ValueError(f"ordered_bindings must be boolean: {profile['id']}")
+    node = snapshot_document(snapshot, "node/package-lock.json")["packages"]
+    version = metadata["node"]["version"]
+    artifact = metadata["node"]["artifact"]
+    if (node[""]["dependencies"]["dotenv"] != version
+            or node["node_modules/dotenv"]["version"] != version
+            or node["node_modules/dotenv"]["resolved"] != artifact["url"]
+            or node["node_modules/dotenv"]["integrity"] != artifact["integrity"]):
+        raise ValueError("Node artifact lock differs from declared version/artifact")
+    python = metadata["python"]
+    artifact = python["artifact"]
+    requirement = (f"python-dotenv @ {artifact['url']} "
+                   f"--hash=sha256:{artifact['sha256']}")
+    if (snapshot["python/requirements.txt"].decode("utf-8").strip() != requirement
+            or artifact["url"].rsplit("/", 1)[-1] !=
+            f"python_dotenv-{python['version']}-py3-none-any.whl"):
+        raise ValueError("Python exact wheel pin differs from declared version/artifact")
+    go_mod = snapshot["go/go.mod"].decode("utf-8")
+    # Comments cannot introduce directives; replacements (including unrelated
+    # modules) would break the reviewed dependency graph.
+    uncommented = re.sub(r"/\*.*?\*/|//[^\n]*", "", go_mod, flags=re.DOTALL)
+    directives = [line.strip() for line in uncommented.splitlines()]
+    if any(re.match(r"replace(?:\s|\(|$)", line) for line in directives):
+        raise ValueError("Go oracle must not use module replacements")
+    for module, dependency in metadata["go"]["dependencies"].items():
+        required = [match.group(1) for line in directives
+                    if (match := re.fullmatch(r"(?:require\s+)?" + re.escape(module) + r"\s+(\S+)", line))]
+        if required != [dependency["version"]]:
+            raise ValueError(f"Go module requirement differs from declared version: {module}")
+
+
+def validate_runtime(name, runtime, metadata):
+    if not isinstance(runtime, dict) or not all(
+        isinstance(runtime.get(field), str) and runtime[field]
+        for field in ("language", "package")
+    ):
+        raise ValueError(f"{name} runtime requires language and package versions")
+    if name == "go":
+        dependencies = metadata[name]["dependencies"]
+        package = (f"compose-go {dependencies['github.com/compose-spec/compose-go/v2']['version']}; "
+                   f"docker/cli {dependencies['github.com/docker/cli']['version']}")
+    else:
+        package = metadata[name]["version"]
+    if runtime["package"] != package:
+        raise ValueError(f"{name} executed package differs from declared artifact version")
+
+
+def validate_observation(profile, observation):
+    def require(condition):
+        if not condition:
+            raise ValueError(f"malformed observation for {profile}")
+
+    def fields(value, names):
+        require(isinstance(value, dict) and set(value) == set(names.split()))
+
+    def values(value, nullable=False):
+        require(isinstance(value, dict) and all(
+            isinstance(key, str) and (isinstance(item, str) or nullable and item is None)
+            for key, item in value.items()))
+
+    def optional_string(value):
+        require(value is None or isinstance(value, str))
+
+    def prototype(value):
+        require(isinstance(value, str) and value in ("null", "Object.prototype", "other"))
+
+    if profile.startswith("node-parse-"):
+        fields(observation, "values prototype diagnostics_supported")
+        values(observation["values"])
+        prototype(observation["prototype"])
+        require(observation["diagnostics_supported"] is False)
+    elif profile.startswith("node-load-"):
+        fields(observation, "parsed parsed_prototype environment environment_prototype diagnostics_supported error")
+        if observation["parsed"] is None:
+            require(observation["parsed_prototype"] is None)
+        else:
+            values(observation["parsed"])
+            prototype(observation["parsed_prototype"])
+        values(observation["environment"])
+        prototype(observation["environment_prototype"])
+        require(observation["diagnostics_supported"] is False)
+        if observation["error"] is not None:
+            fields(observation["error"], "name code")
+            optional_string(observation["error"]["name"])
+            optional_string(observation["error"]["code"])
+    elif profile == "python-bindings-stream":
+        fields(observation, "bindings")
+        require(isinstance(observation["bindings"], list))
+        for binding in observation["bindings"]:
+            fields(binding, "key value original error")
+            optional_string(binding["key"])
+            optional_string(binding["value"])
+            require(type(binding["error"]) is bool)
+            fields(binding["original"], "string line")
+            require(isinstance(binding["original"]["string"], str))
+            require(type(binding["original"]["line"]) is int and binding["original"]["line"] >= 1)
+    elif profile.startswith("python-values-"):
+        fields(observation, "values")
+        values(observation["values"], nullable=True)
+    elif profile.startswith("python-load-"):
+        fields(observation, "loaded environment error")
+        values(observation["environment"])
+        if observation["error"] is None:
+            require(type(observation["loaded"]) is bool)
+        else:
+            require(observation["error"] == "ValueError" and observation["loaded"] is None)
+    elif profile.startswith("compose-"):
+        fields(observation, "values error")
+        require(type(observation["error"]) is bool)
+        if observation["values"] is None:
+            require(observation["error"] is True)
+        else:
+            values(observation["values"], nullable=profile.startswith("compose-service-"))
+    elif profile.startswith("docker-raw-"):
+        fields(observation, "lines error")
+        require(type(observation["error"]) is bool)
+        require(isinstance(observation["lines"], list)
+                and all(isinstance(line, str) for line in observation["lines"]))
+    else:
+        raise ValueError(f"unknown observation protocol: {profile}")
 
 
 def executable(name):
@@ -148,12 +295,14 @@ def validate_cases(document):
     return identifiers
 
 
-def execute(cases):
+def execute(cases, snapshot=None):
     if sys.platform != "linux":
         raise RuntimeError("these environment-loading observations are explicitly Linux-profiled")
     identifiers = validate_cases(cases)
-    metadata = {name: load(ROOT / name / "profiles.json") for name in ADAPTERS}
-    validate_manifest(metadata)
+    if snapshot is None:
+        snapshot = snapshot_inputs()
+    metadata = {name: snapshot_document(snapshot, f"{name}/profiles.json") for name in ADAPTERS}
+    validate_manifest(metadata, snapshot)
     (ROOT / ".build").mkdir(exist_ok=True)
     go_binary = ROOT / ".build/go-oracle"
     command([executable("go"), "mod", "verify"], cwd=ROOT / "go", env=go_environment())
@@ -176,16 +325,21 @@ def execute(cases):
         result = command(commands[name], input=json.dumps(cases, allow_nan=False), text=True,
                          capture_output=True, env={})
         output = decode(result.stdout)
+        if not isinstance(output, dict) or set(output) != {"runtime", "profiles"}:
+            raise ValueError(f"{name} returned a malformed adapter response")
+        if not isinstance(output["profiles"], dict):
+            raise ValueError(f"{name} profiles must be an object")
+        validate_runtime(name, output["runtime"], metadata)
         declared = {profile["id"] for profile in metadata[name]["profiles"]}
         if len(declared) != len(metadata[name]["profiles"]) or declared & observations.keys():
             raise ValueError(f"duplicate profile declaration in {name}")
         if set(output["profiles"]) != declared:
             raise ValueError(f"{name} output profiles differ from metadata")
         for profile, values in output["profiles"].items():
-            if set(values) != identifiers:
+            if not isinstance(values, dict) or set(values) != identifiers:
                 raise ValueError(f"{profile} omitted or invented corpus cases")
-            if not all(isinstance(observation, dict) for observation in values.values()):
-                raise ValueError(f"{profile} returned a non-object observation")
+            for observation in values.values():
+                validate_observation(profile, observation)
         observations.update(output["profiles"])
         runtimes[name] = output["runtime"]
     validate_provenance({"platform": platform.platform(),
@@ -200,15 +354,17 @@ def main():
     parser.add_argument("--record", action="store_true", help="explicitly replace expected observations with executed upstream results")
     parser.add_argument("--expected", type=Path, default=ROOT / "expected.json", help="golden file to compare or record")
     args = parser.parse_args()
+    snapshot = snapshot_inputs()
+    inputs = input_hashes(snapshot)
+    cases = snapshot_document(snapshot, "cases.json")
+    metadata = {name: snapshot_document(snapshot, f"{name}/profiles.json") for name in ADAPTERS}
+    validate_cases(cases)
+    validate_manifest(metadata, snapshot)
     if args.setup or args.record:
         setup()
-    cases = load(ROOT / "cases.json")
-    observations, runtimes = execute(cases)
-    inputs = {"cases_sha256": digest(ROOT / "cases.json"),
-              "profiles_sha256": {name: digest(ROOT / name / "profiles.json") for name in ADAPTERS},
-              "manifest_sha256": digest(ROOT / "manifest.json"),
-              "locks_sha256": {path: digest(ROOT / path)
-                              for paths in LOCK_FILES.values() for path in paths}}
+        require_unchanged(snapshot)
+    observations, runtimes = execute(cases, snapshot)
+    require_unchanged(snapshot)
     actual = {"schema": 1, "inputs": inputs, "observations": observations}
     count = len(cases["cases"]) * len(observations)
     if args.record:
@@ -216,12 +372,16 @@ def main():
             "utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "platform": platform.platform(), "runtimes": runtimes,
         }
+        require_unchanged(snapshot)
         args.expected.write_text(json.dumps(actual, ensure_ascii=True, sort_keys=True, indent=2, allow_nan=False) + "\n", encoding="utf-8")
         print(f"Recorded {count} executed observations ({len(cases['cases'])} cases, {len(observations)} profiles).")
         return 0
     expected = load(args.expected)
     require_schema(expected, "expected observations")
     validate_provenance(expected.get("recorded_with"))
+    for name in ADAPTERS:
+        validate_runtime(name, expected["recorded_with"]["runtimes"][name], metadata)
+    require_unchanged(snapshot)
     if canonical(expected.get("inputs")) != canonical(inputs):
         print("Corpus inputs/provenance changed; review them and explicitly --record new upstream observations.", file=sys.stderr)
         return 1

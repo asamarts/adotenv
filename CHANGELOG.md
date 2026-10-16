@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Reject conformance recordings with inconsistent declared/locked/executed
+  package identities or malformed profile observations. Snapshot and hash exact
+  corpus, profile, manifest and lock bytes before setup/execution, rejecting
+  changed inputs before golden recording or comparison.
+
 ## [0.2.1] - 2026-10-16
 
 ### Added
