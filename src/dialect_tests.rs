@@ -497,6 +497,149 @@ fn insertion_after_a_compose_quote_uses_its_next_statement_boundary() {
 }
 
 #[test]
+fn lf_only_comment_restoration_keeps_internal_carriage_returns() {
+    let source = "A=x\ry\nKEEP=z\n";
+    let doc = parse_strict_with(source, Dialect::DOCKER_RAW).unwrap();
+    let commented = doc.comment("A").unwrap();
+    assert_eq!(commented.as_str(), "# A=x\ry\nKEEP=z\n");
+    let comments = parse_strict_with(commented.as_str(), doc.dialect()).unwrap();
+    let restored = comments
+        .edit(&[crate::Edit::Uncomment { item: 0 }])
+        .unwrap();
+    assert_eq!(restored.as_str(), source);
+}
+
+#[test]
+fn inserting_after_a_commented_compose_quote_adds_a_separator() {
+    let doc = parse_strict_with("A=\"x\"", Dialect::COMPOSE).unwrap();
+    let edited = doc
+        .edit(&[
+            crate::Edit::Comment { item: 0 },
+            crate::Edit::Insert {
+                key: "B",
+                value: Some("z"),
+                position: InsertPosition::End,
+            },
+        ])
+        .unwrap();
+    assert_eq!(edited.as_str(), "# A=\"x\"\nB=z");
+    let after = parse_strict_with(edited.as_str(), doc.dialect()).unwrap();
+    assert_eq!(after.get("A"), None);
+    assert_eq!(after.get("B"), Some("z"));
+}
+
+#[test]
+fn a_preceding_bare_field_precedes_a_node_boundary_insertion() {
+    let doc = parse_strict_with("A\u{2028}B=y\n", Dialect::NODE_DOTENV).unwrap();
+    let edited = doc
+        .edit(&[
+            crate::Edit::Set {
+                entry: 0,
+                value: "x",
+            },
+            crate::Edit::Insert {
+                key: "C",
+                value: Some("z"),
+                position: InsertPosition::AfterEntry(0),
+            },
+        ])
+        .unwrap();
+    assert_eq!(edited.as_str(), "A=x\nC=z\n\u{2028}B=y\n");
+    let after = parse_strict_with(edited.as_str(), doc.dialect()).unwrap();
+    assert_eq!(after.get("A"), Some("x"));
+    assert_eq!(after.get("B"), Some("y"));
+    assert_eq!(after.get("C"), Some("z"));
+}
+
+#[test]
+fn a_final_compose_bare_insertion_cannot_become_an_eof_value() {
+    let doc = parse_strict_with("A=x", Dialect::COMPOSE).unwrap();
+    let edited = doc.insert("B", None, InsertPosition::End).unwrap();
+    assert_eq!(edited.as_str(), "A=x\nB\n");
+    let after = parse_strict_with(edited.as_str(), doc.dialect()).unwrap();
+    let bare = after.unique("B").unwrap();
+    assert_eq!(bare.value(), None);
+    assert_eq!(bare.state(), AssignmentState::Bare);
+    assert!(!bare.participates_in_lookup());
+    assert_eq!(after.get(""), None);
+}
+
+#[test]
+fn insertion_separator_ownership_survives_removed_source() {
+    let doc = parse_strict_with("A\u{2028}REMOVE=y\n", Dialect::NODE_DOTENV).unwrap();
+    let edited = doc
+        .edit(&[
+            crate::Edit::Set {
+                entry: 0,
+                value: "x",
+            },
+            crate::Edit::Remove { item: 1 },
+            crate::Edit::Insert {
+                key: "B",
+                value: Some("z"),
+                position: InsertPosition::End,
+            },
+        ])
+        .unwrap();
+    assert_eq!(edited.as_str(), "A=x\nB=z\n");
+}
+
+#[test]
+fn removed_statement_gaps_do_not_repeat_insertion_separators() {
+    let doc =
+        parse_strict_with("A\u{2028}R1=\"y\"\u{2028}R2=\"z\"\n", Dialect::NODE_DOTENV).unwrap();
+    let edited = doc
+        .edit(&[
+            crate::Edit::Set {
+                entry: 0,
+                value: "x",
+            },
+            crate::Edit::Remove { item: 1 },
+            crate::Edit::Remove { item: 2 },
+            crate::Edit::Insert {
+                key: "B",
+                value: Some("one"),
+                position: InsertPosition::AfterEntry(0),
+            },
+            crate::Edit::Insert {
+                key: "C",
+                value: Some("two"),
+                position: InsertPosition::AfterEntry(1),
+            },
+        ])
+        .unwrap();
+    assert_eq!(edited.as_str(), "A=x\nB=one\nC=two\n");
+}
+
+#[test]
+fn python_single_quote_backslash_pairs_are_non_overlapping() {
+    let source = format!("A='{}'\n", "\\".repeat(4));
+    let doc = parse_strict_with(&source, Dialect::PYTHON_DOTENV).unwrap();
+    let entry = doc.unique("A").unwrap();
+    assert_eq!(entry.value(), Some("\\\\"));
+    assert_eq!(entry.decoded_offset_to_raw(1).unwrap(), 5);
+}
+
+#[test]
+fn a_plain_node_item_rejects_the_whole_original_oversized_line() {
+    let dialect = Dialect {
+        line_byte_limit: Some(6),
+        ..Dialect::NODE_DOTENV
+    };
+    let source = "\n#x\u{2028}A=1\n";
+    let (doc, diagnostics) = parse_with(source, dialect);
+    assert_eq!(doc.get("A"), None);
+    assert_eq!(doc.items().count(), 1);
+    let item = doc.items().next().unwrap();
+    let error = diagnostics
+        .iter()
+        .find(|error| error.code() == Code::LineTooLong)
+        .unwrap();
+    assert!(item.span().start <= error.span().start && item.span().end >= error.span().end);
+    assert_eq!(item.raw(), source);
+}
+
+#[test]
 fn compose_malformed_octal_deletion_preserves_every_decoded_boundary() {
     let doc = parse_strict_with("A=\"\\012\"\n", Dialect::COMPOSE).unwrap();
     let entry = doc.unique("A").unwrap();

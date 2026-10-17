@@ -18,22 +18,19 @@ pub(super) fn statement<const D: bool>(
     let mut at = skip_whitespace(source, start, source.len(), dialect.whitespace);
     let indent = start..at;
     if at == source.len() {
-        parser.plain_item(ItemKind::Blank, start..at, final_ending(source, at), None);
-        return at;
+        return parser.plain_item(ItemKind::Blank, start..at, final_ending(source, at), None);
     }
     let physical = parser.physical(at);
     if at == physical.content_end {
-        parser.plain_item(ItemKind::Blank, start..physical.end, physical.ending, None);
-        return physical.end;
+        return parser.plain_item(ItemKind::Blank, start..physical.end, physical.ending, None);
     }
     if source.as_bytes()[at] == b'#' {
-        parser.plain_item(
+        return parser.plain_item(
             ItemKind::Comment,
             start..physical.end,
             physical.ending,
             Some(at + 1..physical.content_end),
         );
-        return physical.end;
     }
     let export = if dialect.export
         && source[at..physical.content_end].starts_with("export")
@@ -54,13 +51,12 @@ pub(super) fn statement<const D: bool>(
     }
     // Python accepts `export # comment` as a comment-only binding.
     if source.as_bytes().get(at) == Some(&b'#') && at < physical.content_end {
-        parser.plain_item(
+        return parser.plain_item(
             ItemKind::Comment,
             start..physical.end,
             physical.ending,
             Some(at + 1..physical.content_end),
         );
-        return physical.end;
     }
     let key_start = at;
     let quoted = dialect.quoted_keys && source.as_bytes().get(at) == Some(&b'\'');

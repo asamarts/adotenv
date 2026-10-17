@@ -177,8 +177,11 @@ are separate, zero-based snapshot-local IDs; invalid IDs return an error.
 `InsertPosition` supports End, AfterKey, AfterEntry and Sorted.
 Sorted means before the first greater original key in source order, even when
 the original entries are unsorted. Repeated key lookups share a batch-local
-index; single lookups do not allocate one. Insertion separators are based on
-surviving output, retaining the original final-newline policy.
+index; single lookups do not allocate one. Insertion separators use planned
+surviving item kinds. Fields ending the preceding item belong before a
+same-offset insertion; fields beginning the following item belong after it.
+The original final-newline policy is retained unless a terminator is required
+to represent a requested final bare declaration (Compose's EOF exception).
 
 Document convenience methods `set`, `remove`, `rename`, `insert`, `comment`,
 `uncomment` and `set_export` use the same producer. Free `set` / `remove`
@@ -197,6 +200,9 @@ Comments are preserved by default. Callers may explicitly select comment
 items/spans to remove with an entry in the same verified batch. Automatic
 attachment-based shortcuts arrive with the 0.5 comment/group model, not
 through guessed ownership in 0.2.
+
+Comment generation follows the selected scanner's line breaks, so an internal
+CR remains data in LF-only modes and comment/uncomment restoration stays exact.
 
 Uncommenting removes one marker and at most one following space. Empty EOF
 comments may disappear, and adjacent selected comment regions may restore one

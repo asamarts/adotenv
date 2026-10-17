@@ -280,6 +280,56 @@ fn check_replay(source: &str, verified: &VerifiedEdits) {
     assert_eq!(replay, verified.as_str());
 }
 
+fn check_comment_restore(source: &str, selector: u8, dialect: Dialect) {
+    let (document, _) = parse_with(source, dialect);
+    let Some(entry) = document.entry(usize::from(selector) % document.entries().len().max(1))
+    else {
+        return;
+    };
+    let item = document.item(entry.item_id()).unwrap();
+    let result = document.edit(&[Edit::Comment { item: item.id() }]);
+    let fits = dialect.line_byte_limit.map_or(true, |limit| {
+        item.raw().trim_end_matches('\n').len().saturating_add(2) <= limit
+    });
+    if dialect == Dialect::DOCKER_RAW && fits {
+        assert!(
+            result.is_ok(),
+            "ordinary Docker comment refused: {result:?}"
+        );
+    }
+    let Ok(comment) = result else { return };
+    check_replay(source, &comment);
+    let body = if dialect.line_breaks == adotenv::LineBreaks::Lf {
+        item.raw()
+            .split_inclusive('\n')
+            .map(|line| format!("# {line}"))
+            .collect::<String>()
+    } else {
+        commented(item.raw())
+    };
+    let mut expected = source.to_owned();
+    expected.replace_range(item.span(), &body);
+    assert_eq!(comment.as_str(), expected);
+    if item
+        .diagnostic()
+        .is_some_and(|d| d.severity() == adotenv::Severity::Error)
+    {
+        return;
+    }
+    let (comments, _) = parse_with(comment.as_str(), dialect);
+    let end = item.span().start + body.len();
+    let operations = comments
+        .items()
+        .filter(|part| part.span().start >= item.span().start && part.span().end <= end)
+        .map(|part| Edit::Uncomment { item: part.id() })
+        .collect::<Vec<_>>();
+    let restored = comments
+        .edit(&operations)
+        .expect("generated comments must restore valid syntax");
+    check_replay(comment.as_str(), &restored);
+    assert_eq!(restored.as_str(), source);
+}
+
 fn check_selected(source: &str, value: &str, operation: u8, selector: u8, dialect: Dialect) {
     let (document, _) = parse_with(source, dialect);
     let count = document.entries().len();
@@ -396,6 +446,9 @@ fuzz_target!(|bytes: &[u8]| {
         Dialect::DOCKER_RAW,
     ] {
         check_selected(source, value, operation, selector, dialect);
+        if operation % 5 == 4 {
+            check_comment_restore(source, selector, dialect);
+        }
         let custom = Dialect {
             quoted_tail: adotenv::QuotedTail::Ignore,
             inline_comments: adotenv::InlineComments::AnyHash,

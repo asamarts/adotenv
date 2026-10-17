@@ -164,8 +164,8 @@ assert!(!verified.edits().is_empty());
 Insertion supports end, after a unique key, after an explicit entry, and sorted
 position (before the first original entry whose key is greater). All anchors
 refer to the original snapshot. Comments are separate items: removal never
-attaches them implicitly. Commenting a multiline item prefixes every physical
-line; restoration can require uncommenting several comment items in one batch,
+attaches them implicitly. Commenting prefixes each line under the selected
+scanner's line-break policy; restoration can require several comment items,
 including across explicitly removed intervening items. Empty selected EOF
 comments can disappear. A selected uncomment may expose its own leading BOM;
 exposing a BOM from unrelated source is refused.

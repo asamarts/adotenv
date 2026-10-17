@@ -16,8 +16,7 @@ pub(super) fn statement<const D: bool>(
     let at = skip_whitespace(source, start, source.len(), dialect.whitespace);
     let indent = start..at;
     if at == source.len() {
-        parser.plain_item(ItemKind::Blank, start..at, final_ending(source, at), None);
-        return at;
+        return parser.plain_item(ItemKind::Blank, start..at, final_ending(source, at), None);
     }
     let first = anchored_line(parser, at);
     if at == first.content_end {
@@ -28,17 +27,15 @@ pub(super) fn statement<const D: bool>(
         } else {
             first.end
         };
-        parser.plain_item(ItemKind::Blank, start..end, first.ending, None);
-        return end;
+        return parser.plain_item(ItemKind::Blank, start..end, first.ending, None);
     }
     if source.as_bytes()[at] == b'#' {
-        parser.plain_item(
+        return parser.plain_item(
             ItemKind::Comment,
             start..first.end,
             first.ending,
             Some(at + 1..first.content_end),
         );
-        return first.end;
     }
     // `export` is an optional regex group. If consuming it prevents the rest
     // from matching (e.g. `export =x`), the regex retries it as an ordinary key.

@@ -361,20 +361,25 @@ impl<const D: bool> Parser<'_, D> {
         span: Range<usize>,
         ending: LineEnding,
         comment: Option<Range<usize>>,
-    ) {
-        if let Some((diagnostic, _)) = self.limit_error(span.start, span.end) {
-            if D {
-                self.diagnostics.push(diagnostic.clone());
-            }
-            self.document.items.push(ItemData {
-                kind: ItemKind::Invalid,
-                span,
-                ending,
-                entry: None,
-                comment: None,
-                invalid: Some(diagnostic),
-            });
-            return;
+    ) -> usize {
+        let end = span.end;
+        if let Some((diagnostic, recovery)) = self.limit_error(span.start, end) {
+            let last = if recovery.end >= end {
+                recovery
+            } else {
+                PhysicalLine {
+                    content_end: end - ending.as_str().len(),
+                    end,
+                    ending,
+                }
+            };
+            return self.invalid(
+                span.start,
+                last,
+                DiagnosticCode::LineTooLong,
+                diagnostic.span,
+                diagnostic.line,
+            );
         }
         self.document.items.push(ItemData {
             kind,
@@ -384,6 +389,7 @@ impl<const D: bool> Parser<'_, D> {
             comment,
             invalid: None,
         });
+        end
     }
     fn invalid(
         &mut self,
@@ -483,17 +489,15 @@ impl<const D: bool> Parser<'_, D> {
         let mut at = skip_whitespace(self.source, start, first.content_end, dialect.whitespace);
         let indent = start..at;
         if at == first.content_end {
-            self.plain_item(ItemKind::Blank, start..first.end, first.ending, None);
-            return first.end;
+            return self.plain_item(ItemKind::Blank, start..first.end, first.ending, None);
         }
         if self.source.as_bytes()[at] == b'#' {
-            self.plain_item(
+            return self.plain_item(
                 ItemKind::Comment,
                 start..first.end,
                 first.ending,
                 Some(at + 1..first.content_end),
             );
-            return first.end;
         }
         let export = if dialect.export
             && self.source[at..first.content_end].starts_with("export")

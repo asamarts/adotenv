@@ -36,6 +36,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Compose octal deletion, keep newline normalization independent of unknown-escape
   handling, enforce tight-comment policy and consume whole rejected scanner lines.
 - Exclude the isolated Rust probe's generated build directory from version control.
+- Keep LF-only comment restoration exact, order preceding-item fields before
+  same-offset insertion groups, and use planned item kinds and required bare
+  terminators when inserting. Reject complete oversized physical lines even
+  when a Node comment ends early at a Unicode regex anchor.
 
 ## [0.2.1] - 2026-10-16
 

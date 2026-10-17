@@ -15,17 +15,15 @@ pub(super) fn statement<const D: bool>(
     let mut at = skip_whitespace(source, start, first.content_end, dialect.whitespace);
     let indent = start..at;
     if at == first.content_end {
-        parser.plain_item(ItemKind::Blank, start..first.end, first.ending, None);
-        return first.end;
+        return parser.plain_item(ItemKind::Blank, start..first.end, first.ending, None);
     }
     if bytes[at] == b'#' {
-        parser.plain_item(
+        return parser.plain_item(
             ItemKind::Comment,
             start..first.end,
             first.ending,
             Some(at + 1..first.content_end),
         );
-        return first.end;
     }
     let export = if dialect.export
         && source[at..first.content_end].starts_with("export")

@@ -392,6 +392,7 @@ struct Insertion<'a> {
     desired: Desired<'a>,
     token: Option<String>,
     key_token: Cow<'a, str>,
+    leading: String,
     sorted: bool,
 }
 enum Expect<'a> {
@@ -406,8 +407,6 @@ struct Region<'a> {
 }
 struct InsertGroup<'a> {
     offset: usize,
-    prefix: usize,
-    before: usize,
     len: usize,
     entries: Vec<(Range<usize>, Desired<'a>)>,
 }
@@ -432,11 +431,15 @@ fn whole(plan: &mut ItemPlan<'_>, action: Whole) -> Result<(), EditError> {
     plan.whole = action;
     Ok(())
 }
-fn comment_text(text: &str) -> String {
+fn comment_text(text: &str, breaks: crate::LineBreaks) -> String {
     let mut out = String::with_capacity(text.len() + 2);
     let mut start = 0;
     for (index, byte) in text.bytes().enumerate() {
-        if byte == b'\n' || (byte == b'\r' && text.as_bytes().get(index + 1) != Some(&b'\n')) {
+        if byte == b'\n'
+            || (breaks == crate::LineBreaks::Universal
+                && byte == b'\r'
+                && text.as_bytes().get(index + 1) != Some(&b'\n'))
+        {
             out.push_str("# ");
             out.push_str(&text[start..=index]);
             start = index + 1;
@@ -507,7 +510,8 @@ impl Document<'_> {
             )?;
         }
         self.validate_renames(&plans)?;
-        let (groups, ending) = self.plan_insertions(insertions, &plans, &mut edits);
+        let (groups, ending) =
+            self.plan_insertions(insertions, &plans, &mut edits, &mut end_insertions);
         let edits = Self::normalize_edits(edits)?;
         let output = Self::apply_edits(self.source(), &edits);
         let regions = self.expected_regions(&plans, &end_insertions, &edits, groups)?;
@@ -543,7 +547,7 @@ impl Document<'_> {
                 whole(&mut plans[item], Whole::Comment)?;
                 edits.push(TextEdit {
                     range: source_item.span(),
-                    replacement: comment_text(source_item.raw()),
+                    replacement: comment_text(source_item.raw(), self.dialect().line_breaks),
                 });
             }
             Edit::Uncomment { item } => {
@@ -609,7 +613,7 @@ impl Document<'_> {
             token.insert(0, '=');
         }
         if range.is_empty() && range.start == entry.line_span().end {
-            end_insertions[entry.item_id()] += token.len();
+            end_insertions[entry.item_id()] = edits.len() + 1;
         }
         edits.push(TextEdit {
             range,
@@ -728,6 +732,7 @@ impl Document<'_> {
             },
             token,
             key_token,
+            leading: String::new(),
             sorted: matches!(position, InsertPosition::Sorted),
         });
         Ok(())
@@ -784,12 +789,15 @@ impl Document<'_> {
         &self,
         previous: Option<crate::Item<'_>>,
         ending: &'static str,
+        plans: &[ItemPlan<'_>],
     ) -> &'static str {
         previous.map_or("", |item| {
-            let next_statement = self.dialect().quoted_tail == crate::QuotedTail::NextStatement
-                && item
-                    .entry()
-                    .is_some_and(|entry| entry.quote() != Quote::None);
+            let plan = &plans[item.id()];
+            let next_statement = plan.whole == Whole::Keep
+                && self.dialect().quoted_tail == crate::QuotedTail::NextStatement
+                && plan
+                    .desired
+                    .is_some_and(|desired| desired.quote != Quote::None);
             let needs_separator = (item.line_ending() == crate::LineEnding::None
                 && !next_statement)
                 || (self.dialect().line_breaks == crate::LineBreaks::Lf
@@ -802,12 +810,39 @@ impl Document<'_> {
         })
     }
 
+    fn merge_boundary_fields(
+        insertions: &mut [Insertion<'_>],
+        edits: &mut Vec<TextEdit>,
+        end_insertions: &mut [usize],
+    ) {
+        // Until this pass, nonzero values identify an ending field's edit by
+        // one-based index. Convert to byte lengths for region verification.
+        for ending in end_insertions {
+            let Some(index) = ending.checked_sub(1) else {
+                continue;
+            };
+            let edit = &mut edits[index];
+            *ending = edit.replacement.len();
+            let at = insertions.partition_point(|insert| insert.offset < edit.range.start);
+            if let Some(insertion) = insertions
+                .get_mut(at)
+                .filter(|insert| insert.offset == edit.range.start)
+            {
+                insertion.leading = core::mem::take(&mut edit.replacement);
+            }
+        }
+        edits.retain(|edit| !edit.range.is_empty() || !edit.replacement.is_empty());
+    }
+
     fn plan_insertions<'a>(
         &self,
         mut insertions: Vec<Insertion<'a>>,
         plans: &[ItemPlan<'_>],
         edits: &mut Vec<TextEdit>,
+        end_insertions: &mut [usize],
     ) -> (Vec<InsertGroup<'a>>, &'static str) {
+        insertions.sort_by_key(|insert| insert.offset);
+        Self::merge_boundary_fields(&mut insertions, edits, end_insertions);
         if insertions.is_empty() {
             return (Vec::new(), "");
         }
@@ -818,15 +853,14 @@ impl Document<'_> {
             .filter(|item| plans[item.id()].retains(*item))
             .peekable();
         let mut previous = None;
-        insertions.sort_by_key(|insert| insert.offset);
+        let mut previous_group_item = None;
         let mut groups = Vec::new();
-        let mut preceding_edits = 0;
-        let mut final_edit = None;
         let mut pending = insertions.as_mut_slice();
         while !pending.is_empty() {
             let offset = pending[0].offset;
             let count = pending.partition_point(|insert| insert.offset == offset);
             let (same, remaining) = pending.split_at_mut(count);
+            let mut text = core::mem::take(&mut same[0].leading);
             if same.iter().all(|insert| insert.sorted) {
                 same.sort_by(|a, b| a.desired.key.cmp(b.desired.key));
             }
@@ -839,9 +873,18 @@ impl Document<'_> {
             }
             let final_in_output = remaining.is_empty()
                 && last_retained.map_or(true, |item| item.span().start < offset);
-            let prefix =
-                self.insertion_separator(if at_end { last_retained } else { previous }, ending);
-            let mut text = String::from(prefix);
+            let prior = if at_end { last_retained } else { previous };
+            let owner = prior.map(crate::Item::id);
+            let prefix = if !groups.is_empty() && owner == previous_group_item {
+                ""
+            } else {
+                self.insertion_separator(prior, ending, plans)
+            };
+            if let Some(owner) = owner {
+                end_insertions[owner] += prefix.len();
+            }
+            previous_group_item = owner;
+            text.push_str(prefix);
             let mut entries = Vec::with_capacity(same.len());
             for (index, insertion) in same.iter().enumerate() {
                 let start = text.len();
@@ -850,24 +893,18 @@ impl Document<'_> {
                     text.push('=');
                     text.push_str(token);
                 }
-                if !final_in_output || self.has_final_newline() || index + 1 != same.len() {
+                if !final_in_output
+                    || self.has_final_newline()
+                    || index + 1 != same.len()
+                    || (self.dialect().syntax == crate::Syntax::Compose
+                        && insertion.desired.value.is_none())
+                {
                     text.push_str(ending);
                 }
                 entries.push((start..text.len(), insertion.desired));
             }
-            let before = if at_end {
-                edits
-                    .iter()
-                    .filter(|edit| edit.range == (offset..offset))
-                    .map(|edit| edit.replacement.len())
-                    .sum()
-            } else {
-                0
-            };
             groups.push(InsertGroup {
                 offset,
-                prefix: prefix.len(),
-                before,
                 len: text.len(),
                 entries,
             });
@@ -875,21 +912,12 @@ impl Document<'_> {
                 range: offset..offset,
                 replacement: text,
             };
-            if at_end {
-                final_edit = Some(insertion);
-            } else {
-                edits.push(insertion);
-                preceding_edits += 1;
-            }
+            edits.push(insertion);
             pending = remaining;
         }
-        // Non-EOF insertions precede field insertions at the same boundary;
-        // EOF insertions follow them. Rotate the appended groups once in the
-        // existing buffer rather than allocate a staging vector or shift per group.
-        edits.rotate_right(preceding_edits);
-        if let Some(edit) = final_edit {
-            edits.push(edit);
-        }
+        // Ending fields now belong to their insertion groups; groups precede
+        // any remaining fields belonging to the following item at that offset.
+        edits.rotate_right(groups.len());
         (groups, ending)
     }
 
@@ -972,18 +1000,17 @@ impl Document<'_> {
                 Whole::Remove => return Err(EditError::InvalidTarget),
             };
             let end = self.items[item].span.end;
-            let suffix = group_at(&groups, end).map_or(0, |group| group.prefix);
             let start = self.items[first].span.start;
             let inserted_before = group_at(&groups, start).map_or(0, |group| group.len);
             regions.push(Region {
                 range: boundaries.map(start) + inserted_before
-                    ..boundaries.map(end) + end_insertions[item] + suffix,
+                    ..boundaries.map(end) + end_insertions[item],
                 expect,
             });
             item += 1;
         }
         for group in groups {
-            let start = boundaries.map(group.offset) + group.before;
+            let start = boundaries.map(group.offset);
             for (range, desired) in group.entries {
                 regions.push(Region {
                     range: start + range.start..start + range.end,

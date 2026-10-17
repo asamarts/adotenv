@@ -59,8 +59,10 @@ UTF-8 before parsing rather than decoded lossily.
   refusals remain allowed there. Every successful edit must satisfy the
   preservation and meaning postconditions.
   Preset/custom set, remove, rename and export paths also check ordered meanings,
-  authorized token ranges and unselected raw/diagnostic preservation; conservative
-  non-Portable encoder refusal is not treated as proof of successful encoding.
+  authorized token ranges and unselected raw/diagnostic preservation. Preset
+  comment/restoration checks preserve LF-only CR data and require ordinary
+  Docker comments to succeed below the scanner cap. Conservative non-Portable
+  encoder refusal is not treated as proof of successful encoding.
 
 Checked-in seeds are newly authored, public synthetic examples, with no real
 credentials or private compatibility results. The edit input format is an
@@ -230,6 +232,37 @@ The initial host-default musl build failed before fuzz execution because its
 C++/sanitizer setup was unavailable; the explicit GNU target above is the actual
 successful campaign. These are bounded smoke campaigns, not sustained fuzz
 coverage. No measured multi-dialect performance baseline is claimed.
+
+### Delivered-dialect adversarial audit
+
+The delivered `45943b0030dac263507e3440b32fcabe66569f6d` increment was
+re-exercised before the encoder implementation:
+
+- All 82 unit/property/documentation tests pass in both feature modes with
+  `PROPTEST_CASES=2000`; locked real-runtime replay still matches all 1,420
+  pinned observations.
+- Exhaustive tokens of length zero through four over ten grammar characters
+  produce 11,111 synthetic sources. Actual upstream comparison matches 66,666
+  applicable observations and 129,288 fields; 4,044 fail-fast observations
+  compare the error flag only. Existing role/profile exclusions remain visible.
+- Seven reproduced-before/passing-after regressions repair LF-only comment
+  restoration, planned-kind separators, prior-item field ordering, final bare
+  Compose declarations, removed-statement separator ownership and whole-line
+  rejection for plain Node items. The repaired increment passes all 90 tests
+  in both feature modes with 2,000 generated cases per property.
+- A separate alloc-only executable under a 512 MiB address-space limit exercises
+  all five presets, the repaired batches/restoration/cap paths, exact CRLF
+  output, literal dollars, a 100,000-ignored-line edit and Docker's scanner edge.
+- Isolated ASan campaigns use the same runner, GNU target and limits above:
+
+| Stage | Target | Executed inputs | Engine seconds | Peak RSS (MiB) |
+| --- | --- | ---: | ---: | ---: |
+| Delivered baseline | Parser | 100,000 | 41 | 470 |
+| Delivered baseline | Native edits | 100,000 | 25 | 517 |
+| After audit fixes | Parser | 100,000 | 34 | 464 |
+| After audit fixes and restoration oracle | Native edits | 100,000 | 37 | 525 |
+
+These are additional bounded campaigns, not sustained fuzz evidence.
 
 ## Local execution evidence (2026-10-15)
 
