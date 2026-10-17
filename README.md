@@ -182,11 +182,33 @@ of unrelated syntax, including changed multiline quote grouping. Unrelated
 invalid statements do not prevent editing a valid target. Existing quotes are
 retained when exact; otherwise a safe candidate is verified. Python key quotes,
 Node backticks, appended tails and raw Docker values retain their selected
-grammar. Candidate generation is conservative outside Portable and can refuse a
-representable value; a complete per-dialect encoder is still future work.
-`encode_value(&str) -> Option<String>` remains a standalone Portable encoder,
-not a context-safe edit by itself. Control characters other than newline,
-carriage return and tab are refused.
+grammar. Native set/insert use the same exact codec as standalone encoding,
+with the actual header, suffix and line budget; they accept literal controls
+when the selected grammar can represent them. Whole-batch preservation remains
+mandatory even when a standalone value is encodable.
+
+`encode_value_with(&str, Dialect) -> Result<String, EncodeError>` returns a
+standalone literal token or `EncodeError::Unrepresentable`. Its contract is
+`A=<token>\n` **and** `A=<token>` at EOF. The canonical `A=` header consumes two
+bytes of a configured first-line budget. This is not a context-safe edit or an
+interpolation guarantee. Syntax padding is part of the returned token: LF-only
+raw values ending in CR use an extra CR, while `LiteralFallback` can require a
+trailing inline-comment marker. Do not append CRLF to raw padding; use a native
+edit for an existing document.
+
+```rust
+use adotenv::{encode_value_with, parse_strict_with, Dialect};
+
+let value = "literal #\0\n";
+let token = encode_value_with(value, Dialect::PYTHON_DOTENV).unwrap();
+let source = format!("A={token}\n");
+assert_eq!(parse_strict_with(&source, Dialect::PYTHON_DOTENV).unwrap().get("A"),
+           Some(value));
+assert!(encode_value_with("two\nlines", Dialect::DOCKER_RAW).is_err());
+```
+
+`encode_value(&str) -> Option<String>` keeps its Portable default and its
+published refusal of controls other than newline, carriage return and tab.
 
 The free `adotenv::set(text, key, value)` and `remove(text, key)` helpers still
 return `Result<String, EditError>`, but now use the recovering parser and native
@@ -235,10 +257,10 @@ spans, including escapes.
 ## Quality and future work
 
 Criterion workloads cover small, typical and multi-megabyte parsing and native
-edits. Public synthetic seeds feed parser and edit fuzz targets; scheduled CI
-runs bounded campaigns. Reproduction commands and evidence policy are in
-[quality.md](docs/design/quality.md). Harness availability is not a claim that
-any particular benchmark or fuzz duration has passed.
+edits. Public synthetic seeds feed parser, edit and encoding fuzz targets;
+scheduled CI runs bounded campaigns. Reproduction commands and evidence policy
+are in [quality.md](docs/design/quality.md). Harness availability is not a claim
+that any particular benchmark or fuzz duration has passed.
 
 The public [upstream conformance corpus](conformance/manifest.json) records
 version-pinned real Node, Python, Compose and Docker env-file observations.
@@ -264,10 +286,10 @@ line/declaration budgets before parsing: retained documents, decoded escape
 maps and requested diagnostics consume memory. Docker's preset includes its
 upstream scanner line-byte limit; this is not an application memory ceiling.
 
-0.3 development now includes explicit dialect configuration and five presets.
-Per-dialect standalone encoding and portability comparison are next; reference
-analysis/expansion, formatting, loading and integration crates remain future
-milestones. This unreleased API is not a crates.io publication. See
+0.3 development now includes explicit dialect configuration, five presets and
+per-dialect encoding. Portability comparison is next; reference analysis/expansion,
+formatting, loading and integration crates remain future milestones.
+This unreleased API is not a crates.io publication. See
 [ROADMAP.md](ROADMAP.md) and [design notes](docs/design/).
 
 ## Minimum supported Rust version

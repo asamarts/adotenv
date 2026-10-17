@@ -16,9 +16,9 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 
 **Current status:** 0.2.1 is published. Unreleased 0.3 development implements
 explicit dialect configuration, all five syntax presets, selected-dialect native
-verification and applicable pinned-upstream comparison. Per-dialect standalone
-encoding and portability comparison remain the next 0.3 work; everything from
-0.4 onward remains future work. Execution evidence is in the quality notes.
+verification, exact per-dialect encoding and applicable pinned-upstream comparison.
+Portability comparison remains the next 0.3 work; everything from 0.4 onward
+remains future work. Execution evidence is in the quality notes.
 
 ## Goals
 
@@ -107,9 +107,10 @@ Literal parsing into ordered entries with key, value and line spans;
   comparison for applicable literal profiles. Resolution/loading, Node's opt-in
   fast grammar and Python's file-newline conversion are explicitly excluded.
   See [execution evidence](docs/design/quality.md#public-upstream-conformance-corpus-03-preparation).
-- **Next:** complete per-dialect standalone encoding, with an error for values
-  the dialect cannot represent; current non-Portable native candidates can
-  conservatively refuse otherwise representable values.
+- **Implemented:** `encode_value_with` and explicit `EncodeError`, shared with
+  context-aware native set/insert. Preset/custom escape policies, raw CR padding,
+  quoted tails, controls and byte budgets retain exact values. The original
+  Portable `encode_value` helper keeps its published control-character policy.
 - **Next:** portability comparison that reparses under selected configurations
   and reports differing declarations, values and statement grouping.
 

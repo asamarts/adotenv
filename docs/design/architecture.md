@@ -231,8 +231,13 @@ they do not refer to successively modified versions of the source.
 An operation's edit batch is verified as a whole against one source snapshot;
 individually valid edits do not waive final batch verification. Verification
 always reparses using the document's exact configuration, including custom
-overrides. Candidate encoding outside Portable remains conservative until the
-per-dialect encoder is implemented; refusal is preferable to a wrong value.
+overrides. A shared dialect-aware codec validates standalone LF/EOF tokens and
+native source contexts. Value spelling is deferred until rename/export headers
+are planned, and insertion spelling until its actual ending is known. Ending
+fields account for generated separators. A selected entry may expose its own
+blank/comment suffix as separate items, but cannot consume another declaration
+or regroup an unselected item. Custom byte caps include the surrounding physical
+line, including neighboring statements; the complete output is always rechecked.
 
 ## Crate layout and platform
 

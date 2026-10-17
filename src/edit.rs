@@ -6,7 +6,7 @@ use alloc::{
 };
 use core::{error::Error, fmt, ops::Range};
 
-use crate::{AssignmentState, Dialect, Document, ItemKind, Quote, Severity};
+use crate::{encode::encode_native, AssignmentState, Dialect, Document, ItemKind, Quote, Severity};
 
 /// A native byte-range replacement against the original document snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,7 +123,7 @@ pub enum EditError {
     InvalidTarget,
     /// The requested name cannot be represented by the selected key grammar.
     InvalidKey,
-    /// The value contains unsupported control characters.
+    /// The value cannot be represented in its selected dialect and source context.
     Unencodable,
     /// Operations overlap or assign the same property more than once.
     ConflictingEdits,
@@ -139,7 +139,7 @@ impl fmt::Display for EditError {
             }
             Self::InvalidTarget => f.write_str("invalid snapshot-local edit target"),
             Self::InvalidKey => f.write_str("key cannot be represented by the selected dialect"),
-            Self::Unencodable => f.write_str("value contains an unsupported control character"),
+            Self::Unencodable => f.write_str("value cannot be represented in the selected dialect"),
             Self::ConflictingEdits => f.write_str("conflicting operations in edit batch"),
             Self::WouldChangeMeaning => {
                 f.write_str("edit would change unrelated source interpretation")
@@ -148,66 +148,6 @@ impl fmt::Display for EditError {
     }
 }
 impl Error for EditError {}
-
-fn supported(value: &str) -> bool {
-    value
-        .chars()
-        .all(|c| !c.is_control() || matches!(c, '\n' | '\r' | '\t'))
-}
-fn unquoted(value: &str) -> bool {
-    !value.starts_with(['\'', '"'])
-        && !value
-            .chars()
-            .any(|c| c.is_whitespace() || c == '#' || c.is_control())
-}
-fn double_quoted(value: &str) -> String {
-    let mut token = String::with_capacity(value.len() + 2);
-    token.push('"');
-    for c in value.chars() {
-        match c {
-            '\\' => token.push_str("\\\\"),
-            '"' => token.push_str("\\\""),
-            '\n' => token.push_str("\\n"),
-            '\r' => token.push_str("\\r"),
-            '\t' => token.push_str("\\t"),
-            _ => token.push(c),
-        }
-    }
-    token.push('"');
-    token
-}
-fn encode_with_style(value: &str, quote: Quote) -> Option<(String, Quote)> {
-    if !supported(value) {
-        return None;
-    }
-    match quote {
-        Quote::Single if !value.contains('\'') => {
-            let mut token = String::with_capacity(value.len() + 2);
-            token.push('\'');
-            token.push_str(value);
-            token.push('\'');
-            Some((token, Quote::Single))
-        }
-        Quote::Backtick if !value.contains('`') => {
-            let mut token = String::with_capacity(value.len() + 2);
-            token.push('`');
-            token.push_str(value);
-            token.push('`');
-            Some((token, Quote::Backtick))
-        }
-        Quote::Double => Some((double_quoted(value), Quote::Double)),
-        _ if unquoted(value) => Some((value.to_string(), Quote::None)),
-        _ => Some((double_quoted(value), Quote::Double)),
-    }
-}
-
-fn encode_in(value: &str, quote: Quote, dialect: Dialect) -> Option<(String, Quote)> {
-    if dialect.raw_values {
-        supported(value).then(|| (value.to_string(), Quote::None))
-    } else {
-        encode_with_style(value, quote)
-    }
-}
 
 fn key_token(key: &str, dialect: Dialect) -> Option<Cow<'_, str>> {
     if crate::parser::valid_key_in(key, dialect) && !(dialect.quoted_keys && key.starts_with('\''))
@@ -222,14 +162,6 @@ fn key_token(key: &str, dialect: Dialect) -> Option<Cow<'_, str>> {
     } else {
         None
     }
-}
-
-/// Encode one exact standalone Portable value token, without interpolation.
-///
-/// Unsupported control characters return `None`; CR, LF and tab are escaped.
-#[must_use]
-pub fn encode_value(value: &str) -> Option<String> {
-    encode_with_style(value, Quote::None).map(|(token, _)| token)
 }
 
 // Build an index only when a batch performs repeated name lookups. Single-key
@@ -390,10 +322,37 @@ impl ItemPlan<'_> {
 struct Insertion<'a> {
     offset: usize,
     desired: Desired<'a>,
-    token: Option<String>,
     key_token: Cow<'a, str>,
     leading: String,
     sorted: bool,
+}
+impl<'a> Insertion<'a> {
+    fn append_to(
+        &mut self,
+        text: &mut String,
+        dialect: Dialect,
+        ending: &str,
+    ) -> Result<(Range<usize>, Desired<'a>), EditError> {
+        let start = text.len();
+        text.push_str(&self.key_token);
+        if let Some(value) = self.desired.value {
+            let (token, quote) = encode_native(
+                value,
+                Quote::None,
+                dialect,
+                &self.key_token,
+                ending,
+                true,
+                false,
+            )
+            .map_err(|_| EditError::Unencodable)?;
+            text.push('=');
+            text.push_str(&token);
+            self.desired.quote = quote;
+        }
+        text.push_str(ending);
+        Ok((start..text.len(), self.desired))
+    }
 }
 enum Expect<'a> {
     Original(usize),
@@ -404,6 +363,38 @@ enum Expect<'a> {
 struct Region<'a> {
     range: Range<usize>,
     expect: Expect<'a>,
+}
+fn verify_entry_region<'a>(
+    first: crate::Item<'a>,
+    desired: Desired<'_>,
+    range: &Range<usize>,
+    actual: &mut impl Iterator<Item = crate::Item<'a>>,
+) -> Result<(), EditError> {
+    if first.span().end > range.end
+        || first
+            .diagnostic()
+            .is_some_and(|d| d.severity() == Severity::Error)
+        || !first.entry().is_some_and(|entry| desired.matches(entry))
+    {
+        return Err(EditError::WouldChangeMeaning);
+    }
+    // A new quote form can expose the selected entry's own whitespace/comment
+    // suffix as separate items (Compose). Never consume another declaration.
+    let mut end = first.span().end;
+    while end < range.end {
+        let next = actual.next().ok_or(EditError::WouldChangeMeaning)?;
+        if next.span().start != end
+            || next.span().end > range.end
+            || !matches!(next.kind(), ItemKind::Blank | ItemKind::Comment)
+            || next
+                .diagnostic()
+                .is_some_and(|d| d.severity() == Severity::Error)
+        {
+            return Err(EditError::WouldChangeMeaning);
+        }
+        end = next.span().end;
+    }
+    Ok(())
 }
 struct InsertGroup<'a> {
     offset: usize,
@@ -500,18 +491,19 @@ impl Document<'_> {
         let mut insertions = Vec::new();
         let mut end_insertions = vec![0; self.items.len()];
         for operation in operations {
-            self.plan_operation(
-                *operation,
-                &mut plans,
-                &mut edits,
-                &mut insertions,
-                &mut end_insertions,
-                &keys,
-            )?;
+            self.plan_operation(*operation, &mut plans, &mut edits, &mut insertions, &keys)?;
         }
         self.validate_renames(&plans)?;
+        insertions.sort_by_key(|insertion| insertion.offset);
+        self.finish_sets(
+            operations,
+            &mut plans,
+            &mut edits,
+            &insertions,
+            &mut end_insertions,
+        )?;
         let (groups, ending) =
-            self.plan_insertions(insertions, &plans, &mut edits, &mut end_insertions);
+            self.plan_insertions(insertions, &plans, &mut edits, &mut end_insertions)?;
         let edits = Self::normalize_edits(edits)?;
         let output = Self::apply_edits(self.source(), &edits);
         let regions = self.expected_regions(&plans, &end_insertions, &edits, groups)?;
@@ -525,12 +517,11 @@ impl Document<'_> {
         plans: &mut [ItemPlan<'a>],
         edits: &mut Vec<TextEdit>,
         insertions: &mut Vec<Insertion<'a>>,
-        end_insertions: &mut [usize],
         keys: &KeyLookup<'a>,
     ) -> Result<(), EditError> {
         match operation {
             Edit::Set { entry, value } => {
-                self.plan_set(entry, value, plans, edits, end_insertions)?;
+                self.plan_set(entry, value, plans)?;
             }
             Edit::Rename { entry, key } => self.plan_rename(entry, key, plans, edits, keys)?,
             Edit::Export { entry, enabled } => self.plan_export(entry, enabled, plans, edits)?,
@@ -583,47 +574,164 @@ impl Document<'_> {
         id: usize,
         value: &'a str,
         plans: &mut [ItemPlan<'a>],
-        edits: &mut Vec<TextEdit>,
-        end_insertions: &mut [usize],
     ) -> Result<(), EditError> {
         let entry = self.entry(id).ok_or(EditError::InvalidTarget)?;
         let plan = &mut plans[entry.item_id()];
         claim(plan, 1)?;
-        let retained_tail = self.dialect().quoted_tail == crate::QuotedTail::Ignore
-            && entry.tokens().quoted_tail.is_some();
-        let style = match entry.quote() {
-            Quote::Single if retained_tail && value.contains('\'') => Quote::Double,
-            Quote::Backtick if retained_tail && value.contains('`') => Quote::Double,
-            style => style,
-        };
-        let (mut token, quote) =
-            encode_in(value, style, self.dialect()).ok_or(EditError::Unencodable)?;
-        let range = entry
-            .value_span()
-            .unwrap_or_else(|| entry.tokens().key.end..entry.tokens().key.end);
-        if entry
-            .tokens()
-            .inline_comment
-            .as_ref()
-            .is_some_and(|comment| comment.start == range.end)
-        {
-            token.push(' ');
-        }
-        if entry.value_span().is_none() {
-            token.insert(0, '=');
-        }
-        if range.is_empty() && range.start == entry.line_span().end {
-            end_insertions[entry.item_id()] = edits.len() + 1;
-        }
-        edits.push(TextEdit {
-            range,
-            replacement: token,
-        });
         if let Some(desired) = &mut plan.desired {
             desired.value = Some(value);
-            desired.quote = quote;
         }
         Ok(())
+    }
+
+    fn finish_sets<'a>(
+        &'a self,
+        operations: &[Edit<'a>],
+        plans: &mut [ItemPlan<'a>],
+        edits: &mut Vec<TextEdit>,
+        insertions: &[Insertion<'_>],
+        end_insertions: &mut [usize],
+    ) -> Result<(), EditError> {
+        // Header edits are complete before choosing a value spelling. Operation
+        // order must not change the byte budget after rename/export changes.
+        edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
+        let header_count = edits.len();
+        for operation in operations {
+            let Edit::Set { entry: id, value } = *operation else {
+                continue;
+            };
+            let entry = self.entry(id).ok_or(EditError::InvalidTarget)?;
+            let item = self.item(entry.item_id()).ok_or(EditError::InvalidTarget)?;
+            let span = entry.line_span();
+            let range = entry
+                .value_span()
+                .unwrap_or_else(|| entry.tokens().key.end..entry.tokens().key.end);
+            let context = self.value_context(&span, &range);
+            let before = self.edited_header(context.start..range.start, &edits[..header_count]);
+            let suffix = &self.source()[range.end..span.end];
+            let separate_comment = entry
+                .tokens()
+                .inline_comment
+                .as_ref()
+                .is_some_and(|comment| comment.start == range.end);
+            let encode = |ending: &str, preferred| {
+                let after = if ending.is_empty() {
+                    Cow::Borrowed(&self.source()[range.end..context.end])
+                } else if suffix.is_empty() {
+                    Cow::Borrowed(ending)
+                } else {
+                    let mut combined = String::with_capacity(suffix.len() + ending.len());
+                    combined.push_str(suffix);
+                    combined.push_str(ending);
+                    Cow::Owned(combined)
+                };
+                encode_native(
+                    value,
+                    preferred,
+                    self.dialect(),
+                    &before,
+                    &after,
+                    entry.value_span().is_none(),
+                    separate_comment,
+                )
+                .map_err(|_| EditError::Unencodable)
+            };
+            let ending = self.following_separator(item, insertions, plans);
+            let (mut token, mut quote) = encode(ending, entry.quote())?;
+            plans[item.id()]
+                .desired
+                .as_mut()
+                .ok_or(EditError::InvalidTarget)?
+                .quote = quote;
+            let actual_ending = self.following_separator(item, insertions, plans);
+            if actual_ending != ending {
+                (token, quote) = encode(actual_ending, quote)?;
+            }
+            if separate_comment {
+                token.push(' ');
+            }
+            if entry.value_span().is_none() {
+                token.insert(0, '=');
+            }
+            if range.is_empty() && range.start == span.end {
+                end_insertions[item.id()] = edits.len() + 1;
+            }
+            edits.push(TextEdit {
+                range,
+                replacement: token,
+            });
+            plans[item.id()]
+                .desired
+                .as_mut()
+                .ok_or(EditError::InvalidTarget)?
+                .quote = quote;
+        }
+        Ok(())
+    }
+
+    fn value_context(&self, item: &Range<usize>, value: &Range<usize>) -> Range<usize> {
+        if self.dialect().line_byte_limit.is_none() {
+            return item.clone();
+        }
+        let breaks = |c| {
+            c == '\n' || (c == '\r' && self.dialect().line_breaks == crate::LineBreaks::Universal)
+        };
+        let start = self.source()[..item.start]
+            .rfind(breaks)
+            .map_or(0, |at| at + 1);
+        let end = self.source()[value.end..]
+            .find(breaks)
+            .map_or(self.source().len(), |at| {
+                let at = value.end + at;
+                at + if self.source().as_bytes()[at] == b'\r'
+                    && self.source().as_bytes().get(at + 1) == Some(&b'\n')
+                {
+                    2
+                } else {
+                    1
+                }
+            });
+        start..end
+    }
+
+    fn edited_header(&self, range: Range<usize>, edits: &[TextEdit]) -> Cow<'_, str> {
+        let start = edits.partition_point(|edit| {
+            edit.range.end < range.start
+                || (edit.range.end == range.start && !edit.range.is_empty())
+        });
+        let end = edits.partition_point(|edit| edit.range.start < range.end);
+        if start >= end {
+            return Cow::Borrowed(&self.source()[range]);
+        }
+        let mut header = String::with_capacity(range.len());
+        let mut at = range.start;
+        for edit in &edits[start..end] {
+            header.push_str(&self.source()[at..edit.range.start]);
+            header.push_str(&edit.replacement);
+            at = edit.range.end;
+        }
+        header.push_str(&self.source()[at..range.end]);
+        Cow::Owned(header)
+    }
+
+    fn following_separator(
+        &self,
+        item: crate::Item<'_>,
+        insertions: &[Insertion<'_>],
+        plans: &[ItemPlan<'_>],
+    ) -> &'static str {
+        let next = insertions.partition_point(|insertion| insertion.offset < item.span().end);
+        let Some(insertion) = insertions.get(next) else {
+            return "";
+        };
+        let intervening = self
+            .items()
+            .skip(item.id() + 1)
+            .find(|next| plans[next.id()].retains(*next));
+        if intervening.is_some_and(|next| next.span().end <= insertion.offset) {
+            return "";
+        }
+        self.insertion_separator(Some(item), self.preferred_ending(), plans)
     }
 
     fn plan_rename<'a>(
@@ -714,23 +822,14 @@ impl Document<'_> {
             }
             InsertPosition::Sorted => keys.first_greater(key),
         };
-        let (token, quote) = match value {
-            Some(value) => {
-                let (token, quote) =
-                    encode_in(value, Quote::None, self.dialect()).ok_or(EditError::Unencodable)?;
-                (Some(token), quote)
-            }
-            None => (None, Quote::None),
-        };
         insertions.push(Insertion {
             offset,
             desired: Desired {
                 key,
                 value,
-                quote,
+                quote: Quote::None,
                 exported: false,
             },
-            token,
             key_token,
             leading: String::new(),
             sorted: matches!(position, InsertPosition::Sorted),
@@ -840,11 +939,10 @@ impl Document<'_> {
         plans: &[ItemPlan<'_>],
         edits: &mut Vec<TextEdit>,
         end_insertions: &mut [usize],
-    ) -> (Vec<InsertGroup<'a>>, &'static str) {
-        insertions.sort_by_key(|insert| insert.offset);
+    ) -> Result<(Vec<InsertGroup<'a>>, &'static str), EditError> {
         Self::merge_boundary_fields(&mut insertions, edits, end_insertions);
         if insertions.is_empty() {
-            return (Vec::new(), "");
+            return Ok((Vec::new(), ""));
         }
         let ending = self.preferred_ending();
         let last_retained = self.last_retained_item(plans);
@@ -886,22 +984,19 @@ impl Document<'_> {
             previous_group_item = owner;
             text.push_str(prefix);
             let mut entries = Vec::with_capacity(same.len());
-            for (index, insertion) in same.iter().enumerate() {
-                let start = text.len();
-                text.push_str(&insertion.key_token);
-                if let Some(token) = &insertion.token {
-                    text.push('=');
-                    text.push_str(token);
-                }
-                if !final_in_output
+            let count = same.len();
+            for (index, insertion) in same.iter_mut().enumerate() {
+                let suffix = if !final_in_output
                     || self.has_final_newline()
-                    || index + 1 != same.len()
+                    || index + 1 != count
                     || (self.dialect().syntax == crate::Syntax::Compose
                         && insertion.desired.value.is_none())
                 {
-                    text.push_str(ending);
-                }
-                entries.push((start..text.len(), insertion.desired));
+                    ending
+                } else {
+                    ""
+                };
+                entries.push(insertion.append_to(&mut text, self.dialect(), suffix)?);
             }
             groups.push(InsertGroup {
                 offset,
@@ -918,7 +1013,7 @@ impl Document<'_> {
         // Ending fields now belong to their insertion groups; groups precede
         // any remaining fields belonging to the following item at that offset.
         edits.rotate_right(groups.len());
-        (groups, ending)
+        Ok((groups, ending))
     }
 
     fn normalize_edits(mut edits: Vec<TextEdit>) -> Result<Vec<TextEdit>, EditError> {
@@ -1055,14 +1150,7 @@ impl Document<'_> {
             }
             match region.expect {
                 Expect::Entry(desired) => {
-                    if first.span() != region.range
-                        || first
-                            .diagnostic()
-                            .is_some_and(|diagnostic| diagnostic.severity() == Severity::Error)
-                        || !first.entry().is_some_and(|entry| desired.matches(entry))
-                    {
-                        return Err(EditError::WouldChangeMeaning);
-                    }
+                    verify_entry_region(first, desired, &region.range, &mut actual)?;
                 }
                 Expect::Original(id) => {
                     let original = self.item(id).ok_or(EditError::InvalidTarget)?;

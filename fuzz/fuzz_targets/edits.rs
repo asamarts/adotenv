@@ -1,6 +1,8 @@
 #![no_main]
 #![forbid(unsafe_code)]
 
+use std::ops::Range;
+
 use adotenv::{
     parse, parse_with, Dialect, Document, Edit, InsertPosition, ItemKind, VerifiedEdits,
 };
@@ -22,6 +24,22 @@ fn meanings(document: &Document<'_>) -> Vec<Meaning> {
             exported: entry.exported(),
         })
         .collect()
+}
+
+fn mapped_range(range: Range<usize>, verified: &VerifiedEdits) -> Range<usize> {
+    let map = |offset: usize, include_insertions_at_boundary: bool| {
+        verified.edits().iter().fold(offset, |mapped, edit| {
+            let before = edit.range.end < offset
+                || (edit.range.end == offset
+                    && (!edit.range.is_empty() || include_insertions_at_boundary));
+            if before {
+                mapped - edit.range.len() + edit.replacement.len()
+            } else {
+                mapped
+            }
+        })
+    };
+    map(range.start, false)..map(range.end, true)
 }
 
 fn insertion_anchor(
@@ -339,9 +357,16 @@ fn check_selected(source: &str, value: &str, operation: u8, selector: u8, dialec
     let target = usize::from(selector) % count;
     let entry = document.entry(target).unwrap();
     let item_id = entry.item_id();
-    let records = |doc: &Document<'_>, omit: Option<usize>| {
+    let records = |doc: &Document<'_>, omit: Option<usize>, selected: Option<&Range<usize>>| {
         doc.items()
-            .filter(|item| Some(item.id()) != omit)
+            .filter(|item| {
+                Some(item.id()) != omit
+                    && !selected.is_some_and(|range| {
+                        item.span().start >= range.start
+                            && item.span().end <= range.end
+                            && matches!(item.kind(), ItemKind::Blank | ItemKind::Comment)
+                    })
+            })
             .map(|item| {
                 let diagnostic = item.diagnostic().map(|d| {
                     let span = d.span();
@@ -409,13 +434,14 @@ fn check_selected(source: &str, value: &str, operation: u8, selector: u8, dialec
     }
     let (after, _) = parse_with(verified.as_str(), dialect);
     assert_eq!(meanings(&after), expected);
-    let before_records = records(&document, Some(item_id));
+    let before_records = records(&document, Some(item_id), None);
     let after_item = if operation % 4 == 1 {
         None
     } else {
         Some(after.entry(target).unwrap().item_id())
     };
-    assert_eq!(records(&after, after_item), before_records);
+    let selected = mapped_range(document.item(item_id).unwrap().span(), &verified);
+    assert_eq!(records(&after, after_item, Some(&selected)), before_records);
 }
 
 fuzz_target!(|bytes: &[u8]| {

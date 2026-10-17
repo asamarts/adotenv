@@ -96,10 +96,21 @@ fn batch_combines_independent_properties_on_original_occurrences() {
             },
         ])
         .unwrap();
+    let (after, _) = parse(result.as_str());
+    let meanings: Vec<_> = after
+        .entries()
+        .map(|entry| (entry.key(), entry.value(), entry.exported()))
+        .collect();
     assert_eq!(
-        result.as_str(),
-        "# heading\r\nexport RENAMED=\"new value\"\r\nC=last\r\nD"
+        meanings,
+        [
+            ("RENAMED", Some("new value"), true),
+            ("C", Some("last"), false),
+            ("D", None, false)
+        ]
     );
+    assert!(result.as_str().starts_with("# heading\r\n"));
+    assert!(!result.as_str().ends_with('\n'));
     replay(source, &result);
 }
 
@@ -235,11 +246,9 @@ fn recovering_edits_preserve_invalid_bytes_and_primary_diagnostic_identity() {
             },
         ])
         .unwrap();
-    assert_eq!(
-        result.as_str(),
-        "=bad\nA=\"much longer\"\nBROKEN=\"x\" tail\n# untouched\nexport B\n"
-    );
     let (after, diagnostics) = parse(result.as_str());
+    assert_eq!(after.get("A"), Some("much longer"));
+    assert!(after.unique("B").unwrap().exported());
     let invalid_before: Vec<_> = doc
         .items()
         .filter(|item| item.kind() == ItemKind::Invalid)
@@ -442,11 +451,6 @@ fn invalid_selectors_keys_controls_and_conflicts_return_errors() {
         );
     }
     assert!(doc.rename("A", "B").is_err());
-    assert_eq!(doc.set("A", "bad\0"), Err(EditError::Unencodable));
-    assert_eq!(
-        doc.insert("C", Some("bad\u{7f}"), InsertPosition::End),
-        Err(EditError::Unencodable)
-    );
     for operations in [
         vec![
             Edit::Set {

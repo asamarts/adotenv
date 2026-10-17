@@ -15,13 +15,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   inheritance or loading.
 - Typed syntax/escape/lookup/error policies; backtick quotes, Python quoted keys,
   ignored-statement metadata, appended-tail source maps and Docker scanner
-  boundaries. Native edits verify with the exact selected configuration;
-  conservative non-Portable candidate refusal remains until the full encoder.
+  boundaries. Native edits verify with the exact selected configuration.
 - Public Rust probe and CI comparisons against applicable real pinned upstream
   profiles. Four Compose EOF/Unicode regressions extend the corpus to 71 cases
   and 1,420 actual observations; resolution/loading exclusions are explicit.
 - Property and sanitizer fuzz invariants across five presets and custom policies,
   retaining independent Portable semantic and positive-edit oracles.
+- Exact `encode_value_with` and non-exhaustive `EncodeError`, with a shared
+  context-aware codec for native set/insert. Independent escape switches,
+  overlapping substitutions, appended tails, literal-fallback comment padding,
+  raw terminal CR and scanner budgets preserve literal values. The original
+  helper keeps its control policy; the new API and native edits accept every
+  control the selected grammar represents.
+- Positive inverse properties and a dedicated encoding sanitizer target/CI job.
 
 ### Fixed
 

@@ -4,7 +4,7 @@ Status: lossless-core quality harnesses and unreleased 0.3 dialect checks are
 implemented: unit/property/documentation tests, public synthetic fuzz seeds,
 Criterion workloads, real pinned upstream replay and a public-API Rust probe.
 This document distinguishes runnable checks from recorded execution evidence.
-Standalone dialect encoding, portability and resolution workloads remain future.
+Standalone dialect encoding is covered; portability and resolution remain future.
 
 ## Permanent test expectations
 
@@ -17,8 +17,10 @@ message wording:
 - Portable syntax covers bare/empty/value states, duplicates, literal
   whitespace-sensitive hashes, known/unknown escapes, multiline grouping and
   unmatched-quote recovery. Diagnostics match code, severity and spans.
-- `encode_value` returns a standalone token that reads back exactly when
-  representable, without claiming contextual safety by itself.
+- `encode_value_with` must decode exactly under the selected configuration at
+  LF and EOF. Known legal tokens are positive representability witnesses: an
+  encoder refusing every value must fail. The legacy helper keeps its policy;
+  neither API claims arbitrary contextual or interpolation safety.
 - Verified edits produce the intended semantic change and leave unrelated
   entries, invalid items and diagnostic identities unchanged, allowing
   position shifts. Tests include adversarial regrouping of quotes and BOMs,
@@ -61,8 +63,14 @@ UTF-8 before parsing rather than decoded lossily.
   Preset/custom set, remove, rename and export paths also check ordered meanings,
   authorized token ranges and unselected raw/diagnostic preservation. Preset
   comment/restoration checks preserve LF-only CR data and require ordinary
-  Docker comments to succeed below the scanner cap. Conservative non-Portable
-  encoder refusal is not treated as proof of successful encoding.
+  Docker comments to succeed below the scanner cap.
+- `encoding`: arbitrary UTF-8 must encode under Portable/Python/Compose; every
+  successful preset/custom token must decode exactly at LF and EOF. Legal raw,
+  single/double/backtick and appended-tail tokens independently require encoding
+  of their cooked values. Configurations vary escape flags, unknown escapes,
+  single escapes, tails, multiline forms, normalization, comments and byte caps.
+  The payload is bounded to 512 bytes independently of the engine's input limit.
+  Legacy helper controls remain a separate compatibility assertion.
 
 Checked-in seeds are newly authored, public synthetic examples, with no real
 credentials or private compatibility results. The edit input format is an
@@ -96,6 +104,7 @@ rustup toolchain install nightly
 cargo install cargo-fuzz --version 0.13.2 --locked
 cargo +nightly fuzz run parser -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
 cargo +nightly fuzz run edits -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
+cargo +nightly fuzz run encoding -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
 ```
 
 For an individual crash, use `cargo +nightly fuzz run <target> <reproducer>`.
@@ -214,7 +223,7 @@ These checks exercise literal syntax only, not expansion or loading.
   rename, ignored tails/diagnostics, malformed octal mapping, unknown-escape
   newline normalization, tight-comment policy and whole-line scanner rejection.
 - `cargo-audit` finds no advisory matches in the root, Rust probe or fuzz
-  lockfiles against 1,329 loaded RustSec advisories. This is a dated advisory
+  lockfiles against 1,334 loaded RustSec advisories. This is a dated advisory
   snapshot, not a claim that dependencies are vulnerability-free.
 - Workflow syntax passes actionlint 1.7.7, built in an isolated temporary directory.
 
@@ -263,6 +272,40 @@ re-exercised before the encoder implementation:
 | After audit fixes and restoration oracle | Native edits | 100,000 | 37 | 525 |
 
 These are additional bounded campaigns, not sustained fuzz evidence.
+
+### Dialect-encoder adversarial audit
+
+The completed encoder working tree was validated after repairing the final
+sanitizer findings:
+
+- All 100 unit/property tests and seven doctests pass in both feature modes,
+  with `PROPTEST_CASES=2000`. Root, fuzz and conformance formatting; all-target
+  core and conformance Clippy; alloc-only Clippy; warning-denied rustdoc; Rust
+  1.81 builds in both modes; the alloc-only embedded target; package construction;
+  and all nine Criterion smoke workloads pass.
+- Pinned real-runtime replay still matches all 1,420 observations across 71
+  cases and 20 profiles, including all 409 applicable literal observations and
+  798 compared fields.
+- An external public-API matrix checks 11,125 tokens under 238 preset/custom
+  configurations. It recognizes 1,902,368 valid token observations, verifies
+  1,222,163 unique standalone encodings at LF and EOF, and rechecks 1,206,428
+  successful context-aware native sets with both neighboring entries retained.
+- A sanitizer-discovered `LiteralFallback` witness exposed a real false-negative:
+  some quote-prefixed values need an inline-comment marker to force exact
+  unquoted fallback. Its minimized input now passes a permanent positive-inverse
+  regression. A native-edit campaign separately exposed an oracle omission:
+  Compose may split the selected entry's own CRLF suffix into a blank item.
+  The oracle now excludes only blank/comment fragments inside the mapped selected
+  region, and the minimized case is a checked-in seed.
+- Final isolated AddressSanitizer campaigns use the same GNU target and bounds:
+
+| Target | Executed inputs | Engine seconds | Peak RSS (MiB) |
+| --- | ---: | ---: | ---: |
+| Parser | 100,000 | 68 | 456 |
+| Native edits | 100,000 | 89 | 504 |
+| Encoding | 100,000 | 136 | 491 |
+
+These are bounded final smoke campaigns, not sustained fuzz evidence.
 
 ## Local execution evidence (2026-10-15)
 

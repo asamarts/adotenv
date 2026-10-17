@@ -1,9 +1,9 @@
 # Dialects
 
 Status: Portable remains the default. Explicit `Dialect` configuration, all five
-presets and selected-dialect native verification are implemented in unreleased
-0.3 development. Standalone per-dialect encoding and portability comparison
-remain future 0.3 interfaces; no 0.3 release is published yet.
+presets, exact per-dialect encoding and selected-dialect native verification are
+implemented in unreleased 0.3 development. Portability comparison remains future
+0.3 work; no 0.3 release is published yet.
 
 There is no `.env` standard. Implementations agree on the simple cases
 (`KEY=value`, `#` comment lines) and differ on many others. For example, the
@@ -156,15 +156,33 @@ The reference's bare-unset wording differs from these pinned loader results;
 than normalizing it away. Future resolution/loading APIs must supply explicit
 role and lookup policy; parsing never infers either.
 
-## Encoding per dialect (future 0.3)
+## Encoding per dialect (implemented in unreleased 0.3)
 
-`encode_value(&str) -> Option<String>` remains a standalone Portable encoder.
-Native edits generate a candidate and verify it under the document's exact
-configuration; raw values, Python key quotes, backticks and retained tails use
-their source grammar. Conservative candidate generation may refuse a value that
-another valid spelling could represent. The next encoder must write an exact
-token or report why the dialect cannot represent it (for example a newline in
-Docker raw mode). No new standalone encoder signature is implemented yet.
+`encode_value_with(&str, Dialect) -> Result<String, EncodeError>` writes an exact
+literal token or returns `EncodeError::Unrepresentable`. Success is verified in
+both canonical `A=<token>\n` and EOF `A=<token>` contexts. `A=` consumes two bytes
+of the first physical line's configured limit. A token does not promise safety
+with arbitrary headers, trailing syntax or interpolation-enabled consumers.
+
+Portable, Python and Compose presets can represent arbitrary UTF-8 values.
+Node's literal grammar cannot represent every value. Docker raw excludes LF
+and enforces its scanner cap; a terminal CR needs a protecting CR for LF/EOF.
+That padding is not safe when blindly appending CRLF. `LiteralFallback` may use
+a trailing inline-comment marker when that is the only exact spelling; the
+marker is part of the returned token. Custom raw normalization can encode LF
+with internal CR, but cannot retain a literal CR.
+
+The codec uses bounded quote styles and a linear finite-state inverse for
+scanner escapes, decoding and newline normalization. Selected single/double/
+backtick policies, octal, unknown escapes, multiline controls and appended tails
+are honored. Every candidate is parsed exactly, not accepted by appearance.
+
+Native set/insert share the codec and validate actual source context, including
+planned header changes, retained tails, generated separators and byte budgets.
+Native verification still checks every unselected region and the complete batch;
+standalone representability does not waive those preservation constraints.
+`encode_value(&str) -> Option<String>` keeps the original Portable helper's
+control policy: controls other than CR, LF and tab return `None`.
 
 ## Portability check (future 0.3)
 

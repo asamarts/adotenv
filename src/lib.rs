@@ -47,8 +47,9 @@
 //! occurrences and comments from one source snapshot. Every complete batch is
 //! reparsed and checked before [`VerifiedEdits`] exposes its output or native
 //! edits. Unrelated malformed statements may remain, but must not change their
-//! interpretation. Verification uses the exact selected dialect; conservative
-//! encoding may refuse non-Portable values. External appliers check versions.
+//! interpretation. Verification uses the exact selected dialect; values or
+//! contexts its grammar cannot represent are rejected. External appliers check
+//! versions.
 //!
 //! # Platform
 //!
@@ -65,6 +66,7 @@ extern crate alloc;
 mod diagnostic;
 mod dialect;
 mod edit;
+mod encode;
 mod model;
 mod parser;
 mod position;
@@ -75,9 +77,8 @@ pub use dialect::{
     KeySyntax, LineBreaks, MalformedLines, Multiline, QuotedTail, SingleEscapes, Syntax,
     UnknownEscapes, Whitespace,
 };
-pub use edit::{
-    encode_value, remove, set, Edit, EditError, InsertPosition, TextEdit, VerifiedEdits,
-};
+pub use edit::{remove, set, Edit, EditError, InsertPosition, TextEdit, VerifiedEdits};
+pub use encode::{encode_value, encode_value_with, EncodeError};
 pub use model::{AssignmentState, Document, Entry, EntryTokens, Item, ItemKind, LineEnding, Quote};
 pub use parser::{
     parse, parse_owned, parse_owned_with, parse_strict, parse_strict_with, parse_with,
@@ -88,6 +89,8 @@ pub use position::{ColumnEncoding, LineIndex, Position, PositionError};
 mod dialect_tests;
 #[cfg(test)]
 mod edit_tests;
+#[cfg(test)]
+mod encode_tests;
 #[cfg(test)]
 mod position_tests;
 #[cfg(test)]
