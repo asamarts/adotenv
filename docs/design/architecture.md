@@ -237,7 +237,9 @@ are planned, and insertion spelling until its actual ending is known. Ending
 fields account for generated separators. A selected entry may expose its own
 blank/comment suffix as separate items, but cannot consume another declaration
 or regroup an unselected item. Custom byte caps include the surrounding physical
-line, including neighboring statements; the complete output is always rechecked.
+line, including neighboring statements; same-line sets resolve against other
+final values with bounded retries, so spelling is independent of operation order.
+The complete output is always rechecked.
 
 ## Crate layout and platform
 

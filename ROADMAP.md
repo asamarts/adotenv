@@ -109,8 +109,11 @@ Literal parsing into ordered entries with key, value and line spans;
   See [execution evidence](docs/design/quality.md#public-upstream-conformance-corpus-03-preparation).
 - **Implemented:** `encode_value_with` and explicit `EncodeError`, shared with
   context-aware native set/insert. Preset/custom escape policies, raw CR padding,
-  quoted tails, controls and byte budgets retain exact values. The original
-  Portable `encode_value` helper keeps its published control-character policy.
+  quoted tails, controls and byte budgets retain exact values. Same-line set
+  batches resolve against other final values and retry under a byte cap;
+  renamed/exported headers share that budget and capped next-statement insertion
+  adds its required separator. The original Portable `encode_value` helper keeps
+  its published control-character policy.
 - **Next:** portability comparison that reparses under selected configurations
   and reports differing declarations, values and statement grouping.
 

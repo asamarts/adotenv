@@ -165,8 +165,11 @@ of the first physical line's configured limit. A token does not promise safety
 with arbitrary headers, trailing syntax or interpolation-enabled consumers.
 
 Portable, Python and Compose presets can represent arbitrary UTF-8 values.
-Node's literal grammar cannot represent every value. Docker raw excludes LF
-and enforces its scanner cap; a terminal CR needs a protecting CR for LF/EOF.
+Node's literal grammar cannot represent every value. A Node first-line cap that
+cannot fit the opening quote may place it after a line break, which the grammar
+treats as trivia between `=` and the value; the returned token then begins with
+that line break. Docker raw excludes LF and enforces its scanner cap; a terminal
+CR needs a protecting CR for LF/EOF.
 That padding is not safe when blindly appending CRLF. `LiteralFallback` may use
 a trailing inline-comment marker when that is the only exact spelling; the
 marker is part of the returned token. Custom raw normalization can encode LF
@@ -179,7 +182,10 @@ are honored. Every candidate is parsed exactly, not accepted by appearance.
 
 Native set/insert share the codec and validate actual source context, including
 planned header changes, retained tails, generated separators and byte budgets.
-Native verification still checks every unselected region and the complete batch;
+Sets on one capped physical line resolve against other final set values and
+retry until the group converges, so acceptance does not depend on request order;
+capped next-statement insertion adds the physical separator it requires. Native
+verification still checks every unselected region and the complete batch;
 standalone representability does not waive those preservation constraints.
 `encode_value(&str) -> Option<String>` keeps the original Portable helper's
 control policy: controls other than CR, LF and tab return `None`.

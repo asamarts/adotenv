@@ -190,11 +190,13 @@ mandatory even when a standalone value is encodable.
 `encode_value_with(&str, Dialect) -> Result<String, EncodeError>` returns a
 standalone literal token or `EncodeError::Unrepresentable`. Its contract is
 `A=<token>\n` **and** `A=<token>` at EOF. The canonical `A=` header consumes two
-bytes of a configured first-line budget. This is not a context-safe edit or an
-interpolation guarantee. Syntax padding is part of the returned token: LF-only
-raw values ending in CR use an extra CR, while `LiteralFallback` can require a
-trailing inline-comment marker. Do not append CRLF to raw padding; use a native
-edit for an existing document.
+bytes of a configured first-line budget. A Node token may begin with a line
+break when a first-line cap cannot fit the opening quote; the grammar treats
+that break as trivia between `=` and the value. This is not a context-safe
+edit or an interpolation guarantee. Syntax padding is part of the returned
+token: LF-only raw values ending in CR use an extra CR, while `LiteralFallback`
+can require a trailing inline-comment marker. Do not append CRLF to raw padding;
+use a native edit for an existing document.
 
 ```rust
 use adotenv::{encode_value_with, parse_strict_with, Dialect};
@@ -256,8 +258,9 @@ spans, including escapes.
 
 ## Quality and future work
 
-Criterion workloads cover small, typical and multi-megabyte parsing and native
-edits. Public synthetic seeds feed parser, edit and encoding fuzz targets;
+Criterion workloads cover small, typical and multi-megabyte parsing, exact
+per-dialect value encoding, and native edits including large set/set-rename
+batches. Public synthetic seeds feed parser, edit and encoding fuzz targets;
 scheduled CI runs bounded campaigns. Reproduction commands and evidence policy
 are in [quality.md](docs/design/quality.md). Harness availability is not a claim
 that any particular benchmark or fuzz duration has passed.
@@ -286,8 +289,9 @@ line/declaration budgets before parsing: retained documents, decoded escape
 maps and requested diagnostics consume memory. Docker's preset includes its
 upstream scanner line-byte limit; this is not an application memory ceiling.
 
-0.3 development now includes explicit dialect configuration, five presets and
-per-dialect encoding. Portability comparison is next; reference analysis/expansion,
+0.3 development now includes explicit dialect configuration, five presets,
+per-dialect encoding and order-independent same-line native set batches under
+byte caps. Portability comparison is next; reference analysis/expansion,
 formatting, loading and integration crates remain future milestones.
 This unreleased API is not a crates.io publication. See
 [ROADMAP.md](ROADMAP.md) and [design notes](docs/design/).

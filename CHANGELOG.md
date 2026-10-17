@@ -28,6 +28,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   helper keeps its control policy; the new API and native edits accept every
   control the selected grammar represents.
 - Positive inverse properties and a dedicated encoding sanitizer target/CI job.
+- Criterion workloads for `encode_value_with` across all five presets and for
+  large native set/set-rename batches, plus minimized regression seeds for the
+  bounded inverse findings below.
 
 ### Fixed
 
@@ -46,6 +49,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   same-offset insertion groups, and use planned item kinds and required bare
   terminators when inserting. Reject complete oversized physical lines even
   when a Node comment ends early at a Unicode regex anchor.
+- Complete the bounded literal inverse for Node outer-unquote/literal fallback,
+  escaped terminal closers, normalized-CR overlap and custom append scanner
+  boundaries. Five minimized sanitizer witnesses are checked-in seed corpus
+  entries, and the former crash reproducers execute cleanly.
+- Permit a Node standalone token to move its opening quote past a line break
+  when a first-line byte cap cannot fit it. The grammar treats that break as
+  trivia between `=` and the value; this removes a false `Unrepresentable`
+  result for legal continuation-line encodings.
+- Resolve same-line native set values against other final set values under a
+  line-byte cap, retrying until the batch converges. Renamed/exported headers
+  participate in the same budget, and capped next-statement insertion adds the
+  physical separator it requires. Batch acceptance no longer depends on request
+  order, and the budget interaction is covered by a three-set regression.
 
 ## [0.2.1] - 2026-10-16
 

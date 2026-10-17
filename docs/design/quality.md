@@ -4,7 +4,8 @@ Status: lossless-core quality harnesses and unreleased 0.3 dialect checks are
 implemented: unit/property/documentation tests, public synthetic fuzz seeds,
 Criterion workloads, real pinned upstream replay and a public-API Rust probe.
 This document distinguishes runnable checks from recorded execution evidence.
-Standalone dialect encoding is covered; portability and resolution remain future.
+Standalone dialect encoding and same-line native batch budgets are covered;
+portability and resolution remain future.
 
 ## Permanent test expectations
 
@@ -69,8 +70,10 @@ UTF-8 before parsing rather than decoded lossily.
   single/double/backtick and appended-tail tokens independently require encoding
   of their cooked values. Configurations vary escape flags, unknown escapes,
   single escapes, tails, multiline forms, normalization, comments and byte caps.
-  The payload is bounded to 512 bytes independently of the engine's input limit.
-  Legacy helper controls remain a separate compatibility assertion.
+  A five-byte policy header selects the grammar; payload bytes must be valid
+  UTF-8, are bounded to 512 bytes independently of the engine's input limit, and
+  are not lossily decoded. Legacy helper controls remain a separate compatibility
+  assertion.
 
 Checked-in seeds are newly authored, public synthetic examples, with no real
 credentials or private compatibility results. The edit input format is an
@@ -122,16 +125,20 @@ parsing are outside timed loops:
 
 - `parse/<size>` measures recovering parsing, including diagnostics and model
   construction/destruction.
+- `encode_value_with/<dialect>/<size>` measures exact standalone encoding for
+  all five presets at 32, 4,096 and 32,768-byte values.
 - `native_edits/set/<size>` measures one verified native set operation.
 - `native_edits/batch/<size>` measures a verified set/rename/export batch on
   distinct entries from one source snapshot.
+- `native_edits_scaling/{set_all,set_rename_all}/<count>` measures whole-batch
+  edits at 1,024, 4,096 and 16,384 entries.
 
 Native edit costs include output generation and whole-result verification;
 they are not presented as isolated range-splice costs. Throughput counts
 source bytes, and Criterion reports timings and byte throughput. Large inputs
 make scaling visible; no regression threshold is asserted without a recorded
-baseline on a controlled machine. Resolution and multi-dialect benchmarking
-remain future work.
+baseline on a controlled machine. Parsing benchmarks currently use Portable;
+resolution and portability benchmarking remain future work.
 
 ```sh
 cargo bench -p adotenv --bench core --locked -- --test  # smoke every workload
@@ -273,10 +280,10 @@ re-exercised before the encoder implementation:
 
 These are additional bounded campaigns, not sustained fuzz evidence.
 
-### Dialect-encoder adversarial audit
+### Dialect-encoder adversarial audit (initial pass)
 
-The completed encoder working tree was validated after repairing the final
-sanitizer findings:
+The initial encoder working tree was validated after repairing the sanitizer
+findings from that pass:
 
 - All 100 unit/property tests and seven doctests pass in both feature modes,
   with `PROPTEST_CASES=2000`. Root, fuzz and conformance formatting; all-target
@@ -304,6 +311,47 @@ sanitizer findings:
 | Parser | 100,000 | 68 | 456 |
 | Native edits | 100,000 | 89 | 504 |
 | Encoding | 100,000 | 136 | 491 |
+
+These are bounded smoke campaigns from that pass, not sustained fuzz evidence.
+
+### Exact encoder and same-line batch completion (2026-10-17)
+
+Tested source: commit
+`348feb9c6b8a6e11b57b9db71898bddf489624da` (the exact encoder, native-batch,
+iterator-annotation and test pass); only documentation follows it.
+Host/compiler: Linux x86_64, stable rustc 1.99.0 (`b940084d7`, 2026-09-28),
+LLVM 23.1.1; fuzz nightly rustc 1.100.0 (`67eda617e`, 2026-09-10), LLVM 23.1.1,
+explicit `x86_64-unknown-linux-gnu`.
+
+- All 112 unit/property tests and seven doctests pass in both feature modes
+  with `PROPTEST_CASES=2000`. Root, fuzz and conformance formatting; all-target
+  core and conformance-probe Clippy; alloc-only Clippy; warning-denied rustdoc;
+  Rust 1.81 library builds in both modes; package construction; and all 30
+  Criterion smoke workloads pass. The default stable 1.95 toolchain also passes
+  the same Clippy gates after the iterator `#[must_use]` annotations.
+- An external temporary public-API matrix checks 210 preset/custom
+  configurations over 11,111 synthetic tokens of length zero through four over
+  ten grammar characters. It recognizes 1,219,718 valid token observations and
+  verifies every standalone encoding at LF and EOF, with no failures. The matrix
+  exposed a Node-only first-line-cap false negative: when the cap cannot fit an
+  opening quote on the header line, Node permits it after a line break. The
+  encoder now returns that continuation-line token; a permanent regression
+  covers the family.
+- Three-set and combined set/rename/export batches on one capped physical line
+  converge independently of request order. The five minimized inverse witnesses
+  are checked-in seeds; the former crash reproducers execute cleanly. Eight
+  older encoding seeds were migrated to the five-byte policy header so their
+  original payloads remain intact.
+- Pinned real-runtime replay still matches all 1,420 observations across 71
+  cases and 20 profiles, including 409 applicable literal observations and 798
+  compared fields.
+- Final isolated AddressSanitizer campaigns use the same GNU target and bounds:
+
+| Target | Executed inputs | Engine seconds | Peak RSS (MiB) |
+| --- | ---: | ---: | ---: |
+| Parser | 100,000 | 39 | 470 |
+| Native edits | 100,000 | 99 | 499 |
+| Encoding | 100,000 | 51 | 488 |
 
 These are bounded final smoke campaigns, not sustained fuzz evidence.
 
