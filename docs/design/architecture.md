@@ -83,9 +83,10 @@ Each selected dialect parses the retained source separately. `parse_with`,
 reinterpretation. Existing entry points retain Portable defaults and no legacy
 0.1 grammar is introduced.
 
-Borrowed interpretations share text without copying it. Future portability
-comparison performs one linear parse per dialect; it does not require a neutral
-syntax model, generic syntax tree or cross-dialect cache.
+Borrowed interpretations share text without copying it. Portability comparison
+performs one linear parse per unique dialect and reports physical-line
+differences from their ordered items; it does not require a neutral syntax
+model, generic syntax tree or cross-dialect cache.
 
 ## Reading
 

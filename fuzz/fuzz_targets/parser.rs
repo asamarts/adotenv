@@ -1,12 +1,12 @@
 #![no_main]
 #![forbid(unsafe_code)]
 
-use std::ops::Range;
+use std::{ops::Range, vec::Vec};
 
 use adotenv::{
     parse, parse_owned, parse_owned_with, parse_strict, parse_strict_with, parse_with,
-    AssignmentState, BareKeys, BomPolicy, ColumnEncoding, Dialect, Entry, EntryTokens, Item,
-    PositionError, Quote, QuotedTail, Severity,
+    AssignmentState, BareKeys, BomPolicy, ColumnEncoding, Dialect, Document, Entry, EntryTokens,
+    Item, PositionError, Quote, QuotedTail, Severity,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -250,6 +250,46 @@ fn check_selected(source: &str, dialect: Dialect) {
     assert_eq!(owned, doc.into_owned());
 }
 
+fn check_portability(source: &str, document: &Document<'_>, dialects: &[Dialect]) {
+    let report = document.portability(dialects);
+    let line_count = document.line_index().line_count();
+    let mut unique = Vec::new();
+    unique.push(document.dialect());
+    for dialect in dialects {
+        if !unique.contains(dialect) {
+            unique.push(*dialect);
+        }
+    }
+    let mut previous_line = 0;
+    for difference in report.differences() {
+        assert!(difference.first_line >= 1);
+        assert_eq!(difference.last_line, difference.first_line);
+        assert!(difference.last_line <= line_count);
+        assert!(difference.first_line > previous_line);
+        previous_line = difference.first_line;
+        check_span(source, difference.span.clone());
+        assert!(source.is_char_boundary(difference.span.start));
+        assert!(source.is_char_boundary(difference.span.end));
+        assert_eq!(difference.readings.len(), unique.len());
+        for (reading, expected) in difference.readings.iter().zip(&unique) {
+            assert_eq!(reading.dialect, *expected);
+        }
+    }
+    let reversed: Vec<_> = dialects.iter().rev().copied().collect();
+    let reversed_report = document.portability(&reversed);
+    let lines: Vec<_> = report
+        .differences()
+        .iter()
+        .map(|difference| (difference.first_line, difference.span.clone()))
+        .collect();
+    let reversed_lines: Vec<_> = reversed_report
+        .differences()
+        .iter()
+        .map(|difference| (difference.first_line, difference.span.clone()))
+        .collect();
+    assert_eq!(lines, reversed_lines);
+}
+
 fuzz_target!(|bytes: &[u8]| {
     let Ok(source) = std::str::from_utf8(bytes) else {
         return;
@@ -350,6 +390,10 @@ fuzz_target!(|bytes: &[u8]| {
             assert_eq!(error.span(), first.span());
         }
     }
+
+    check_portability(source, &document, &presets);
+    check_portability(source, &document, &[custom]);
+    assert!(document.portability(&[]).is_empty());
 
     let index = document.line_index();
     for offset in [0, source.len() / 2, source.len()] {

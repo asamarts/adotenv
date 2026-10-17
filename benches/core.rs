@@ -1,4 +1,4 @@
-//! Synthetic parsing, exact encoding and complete verified-edit performance workloads.
+//! Synthetic parsing, exact encoding, portability and complete verified-edit workloads.
 
 use std::{fmt::Write, hint::black_box};
 
@@ -120,6 +120,22 @@ fn core(c: &mut Criterion) {
         });
     }
     editing.finish();
+
+    let dialects = [
+        Dialect::NODE_DOTENV,
+        Dialect::PYTHON_DOTENV,
+        Dialect::COMPOSE,
+        Dialect::DOCKER_RAW,
+    ];
+    let mut portability = c.benchmark_group("portability");
+    for (name, _, source) in &fixtures {
+        let document = parse_strict(source).expect("benchmark fixture is valid Portable syntax");
+        portability.throughput(Throughput::Bytes(source.len() as u64));
+        portability.bench_function(BenchmarkId::from_parameter(name), |b| {
+            b.iter(|| black_box(document.portability(black_box(&dialects))));
+        });
+    }
+    portability.finish();
 
     scaling(c);
 }

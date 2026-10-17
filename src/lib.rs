@@ -34,6 +34,11 @@
 //! assert_eq!(doc.reparse(Dialect::DOCKER_RAW).0.get("A"), Some("a#b"));
 //! ```
 //!
+//! [`Document::portability`] reparses the retained source once per unique
+//! configuration, includes the document's own reading first, and reports every
+//! physical line whose declarations, values, states, export prefixes, lookup
+//! participation or item grouping differ.
+//!
 //! # Source and positions
 //!
 //! Ranges always address the original source, BOM included. Item ranges plus
@@ -69,6 +74,7 @@ mod edit;
 mod encode;
 mod model;
 mod parser;
+mod portability;
 mod position;
 
 pub use diagnostic::{Diagnostic, DiagnosticCode, Severity};
@@ -83,6 +89,10 @@ pub use model::{AssignmentState, Document, Entry, EntryTokens, Item, ItemKind, L
 pub use parser::{
     parse, parse_owned, parse_owned_with, parse_strict, parse_strict_with, parse_with,
 };
+pub use portability::{
+    PortabilityDeclaration, PortabilityDifference, PortabilityPart, PortabilityReading,
+    PortabilityReport,
+};
 pub use position::{ColumnEncoding, LineIndex, Position, PositionError};
 
 #[cfg(test)]
@@ -91,6 +101,8 @@ mod dialect_tests;
 mod edit_tests;
 #[cfg(test)]
 mod encode_tests;
+#[cfg(test)]
+mod portability_tests;
 #[cfg(test)]
 mod position_tests;
 #[cfg(test)]

@@ -27,6 +27,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   raw terminal CR and scanner budgets preserve literal values. The original
   helper keeps its control policy; the new API and native edits accept every
   control the selected grammar represents.
+- `Document::portability` and the `PortabilityReport`/`PortabilityDifference`/
+  `PortabilityReading`/`PortabilityPart`/`PortabilityDeclaration` API. The
+  document's own configuration is included first, each unique dialect parses
+  once, and differing declarations, values, states, export prefixes, lookup
+  participation, effective bare values, duplicate winners and statement grouping
+  are reported per physical line. Quote style alone is not a difference; no
+  expansion or lookup occurs.
 - Positive inverse properties and a dedicated encoding sanitizer target/CI job.
 - Criterion workloads for `encode_value_with` across all five presets and for
   large native set/set-rename batches, plus minimized regression seeds for the

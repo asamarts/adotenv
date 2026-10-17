@@ -16,9 +16,9 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 
 **Current status:** 0.2.1 is published. Unreleased 0.3 development implements
 explicit dialect configuration, all five syntax presets, selected-dialect native
-verification, exact per-dialect encoding and applicable pinned-upstream comparison.
-Portability comparison remains the next 0.3 work; everything from 0.4 onward
-remains future work. Execution evidence is in the quality notes.
+verification, exact per-dialect encoding, applicable pinned-upstream comparison
+and cross-dialect portability reporting. Release preparation remains; everything
+from 0.4 onward remains future work. Execution evidence is in the quality notes.
 
 ## Goals
 
@@ -114,8 +114,11 @@ Literal parsing into ordered entries with key, value and line spans;
   renamed/exported headers share that budget and capped next-statement insertion
   adds its required separator. The original Portable `encode_value` helper keeps
   its published control-character policy.
-- **Next:** portability comparison that reparses under selected configurations
-  and reports differing declarations, values and statement grouping.
+- **Implemented:** `Document::portability` reparses the retained text once per
+  unique configuration, includes the document's own reading first, and reports
+  semantic and grouping differences per physical line with ordered, inspectable
+  parts. Quote style alone is not a difference; no expansion or lookup occurs.
+- **Next:** release 0.3.0 after the complete quality gate.
 
 ### 0.4: References and expansion (future)
 

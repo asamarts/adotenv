@@ -1,9 +1,9 @@
 # Dialects
 
 Status: Portable remains the default. Explicit `Dialect` configuration, all five
-presets, exact per-dialect encoding and selected-dialect native verification are
-implemented in unreleased 0.3 development. Portability comparison remains future
-0.3 work; no 0.3 release is published yet.
+presets, exact per-dialect encoding, selected-dialect native verification and
+cross-dialect portability reporting are implemented in unreleased 0.3
+development. Release preparation remains; no 0.3 release is published yet.
 
 There is no `.env` standard. Implementations agree on the simple cases
 (`KEY=value`, `#` comment lines) and differ on many others. For example, the
@@ -168,8 +168,10 @@ Portable, Python and Compose presets can represent arbitrary UTF-8 values.
 Node's literal grammar cannot represent every value. A Node first-line cap that
 cannot fit the opening quote may place it after a line break, which the grammar
 treats as trivia between `=` and the value; the returned token then begins with
-that line break. Docker raw excludes LF and enforces its scanner cap; a terminal
-CR needs a protecting CR for LF/EOF.
+that line break. Native edits do not use that form: they operate on the existing
+physical line and reject contexts whose budget cannot fit an exact token. Docker
+raw excludes LF and enforces its scanner cap; a terminal CR needs a protecting
+CR for LF/EOF.
 That padding is not safe when blindly appending CRLF. `LiteralFallback` may use
 a trailing inline-comment marker when that is the only exact spelling; the
 marker is part of the returned token. Custom raw normalization can encode LF
@@ -190,10 +192,21 @@ standalone representability does not waive those preservation constraints.
 `encode_value(&str) -> Option<String>` keeps the original Portable helper's
 control policy: controls other than CR, LF and tab return `None`.
 
-## Portability check (future 0.3)
+## Portability check (implemented in unreleased 0.3)
 
-`portability(&doc, &[dialects])` parses under each dialect and reports every
-line whose meaning differs, with the differing readings: "under `NodeDotenv`
-this value is `a`; under `Compose` it is `a#b`". This is meant for files read
-by more than one tool, such as a `.env` used by both a Node service and Docker
-Compose.
+`Document::portability(&[dialects])` parses the retained text once for each
+unique configuration and reports every physical line whose reading differs. The
+document's own configuration is always the first reading; requested duplicates
+are ignored. For each differing line, `PortabilityReading` exposes the ordered
+parts under each dialect: declarations with key, decoded value, assignment
+state, export prefix, lookup participation, effective lookup value and duplicate
+winner, plus blank, comment, invalid, ignored and multiline-continuation parts.
+Quote style alone is not a difference.
+
+This is meant for files read by more than one tool, such as a `.env` used by
+both a Node service and Docker Compose: a line reading `a` under `NodeDotenv`
+and `a#b` under `DockerRaw` is reported with both readings. Inspection is
+literal only: no expansion, lookup, inheritance or I/O. Statement grouping
+changes appear as different ordered parts on the affected lines, and a
+multiline item contributes a declaration on its first line and continuations on
+its later lines.

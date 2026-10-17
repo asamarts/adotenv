@@ -109,6 +109,39 @@ defaults. Code constructing `EntryTokens` must supply the new `quoted_tail`
 field (`None` when absent). Under quoted-key presets, `EntryTokens::key` covers
 the raw quote wrapper; `Entry::key_span()` covers only the semantic key.
 
+## Check portability (unreleased 0.3)
+
+`Document::portability` reparses the retained source once for each unique
+configuration and reports every physical line whose reading differs. The
+document's own configuration is always included first. Declarations, decoded
+values, assignment states, export prefixes, lookup participation, effective
+lookup values, duplicate lookup winners and statement grouping are compared;
+quote style alone is not a difference. No expansion, lookup or I/O occurs.
+
+```rust
+use adotenv::{parse_with, Dialect, PortabilityPart};
+
+let (doc, _) = parse_with("A=a#b\n", Dialect::PORTABLE);
+let report = doc.portability(&[Dialect::NODE_DOTENV]);
+assert_eq!(report.len(), 1);
+let difference = &report.differences()[0];
+assert_eq!(difference.first_line, 1);
+assert!(difference.readings[0].parts.iter().any(|part| {
+    if let PortabilityPart::Declaration(declaration) = part {
+        declaration.value.as_deref() == Some("a#b")
+    } else {
+        false
+    }
+}));
+assert!(difference.readings[1].parts.iter().any(|part| {
+    if let PortabilityPart::Declaration(declaration) = part {
+        declaration.value.as_deref() == Some("a")
+    } else {
+        false
+    }
+}));
+```
+
 ## Portable syntax (unchanged default)
 
 - Keys are nonempty ASCII letters, digits, `_`, `.` and `-`. Non-POSIX names
@@ -259,8 +292,8 @@ spans, including escapes.
 ## Quality and future work
 
 Criterion workloads cover small, typical and multi-megabyte parsing, exact
-per-dialect value encoding, and native edits including large set/set-rename
-batches. Public synthetic seeds feed parser, edit and encoding fuzz targets;
+per-dialect value encoding, portability reports, and native edits including
+large set/set-rename batches. Public synthetic seeds feed parser, edit and encoding fuzz targets;
 scheduled CI runs bounded campaigns. Reproduction commands and evidence policy
 are in [quality.md](docs/design/quality.md). Harness availability is not a claim
 that any particular benchmark or fuzz duration has passed.
@@ -290,10 +323,10 @@ maps and requested diagnostics consume memory. Docker's preset includes its
 upstream scanner line-byte limit; this is not an application memory ceiling.
 
 0.3 development now includes explicit dialect configuration, five presets,
-per-dialect encoding and order-independent same-line native set batches under
-byte caps. Portability comparison is next; reference analysis/expansion,
-formatting, loading and integration crates remain future milestones.
-This unreleased API is not a crates.io publication. See
+per-dialect encoding, order-independent same-line native set batches under byte
+caps and cross-dialect portability reporting. Release preparation is next;
+reference analysis/expansion, formatting, loading and integration crates remain
+future milestones. This unreleased API is not a crates.io publication. See
 [ROADMAP.md](ROADMAP.md) and [design notes](docs/design/).
 
 ## Minimum supported Rust version

@@ -4,8 +4,8 @@ Status: lossless-core quality harnesses and unreleased 0.3 dialect checks are
 implemented: unit/property/documentation tests, public synthetic fuzz seeds,
 Criterion workloads, real pinned upstream replay and a public-API Rust probe.
 This document distinguishes runnable checks from recorded execution evidence.
-Standalone dialect encoding and same-line native batch budgets are covered;
-portability and resolution remain future.
+Standalone dialect encoding, same-line native batch budgets and cross-dialect
+portability are covered; resolution remains future.
 
 ## Permanent test expectations
 
@@ -31,6 +31,11 @@ message wording:
   surrogate pairs, CRLF interiors, columns beyond content and out-of-range
   offsets. UTF-8 columns retain interior byte offsets. Empty input, Unicode,
   EOF, terminal line breaks, lone CR and BOM coordinates are included.
+- Portability reports include the document's own configuration first, parse each
+  unique dialect once, report semantic and grouping differences per physical
+  line with valid UTF-8 spans, and are independent of request order. Lookup
+  participation, effective bare values and duplicate winners are included;
+  quote style alone is not a difference.
 - README examples compile and run as documentation tests.
 
 ## Fuzz harnesses
@@ -48,6 +53,8 @@ UTF-8 before parsing rather than decoded lossily.
   The independent Portable oracle remains intact. All five presets and custom
   configurations additionally check source/token partitioning, decoded-map
   boundaries, strict/owned agreement, policy errors and scanner limits.
+  Portability reports check valid ordered spans, physical-line bounds, reading
+  order and determinism under reordered requests.
 - `edits`: native set/remove/rename/insert/comment/uncomment/export and batches,
   valid and invalid selectors, arbitrary values/keys and unrelated syntax
   errors. Successful results are independently replayed in the returned order;
@@ -132,6 +139,8 @@ parsing are outside timed loops:
   distinct entries from one source snapshot.
 - `native_edits_scaling/{set_all,set_rename_all}/<count>` measures whole-batch
   edits at 1,024, 4,096 and 16,384 entries.
+- `portability/<size>` measures a report against the Node, Python, Compose and
+  Docker presets, including the document's own Portable reading.
 
 Native edit costs include output generation and whole-result verification;
 they are not presented as isolated range-splice costs. Throughput counts
@@ -354,6 +363,36 @@ explicit `x86_64-unknown-linux-gnu`.
 | Encoding | 100,000 | 51 | 488 |
 
 These are bounded final smoke campaigns, not sustained fuzz evidence.
+
+### Cross-dialect portability (2026-10-17)
+
+Tested source: the 0.3 portability working tree based on
+`50f4bbe` (the portability module, tests, parser-fuzz invariants, benchmark and
+documentation pass). Host and toolchains match the encoder evidence above.
+
+- All 123 unit/property tests and nine doctests pass in both feature modes with
+  `PROPTEST_CASES=2000`. Root, fuzz and conformance formatting; all-target core
+  and conformance-probe Clippy; alloc-only Clippy; warning-denied rustdoc; Rust
+  1.81 builds in both modes; package construction; and all 33 Criterion smoke
+  workloads pass.
+- Eleven portability tests cover empty/repeated configurations, CRLF spans,
+  value/comment differences, statement grouping, multiline continuation,
+  BOM policy, bare lookup participation, `BareKeys::Empty`, duplicate winners,
+  line ordering and an arbitrary-UTF-8 property. The property checks valid
+  UTF-8 spans, one-based line bounds, reading order and request-order
+  independence.
+- The parser sanitizer target additionally checks portability report spans,
+  line ordering, reading order and reordered-request determinism for five
+  presets and a custom policy set. Its final bounded campaign executes 100,000
+  inputs in 67 engine seconds at 492 MiB peak RSS.
+- The encoding target now also constructs leading-newline token variants; its
+  final bounded campaign executes 100,000 inputs in 71 engine seconds at 486 MiB
+  peak RSS. Native-edit code is unchanged from the preceding campaign
+  (100,000 inputs, 99 engine seconds, 499 MiB).
+- Pinned real-runtime replay still matches all 1,420 observations across 71
+  cases and 20 profiles, including 409 applicable literal observations and 798
+  compared fields. Portability remains literal-only: no expansion, lookup,
+  inheritance or I/O.
 
 ## Local execution evidence (2026-10-15)
 
