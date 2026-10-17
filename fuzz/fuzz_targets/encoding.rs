@@ -158,6 +158,12 @@ fuzz_target!(|data: &[u8]| {
         format!("`{value}`"),
         format!("'#'{value}"),
         format!("\"#\"{value}"),
+        // Node may treat a line break after `=` as trivia before the opener.
+        // These forms exercise capped continuation-line encodings.
+        format!("\n{value}"),
+        format!("\n'{value}'"),
+        format!("\n\"{value}\""),
+        format!("\n`{value}`"),
     ] {
         check_inverse(&token, dialect);
     }
