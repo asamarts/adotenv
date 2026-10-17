@@ -14,11 +14,11 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [expansion.md](docs/design/expansion.md) | `${VAR}` references, opt-in resolution, command substitution |
 | [quality.md](docs/design/quality.md) | Testing, fuzzing, conformance, benchmarks, MSRV and semver policy |
 
-**Current status:** 0.2.1 is published. Unreleased 0.3 development implements
-explicit dialect configuration, all five syntax presets, selected-dialect native
+**Current status:** 0.2.1 and 0.3.0 are published. 0.3 implements explicit
+dialect configuration, all five syntax presets, selected-dialect native
 verification, exact per-dialect encoding, applicable pinned-upstream comparison
-and cross-dialect portability reporting. Release preparation remains; everything
-from 0.4 onward remains future work. Execution evidence is in the quality notes.
+and cross-dialect portability reporting. Everything from 0.4 onward remains
+future work. Execution evidence is in the quality notes.
 
 ## Goals
 
@@ -96,7 +96,7 @@ Literal parsing into ordered entries with key, value and line spans;
   Workload availability alone is not evidence of a completed campaign or
   measured performance.
 
-### 0.3: Dialects (in development; not published)
+### 0.3: Dialects (released 2026-10-17)
 
 - **Implemented:** configurable `Dialect` and `parse_with`, `parse_owned_with`,
   `parse_strict_with`; retained configuration and borrowed `Document::reparse`.
@@ -118,7 +118,7 @@ Literal parsing into ordered entries with key, value and line spans;
   unique configuration, includes the document's own reading first, and reports
   semantic and grouping differences per physical line with ordered, inspectable
   parts. Quote style alone is not a difference; no expansion or lookup occurs.
-- **Next:** release 0.3.0 after the complete quality gate.
+- **Released:** 2026-10-17 after the complete quality gate.
 
 ### 0.4: References and expansion (future)
 

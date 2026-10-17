@@ -4,11 +4,11 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-10-17
 
 ### Added
 
-- Unreleased 0.3 literal `Dialect` configuration and `PORTABLE`, `NODE_DOTENV`,
+- 0.3 literal `Dialect` configuration and `PORTABLE`, `NODE_DOTENV`,
   `PYTHON_DOTENV`, `COMPOSE` and `DOCKER_RAW` presets. `parse_with`,
   `parse_owned_with`, `parse_strict_with`, retained configuration and borrowed
   `Document::reparse` preserve Portable defaults without enabling expansion,
@@ -69,6 +69,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   participate in the same budget, and capped next-statement insertion adds the
   physical separator it requires. Batch acceptance no longer depends on request
   order, and the budget interaction is covered by a three-set regression.
+
+### Breaking changes and migration
+
+- Public `EntryTokens` gained the `quoted_tail` field. Code constructing it must
+  add `quoted_tail: None` when absent; parsed documents populate it.
+- Portable parsing and the existing entry/edit defaults are unchanged. New
+  `Dialect`, `parse_with`, `encode_value_with` and `Document::portability`
+  surfaces are additive.
 
 ## [0.2.1] - 2026-10-16
 

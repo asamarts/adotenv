@@ -1,6 +1,6 @@
 # Architecture
 
-Status: the lossless core/native edit model and unreleased 0.3 dialect
+Status: the lossless core/native edit model and 0.3 dialect
 configuration/presets are implemented. Sections explicitly marked future are
 designs, not additional shipped interfaces.
 

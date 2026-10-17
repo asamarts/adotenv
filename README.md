@@ -64,7 +64,7 @@ only to that source snapshot. Borrowed parsing does not copy the source;
 `parse_owned(String)` moves it, and `Document::into_owned()` copies only when
 necessary. Decoded values allocate only when actual unescaping is required.
 
-## Select a dialect (unreleased 0.3)
+## Select a dialect (0.3)
 
 `parse`, `parse_owned` and `parse_strict` still default to Portable.
 `parse_with`, `parse_owned_with` and `parse_strict_with` take an explicit
@@ -109,7 +109,7 @@ defaults. Code constructing `EntryTokens` must supply the new `quoted_tail`
 field (`None` when absent). Under quoted-key presets, `EntryTokens::key` covers
 the raw quote wrapper; `Entry::key_span()` covers only the semantic key.
 
-## Check portability (unreleased 0.3)
+## Check portability (0.3)
 
 `Document::portability` reparses the retained source once for each unique
 configuration and reports every physical line whose reading differs. The
@@ -267,6 +267,14 @@ in original-source coordinates. `Entry::decoded_offset_to_raw` and
 `decoded_span_to_raw` map decoded value byte boundaries back to raw source
 spans, including escapes.
 
+## Migrating from 0.2
+
+0.3 is additive for parsing and editing. Portable defaults are unchanged.
+Code that constructs `EntryTokens` must supply the new `quoted_tail` field
+(`None` when absent). `Dialect`, `parse_with`, `encode_value_with` and
+`Document::portability` are new APIs; no preset enables expansion, inheritance
+or loading. See the dialect section for the exact token span rules.
+
 ## Migrating from 0.1
 
 0.2 is a breaking release, not an alternate legacy parser:
@@ -322,11 +330,10 @@ line/declaration budgets before parsing: retained documents, decoded escape
 maps and requested diagnostics consume memory. Docker's preset includes its
 upstream scanner line-byte limit; this is not an application memory ceiling.
 
-0.3 development now includes explicit dialect configuration, five presets,
-per-dialect encoding, order-independent same-line native set batches under byte
-caps and cross-dialect portability reporting. Release preparation is next;
-reference analysis/expansion, formatting, loading and integration crates remain
-future milestones. This unreleased API is not a crates.io publication. See
+0.3 includes explicit dialect configuration, five presets, per-dialect
+encoding, order-independent same-line native set batches under byte caps and
+cross-dialect portability reporting. Reference analysis/expansion, formatting,
+loading and integration crates remain future milestones. See
 [ROADMAP.md](ROADMAP.md) and [design notes](docs/design/).
 
 ## Minimum supported Rust version

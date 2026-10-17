@@ -1,8 +1,8 @@
 # Quality, testing and compatibility
 
-Status: lossless-core quality harnesses and unreleased 0.3 dialect checks are
-implemented: unit/property/documentation tests, public synthetic fuzz seeds,
-Criterion workloads, real pinned upstream replay and a public-API Rust probe.
+Status: lossless-core quality harnesses and 0.3 dialect checks are implemented:
+unit/property/documentation tests, public synthetic fuzz seeds, Criterion
+workloads, real pinned upstream replay and a public-API Rust probe.
 This document distinguishes runnable checks from recorded execution evidence.
 Standalone dialect encoding, same-line native batch budgets and cross-dialect
 portability are covered; resolution remains future.
@@ -204,7 +204,7 @@ python3 conformance/check_adotenv.py --setup
 cargo package -p adotenv --locked
 ```
 
-## Unreleased 0.3 dialect execution evidence
+## 0.3 dialect execution evidence (pre-release)
 
 Tested source: the 0.3 implementation working tree based on
 `3cae7045fc6f1905dbb5c25eb31119f36844ff5d`, not that unchanged commit.
@@ -366,9 +366,11 @@ These are bounded final smoke campaigns, not sustained fuzz evidence.
 
 ### Cross-dialect portability (2026-10-17)
 
-Tested source: the 0.3 portability working tree based on
-`50f4bbe` (the portability module, tests, parser-fuzz invariants, benchmark and
-documentation pass). Host and toolchains match the encoder evidence above.
+Tested source: commit
+`cdafcc43bfe12d9c7ca9c18c7714c2a3ad893da8` (the portability module, tests,
+parser-fuzz invariants, benchmark and documentation pass); only
+release-documentation changes follow. Host and toolchains match the encoder
+evidence above.
 
 - All 123 unit/property tests and nine doctests pass in both feature modes with
   `PROPTEST_CASES=2000`. Root, fuzz and conformance formatting; all-target core

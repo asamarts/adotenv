@@ -2,8 +2,8 @@
 
 Status: Portable remains the default. Explicit `Dialect` configuration, all five
 presets, exact per-dialect encoding, selected-dialect native verification and
-cross-dialect portability reporting are implemented in unreleased 0.3
-development. Release preparation remains; no 0.3 release is published yet.
+cross-dialect portability reporting are implemented in 0.3, released
+2026-10-17.
 
 There is no `.env` standard. Implementations agree on the simple cases
 (`KEY=value`, `#` comment lines) and differ on many others. For example, the
@@ -108,7 +108,7 @@ Portable is strict where implementations disagree and literal everywhere:
   Reference inspection and resolution remain future 0.4 interfaces (see
   [expansion.md](expansion.md)).
 
-## Presets (implemented in unreleased 0.3)
+## Presets (0.3)
 
 | Constant | Literal compatibility surface |
 |---|---|
@@ -156,7 +156,7 @@ The reference's bare-unset wording differs from these pinned loader results;
 than normalizing it away. Future resolution/loading APIs must supply explicit
 role and lookup policy; parsing never infers either.
 
-## Encoding per dialect (implemented in unreleased 0.3)
+## Encoding per dialect (0.3)
 
 `encode_value_with(&str, Dialect) -> Result<String, EncodeError>` writes an exact
 literal token or returns `EncodeError::Unrepresentable`. Success is verified in
@@ -192,7 +192,7 @@ standalone representability does not waive those preservation constraints.
 `encode_value(&str) -> Option<String>` keeps the original Portable helper's
 control policy: controls other than CR, LF and tab return `None`.
 
-## Portability check (implemented in unreleased 0.3)
+## Portability check (0.3)
 
 `Document::portability(&[dialects])` parses the retained text once for each
 unique configuration and reports every physical line whose reading differs. The
