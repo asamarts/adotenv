@@ -159,6 +159,7 @@ impl Document<'_> {
         crate::parse_with(self.source(), dialect)
     }
     /// All source items in order; a leading BOM is the separate prelude.
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn items(&self) -> impl DoubleEndedIterator<Item = Item<'_>> + ExactSizeIterator {
         (0..self.items.len()).map(|index| Item {
             document: self,
@@ -174,6 +175,7 @@ impl Document<'_> {
         })
     }
     /// Valid declarations in source order, including duplicates and bare keys.
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn entries(&self) -> impl DoubleEndedIterator<Item = Entry<'_>> + ExactSizeIterator {
         (0..self.entries.len()).map(|index| Entry {
             document: self,
@@ -189,6 +191,7 @@ impl Document<'_> {
         })
     }
     /// Every occurrence of a key in source order.
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn get_all<'doc, 'key>(
         &'doc self,
         key: &'key str,

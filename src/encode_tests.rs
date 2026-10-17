@@ -268,6 +268,132 @@ fn literal_fallback_comment_padding_is_a_positive_inverse() {
 }
 
 #[test]
+fn node_literal_fallback_inverts_double_substitutions_at_the_byte_cap() {
+    let dialect = Dialect {
+        inline_comments: InlineComments::Python,
+        double_escapes: DoubleEscapes::DOUBLE_QUOTE
+            .union(DoubleEscapes::OCTAL)
+            .union(DoubleEscapes::TAB)
+            .union(DoubleEscapes::DOLLAR),
+        multiline: Multiline::NONE,
+        line_byte_limit: Some(11),
+        ..Dialect::NODE_DOTENV
+    };
+    for token in ["\"a\\\\\"tail", "\"\\\\'\"tail"] {
+        assert!(assert_inverse(token, dialect), "token={token:?}");
+    }
+}
+#[test]
+fn node_literal_fallback_inverts_escape_and_normalized_cr_overlap() {
+    let dialect = Dialect {
+        inline_comments: InlineComments::None,
+        double_escapes: DoubleEscapes::CR
+            .union(DoubleEscapes::BACKSLASH)
+            .union(DoubleEscapes::DOUBLE_QUOTE)
+            .union(DoubleEscapes::TAB)
+            .union(DoubleEscapes::DOLLAR),
+        single_escapes: SingleEscapes::QuoteAndBackslash,
+        multiline: Multiline {
+            single: true,
+            double: true,
+            backtick: false,
+        },
+        line_breaks: LineBreaks::Lf,
+        ..Dialect::NODE_DOTENV
+    };
+    assert!(assert_inverse("\"\\r\r\"tail", dialect));
+}
+
+#[test]
+fn node_literal_fallback_inverts_outer_unquote_with_an_escaped_closer() {
+    let dialect = Dialect {
+        inline_comments: InlineComments::None,
+        double_escapes: DoubleEscapes::BACKSLASH.union(DoubleEscapes::SINGLE_QUOTE),
+        unknown_escapes: UnknownEscapes::Warn,
+        single_escapes: SingleEscapes::QuoteAndBackslash,
+        backticks: false,
+        multiline: Multiline::NONE,
+        line_breaks: LineBreaks::Lf,
+        ..Dialect::NODE_DOTENV
+    };
+    assert!(assert_inverse("' \r\\'", dialect));
+}
+
+#[test]
+fn node_next_statement_inverts_an_escaped_terminal_closer() {
+    let dialect = Dialect {
+        inline_comments: InlineComments::None,
+        double_escapes: DoubleEscapes::BACKSLASH,
+        unknown_escapes: UnknownEscapes::Warn,
+        single_escapes: SingleEscapes::None,
+        backticks: true,
+        quoted_tail: QuotedTail::NextStatement,
+        multiline: Multiline::NONE,
+        normalize_newlines: true,
+        line_breaks: LineBreaks::Lf,
+        line_byte_limit: Some(50),
+        ..Dialect::NODE_DOTENV
+    };
+    assert!(assert_inverse("' \r\\'", dialect));
+    assert_encodes(" \n\\", dialect);
+}
+
+#[test]
+fn node_literal_fallback_inverts_inner_quote_boundaries() {
+    let dialect = Dialect {
+        inline_comments: InlineComments::None,
+        double_escapes: DoubleEscapes::BACKSLASH,
+        unknown_escapes: UnknownEscapes::Preserve,
+        single_escapes: SingleEscapes::None,
+        backticks: false,
+        quoted_tail: QuotedTail::LiteralFallback,
+        multiline: Multiline {
+            single: true,
+            double: true,
+            backtick: false,
+        },
+        normalize_newlines: true,
+        line_breaks: LineBreaks::Lf,
+        ..Dialect::NODE_DOTENV
+    };
+    assert!(assert_inverse("''\"\r\\''", dialect));
+    assert_encodes("'\"\n\\'", dialect);
+}
+
+#[test]
+fn node_first_line_cap_moves_the_opener_to_the_next_line() {
+    for (limit, values) in [
+        (2, &["\n", "\n\n", "a\nb"][..]),
+        (3, &["a\nb", " ", "#"][..]),
+        (4, &[" ", "#"][..]),
+    ] {
+        let dialect = Dialect {
+            line_byte_limit: Some(limit),
+            ..Dialect::NODE_DOTENV
+        };
+        for value in values {
+            let token = encode_value_with(value, dialect)
+                .unwrap_or_else(|error| panic!("value={value:?} limit={limit}: {error:?}"));
+            assert!(
+                token.starts_with('\n'),
+                "value={value:?} limit={limit} token={token:?}"
+            );
+            assert_decodes(&token, value, dialect);
+        }
+    }
+    let too_small = Dialect {
+        line_byte_limit: Some(2),
+        ..Dialect::NODE_DOTENV
+    };
+    // Without a representable quoted body on the continuation lines, the
+    // leading-trivia form cannot help.
+    assert_eq!(
+        encode_value_with("a", too_small),
+        Err(EncodeError::Unrepresentable)
+    );
+}
+
+#[test]
 fn escape_overlap_octal_and_quote_closers_have_positive_witnesses() {
     let tokens = [
         r"\n",
@@ -438,6 +564,23 @@ fn append_tail_can_represent_a_delimiter_outside_the_quoted_body() {
         encode_value_with("#\n'\"", append),
         Err(EncodeError::Unrepresentable)
     );
+}
+
+#[test]
+fn append_tail_positive_inverse_keeps_raw_backslash_cr_suffix() {
+    let dialect = Dialect {
+        double_escapes: DoubleEscapes::LF.union(DoubleEscapes::DOLLAR),
+        unknown_escapes: UnknownEscapes::DropBackslash,
+        single_escapes: SingleEscapes::None,
+        quoted_tail: QuotedTail::Append,
+        multiline: Multiline::NONE,
+        backticks: false,
+        normalize_newlines: true,
+        line_breaks: LineBreaks::Lf,
+        line_byte_limit: Some(67),
+        ..Dialect::NODE_DOTENV
+    };
+    assert!(assert_inverse("'#'\\\r\u{fffd}", dialect));
 }
 
 #[test]
@@ -679,4 +822,174 @@ fn native_byte_caps_include_neighbor_statements_and_external_endings() {
         }
         assert_eq!(after.entries().len(), document.entries().len());
     }
+}
+
+#[test]
+fn batch_value_encoding_uses_other_final_values_in_line_budget() {
+    let dialect = Dialect {
+        line_byte_limit: Some(15),
+        ..Dialect::COMPOSE
+    };
+    let source = "A='123456'B='x'\n";
+    let (document, diagnostics) = parse_with(source, dialect);
+    assert!(!diagnostics.iter().any(|d| d.severity() == Severity::Error));
+    let short = crate::Edit::Set {
+        entry: 0,
+        value: "",
+    };
+    let long = crate::Edit::Set {
+        entry: 1,
+        value: "123456",
+    };
+    for operations in [[short, long], [long, short]] {
+        let edited = document.edit(&operations).unwrap();
+        let (after, diagnostics) = parse_with(edited.as_str(), dialect);
+        assert!(!diagnostics.iter().any(|d| d.severity() == Severity::Error));
+        let meanings: Vec<_> = after
+            .entries()
+            .map(|entry| (entry.key(), entry.value()))
+            .collect();
+        assert_eq!(meanings, [("A", Some("")), ("B", Some("123456"))]);
+    }
+    let source = "A='x'B='123456'\n";
+    let document = parse_with(source, dialect).0;
+    let edited = document
+        .edit(&[
+            crate::Edit::Set {
+                entry: 0,
+                value: "123456",
+            },
+            crate::Edit::Remove {
+                item: document.unique("B").unwrap().item_id(),
+            },
+        ])
+        .unwrap();
+    let (after, diagnostics) = parse_with(edited.as_str(), dialect);
+    assert!(!diagnostics.iter().any(|d| d.severity() == Severity::Error));
+    assert_eq!(after.entries().count(), 1);
+    assert_eq!(after.get("A"), Some("123456"));
+}
+
+#[test]
+fn three_same_line_sets_retry_until_every_value_fits() {
+    let dialect = Dialect {
+        line_byte_limit: Some(20),
+        ..Dialect::COMPOSE
+    };
+    let source = "A='x'B='yy'C='zzz'\n";
+    let (document, diagnostics) = parse_with(source, dialect);
+    assert!(!diagnostics.iter().any(|d| d.severity() == Severity::Error));
+    let a = crate::Edit::Set {
+        entry: 0,
+        value: "aaaaa",
+    };
+    let b = crate::Edit::Set {
+        entry: 1,
+        value: "b",
+    };
+    let c = crate::Edit::Set {
+        entry: 2,
+        value: "cc",
+    };
+    // A grows past the cap while the other original values remain, so it can
+    // only be solved after B and C shrink. Both request orders must converge.
+    for operations in [[a, b, c], [c, b, a]] {
+        let edited = document.edit(&operations).unwrap();
+        assert_eq!(edited.as_str(), "A='aaaaa'B='b'C='cc'\n");
+        let (after, diagnostics) = parse_with(edited.as_str(), dialect);
+        assert!(!diagnostics.iter().any(|d| d.severity() == Severity::Error));
+        assert_eq!(
+            after
+                .entries()
+                .map(|entry| (entry.key(), entry.value()))
+                .collect::<Vec<_>>(),
+            [("A", Some("aaaaa")), ("B", Some("b")), ("C", Some("cc")),]
+        );
+    }
+}
+
+#[test]
+fn capped_batch_set_uses_final_rename_and_export_headers() {
+    let dialect = Dialect {
+        line_byte_limit: Some(31),
+        ..Dialect::COMPOSE
+    };
+    let source = "A='x'B='yy'C='zzz'\n";
+    let (document, diagnostics) = parse_with(source, dialect);
+    assert!(!diagnostics.iter().any(|d| d.severity() == Severity::Error));
+    let a = crate::Edit::Set {
+        entry: 0,
+        value: "aaaaa",
+    };
+    let b = crate::Edit::Set {
+        entry: 1,
+        value: "b",
+    };
+    let c = crate::Edit::Set {
+        entry: 2,
+        value: "cc",
+    };
+    let rename = crate::Edit::Rename {
+        entry: 0,
+        key: "ALPHA",
+    };
+    let export = crate::Edit::Export {
+        entry: 2,
+        enabled: true,
+    };
+    for order in [[a, b, c], [c, b, a]] {
+        let mut operations = Vec::from([rename, export]);
+        operations.extend(order);
+        let edited = document.edit(&operations).unwrap();
+        assert_eq!(edited.as_str(), "ALPHA='aaaaa'B='b'export C='cc'\n");
+        assert!(edited
+            .edits()
+            .windows(2)
+            .all(|pair| pair[0].range.end <= pair[1].range.start));
+        let (after, diagnostics) = parse_with(edited.as_str(), dialect);
+        assert!(!diagnostics.iter().any(|d| d.severity() == Severity::Error));
+        assert_eq!(
+            after
+                .entries()
+                .map(|entry| (entry.key(), entry.value(), entry.exported()))
+                .collect::<Vec<_>>(),
+            [
+                ("ALPHA", Some("aaaaa"), false),
+                ("B", Some("b"), false),
+                ("C", Some("cc"), true),
+            ]
+        );
+    }
+}
+
+#[test]
+fn capped_next_statement_insertion_can_add_a_physical_separator() {
+    let dialect = Dialect {
+        line_byte_limit: Some(10),
+        ..Dialect::COMPOSE
+    };
+    let document = parse_with("A='x'", dialect).0;
+    let edited = document
+        .edit(&[
+            crate::Edit::Set {
+                entry: 0,
+                value: "x",
+            },
+            crate::Edit::Insert {
+                key: "B",
+                value: Some("123456"),
+                position: InsertPosition::End,
+            },
+        ])
+        .unwrap();
+    assert_eq!(edited.as_str(), "A='x'\nB=123456");
+    let (after, diagnostics) = parse_with(edited.as_str(), dialect);
+    assert!(!diagnostics.iter().any(|d| d.severity() == Severity::Error));
+    assert_eq!(
+        after
+            .entries()
+            .map(|entry| (entry.key(), entry.value()))
+            .collect::<Vec<_>>(),
+        [("A", Some("x")), ("B", Some("123456"))]
+    );
 }

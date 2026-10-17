@@ -109,26 +109,32 @@ fn dialect_for(header: &[u8]) -> Dialect {
         LineBreaks::Lf
     };
     if header[3] & 64 != 0 {
-        dialect.line_byte_limit = Some(2 + usize::from(header[1] & 0x7f));
+        dialect.line_byte_limit = Some(2 + usize::from(header[4] & 0x7f));
     }
-    if header[3] & 128 != 0 {
-        dialect.inline_comments = InlineComments::AnyHash;
-    }
+    dialect.inline_comments = [
+        InlineComments::None,
+        InlineComments::AnyHash,
+        InlineComments::Space,
+        InlineComments::Whitespace,
+        InlineComments::Python,
+    ][usize::from(header[0] >> 3) % 5];
     dialect
 }
 
 fuzz_target!(|data: &[u8]| {
-    if data.len() < 4 {
+    if data.len() < 5 {
         return;
     }
-    // Bound work independently of the engine's max_len. Lossy conversion still
-    // explores arbitrary valid UTF-8 scalars and every ASCII control byte.
-    let payload = &data[4..data.len().min(516)];
-    let value = String::from_utf8_lossy(payload);
+    // Bound work independently of the engine's max_len. Only valid UTF-8 is a
+    // literal API input; arbitrary ASCII controls remain directly reachable.
+    let payload = &data[5..data.len().min(517)];
+    let Ok(value) = std::str::from_utf8(payload) else {
+        return;
+    };
     for dialect in [Dialect::PORTABLE, Dialect::PYTHON_DOTENV, Dialect::COMPOSE] {
-        require_encoding(&value, dialect);
+        require_encoding(value, dialect);
     }
-    let legacy = encode_value(&value);
+    let legacy = encode_value(value);
     if value
         .chars()
         .any(|ch| ch.is_control() && !matches!(ch, '\r' | '\n' | '\t'))
@@ -137,13 +143,13 @@ fuzz_target!(|data: &[u8]| {
     } else {
         check_token(
             &legacy.expect("legacy-compatible Portable value"),
-            &value,
+            value,
             Dialect::PORTABLE,
         );
     }
-    let dialect = dialect_for(&data[..4]);
-    if let Ok(token) = encode_value_with(&value, dialect) {
-        check_token(&token, &value, dialect);
+    let dialect = dialect_for(&data[..5]);
+    if let Ok(token) = encode_value_with(value, dialect) {
+        check_token(&token, value, dialect);
     }
     for token in [
         value.to_string(),

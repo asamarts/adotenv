@@ -2,7 +2,8 @@ use crate::{
     parse, remove, set, AssignmentState, DiagnosticCode, Edit, EditError, InsertPosition, ItemKind,
     Quote,
 };
-use alloc::{string::String, vec, vec::Vec};
+use alloc::{format, string::String, vec, vec::Vec};
+use core::fmt::Write as _;
 
 fn replay(source: &str, result: &crate::VerifiedEdits) -> String {
     let mut output = String::new();
@@ -678,4 +679,40 @@ fn batch_rename_collisions_do_not_reject_unmodified_duplicate_names() {
         ])
         .unwrap();
     assert_eq!(result.as_str(), "A=1\nA=2\nNEW_B=3\nNEW_C=4\n");
+}
+
+#[test]
+fn large_interleaved_set_rename_batch_keeps_sorted_native_edits() {
+    let count = 256;
+    let mut source = String::new();
+    for index in 0..count {
+        writeln!(source, "K{index:04}=old").expect("writing to String cannot fail");
+    }
+    let (document, diagnostics) = parse(&source);
+    assert_eq!(diagnostics, []);
+    let keys: Vec<_> = (0..count).map(|index| format!("R{index:04}")).collect();
+    let values: Vec<_> = (0..count).map(|index| format!("value-{index}")).collect();
+    let mut operations = Vec::with_capacity(count * 2);
+    for entry in 0..count {
+        operations.push(Edit::Set {
+            entry,
+            value: &values[entry],
+        });
+        operations.push(Edit::Rename {
+            entry,
+            key: &keys[entry],
+        });
+    }
+    let result = document.edit(&operations).unwrap();
+    assert!(result
+        .edits()
+        .windows(2)
+        .all(|pair| pair[0].range.end <= pair[1].range.start));
+    let (after, diagnostics) = parse(result.as_str());
+    assert_eq!(diagnostics, []);
+    assert_eq!(after.entries().len(), count);
+    for (index, entry) in after.entries().enumerate() {
+        assert_eq!(entry.key(), keys[index]);
+        assert_eq!(entry.value(), Some(values[index].as_str()));
+    }
 }

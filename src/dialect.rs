@@ -58,7 +58,7 @@ impl DoubleEscapes {
     pub const FORM_FEED: Self = Self(1 << 9);
     /// `\\v`.
     pub const VERTICAL_TAB: Self = Self(1 << 10);
-    /// Compose's `\\0` followed by up to three decimal digits.
+    /// Compose's `\\0` followed by up to three octal digits.
     pub const OCTAL: Self = Self(1 << 11);
     /// Portable's newline, carriage return, tab, slash, quote and dollar escapes.
     pub const PORTABLE: Self = Self(0x3f);

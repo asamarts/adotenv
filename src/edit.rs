@@ -319,6 +319,24 @@ impl ItemPlan<'_> {
         }
     }
 }
+struct SetTarget<'a> {
+    entry: usize,
+    value: &'a str,
+    range: Range<usize>,
+    context: Range<usize>,
+}
+
+#[derive(Clone, Copy)]
+struct ContextEdits<'a, 'value> {
+    base: &'a [TextEdit],
+    targets: &'a [SetTarget<'value>],
+    sets: &'a [Option<TextEdit>],
+}
+
+fn edit_key(edit: &TextEdit) -> (usize, usize) {
+    (edit.range.start, edit.range.end)
+}
+
 struct Insertion<'a> {
     offset: usize,
     desired: Desired<'a>,
@@ -592,81 +610,200 @@ impl Document<'_> {
         insertions: &[Insertion<'_>],
         end_insertions: &mut [usize],
     ) -> Result<(), EditError> {
-        // Header edits are complete before choosing a value spelling. Operation
-        // order must not change the byte budget after rename/export changes.
-        edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
-        let header_count = edits.len();
+        // Header and whole-item edits are complete before choosing value
+        // spellings. Sets on different physical capped lines are independent;
+        // retry only within one line when a neighboring edit frees its budget.
+        edits.sort_by_key(edit_key);
+        let mut targets = Vec::new();
         for operation in operations {
             let Edit::Set { entry: id, value } = *operation else {
                 continue;
             };
             let entry = self.entry(id).ok_or(EditError::InvalidTarget)?;
-            let item = self.item(entry.item_id()).ok_or(EditError::InvalidTarget)?;
             let span = entry.line_span();
             let range = entry
                 .value_span()
                 .unwrap_or_else(|| entry.tokens().key.end..entry.tokens().key.end);
             let context = self.value_context(&span, &range);
-            let before = self.edited_header(context.start..range.start, &edits[..header_count]);
-            let suffix = &self.source()[range.end..span.end];
-            let separate_comment = entry
-                .tokens()
-                .inline_comment
-                .as_ref()
-                .is_some_and(|comment| comment.start == range.end);
-            let encode = |ending: &str, preferred| {
-                let after = if ending.is_empty() {
-                    Cow::Borrowed(&self.source()[range.end..context.end])
-                } else if suffix.is_empty() {
-                    Cow::Borrowed(ending)
-                } else {
-                    let mut combined = String::with_capacity(suffix.len() + ending.len());
-                    combined.push_str(suffix);
-                    combined.push_str(ending);
-                    Cow::Owned(combined)
-                };
-                encode_native(
-                    value,
-                    preferred,
-                    self.dialect(),
-                    &before,
-                    &after,
-                    entry.value_span().is_none(),
-                    separate_comment,
-                )
-                .map_err(|_| EditError::Unencodable)
-            };
-            let ending = self.following_separator(item, insertions, plans);
-            let (mut token, mut quote) = encode(ending, entry.quote())?;
-            plans[item.id()]
-                .desired
-                .as_mut()
-                .ok_or(EditError::InvalidTarget)?
-                .quote = quote;
-            let actual_ending = self.following_separator(item, insertions, plans);
-            if actual_ending != ending {
-                (token, quote) = encode(actual_ending, quote)?;
-            }
-            if separate_comment {
-                token.push(' ');
-            }
-            if entry.value_span().is_none() {
-                token.insert(0, '=');
-            }
-            if range.is_empty() && range.start == span.end {
-                end_insertions[item.id()] = edits.len() + 1;
-            }
-            edits.push(TextEdit {
+            targets.push(SetTarget {
+                entry: id,
+                value,
                 range,
-                replacement: token,
+                context,
             });
-            plans[item.id()]
-                .desired
-                .as_mut()
-                .ok_or(EditError::InvalidTarget)?
-                .quote = quote;
+        }
+        targets.sort_by_key(|target| (target.range.start, target.range.end));
+        let mut set_edits: Vec<Option<TextEdit>> = core::iter::repeat_with(|| None)
+            .take(targets.len())
+            .collect();
+        let mut ending_items = vec![None; targets.len()];
+        let mut group_start = 0;
+        while group_start < targets.len() {
+            let mut group_end = group_start + 1;
+            while group_end < targets.len()
+                && targets[group_end].context == targets[group_start].context
+            {
+                group_end += 1;
+            }
+            let mut remaining = group_end - group_start;
+            while remaining != 0 {
+                let mut progressed = false;
+                for index in group_start..group_end {
+                    if set_edits[index].is_some() {
+                        continue;
+                    }
+                    let context_edits = ContextEdits {
+                        base: edits,
+                        targets: &targets,
+                        sets: &set_edits,
+                    };
+                    match self.finish_set(&targets[index], plans, context_edits, insertions) {
+                        Ok((edit, item, ending_field)) => {
+                            set_edits[index] = Some(edit);
+                            ending_items[index] = ending_field.then_some(item);
+                            remaining -= 1;
+                            progressed = true;
+                        }
+                        Err(EditError::Unencodable) => {}
+                        Err(error) => return Err(error),
+                    }
+                }
+                if !progressed {
+                    return Err(EditError::Unencodable);
+                }
+            }
+            group_start = group_end;
+        }
+        Self::merge_set_edits(edits, set_edits, ending_items, end_insertions)
+    }
+
+    fn merge_set_edits(
+        edits: &mut Vec<TextEdit>,
+        set_edits: Vec<Option<TextEdit>>,
+        ending_items: Vec<Option<usize>>,
+        end_insertions: &mut [usize],
+    ) -> Result<(), EditError> {
+        if set_edits.iter().any(Option::is_none) {
+            return Err(EditError::Unencodable);
+        }
+        let base = core::mem::take(edits);
+        edits.reserve(base.len() + set_edits.len());
+        let mut base = base.into_iter().peekable();
+        let mut sets = set_edits
+            .into_iter()
+            .zip(ending_items)
+            .filter_map(|(edit, item)| edit.map(|edit| (edit, item)))
+            .peekable();
+        while base.peek().is_some() || sets.peek().is_some() {
+            let take_base = match (base.peek(), sets.peek()) {
+                (Some(left), Some((right, _))) => edit_key(left) <= edit_key(right),
+                (Some(_), None) => true,
+                (None, Some(_)) => false,
+                (None, None) => break,
+            };
+            if take_base {
+                if let Some(edit) = base.next() {
+                    edits.push(edit);
+                }
+            } else if let Some((edit, ending_item)) = sets.next() {
+                edits.push(edit);
+                if let Some(item) = ending_item {
+                    end_insertions[item] = edits.len();
+                }
+            }
         }
         Ok(())
+    }
+
+    fn finish_set<'a>(
+        &'a self,
+        target: &SetTarget<'a>,
+        plans: &mut [ItemPlan<'a>],
+        edits: ContextEdits<'_, 'a>,
+        insertions: &[Insertion<'_>],
+    ) -> Result<(TextEdit, usize, bool), EditError> {
+        let entry = self.entry(target.entry).ok_or(EditError::InvalidTarget)?;
+        let item = self.item(entry.item_id()).ok_or(EditError::InvalidTarget)?;
+        let span = entry.line_span();
+        let range = target.range.clone();
+        let context = target.context.clone();
+        let before = self.edited_context(context.start..range.start, edits);
+        let suffix = &self.source()[range.end..span.end];
+        let separate_comment = entry
+            .tokens()
+            .inline_comment
+            .as_ref()
+            .is_some_and(|comment| comment.start == range.end);
+        let encode = |ending: &str, preferred| {
+            let after = if ending.is_empty() {
+                self.edited_context(range.end..context.end, edits)
+            } else if suffix.is_empty() {
+                Cow::Borrowed(ending)
+            } else {
+                let mut combined = String::with_capacity(suffix.len() + ending.len());
+                combined.push_str(suffix);
+                combined.push_str(ending);
+                Cow::Owned(combined)
+            };
+            encode_native(
+                target.value,
+                preferred,
+                self.dialect(),
+                &before,
+                &after,
+                entry.value_span().is_none(),
+                separate_comment,
+            )
+            .map_err(|_| EditError::Unencodable)
+        };
+        let original_quote = plans[item.id()]
+            .desired
+            .ok_or(EditError::InvalidTarget)?
+            .quote;
+        let mut preferred = original_quote;
+        let mut ending = self.following_separator(item, insertions, plans);
+        let mut chosen = None;
+        for _ in 0..4 {
+            let (candidate, actual_quote) = encode(ending, preferred)?;
+            plans[item.id()]
+                .desired
+                .as_mut()
+                .ok_or(EditError::InvalidTarget)?
+                .quote = actual_quote;
+            let actual_ending = self.following_separator(item, insertions, plans);
+            plans[item.id()]
+                .desired
+                .as_mut()
+                .ok_or(EditError::InvalidTarget)?
+                .quote = original_quote;
+            if actual_ending == ending {
+                chosen = Some((candidate, actual_quote));
+                break;
+            }
+            preferred = actual_quote;
+            ending = actual_ending;
+        }
+        let (mut token, quote) = chosen.ok_or(EditError::Unencodable)?;
+        if separate_comment {
+            token.push(' ');
+        }
+        if entry.value_span().is_none() {
+            token.insert(0, '=');
+        }
+        plans[item.id()]
+            .desired
+            .as_mut()
+            .ok_or(EditError::InvalidTarget)?
+            .quote = quote;
+        let ending_field = range.is_empty() && range.start == span.end;
+        Ok((
+            TextEdit {
+                range,
+                replacement: token,
+            },
+            item.id(),
+            ending_field,
+        ))
     }
 
     fn value_context(&self, item: &Range<usize>, value: &Range<usize>) -> Range<usize> {
@@ -694,24 +831,52 @@ impl Document<'_> {
         start..end
     }
 
-    fn edited_header(&self, range: Range<usize>, edits: &[TextEdit]) -> Cow<'_, str> {
-        let start = edits.partition_point(|edit| {
+    fn edited_context<'a>(
+        &'a self,
+        range: Range<usize>,
+        edits: ContextEdits<'_, '_>,
+    ) -> Cow<'a, str> {
+        let base_start = edits.base.partition_point(|edit| {
             edit.range.end < range.start
                 || (edit.range.end == range.start && !edit.range.is_empty())
         });
-        let end = edits.partition_point(|edit| edit.range.start < range.end);
-        if start >= end {
+        let base_end = edits
+            .base
+            .partition_point(|edit| edit.range.start < range.end);
+        let set_start = edits.targets.partition_point(|target| {
+            target.range.end < range.start
+                || (target.range.end == range.start && !target.range.is_empty())
+        });
+        let set_end = edits
+            .targets
+            .partition_point(|target| target.range.start < range.end);
+        let mut base = edits.base[base_start..base_end].iter().peekable();
+        let mut sets = edits.sets[set_start..set_end]
+            .iter()
+            .filter_map(Option::as_ref)
+            .peekable();
+        if base.peek().is_none() && sets.peek().is_none() {
             return Cow::Borrowed(&self.source()[range]);
         }
-        let mut header = String::with_capacity(range.len());
+        let mut output = String::with_capacity(range.len());
         let mut at = range.start;
-        for edit in &edits[start..end] {
-            header.push_str(&self.source()[at..edit.range.start]);
-            header.push_str(&edit.replacement);
+        while base.peek().is_some() || sets.peek().is_some() {
+            let take_base = match (base.peek(), sets.peek()) {
+                (Some(left), Some(right)) => edit_key(left) <= edit_key(right),
+                (Some(_), None) => true,
+                (None, Some(_)) => false,
+                (None, None) => break,
+            };
+            let edit = if take_base { base.next() } else { sets.next() };
+            let Some(edit) = edit else {
+                break;
+            };
+            output.push_str(&self.source()[at..edit.range.start]);
+            output.push_str(&edit.replacement);
             at = edit.range.end;
         }
-        header.push_str(&self.source()[at..range.end]);
-        Cow::Owned(header)
+        output.push_str(&self.source()[at..range.end]);
+        Cow::Owned(output)
     }
 
     fn following_separator(
@@ -892,7 +1057,8 @@ impl Document<'_> {
     ) -> &'static str {
         previous.map_or("", |item| {
             let plan = &plans[item.id()];
-            let next_statement = plan.whole == Whole::Keep
+            let next_statement = self.dialect().line_byte_limit.is_none()
+                && plan.whole == Whole::Keep
                 && self.dialect().quoted_tail == crate::QuotedTail::NextStatement
                 && plan
                     .desired
