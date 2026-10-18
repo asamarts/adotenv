@@ -39,6 +39,11 @@
 //! physical line whose declarations, values, states, export prefixes, lookup
 //! participation or item grouping differ.
 //!
+//! [`Entry::references`] reports raw `$VAR`, `${VAR:-default}` and `$(command)`
+//! candidates with original-source spans and quote/escape context. It never
+//! resolves a lookup or executes a command; [`Reference::is_eligible`] applies
+//! explicit caller-selected rules.
+//!
 //! # Source and positions
 //!
 //! Ranges always address the original source, BOM included. Item ranges plus
@@ -76,6 +81,7 @@ mod model;
 mod parser;
 mod portability;
 mod position;
+mod references;
 
 pub use diagnostic::{Diagnostic, DiagnosticCode, Severity};
 pub use dialect::{
@@ -94,6 +100,9 @@ pub use portability::{
     PortabilityReport,
 };
 pub use position::{ColumnEncoding, LineIndex, Position, PositionError};
+pub use references::{
+    OperatorSet, Reference, ReferenceContainer, ReferenceKind, ReferenceOperator, ReferenceRules,
+};
 
 #[cfg(test)]
 mod dialect_tests;
@@ -105,6 +114,8 @@ mod encode_tests;
 mod portability_tests;
 #[cfg(test)]
 mod position_tests;
+#[cfg(test)]
+mod reference_tests;
 #[cfg(test)]
 mod tests;
 

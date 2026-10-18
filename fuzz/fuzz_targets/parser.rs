@@ -6,7 +6,7 @@ use std::{ops::Range, vec::Vec};
 use adotenv::{
     parse, parse_owned, parse_owned_with, parse_strict, parse_strict_with, parse_with,
     AssignmentState, BareKeys, BomPolicy, ColumnEncoding, Dialect, Document, Entry, EntryTokens,
-    Item, PositionError, Quote, QuotedTail, Severity,
+    Item, PositionError, Quote, QuotedTail, ReferenceKind, ReferenceRules, Severity,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -174,6 +174,67 @@ fn check_mapping(source: &str, entry: Entry<'_>) {
     }
 }
 
+fn check_references(source: &str, entry: Entry<'_>) {
+    let references = entry.references();
+    let value_span = entry.value_span();
+    let mut previous_start = 0;
+    for reference in &references {
+        assert!(reference.span.start >= previous_start);
+        previous_start = reference.span.start;
+        assert!(reference.span.start < reference.span.end);
+        check_span(source, reference.span.clone());
+        assert!(source.is_char_boundary(reference.span.start));
+        assert!(source.is_char_boundary(reference.span.end));
+        if let Some(value_span) = &value_span {
+            assert!(reference.span.start >= value_span.start);
+            assert!(reference.span.end <= value_span.end);
+        }
+        for span in [
+            reference.name.as_ref(),
+            reference.operator_span.as_ref(),
+            reference.argument.as_ref(),
+            reference.command.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            check_span(source, span.clone());
+            assert!(span.start >= reference.span.start);
+            assert!(span.end <= reference.span.end);
+            assert!(source.is_char_boundary(span.start));
+            assert!(source.is_char_boundary(span.end));
+        }
+        assert_eq!(
+            reference.operator.is_some(),
+            reference.operator_span.is_some()
+        );
+        assert_eq!(reference.operator.is_some(), reference.argument.is_some());
+        assert_eq!(
+            reference.kind == ReferenceKind::Command,
+            reference.command.is_some()
+        );
+        assert_eq!(
+            reference.kind == ReferenceKind::Variable,
+            reference.name.is_some()
+        );
+        assert_eq!(reference.containers.len(), reference.depth);
+        if reference.kind == ReferenceKind::Variable && !reference.braced {
+            assert!(!reference.name.as_ref().unwrap().is_empty());
+        }
+        for rules in [
+            ReferenceRules::NONE,
+            ReferenceRules::PORTABLE,
+            ReferenceRules::COMPOSE,
+            ReferenceRules::DOTENV_EXPAND,
+        ] {
+            let _ = reference.is_eligible(rules);
+        }
+    }
+    if value_span.is_none() {
+        assert!(references.is_empty());
+    }
+}
+
 fn check_selected(source: &str, dialect: Dialect) {
     let (doc, diagnostics) = parse_with(source, dialect);
     let mut end = doc.bom_span().map_or(0, |span| span.end);
@@ -225,6 +286,7 @@ fn check_selected(source: &str, dialect: Dialect) {
                     previous = raw;
                 }
             }
+            check_references(source, entry);
         }
     }
     assert_eq!(end, source.len());
@@ -368,6 +430,7 @@ fuzz_target!(|bytes: &[u8]| {
         }
         check_tokens(source, entry, item, tokens);
         check_mapping(source, entry);
+        check_references(source, entry);
     }
 
     for diagnostic in &diagnostics {

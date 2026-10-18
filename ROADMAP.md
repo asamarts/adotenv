@@ -17,8 +17,9 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 **Current status:** 0.2.1 and 0.3.0 are published. 0.3 implements explicit
 dialect configuration, all five syntax presets, selected-dialect native
 verification, exact per-dialect encoding, applicable pinned-upstream comparison
-and cross-dialect portability reporting. Everything from 0.4 onward remains
-future work. Execution evidence is in the quality notes.
+and cross-dialect portability reporting. 0.4 development implements literal
+reference inspection; resolution, formatting, loading and integration work
+remain future. Execution evidence is in the quality notes.
 
 ## Goals
 
@@ -120,11 +121,14 @@ Literal parsing into ordered entries with key, value and line spans;
   parts. Quote style alone is not a difference; no expansion or lookup occurs.
 - **Released:** 2026-10-17 after the complete quality gate.
 
-### 0.4: References and expansion (future)
+### 0.4: References and expansion (in development)
 
-- `references()`: every `$VAR`, `${VAR}`, `${VAR:-default}`-style reference
-  and `$(command)` with spans, operator and default; nothing resolved.
-- `resolve()`: opt-in expansion against a lookup the caller provides, with a
+- **Implemented:** `Entry::references()` for `$VAR`, `${VAR}`, every listed
+  operator form and `$(command)`, with source spans, quote/escape context,
+  nested containers, malformed-form metadata and appended-tail handling.
+  `ReferenceRules` and `OperatorSet` provide pure eligibility decisions without
+  lookup, expansion or execution.
+- **Next:** `resolve()`: opt-in expansion against a lookup the caller provides, with a
   choice of operator set, lookup order and scope, unresolved-variable policy,
   structured `:?` errors, cycle detection, size and depth limits, and the
   origin of every resolved value.

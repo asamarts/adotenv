@@ -142,6 +142,33 @@ assert!(difference.readings[1].parts.iter().any(|part| {
 }));
 ```
 
+## Inspect references (unreleased 0.4)
+
+`Entry::references` reports raw `$VAR`, `${VAR:-default}` and `$(command)`
+candidates in source order. Each candidate carries source spans, quote/escape
+context, variable operators, nested containers and malformed-form metadata.
+Escaped dollars, single-quoted text and unterminated forms remain observable;
+they are not automatically eligible. `ReferenceRules` and `OperatorSet` make
+eligibility explicit, with no lookup, expansion, I/O or command execution.
+
+```rust
+use adotenv::{parse_strict, ReferenceOperator, ReferenceRules};
+
+let source = "A=${HOST:-localhost}\n";
+let doc = parse_strict(source).unwrap();
+let references = doc.unique("A").unwrap().references();
+assert_eq!(references.len(), 1);
+let reference = &references[0];
+assert_eq!(&source[reference.span.clone()], "${HOST:-localhost}");
+assert_eq!(
+    reference.operator,
+    Some(ReferenceOperator::DefaultIfUnsetOrEmpty)
+);
+assert_eq!(&source[reference.argument.clone().unwrap()], "localhost");
+assert!(reference.is_eligible(ReferenceRules::COMPOSE));
+assert!(!reference.is_eligible(ReferenceRules::PORTABLE));
+```
+
 ## Portable syntax (unchanged default)
 
 - Keys are nonempty ASCII letters, digits, `_`, `.` and `-`. Non-POSIX names
@@ -332,9 +359,10 @@ upstream scanner line-byte limit; this is not an application memory ceiling.
 
 0.3 includes explicit dialect configuration, five presets, per-dialect
 encoding, order-independent same-line native set batches under byte caps and
-cross-dialect portability reporting. Reference analysis/expansion, formatting,
-loading and integration crates remain future milestones. See
-[ROADMAP.md](ROADMAP.md) and [design notes](docs/design/).
+cross-dialect portability reporting. 0.4 development adds literal reference
+inspection; resolution/expansion, formatting, loading and integration crates
+remain future milestones. See [ROADMAP.md](ROADMAP.md) and
+[design notes](docs/design/).
 
 ## Minimum supported Rust version
 

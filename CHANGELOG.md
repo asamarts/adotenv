@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `Entry::references` reports raw `$VAR`, `${VAR:-default}` and `$(command)`
+  candidates with original-source spans, quote/escape context, operators,
+  nested containers and malformed-form metadata. `ReferenceRules` and
+  `OperatorSet` provide pure eligibility decisions without lookup, expansion,
+  I/O or command execution. Appended quoted tails are inspected as unquoted
+  context; Compose `$$` escaping and quote-specific escape rules are retained.
+
 ## [0.3.0] - 2026-10-17
 
 ### Added

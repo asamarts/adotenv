@@ -1,8 +1,8 @@
 # References and expansion
 
-Status: future 0.4 design. No reference inspection, resolution, command
-callback, `exec` feature or CLI described here is available in 0.2. The current
-core only parses literal values and never expands or executes them.
+Status: 0.4 development. Literal reference inspection is implemented; resolution,
+command callbacks, the `exec` feature and the CLI remain future. The core still
+parses literal values and never expands or executes.
 
 Variable expansion is where `.env` handling most often goes wrong silently: a
 `$` inside a password or hash gets replaced, a variable name is cut short, a
@@ -10,34 +10,45 @@ self-reference loops, or a command in a file runs on load. adotenv therefore
 separates finding references from resolving them, and resolves nothing unless
 asked.
 
-## References (future 0.4; inspection without resolution)
+## References (implemented in 0.4 development)
 
-`entry.references()` returns recognized reference candidates in the raw value,
-without deciding that they are eligible for expansion:
+`entry.references()` returns recognized raw candidates without deciding that
+they are eligible for expansion:
 
 - `$VAR` and `${VAR}`
 - `${VAR:-default}`, `${VAR-default}`, `${VAR:?message}`, `${VAR?message}`,
   `${VAR:+alternative}`, `${VAR+alternative}`, including nested defaults
-- `$(command)`
+- `$(command)`, including nested command payloads
 
-Each candidate has its kind, whole-form span and quote/escape context.
-Variable forms also carry a name span and any operator/default/message
-spans; command forms carry their raw payload span. Single-quoted and
-escaped-dollar candidates remain observable; their presence does not imply
-that they would expand or execute.
+Each `Reference` carries its kind, whole-form source span, quote and escape
+context, nesting depth, and whether the closing delimiter was found. Variable
+forms carry a name span and any operator/operator-span/argument spans; command
+forms carry a raw payload span. `ReferenceContainer` records the containing
+operator or command forms, outermost first, so a caller can see why a nested
+candidate is or is not active. Single-quoted, escaped-dollar and malformed
+candidates remain observable; their presence does not imply eligibility.
+`Entry::references()` inspects an appended quoted tail as unquoted context.
+Delimiter matching balances mixed `${...}` and `$(...)` forms and honors basic
+quote/backslash state, but it is not a full shell parser: exotic heredoc,
+arithmetic or nested-quoting constructs remain inspection candidates rather
+than a shell-exact interpretation.
 
-A pure eligibility helper applies explicit reference/expansion rules,
-including operator support, quote activity and escaping. Resolution uses
-the same rules. Portable rules suppress single-quoted and escaped-dollar
-candidates, while other selected rules may permit single-quoted expansion.
-Inspection performs no lookup, I/O or command execution.
+`Reference::is_eligible(ReferenceRules)` is a pure helper. `OperatorSet`
+selects no variables, braced-only, basic, Compose-style or dotenv-expand-style
+forms; `ReferenceRules` additionally selects single-quote, escaped-dollar,
+backtick and command eligibility. Nested candidates require every containing
+form to be eligible as well. Constants such as `ReferenceRules::PORTABLE`,
+`COMPOSE`, `DOTENV_EXPAND` and `NONE` are convenience policies, not conformance
+claims. Portable rules suppress single-quoted and escaped-dollar candidates;
+other selected rules may permit them. Inspection performs no lookup, I/O or
+command execution.
 
 This supports linter analysis and editor navigation/renaming without
 executing expansion. Callers must still select eligibility and binding rules.
 Without caller values or conditional-branch state, undefined-variable,
 cycle and unused-key findings may be potential rather than certain.
 
-## Resolution (opt-in)
+## Resolution (future opt-in)
 
 ```rust,ignore
 let resolved = doc.resolve(&lookup, &ExpandOptions::compose())?;

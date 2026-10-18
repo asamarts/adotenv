@@ -1,0 +1,7 @@
+# reference inspection seed
+A=$VAR
+B=${A:-${B:-default}}
+C=$(echo "$D")
+D="\$ESCAPED $DOUBLE"
+E='$SINGLE'
+F=$$VAR

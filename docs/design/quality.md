@@ -4,8 +4,9 @@ Status: lossless-core quality harnesses and 0.3 dialect checks are implemented:
 unit/property/documentation tests, public synthetic fuzz seeds, Criterion
 workloads, real pinned upstream replay and a public-API Rust probe.
 This document distinguishes runnable checks from recorded execution evidence.
-Standalone dialect encoding, same-line native batch budgets and cross-dialect
-portability are covered; resolution remains future.
+Standalone dialect encoding, same-line native batch budgets, cross-dialect
+portability and literal reference inspection are covered; resolution remains
+future.
 
 ## Permanent test expectations
 
@@ -36,6 +37,10 @@ message wording:
   line with valid UTF-8 spans, and are independent of request order. Lookup
   participation, effective bare values and duplicate winners are included;
   quote style alone is not a difference.
+- Reference inspection reports variable and command candidates in source order
+  with bounded UTF-8 spans, name/operator/argument/payload spans, quote and
+  escape context, nesting containers and malformed-form metadata. Eligibility
+  decisions are pure and account for containing forms.
 - README examples compile and run as documentation tests.
 
 ## Fuzz harnesses
@@ -54,7 +59,9 @@ UTF-8 before parsing rather than decoded lossily.
   configurations additionally check source/token partitioning, decoded-map
   boundaries, strict/owned agreement, policy errors and scanner limits.
   Portability reports check valid ordered spans, physical-line bounds, reading
-  order and determinism under reordered requests.
+  order and determinism under reordered requests. Reference candidates check
+  bounded UTF-8 spans, source ordering, operator/argument consistency, nesting
+  containers and eligibility calls under every preset rule set.
 - `edits`: native set/remove/rename/insert/comment/uncomment/export and batches,
   valid and invalid selectors, arbitrary values/keys and unrelated syntax
   errors. Successful results are independently replayed in the returned order;
@@ -141,6 +148,8 @@ parsing are outside timed loops:
   edits at 1,024, 4,096 and 16,384 entries.
 - `portability/<size>` measures a report against the Node, Python, Compose and
   Docker presets, including the document's own Portable reading.
+- `references/<size>` measures reference inspection across every entry in the
+  parse fixture.
 
 Native edit costs include output generation and whole-result verification;
 they are not presented as isolated range-splice costs. Throughput counts
@@ -395,6 +404,30 @@ evidence above.
   cases and 20 profiles, including 409 applicable literal observations and 798
   compared fields. Portability remains literal-only: no expansion, lookup,
   inheritance or I/O.
+
+### Literal reference inspection (2026-10-17)
+
+Tested source: the 0.4 reference working tree based on
+`67fc0ba` (the reference module, tests, parser-fuzz invariants, benchmark and
+documentation pass). Host and toolchains match the encoder evidence above.
+
+- All 134 unit/property tests and ten doctests pass in both feature modes with
+  `PROPTEST_CASES=2000`. Root, fuzz and conformance formatting; all-target core
+  and conformance-probe Clippy; alloc-only Clippy; warning-denied rustdoc; Rust
+  1.81 builds in both modes; package construction; and all 36 Criterion smoke
+  workloads pass.
+- Eleven reference tests cover short/braced variables, every operator form,
+  nested defaults, commands and nested commands, mixed delimiter nesting,
+  malformed forms, quoted/escaped dollars, Compose `$$`, appended tails,
+  bare/empty entries, eligibility and an arbitrary-UTF-8 property. The property
+  checks bounded UTF-8 spans, source ordering, operator/argument consistency,
+  value containment and eligibility calls under every preset rule set.
+- The parser sanitizer target checks reference candidate spans, ordering,
+  container depth, operator/argument consistency and eligibility under every
+  preset rule set for all five presets and custom policies. Its final bounded
+  campaign executes 100,000 inputs in 138 engine seconds at 502 MiB peak RSS.
+- Pinned real-runtime replay still matches all 1,420 observations. Reference
+  inspection is literal-only: no lookup, resolution, I/O or command execution.
 
 ## Local execution evidence (2026-10-15)
 

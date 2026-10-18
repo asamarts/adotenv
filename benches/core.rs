@@ -137,7 +137,27 @@ fn core(c: &mut Criterion) {
     }
     portability.finish();
 
+    references(c, &fixtures);
+
     scaling(c);
+}
+
+fn references(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
+    let mut references = c.benchmark_group("references");
+    for (name, _, source) in fixtures {
+        let document = parse_strict(source).expect("benchmark fixture is valid Portable syntax");
+        references.throughput(Throughput::Bytes(source.len() as u64));
+        references.bench_function(BenchmarkId::from_parameter(name), |b| {
+            b.iter(|| {
+                let mut count = 0usize;
+                for entry in document.entries() {
+                    count += entry.references().len();
+                }
+                black_box(count)
+            });
+        });
+    }
+    references.finish();
 }
 
 fn scaling(c: &mut Criterion) {
