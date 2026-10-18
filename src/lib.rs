@@ -46,8 +46,9 @@
 //!
 //! [`Document::resolve`] performs opt-in variable substitution with a caller
 //! lookup closure. Sequential or whole-file scope, precedence, unresolved
-//! policy, operators, cycles and resource limits are explicit; command forms
-//! remain literal in this slice.
+//! policy, operators, cycles and resource limits are explicit. Command forms
+//! stay literal unless [`Document::resolve_with_commands`] receives an explicit
+//! callback; callback calls are provenance-recorded and never run by default.
 //!
 //! # Source and positions
 //!
@@ -110,8 +111,9 @@ pub use references::{
     OperatorSet, Reference, ReferenceContainer, ReferenceKind, ReferenceOperator, ReferenceRules,
 };
 pub use resolve::{
-    ExpandOptions, ExpandScope, LookupOrder, ResolveError, ResolvedDocument, ResolvedEntry,
-    ResolvedSegment, ResolvedSegmentKind, Unresolved, ValueOrigin,
+    CommandCall, CommandContext, CommandError, CommandOutcome, ExpandOptions, ExpandScope,
+    LookupOrder, ResolveError, ResolveFailure, ResolvedDocument, ResolvedEntry, ResolvedSegment,
+    ResolvedSegmentKind, Unresolved, ValueOrigin,
 };
 
 #[cfg(test)]

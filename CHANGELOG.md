@@ -19,8 +19,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for opt-in variable resolution with an explicit caller lookup. Sequential or
   whole-file scope, caller/file precedence, every operator, unresolved policy,
   required-variable errors, reachable cycle detection, depth/size limits and
-  file/lookup/nested provenance are supported. Caller values and command forms
-  remain literal; no environment, file or command access occurs.
+  file/lookup/nested provenance are supported. Caller values remain literal;
+  no environment, file or command access occurs by default.
+- `Document::resolve_with_commands`, `CommandContext`, `CommandError`,
+  `CommandCall`, `CommandOutcome` and `ResolveFailure` for explicit command
+  substitution. Commands run only through the caller callback when rules enable
+  them; raw text/spans and optional source identity are supplied. Outputs are
+  literal, every call is recorded, and failures retain earlier calls. No shell
+  or process helper is included.
 
 ## [0.3.0] - 2026-10-17
 

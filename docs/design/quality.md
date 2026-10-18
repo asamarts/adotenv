@@ -5,8 +5,9 @@ unit/property/documentation tests, public synthetic fuzz seeds, Criterion
 workloads, real pinned upstream replay and a public-API Rust probe.
 This document distinguishes runnable checks from recorded execution evidence.
 Standalone dialect encoding, same-line native batch budgets, cross-dialect
-portability, literal reference inspection and opt-in variable resolution are
-covered; command substitution remains future.
+portability, literal reference inspection, opt-in variable resolution and
+explicit command callbacks are covered; a built-in execution helper remains
+future.
 
 ## Permanent test expectations
 
@@ -45,8 +46,11 @@ message wording:
   precedence, all operators, unresolved policy and limits. Every successful
   segment concatenates to its entry value and carries bounded UTF-8 spans,
   direct file/lookup origins and nested file provenance. Required variables,
-  cycles and exceeded limits are structured errors; caller values and command
-  forms remain literal.
+  cycles and exceeded limits are structured errors; caller values remain literal.
+- Command callbacks are invoked only when rules enable commands and a callback
+  is supplied. Raw command text and spans, source identity, literal output,
+  call provenance and retained prior calls on failure are checked; no default
+  execution path exists.
 - README examples compile and run as documentation tests.
 
 ## Fuzz harnesses
@@ -71,7 +75,9 @@ UTF-8 before parsing rather than decoded lossily.
 - `resolve`: variable resolution under four rule sets, both scopes, both lookup
   orders and keep/error unresolved policies. Successful outputs check segment
   concatenation, byte limits, source-bounded literal/reference/origin spans and
-  nested provenance; errors may be any structured `ResolveError`.
+  nested provenance; errors may be any structured `ResolveError`. It also
+  exercises the explicit command callback under both scopes and validates call
+  spans, source identity and retained failure calls.
 - `edits`: native set/remove/rename/insert/comment/uncomment/export and batches,
   valid and invalid selectors, arbitrary values/keys and unrelated syntax
   errors. Successful results are independently replayed in the returned order;
@@ -444,33 +450,39 @@ encoder evidence above.
 - Pinned real-runtime replay still matches all 1,420 observations. Reference
   inspection is literal-only: no lookup, resolution, I/O or command execution.
 
-### Opt-in variable resolution (2026-10-18)
+### Opt-in variable resolution and command callbacks (2026-10-18)
 
 Tested source: the 0.4 resolution working tree based on
-`7adb29e` (the resolution module, tests, fuzz target, benchmark and
-documentation pass). Host and toolchains match the encoder evidence above.
+`845add2` (the resolution module plus command-callback slice, tests, fuzz
+target, benchmark and documentation pass). Host and toolchains match the
+encoder evidence above.
 
-- All 153 unit/property tests and twelve doctests pass in both feature modes
+- All 159 unit/property tests and thirteen doctests pass in both feature modes
   with `PROPTEST_CASES=2000`. Root, fuzz and conformance formatting; all-target
   core and conformance-probe Clippy; alloc-only Clippy; warning-denied rustdoc;
   Rust 1.81 builds in both modes; package construction; and all 39 Criterion
   smoke workloads pass.
-- Eighteen resolution tests cover sequential and whole-file scope,
+- Twenty-four resolution tests cover sequential and whole-file scope,
   caller/file precedence, every operator, empty versus unset values, nested
   defaults, conditional arguments, required errors, cycles, depth and size
   limits, effective bare values, duplicates and nonparticipating declarations,
   caller-literal values, single-quote/escape/backtick eligibility, Compose
-  `$$`, appended tails, command forms and nested file provenance. An
-  arbitrary-UTF-8 property checks segment concatenation, value limits and
+  `$$`, appended tails, command forms and nested file provenance. Command tests
+  cover raw callback text/spans, source identity, literal output, conditional
+  invocation, callback failures, retained prior calls and output-size limits.
+  An arbitrary-UTF-8 property checks segment concatenation, value limits and
   bounded literal spans.
 - The `resolve` sanitizer target checks four rule sets, both scopes, both
   lookup orders and keep/error unresolved policies, validating segment
   concatenation, byte limits, source-bounded literal/reference/origin spans and
-  nested provenance. Its final bounded campaign executes 100,000 inputs in
-  37 engine seconds at 467 MiB peak RSS.
+  nested provenance. It also invokes the explicit command callback under both
+  scopes and validates call spans, source identity and retained failures. Its
+  final bounded campaign executes 100,000 inputs in 99 engine seconds at 474 MiB
+  peak RSS.
 - Pinned real-runtime replay still matches all 1,420 observations. Resolution
-  uses only the caller lookup: no environment, file or command access. Caller
-  values and command forms remain literal.
+  uses only the caller lookup and callback: no environment, file or command
+  access occurs implicitly. Caller values are literal; commands run only
+  through the explicit callback.
 
 ## Local execution evidence (2026-10-15)
 

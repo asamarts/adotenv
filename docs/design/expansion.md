@@ -1,9 +1,9 @@
 # References and expansion
 
-Status: 0.4 development. Literal reference inspection and opt-in variable
-resolution are implemented; command callbacks, the `exec` feature and the CLI
-remain future. The core never executes commands; resolution uses only the
-caller-supplied lookup.
+Status: 0.4 development. Literal reference inspection, opt-in variable
+resolution and explicit command callbacks are implemented; the built-in `exec`
+helper and the CLI remain future. The core never executes commands by itself;
+resolution uses only the caller-supplied lookup and callback.
 
 Variable expansion is where `.env` handling most often goes wrong silently: a
 `$` inside a password or hash gets replaced, a variable name is cut short, a
@@ -72,10 +72,11 @@ Bindings follow the selected scope consistently, with no special fallback
 to an earlier definition for self-reference. With no caller-supplied seed,
 `A=base` followed by `A=${A}x` resolves to `basex` in sequential scope but
 is a cycle in whole-file scope. Caller/file lookup precedence remains an
-explicit, separate option. Command substitutions and ineligible references
-remain literal until the command-callback slice; they are never executed.
+explicit, separate option. Command substitutions remain literal unless
+`resolve_with_commands` receives an explicit callback; ineligible references
+remain literal. Nothing is executed implicitly.
 
-Variable-resolution guarantees (command substitution remains future):
+Resolution guarantees:
 
 - `${VAR:?message}` produces a structured error naming the key, the
   reference and its span.
@@ -87,37 +88,33 @@ Variable-resolution guarantees (command substitution remains future):
   file and span, or the caller's lookup. File-origin parts retain nested
   provenance.
 
-## Command substitution (future)
+## Command substitution (callback implemented; execution helper future)
 
 adotenv never runs commands on its own. `$(command)` is reported as a raw
-candidate with its quote/escape context. A diagnostic says it would run under
-another implementation only when eligible under that implementation's rules;
-candidates ineligible under those rules are not labeled executable.
+candidate with its quote/escape context. Command forms remain literal during
+normal resolution and are executed only when the caller supplies a callback to
+`Document::resolve_with_commands` and the selected rules enable commands.
 
-To run commands, the caller passes a callback receiving structured context:
+The callback receives structured context:
 
-- The command text exactly as written.
-- The reference's source span.
+- The command text exactly as written between `$(` and `)`.
+- The whole reference span and raw payload span.
 - An optional source identity supplied by the caller.
 
 Source identity is opaque in the no-std core; it does not imply a filesystem
 path. The caller supplies execution context and per-source policy.
 
-The callback returns command output or an error. Every call is recorded with
-its source identity and reference span in the resolution's origin data.
-Failures retain collected call provenance too: an error does not imply that
-earlier callbacks had no side effects, and adotenv cannot roll them back.
+The callback returns output or a `CommandError`. Every call is recorded as a
+`CommandCall` with its spans, source identity and output/error outcome.
+Successful outputs are literal resolved data and are not re-expanded. A
+`ResolveFailure` retains calls made before a later error: an error does not
+imply that earlier callbacks had no side effects, and adotenv cannot roll them
+back.
 
-For developers working with their own, trusted files, the `exec` feature
-provides a ready-made `exec::shell` callback.
-
-The helper is constructed with an explicit working directory or a
-source-identity-to-origin mapping. Missing directory context is an error;
-it never silently falls back to the host process's working directory.
-
-It runs each command through the system shell exactly as written, in the
-selected directory, with output trimmed of one trailing newline. Its
-documentation is explicit that it runs arbitrary commands and must only be
-used with trusted files. This proposed helper will never be enabled by default;
-0.2 contains no process-spawning code under any feature. The future CLI will
+A ready-made execution helper is still future work. It will live behind an
+opt-in std-only `exec` feature, require an explicit working directory or
+source-identity-to-origin mapping, never fall back to the host process's working
+directory, run the command through the system shell exactly as written, trim one
+trailing newline, and document that it executes arbitrary trusted input. The
+core and current features contain no process-spawning code. The future CLI will
 offer the same explicit trust decision through `--allow-commands`.

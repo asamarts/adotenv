@@ -202,6 +202,31 @@ assert_eq!(caller.entries()[1].value.as_deref(), Some("external/api"));
 Command substitutions and ineligible references remain literal in this slice.
 No preset enables ambient environment lookup, loading or command execution.
 
+### Command substitution by explicit callback
+
+Commands never run by default. `resolve_with_commands` accepts a caller-supplied
+callback only when the selected rules enable command substitutions. The callback
+receives the raw command text, the whole reference and payload spans, and an
+optional caller-supplied source identity. Outputs are literal; every call is
+recorded, and a failure retains calls already made. The core provides no shell
+or process helper.
+
+```rust
+use adotenv::{parse_strict, ExpandOptions};
+
+let doc = parse_strict("A=$(echo hi)\n").unwrap();
+let resolved = doc
+    .resolve_with_commands(
+        |_| None,
+        |context| Ok(format!("ran:{}", context.command)),
+        Some("synthetic.env"),
+        &ExpandOptions::dotenv_expand(),
+    )
+    .unwrap();
+assert_eq!(resolved.entries()[0].value.as_deref(), Some("ran:echo hi"));
+assert_eq!(resolved.commands().len(), 1);
+```
+
 ## Portable syntax (unchanged default)
 
 - Keys are nonempty ASCII letters, digits, `_`, `.` and `-`. Non-POSIX names
@@ -393,9 +418,10 @@ upstream scanner line-byte limit; this is not an application memory ceiling.
 0.3 includes explicit dialect configuration, five presets, per-dialect
 encoding, order-independent same-line native set batches under byte caps and
 cross-dialect portability reporting. 0.4 development adds literal reference
-inspection and opt-in variable resolution; command substitution, formatting,
-loading and integration crates remain future milestones. See
-[ROADMAP.md](ROADMAP.md) and [design notes](docs/design/).
+inspection, opt-in variable resolution and command substitution through an
+explicit caller callback; built-in execution, formatting, loading and
+integration crates remain future milestones. See [ROADMAP.md](ROADMAP.md) and
+[design notes](docs/design/).
 
 ## Minimum supported Rust version
 

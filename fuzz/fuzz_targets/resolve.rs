@@ -2,8 +2,8 @@
 #![forbid(unsafe_code)]
 
 use adotenv::{
-    parse, ExpandOptions, ExpandScope, LookupOrder, ResolvedSegment, ResolvedSegmentKind,
-    Unresolved, ValueOrigin,
+    parse, CommandContext, CommandError, CommandOutcome, ExpandOptions, ExpandScope, LookupOrder,
+    ResolvedSegment, ResolvedSegmentKind, Unresolved, ValueOrigin,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -32,6 +32,17 @@ fn check_segments(source: &str, document: &adotenv::Document<'_>, segments: &[Re
             }
             ResolvedSegmentKind::Unresolved { reference, .. } => {
                 assert!(source.get(reference.clone()).is_some());
+            }
+            ResolvedSegmentKind::Command {
+                reference,
+                payload,
+                source: identity,
+            } => {
+                assert!(source.get(reference.clone()).is_some());
+                assert!(source.get(payload.clone()).is_some());
+                if let Some(identity) = identity {
+                    assert_eq!(identity, "fuzz-source");
+                }
             }
             _ => {}
         }
@@ -80,6 +91,57 @@ fuzz_target!(|bytes: &[u8]| {
                         }
                         check_segments(source, &document, &entry.segments);
                     }
+                }
+            }
+        }
+    }
+
+    for scope in [ExpandScope::Sequential, ExpandScope::WholeFile] {
+        let options = ExpandOptions {
+            scope,
+            max_depth: 8,
+            max_value_bytes: 1024,
+            ..ExpandOptions::dotenv_expand()
+        };
+        let callback = |context: CommandContext<'_>| {
+            assert_eq!(context.source, Some("fuzz-source"));
+            assert!(source.get(context.reference.clone()).is_some());
+            assert!(source.get(context.payload.clone()).is_some());
+            if context.command.contains("FAIL") {
+                Err(CommandError::new("synthetic"))
+            } else {
+                Ok(format!("command-{}", context.command))
+            }
+        };
+        match document.resolve_with_commands(lookup, callback, Some("fuzz-source"), &options) {
+            Ok(resolved) => {
+                for call in resolved.commands() {
+                    assert!(source.get(call.reference.clone()).is_some());
+                    assert!(source.get(call.payload.clone()).is_some());
+                    assert_eq!(call.source.as_deref(), Some("fuzz-source"));
+                    match &call.outcome {
+                        CommandOutcome::Output(_) | CommandOutcome::Error(_) => {}
+                        _ => {}
+                    }
+                }
+                for entry in resolved.entries() {
+                    if let Some(value) = &entry.value {
+                        let joined: String = entry
+                            .segments
+                            .iter()
+                            .map(|segment| segment.value.as_str())
+                            .collect();
+                        assert_eq!(&joined, value);
+                        assert!(value.len() <= options.max_value_bytes);
+                    }
+                    check_segments(source, &document, &entry.segments);
+                }
+            }
+            Err(failure) => {
+                for call in &failure.commands {
+                    assert!(source.get(call.reference.clone()).is_some());
+                    assert!(source.get(call.payload.clone()).is_some());
+                    assert_eq!(call.source.as_deref(), Some("fuzz-source"));
                 }
             }
         }

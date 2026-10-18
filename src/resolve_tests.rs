@@ -534,6 +534,183 @@ fn compose_dollar_escape_is_observable_and_optional() {
 }
 
 #[test]
+fn command_callback_receives_raw_text_and_records_calls() {
+    let source = "A=$(echo $B)\n";
+    let doc = parse_strict(source).unwrap();
+    let mut seen = Vec::new();
+    let resolved = doc
+        .resolve_with_commands(
+            |_| None,
+            |context| {
+                seen.push((
+                    context.command.to_string(),
+                    context.reference.clone(),
+                    context.payload.clone(),
+                    context.source.map(str::to_string),
+                ));
+                Ok("output".to_string())
+            },
+            Some("synthetic.env"),
+            &ExpandOptions {
+                rules: crate::ReferenceRules::DOTENV_EXPAND,
+                ..ExpandOptions::portable()
+            },
+        )
+        .unwrap();
+    assert_eq!(value(&resolved, 0), Some("output"));
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].0, "echo $B");
+    assert_eq!(&source[seen[0].1.clone()], "$(echo $B)");
+    assert_eq!(&source[seen[0].2.clone()], "echo $B");
+    assert_eq!(seen[0].3.as_deref(), Some("synthetic.env"));
+    assert_eq!(resolved.commands().len(), 1);
+    assert_eq!(
+        resolved.commands()[0].outcome,
+        crate::CommandOutcome::Output("output".into())
+    );
+    assert!(matches!(
+        resolved.entries()[0].segments[0].kind,
+        ResolvedSegmentKind::Command { .. }
+    ));
+}
+
+#[test]
+fn command_failures_retain_prior_calls() {
+    let doc = parse_strict("A=$(first)\nB=$(second)\n").unwrap();
+    let failure = doc
+        .resolve_with_commands(
+            |_| None,
+            |context| {
+                if context.command == "second" {
+                    Err(crate::CommandError::new("synthetic failure"))
+                } else {
+                    Ok("first-output".to_string())
+                }
+            },
+            None,
+            &ExpandOptions {
+                rules: crate::ReferenceRules::DOTENV_EXPAND,
+                ..ExpandOptions::portable()
+            },
+        )
+        .unwrap_err();
+    assert!(matches!(
+        failure.error,
+        ResolveError::Command {
+            ref key,
+            ref message,
+            ..
+        } if key == "B" && message == "synthetic failure"
+    ));
+    assert_eq!(failure.commands.len(), 2);
+    assert_eq!(
+        failure.commands[0].outcome,
+        crate::CommandOutcome::Output("first-output".into())
+    );
+    assert_eq!(
+        failure.commands[1].outcome,
+        crate::CommandOutcome::Error("synthetic failure".into())
+    );
+}
+
+#[test]
+fn commands_are_literal_without_a_callback_and_respect_rules() {
+    let doc = parse_strict("A=$(echo hi)\n").unwrap();
+    let literal = doc
+        .resolve(|_| None, &ExpandOptions::dotenv_expand())
+        .unwrap();
+    assert_eq!(value(&literal, 0), Some("$(echo hi)"));
+    assert_eq!(literal.commands().len(), 0);
+
+    let mut invoked = 0;
+    let _ = doc
+        .resolve_with_commands(
+            |_| None,
+            |_| {
+                invoked += 1;
+                Ok("output".to_string())
+            },
+            None,
+            &ExpandOptions::compose(),
+        )
+        .unwrap();
+    assert_eq!(invoked, 0);
+}
+
+#[test]
+fn conditional_command_arguments_are_only_invoked_when_chosen() {
+    let source = "SET=x\nA=${SET:-$(unused)}\nB=${MISSING:-$(used)}\n";
+    let doc = parse_strict(source).unwrap();
+    let mut invoked = Vec::new();
+    let resolved = doc
+        .resolve_with_commands(
+            |_| None,
+            |context| {
+                invoked.push(context.command.to_string());
+                Ok("command-output".to_string())
+            },
+            None,
+            &ExpandOptions::dotenv_expand(),
+        )
+        .unwrap();
+    assert_eq!(value(&resolved, 1), Some("x"));
+    assert_eq!(value(&resolved, 2), Some("command-output"));
+    assert_eq!(invoked, ["used"]);
+    assert_eq!(resolved.commands().len(), 1);
+}
+
+#[test]
+fn command_calls_survive_a_later_non_command_error() {
+    let doc = parse_strict("A=$(cmd)\nB=${MISSING:?required}\n").unwrap();
+    let failure = doc
+        .resolve_with_commands(
+            |_| None,
+            |_| Ok("output".to_string()),
+            None,
+            &ExpandOptions::dotenv_expand(),
+        )
+        .unwrap_err();
+    assert!(matches!(failure.error, ResolveError::Required { .. }));
+    assert_eq!(failure.commands.len(), 1);
+    assert_eq!(
+        failure.commands[0].outcome,
+        crate::CommandOutcome::Output("output".into())
+    );
+}
+
+#[test]
+fn command_output_is_literal_and_size_limited() {
+    let doc = parse_strict("A=$(cmd)\n").unwrap();
+    let resolved = doc
+        .resolve_with_commands(
+            |_| None,
+            |_| Ok("$B".to_string()),
+            None,
+            &ExpandOptions {
+                rules: crate::ReferenceRules::DOTENV_EXPAND,
+                ..ExpandOptions::portable()
+            },
+        )
+        .unwrap();
+    assert_eq!(value(&resolved, 0), Some("$B"));
+
+    let failure = doc
+        .resolve_with_commands(
+            |_| None,
+            |_| Ok("too-large".to_string()),
+            None,
+            &ExpandOptions {
+                rules: crate::ReferenceRules::DOTENV_EXPAND,
+                max_value_bytes: 3,
+                ..ExpandOptions::portable()
+            },
+        )
+        .unwrap_err();
+    assert!(matches!(failure.error, ResolveError::ValueTooLarge { .. }));
+    assert_eq!(failure.commands.len(), 1);
+}
+
+#[test]
 fn none_rules_leave_every_value_literal() {
     let doc = parse_strict("A=${B}\nB=x\n").unwrap();
     let resolved = doc.resolve(|_| None, &ExpandOptions::none()).unwrap();

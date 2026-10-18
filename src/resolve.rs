@@ -112,6 +112,88 @@ impl Default for ExpandOptions {
     }
 }
 
+/// Structured input passed to a command-substitution callback.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandContext<'a> {
+    /// Command text exactly as written between `$(` and `)`.
+    pub command: &'a str,
+    /// Whole `$(...)` reference span in the original source.
+    pub reference: Range<usize>,
+    /// Raw command payload span in the original source.
+    pub payload: Range<usize>,
+    /// Optional caller-supplied source identity; never inferred from a path.
+    pub source: Option<&'a str>,
+}
+
+/// An error returned by a command-substitution callback.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandError {
+    message: String,
+}
+
+impl CommandError {
+    /// Create a callback error with a caller-provided message.
+    #[must_use]
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+    /// The caller-provided message.
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+impl fmt::Display for CommandError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl core::error::Error for CommandError {}
+
+/// Recorded outcome of one invoked command callback.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CommandOutcome {
+    /// The callback returned this output.
+    Output(String),
+    /// The callback returned this error message.
+    Error(String),
+}
+
+/// Provenance for one invoked command callback.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandCall {
+    /// Whole `$(...)` reference span in the original source.
+    pub reference: Range<usize>,
+    /// Raw command payload span in the original source.
+    pub payload: Range<usize>,
+    /// Caller-supplied source identity, if any.
+    pub source: Option<String>,
+    /// Recorded output or error.
+    pub outcome: CommandOutcome,
+}
+
+/// A resolution failure that retains command calls already made.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolveFailure {
+    /// The structured resolution error.
+    pub error: ResolveError,
+    /// Command callbacks invoked before the failure, in invocation order.
+    pub commands: Vec<CommandCall>,
+}
+
+impl fmt::Display for ResolveFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.error.fmt(formatter)
+    }
+}
+
+impl core::error::Error for ResolveFailure {}
+
 /// Where one resolved variable value came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -167,6 +249,15 @@ pub enum ResolvedSegmentKind {
         /// Whole reference span in the original source.
         reference: Range<usize>,
     },
+    /// Output of a caller-supplied command callback.
+    Command {
+        /// Whole `$(...)` reference span in the original source.
+        reference: Range<usize>,
+        /// Raw command payload span in the original source.
+        payload: Range<usize>,
+        /// Caller-supplied source identity, if any.
+        source: Option<String>,
+    },
 }
 
 /// One entry's resolved value and provenance.
@@ -190,6 +281,7 @@ pub struct ResolvedEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedDocument {
     entries: Vec<ResolvedEntry>,
+    commands: Vec<CommandCall>,
 }
 
 impl ResolvedDocument {
@@ -197,6 +289,11 @@ impl ResolvedDocument {
     #[must_use]
     pub fn entries(&self) -> &[ResolvedEntry] {
         &self.entries
+    }
+    /// Command callbacks invoked during resolution, in invocation order.
+    #[must_use]
+    pub fn commands(&self) -> &[CommandCall] {
+        &self.commands
     }
     /// Number of resolved entries.
     #[must_use]
@@ -259,6 +356,15 @@ pub enum ResolveError {
         /// Entry value or line span.
         span: Range<usize>,
     },
+    /// A command callback failed.
+    Command {
+        /// Entry being resolved.
+        key: String,
+        /// Whole `$(...)` reference span.
+        reference: Range<usize>,
+        /// Callback error message.
+        message: String,
+    },
 }
 
 impl fmt::Display for ResolveError {
@@ -294,6 +400,12 @@ impl fmt::Display for ResolveError {
             }
             Self::ValueTooLarge { key, limit, .. } => {
                 write!(formatter, "resolved value for {key} exceeds {limit} bytes")
+            }
+            Self::Command { key, message, .. } => {
+                write!(
+                    formatter,
+                    "command callback failed while resolving {key}: {message}"
+                )
             }
         }
     }
@@ -340,35 +452,60 @@ impl Document<'_> {
             bindings: BTreeMap::new(),
             cache: BTreeMap::new(),
             stack: Vec::new(),
+            commands: None,
+            source_identity: None,
+            command_calls: Vec::new(),
         };
-        let entries = match options.scope {
-            ExpandScope::Sequential => {
-                let mut entries = Vec::new();
-                for entry in self.entries() {
-                    let entry_result = resolver.resolve_entry(entry.id())?;
-                    if entry.participates_in_lookup() {
-                        resolver.bindings.insert(entry.key(), entry.id());
-                    }
-                    entries.push(entry_result);
-                }
-                entries
-            }
-            ExpandScope::WholeFile => {
-                for entry in self.entries() {
-                    if entry.participates_in_lookup() {
-                        resolver.bindings.insert(entry.key(), entry.id());
-                    }
-                }
-                let mut entries = Vec::new();
-                for entry in self.entries() {
-                    entries.push(resolver.resolve_entry(entry.id())?);
-                }
-                entries
-            }
+        resolver.resolve_document()
+    }
+
+    /// Resolve with an explicit command-substitution callback.
+    ///
+    /// Commands are invoked only when both [`ReferenceRules::commands`] and this
+    /// callback permit them. The callback receives the raw command text, source
+    /// spans and the supplied source identity. Outputs are literal resolved data.
+    /// Every call is recorded; [`ResolveFailure::commands`] retains calls made
+    /// before a later error. No shell, environment or file access is implied.
+    ///
+    /// # Errors
+    /// Returns the same structured errors as [`Self::resolve`], wraps callback
+    /// failures, and retains prior command-call provenance in [`ResolveFailure`].
+    pub fn resolve_with_commands<F, C>(
+        &self,
+        lookup: F,
+        mut commands: C,
+        source_identity: Option<&str>,
+        options: &ExpandOptions,
+    ) -> Result<ResolvedDocument, ResolveFailure>
+    where
+        F: Fn(&str) -> Option<String>,
+        C: FnMut(CommandContext<'_>) -> Result<String, CommandError>,
+    {
+        let mut resolver = Resolver {
+            document: self,
+            lookup,
+            options: *options,
+            bindings: BTreeMap::new(),
+            cache: BTreeMap::new(),
+            stack: Vec::new(),
+            commands: Some(&mut commands),
+            source_identity: source_identity.map(str::to_string),
+            command_calls: Vec::new(),
         };
-        Ok(ResolvedDocument { entries })
+        match resolver.resolve_document() {
+            Ok(mut document) => {
+                document.commands = core::mem::take(&mut resolver.command_calls);
+                Ok(document)
+            }
+            Err(error) => Err(ResolveFailure {
+                error,
+                commands: core::mem::take(&mut resolver.command_calls),
+            }),
+        }
     }
 }
+
+type CommandCallback<'a> = dyn FnMut(CommandContext<'_>) -> Result<String, CommandError> + 'a;
 
 struct Resolver<'a, 'src, F> {
     document: &'a Document<'src>,
@@ -377,6 +514,9 @@ struct Resolver<'a, 'src, F> {
     bindings: BTreeMap<&'a str, usize>,
     cache: BTreeMap<usize, ResolvedEntry>,
     stack: Vec<usize>,
+    commands: Option<&'a mut CommandCallback<'a>>,
+    source_identity: Option<String>,
+    command_calls: Vec<CommandCall>,
 }
 
 enum Bound {
@@ -392,6 +532,38 @@ impl<'a, F> Resolver<'a, '_, F>
 where
     F: Fn(&str) -> Option<String>,
 {
+    fn resolve_document(&mut self) -> Result<ResolvedDocument, ResolveError> {
+        let entries = match self.options.scope {
+            ExpandScope::Sequential => {
+                let mut entries = Vec::new();
+                for entry in self.document.entries() {
+                    let entry_result = self.resolve_entry(entry.id())?;
+                    if entry.participates_in_lookup() {
+                        self.bindings.insert(entry.key(), entry.id());
+                    }
+                    entries.push(entry_result);
+                }
+                entries
+            }
+            ExpandScope::WholeFile => {
+                for entry in self.document.entries() {
+                    if entry.participates_in_lookup() {
+                        self.bindings.insert(entry.key(), entry.id());
+                    }
+                }
+                let mut entries = Vec::new();
+                for entry in self.document.entries() {
+                    entries.push(self.resolve_entry(entry.id())?);
+                }
+                entries
+            }
+        };
+        Ok(ResolvedDocument {
+            entries,
+            commands: Vec::new(),
+        })
+    }
+
     fn resolve_entry(&mut self, id: usize) -> Result<ResolvedEntry, ResolveError> {
         if let Some(cached) = self.cache.get(&id) {
             return Ok(cached.clone());
@@ -489,9 +661,10 @@ where
             } else if !reference.containers.is_empty() {
                 continue;
             }
-            if reference.kind == ReferenceKind::Command
-                || !reference.is_eligible(self.options.rules)
-            {
+            if !reference.is_eligible(self.options.rules) {
+                continue;
+            }
+            if reference.kind == ReferenceKind::Command && self.commands.is_none() {
                 continue;
             }
             if reference.depth > self.options.max_depth {
@@ -515,8 +688,12 @@ where
                 account(&mut length, &literal, self.options.max_value_bytes, entry)?;
                 segments.push(literal);
             }
-            let replacement =
-                self.resolve_reference(entry, reference, decoded, start..end, references)?;
+            let replacement = match reference.kind {
+                ReferenceKind::Variable => {
+                    self.resolve_reference(entry, reference, decoded, start..end, references)?
+                }
+                ReferenceKind::Command => self.run_command(entry, reference)?,
+            };
             for segment in replacement {
                 account(&mut length, &segment, self.options.max_value_bytes, entry)?;
                 segments.push(segment);
@@ -529,6 +706,65 @@ where
             segments.push(literal);
         }
         Ok(segments)
+    }
+
+    fn run_command(
+        &mut self,
+        entry: Entry<'a>,
+        reference: &Reference,
+    ) -> Result<Vec<ResolvedSegment>, ResolveError> {
+        let payload = reference
+            .command
+            .clone()
+            .expect("eligible command has a payload");
+        let command = self.document.source()[payload.clone()].to_string();
+        let reference_span = reference.span.clone();
+        let source = self.source_identity.clone();
+        let result = {
+            let context = CommandContext {
+                command: &command,
+                reference: reference_span.clone(),
+                payload: payload.clone(),
+                source: source.as_deref(),
+            };
+            let callback = self
+                .commands
+                .as_mut()
+                .expect("command callback was checked before invocation");
+            callback(context)
+        };
+        match result {
+            Ok(output) => {
+                self.command_calls.push(CommandCall {
+                    reference: reference_span.clone(),
+                    payload: payload.clone(),
+                    source: source.clone(),
+                    outcome: CommandOutcome::Output(output.clone()),
+                });
+                Ok(vec![ResolvedSegment {
+                    value: output,
+                    kind: ResolvedSegmentKind::Command {
+                        reference: reference_span,
+                        payload,
+                        source,
+                    },
+                }])
+            }
+            Err(error) => {
+                let message = error.message().to_string();
+                self.command_calls.push(CommandCall {
+                    reference: reference_span.clone(),
+                    payload,
+                    source,
+                    outcome: CommandOutcome::Error(message.clone()),
+                });
+                Err(ResolveError::Command {
+                    key: entry.key().to_string(),
+                    reference: reference_span,
+                    message,
+                })
+            }
+        }
     }
 
     fn resolve_reference(
