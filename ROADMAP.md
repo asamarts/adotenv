@@ -18,10 +18,9 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 dialect configuration, all five syntax presets, selected-dialect native
 verification, exact per-dialect encoding, applicable pinned-upstream comparison
 and cross-dialect portability reporting. 0.4 development implements literal
-reference inspection, opt-in variable resolution and command substitution
-through an explicit caller callback; a built-in execution helper, formatting,
-loading and integration work remain future. Execution evidence is in the
-quality notes.
+reference inspection, opt-in variable resolution, explicit command callbacks
+and an opt-in `exec` helper; release preparation, formatting, loading and
+integration work remain future. Execution evidence is in the quality notes.
 
 ## Goals
 
@@ -138,8 +137,10 @@ Literal parsing into ordered entries with key, value and line spans;
   raw command text/spans, source identity, literal outputs, `CommandCall`
   provenance and `ResolveFailure` retention of prior calls. No default command
   execution exists.
-- **Next:** a std-only `exec::shell` helper behind the `exec` feature, requiring
-  explicit execution-directory/origin context; then release 0.4.0.
+- **Implemented:** an opt-in std-only `exec::Shell` helper behind the `exec`
+  feature, requiring an explicit working directory or source-directory origins,
+  with nonzero-status, spawn and UTF-8 output errors.
+- **Next:** release 0.4.0 after the complete quality gate.
 
 ### 0.5: Formatting and structure (future)
 

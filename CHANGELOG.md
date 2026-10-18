@@ -25,8 +25,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `CommandCall`, `CommandOutcome` and `ResolveFailure` for explicit command
   substitution. Commands run only through the caller callback when rules enable
   them; raw text/spans and optional source identity are supplied. Outputs are
-  literal, every call is recorded, and failures retain earlier calls. No shell
-  or process helper is included.
+  literal, every call is recorded, and failures retain earlier calls.
+- Optional `exec` feature with `exec::Shell`: explicit working directory or
+  source-directory origins, platform-shell execution of exactly the supplied
+  text, one trailing newline trimmed, and spawn/status/UTF-8 errors returned as
+  `CommandError`. It is never enabled by default and never inherits the host
+  working directory.
 
 ## [0.3.0] - 2026-10-17
 

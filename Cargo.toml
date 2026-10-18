@@ -19,6 +19,7 @@ include = ["src/**/*.rs", "benches/**/*.rs", "README.md", "CHANGELOG.md", "ROADM
 [features]
 default = ["std"]
 std = []
+exec = ["std"]
 
 [dependencies]
 

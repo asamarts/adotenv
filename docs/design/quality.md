@@ -5,9 +5,9 @@ unit/property/documentation tests, public synthetic fuzz seeds, Criterion
 workloads, real pinned upstream replay and a public-API Rust probe.
 This document distinguishes runnable checks from recorded execution evidence.
 Standalone dialect encoding, same-line native batch budgets, cross-dialect
-portability, literal reference inspection, opt-in variable resolution and
-explicit command callbacks are covered; a built-in execution helper remains
-future.
+portability, literal reference inspection, opt-in variable resolution,
+explicit command callbacks and the opt-in `exec` helper are covered; the CLI
+and loading remain future.
 
 ## Permanent test expectations
 
@@ -51,6 +51,9 @@ message wording:
   is supplied. Raw command text and spans, source identity, literal output,
   call provenance and retained prior calls on failure are checked; no default
   execution path exists.
+- The `exec` feature helper is constructed only with an explicit directory or
+  source-directory origins. Tests check one-newline trimming, source directory
+  selection, nonzero status and invalid-directory errors on Unix.
 - README examples compile and run as documentation tests.
 
 ## Fuzz harnesses
@@ -202,8 +205,9 @@ process adapter, not core, will own any unsafe environment application API.
 
 CI covers stable tests on Linux/macOS/Windows, README doctests, formatting,
 Clippy and documentation warnings, packaging the explicit `adotenv` package,
-benchmark smoke, Rust 1.81 library builds with and without defaults, and an
-alloc-only build for `thumbv7em-none-eabi` where `std` is unavailable. MSRV jobs
+benchmark smoke, Rust 1.81 library builds with and without defaults and with
+the `exec` feature, feature tests on all platforms, and an alloc-only build for
+`thumbv7em-none-eabi` where `std` is unavailable. MSRV jobs
 build only the library because dev/fuzz dependencies can require newer Rust.
 Release metadata and publishing select the package by name, not workspace
 package order. Tag publication depends on the complete reusable CI workflow at
@@ -219,9 +223,11 @@ cargo fmt --all --check
 cargo fmt --manifest-path fuzz/Cargo.toml --all --check
 cargo fmt --manifest-path conformance/rust/Cargo.toml --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo clippy -p adotenv --features exec --all-targets --locked -- -D warnings
 cargo clippy -p adotenv --lib --no-default-features --locked -- -D warnings
 cargo clippy --manifest-path conformance/rust/Cargo.toml --all-targets --locked -- -D warnings
 PROPTEST_CASES=2000 cargo test --workspace --locked
+cargo test -p adotenv --features exec --locked
 cargo test -p adotenv --no-default-features --locked
 RUSTDOCFLAGS="-D warnings" cargo doc -p adotenv --no-deps --locked
 cargo +1.81 build -p adotenv --lib --locked
@@ -479,10 +485,15 @@ encoder evidence above.
   scopes and validates call spans, source identity and retained failures. Its
   final bounded campaign executes 100,000 inputs in 99 engine seconds at 474 MiB
   peak RSS.
+- The `exec` feature adds three Unix tests for shell output trimming, source
+  directory selection and failure reporting; its test run passes 162 unit tests
+  and thirteen doctests. The feature builds on Linux, macOS and Windows
+  (Unix-only tests run on Linux/macOS). Default-feature tests remain
+  process-free.
 - Pinned real-runtime replay still matches all 1,420 observations. Resolution
   uses only the caller lookup and callback: no environment, file or command
   access occurs implicitly. Caller values are literal; commands run only
-  through the explicit callback.
+  through the explicit callback or the explicit opt-in `exec` helper.
 
 ## Local execution evidence (2026-10-15)
 

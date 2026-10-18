@@ -34,6 +34,7 @@ jobs:
       - run: cargo fmt --manifest-path fuzz/Cargo.toml --all --check
       - run: cargo fmt --manifest-path conformance/rust/Cargo.toml --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo clippy -p adotenv --features exec --all-targets --locked -- -D warnings
       - run: cargo clippy -p adotenv --lib --no-default-features --locked -- -D warnings
       - run: cargo clippy --manifest-path conformance/rust/Cargo.toml --all-targets --locked -- -D warnings
       - run: cargo doc -p adotenv --no-deps --locked
@@ -59,6 +60,7 @@ jobs:
       - run: cargo test --workspace --locked
         env:
           PROPTEST_CASES: "2000"
+      - run: cargo test -p adotenv --features exec --locked
 
   msrv:
     name: MSRV (1.81)
@@ -74,6 +76,7 @@ jobs:
           toolchain: "1.81"
       # The library only: dev-dependencies may need a newer toolchain.
       - run: cargo build -p adotenv --lib --locked
+      - run: cargo build -p adotenv --lib --features exec --locked
       - run: cargo build -p adotenv --lib --no-default-features --locked
 
   package:

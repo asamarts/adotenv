@@ -21,8 +21,10 @@ formatters, editors, language servers, scanners and migration tools:
   and export changes return source-relative text edits and an already-verified
   output. Unrelated entries and invalid syntax must keep their meaning.
 - **Small, side-effect-free core.** Zero runtime dependencies, no file I/O,
-  environment access or process spawning, and unconditional `forbid(unsafe_code)`.
-  Disable the default `std` feature for `no_std` with `alloc`.
+  environment access or process spawning by default, and unconditional
+  `forbid(unsafe_code)`. The opt-in `exec` feature is the only
+  process-spawning path. Disable the default `std` feature for `no_std` with
+  `alloc`.
 
 ## Read a document
 
@@ -208,8 +210,12 @@ Commands never run by default. `resolve_with_commands` accepts a caller-supplied
 callback only when the selected rules enable command substitutions. The callback
 receives the raw command text, the whole reference and payload spans, and an
 optional caller-supplied source identity. Outputs are literal; every call is
-recorded, and a failure retains calls already made. The core provides no shell
-or process helper.
+recorded, and a failure retains calls already made.
+
+For trusted files, the optional `exec` feature provides `exec::Shell` with an
+explicit working directory and optional source-identity-to-directory map. It
+runs commands through the platform shell, trims one trailing newline and never
+falls back to the host working directory. It is never enabled by default.
 
 ```rust
 use adotenv::{parse_strict, ExpandOptions};
@@ -418,10 +424,9 @@ upstream scanner line-byte limit; this is not an application memory ceiling.
 0.3 includes explicit dialect configuration, five presets, per-dialect
 encoding, order-independent same-line native set batches under byte caps and
 cross-dialect portability reporting. 0.4 development adds literal reference
-inspection, opt-in variable resolution and command substitution through an
-explicit caller callback; built-in execution, formatting, loading and
-integration crates remain future milestones. See [ROADMAP.md](ROADMAP.md) and
-[design notes](docs/design/).
+inspection, opt-in variable resolution, explicit command callbacks and an
+opt-in `exec` helper; formatting, loading and integration crates remain future
+milestones. See [ROADMAP.md](ROADMAP.md) and [design notes](docs/design/).
 
 ## Minimum supported Rust version
 

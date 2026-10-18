@@ -1,9 +1,9 @@
 # References and expansion
 
 Status: 0.4 development. Literal reference inspection, opt-in variable
-resolution and explicit command callbacks are implemented; the built-in `exec`
-helper and the CLI remain future. The core never executes commands by itself;
-resolution uses only the caller-supplied lookup and callback.
+resolution, explicit command callbacks and an opt-in `exec` helper are
+implemented; the CLI remains future. The core never executes commands by
+itself; resolution uses only the caller-supplied lookup and callback.
 
 Variable expansion is where `.env` handling most often goes wrong silently: a
 `$` inside a password or hash gets replaced, a variable name is cut short, a
@@ -88,7 +88,7 @@ Resolution guarantees:
   file and span, or the caller's lookup. File-origin parts retain nested
   provenance.
 
-## Command substitution (callback implemented; execution helper future)
+## Command substitution (callback and opt-in exec helper implemented)
 
 adotenv never runs commands on its own. `$(command)` is reported as a raw
 candidate with its quote/escape context. Command forms remain literal during
@@ -111,10 +111,11 @@ Successful outputs are literal resolved data and are not re-expanded. A
 imply that earlier callbacks had no side effects, and adotenv cannot roll them
 back.
 
-A ready-made execution helper is still future work. It will live behind an
-opt-in std-only `exec` feature, require an explicit working directory or
-source-identity-to-origin mapping, never fall back to the host process's working
-directory, run the command through the system shell exactly as written, trim one
-trailing newline, and document that it executes arbitrary trusted input. The
-core and current features contain no process-spawning code. The future CLI will
+The opt-in std-only `exec` feature provides `exec::Shell`. It requires an
+explicit working directory with optional source-identity-to-directory origins,
+never falls back to the host process's working directory, runs the command
+through the platform shell exactly as written, trims one trailing newline and
+returns nonzero-status, spawn and UTF-8 output errors as `CommandError`. Its
+documentation is explicit that it executes arbitrary trusted input. The core
+and default features contain no process-spawning code. The future CLI will
 offer the same explicit trust decision through `--allow-commands`.

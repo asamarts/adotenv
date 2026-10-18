@@ -83,6 +83,8 @@ mod diagnostic;
 mod dialect;
 mod edit;
 mod encode;
+#[cfg(feature = "exec")]
+pub mod exec;
 mod model;
 mod parser;
 mod portability;
