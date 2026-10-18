@@ -1,7 +1,7 @@
 # Comparison and examples
 
 Status: effective-key comparison and safe example generation are implemented in
-the unreleased 0.5 tree. Neither operation expands values, consults the
+0.5. Neither operation expands values, consults the
 environment, reads files or executes commands.
 
 ## Effective-key comparison

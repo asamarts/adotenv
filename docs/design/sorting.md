@@ -1,7 +1,7 @@
 # Group sorting
 
-Status: comment-aware dependency sorting is implemented in the unreleased 0.5
-tree as `Document::sort`. It is separate from `Document::format`, because
+Status: comment-aware dependency sorting is implemented in 0.5 as
+`Document::sort`. It is separate from `Document::format`, because
 sorting changes source order rather than only trivia.
 
 ## Contract

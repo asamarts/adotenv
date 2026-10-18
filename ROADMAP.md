@@ -17,14 +17,14 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [sorting.md](docs/design/sorting.md) | Comment-aware, dependency-respecting group sorting |
 | [quality.md](docs/design/quality.md) | Testing, fuzzing, conformance, benchmarks, MSRV and semver policy |
 
-**Current status:** 0.2.1, 0.3.0 and 0.4.0 are published. 0.3 implements
+**Current status:** 0.2.1, 0.3.0, 0.4.0 and 0.5.0 are published. 0.3 implements
 explicit dialect configuration, all five syntax presets, selected-dialect native
 verification, exact per-dialect encoding, applicable pinned-upstream comparison
 and cross-dialect portability reporting. 0.4 implements literal reference
 inspection, opt-in variable resolution, explicit command callbacks and an
-opt-in `exec` helper. The unreleased 0.5 tree adds structure views, verified
-trivia formatting, key comparison, safe example generation, blank-line
-collapsing, value quote normalization and comment-aware dependency sorting.
+opt-in `exec` helper. 0.5 implements structure views, verified trivia formatting, key
+comparison, safe example generation, blank-line collapsing, value quote
+normalization and comment-aware dependency sorting.
 Loading and integration work remain future. Execution evidence is in the
 quality notes.
 
@@ -148,7 +148,7 @@ Literal parsing into ordered entries with key, value and line spans;
   with nonzero-status, spawn and UTF-8 output errors.
 - **Released:** 2026-10-18 after the complete quality gate.
 
-### 0.5: Formatting and structure (in progress)
+### 0.5: Formatting and structure (released 2026-10-18)
 
 - **Implemented:** `Document::groups` for blank-line-separated item runs,
   `Document::header` for the structural prefix before the first declaration,
@@ -174,7 +174,7 @@ Literal parsing into ordered entries with key, value and line spans;
   keeps leading/inline comments attached, preserves group headers/trailing
   comments, and places `${VAR}` dependencies before dependents. Duplicate/empty
   keys, malformed groups and dependency cycles are left unchanged.
-- **Not yet released.**
+- **Released:** 2026-10-18 after the complete quality gate.
 
 ### 0.6: Loading (future)
 

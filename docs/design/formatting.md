@@ -1,7 +1,7 @@
 # Structure and formatting
 
 Status: the 0.5 structure views and trivia-only verified formatter are
-implemented in the unreleased tree. Comparison and example generation are
+implemented and released. Comparison and example generation are
 documented in [comparison.md](comparison.md); group sorting remains future
 work.
 

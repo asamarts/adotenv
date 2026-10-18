@@ -1,7 +1,7 @@
 # Architecture
 
 Status: the lossless core/native edit model, 0.3 dialect configuration/presets,
-0.4 reference/resolution/command-callback APIs and the unreleased 0.5
+0.4 reference/resolution/command-callback APIs and the released 0.5
 structure, trivia-formatting, comparison, example-generation and group-sorting
 views are implemented. Sections explicitly marked future are designs, not
 additional shipped interfaces.
