@@ -638,7 +638,7 @@ above.
 - All 57 Criterion smoke workloads pass, including three double-quote format
   workloads.
 - The `format` sanitizer target adds double, single and unquoted policies to its
-  five-policy matrix. Its bounded campaign executes 26,424 inputs in 121 engine
+  eight-policy matrix. Its bounded campaign executes 26,424 inputs in 121 engine
   seconds with no crash, panic or invariant failure. The campaign found and
   fixed an empty-value/after-`=` spacing interaction; empty assigned values are
   now left unchanged in this slice.
