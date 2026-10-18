@@ -16,15 +16,21 @@ keywords = ["dotenv", "env", "parser", "linter", "lossless"]
 categories = ["parser-implementations", "config", "development-tools"]
 include = ["src/**/*.rs", "benches/**/*.rs", "README.md", "CHANGELOG.md", "ROADMAP.md", "docs/design/*.md", "LICENSE-APACHE", "LICENSE-MIT"]
 
+[package.metadata.docs.rs]
+all-features = true
+
 [features]
 default = ["std"]
 std = []
 exec = ["std"]
 load = ["std"]
+serde = ["dep:serde"]
 
 [dependencies]
+serde = { version = "1", optional = true, default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
+serde = { version = "1", features = ["derive"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 

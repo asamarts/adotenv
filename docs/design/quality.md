@@ -695,6 +695,28 @@ feature, cascade validation and origin/report structures.
   No process environment is mutated, and no expansion or command execution is
   performed.
 
+### Serde slice (0.6, unreleased; 2026-10-18)
+
+Tested source: the unreleased 0.6 working tree adding the opt-in `serde`
+feature and `Document::deserialize`.
+
+- With `PROPTEST_CASES=2000`, all 236 all-feature tests pass, the process
+  adapter adds three tests, and 23 doctests pass (three filesystem examples are
+  intentionally ignored). Workspace-default tests remain green; the
+  no-default-features + serde build passes 222 tests and 23 doctests.
+- Seven serde tests cover literal structs/primitives, duplicate policy,
+  optional fields, `BareKeys::Empty`, quoted decoding, missing/bare errors,
+  line/key-aware type errors and unsupported nesting.
+- Workspace, load, serde, alloc-only + serde and conformance-probe Clippy pass
+  with Rust 1.99; warning-denied rustdoc passes for the workspace and for the
+  serde/load feature docs. Rust 1.81 builds pass for default, load, serde, exec,
+  no-default and the process crate. The alloc-only Thumb build passes.
+- All 60 Criterion smoke workloads pass. The locked package contains 59 files
+  (about 0.77 MiB, 0.19 MiB compressed).
+- The conformance snapshot still matches 409 applicable observations and 798
+  field comparisons.
+- Deserialization performs no file, environment, expansion or command access.
+
 ## Local execution evidence (2026-10-15)
 
 Tested source: the unreleased 0.2 working tree based on

@@ -420,6 +420,29 @@ let loaded = load_cascade("/srv/my-app", "production")?;
 unsafe { apply(&loaded)? };
 ```
 
+## Deserialize with serde (0.6, opt-in)
+
+With the `serde` feature, `Document::deserialize` maps effective literal
+declarations into a Serde type. Values are parsed as strings, booleans, numbers
+or characters when requested; nested sequences/maps and enum layouts are not
+invented. Duplicate keys follow the document dialect, bare declarations are
+available only under `BareKeys::Empty`, and conversion errors carry the source
+line and key.
+
+```rust,ignore
+use adotenv::parse_strict;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct Config {
+    host: String,
+    port: u16,
+}
+
+let doc = parse_strict("host=localhost\nport=8080\n").unwrap();
+let config: Config = doc.deserialize()?;
+```
+
 ## Portable syntax (unchanged default)
 
 - Keys are nonempty ASCII letters, digits, `_`, `.` and `-`. Non-POSIX names

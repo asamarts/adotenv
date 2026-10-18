@@ -97,6 +97,4 @@ not thread-safe on all platforms; changes cannot be rolled back. Returning the
 
 ## Future work
 
-- A `serde` feature that deserializes a document into a struct with line-aware
-  errors.
 - Optional command/expansion callbacks during loading, never enabled implicitly.

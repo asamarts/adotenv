@@ -16,6 +16,7 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [comparison.md](docs/design/comparison.md) | Effective-key comparison and safe example generation |
 | [sorting.md](docs/design/sorting.md) | Comment-aware, dependency-respecting group sorting |
 | [loading.md](docs/design/loading.md) | Opt-in file cascade loading, validation and origins |
+| [serde.md](docs/design/serde.md) | Opt-in typed deserialization with line-aware errors |
 | [quality.md](docs/design/quality.md) | Testing, fuzzing, conformance, benchmarks, MSRV and semver policy |
 
 **Current status:** 0.2.1, 0.3.0, 0.4.0 and 0.5.0 are published. 0.3 implements
@@ -25,10 +26,10 @@ and cross-dialect portability reporting. 0.4 implements literal reference
 inspection, opt-in variable resolution, explicit command callbacks and an
 opt-in `exec` helper. 0.5 implements structure views, verified trivia formatting,
 key comparison, safe example generation, blank-line collapsing, value quote
-normalization and comment-aware dependency sorting. 0.6 file cascade loading
-and the separate process-environment adapter are in progress behind opt-in
-features. Serde and integrations remain future. Execution evidence is in the
-quality notes.
+normalization and comment-aware dependency sorting. 0.6 file cascade loading,
+the separate process-environment adapter and serde deserialization are
+implemented behind opt-in features; the 0.6 release is pending. Integrations
+remain future. Execution evidence is in the quality notes.
 
 ## Goals
 
@@ -192,8 +193,9 @@ Literal parsing into ordered entries with key, value and line spans;
   is changed.
 - **Implemented:** separate `adotenv-process` adapter with prevalidation and an
   explicit unsafe `apply`; returning a map remains the default.
-- **Remaining:** a `serde` feature deserializing a document into a struct, with
-  errors that point at the line.
+- **Implemented:** opt-in `serde` feature with `Document::deserialize`, typed
+  literal values, dialect-aware key selection and line/key-aware conversion errors.
+- **Remaining:** release preparation for 0.6.0.
 
 ### 0.7: Integrations and tools (future)
 

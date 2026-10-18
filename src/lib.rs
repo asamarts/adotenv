@@ -80,6 +80,9 @@
 //! origins, overrides, repeats and skipped declarations. Loading performs no
 //! expansion and does not mutate the process environment.
 //!
+//! The opt-in `serde` feature adds `Document::deserialize`, mapping effective
+//! literal declarations into a Serde type with line/key-aware conversion errors.
+//!
 //! # Source and positions
 //!
 //! Ranges always address the original source, BOM included. Item ranges plus
@@ -127,6 +130,8 @@ mod portability;
 mod position;
 mod references;
 mod resolve;
+#[cfg(feature = "serde")]
+mod serde_support;
 mod sort;
 mod structure;
 
@@ -159,6 +164,8 @@ pub use resolve::{
     LookupOrder, ResolveError, ResolveFailure, ResolvedDocument, ResolvedEntry, ResolvedSegment,
     ResolvedSegmentKind, Unresolved, ValueOrigin,
 };
+#[cfg(feature = "serde")]
+pub use serde_support::DeserializeError;
 pub use structure::{Group, Groups};
 
 #[cfg(test)]
@@ -183,6 +190,8 @@ mod position_tests;
 mod reference_tests;
 #[cfg(test)]
 mod resolve_tests;
+#[cfg(all(test, feature = "serde"))]
+mod serde_tests;
 #[cfg(test)]
 mod sort_tests;
 #[cfg(test)]

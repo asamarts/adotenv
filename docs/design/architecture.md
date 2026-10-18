@@ -3,7 +3,7 @@
 Status: the lossless core/native edit model, 0.3 dialect configuration/presets,
 0.4 reference/resolution/command-callback APIs, the released 0.5
 structure/trivia-formatting/comparison/example/sorting views and the unreleased
-0.6 opt-in file-loading and process-environment adapters are implemented. Sections explicitly marked
+0.6 opt-in file-loading, process-environment and serde adapters are implemented. Sections explicitly marked
 future are designs, not additional shipped interfaces.
 
 ## Document model
@@ -317,6 +317,11 @@ The separate `adotenv-process` crate contains the only process-environment
 mutation path. It prevalidates all keys and values, exposes an unsafe `apply`,
 sets only loaded keys and documents the lack of rollback and thread-safety
 requirements. The core crate remains `forbid(unsafe_code)`.
+
+The opt-in `serde` feature implements `Document::deserialize` over a
+string-valued effective map. Scalar visitors parse literal strings; nested
+sequences/maps/enums are rejected rather than synthesized. Conversion errors
+carry source lines and keys. See [serde.md](serde.md).
 
 ## Crate layout and platform
 

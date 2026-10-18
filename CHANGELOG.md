@@ -23,6 +23,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `unsafe apply`. Every key/value is validated before the first mutation; only
   loaded keys are set, unrelated process variables are not cleared, and changes
   cannot be rolled back.
+- Opt-in `serde` feature with `Document::deserialize`, `DeserializeError` and
+  line/key-aware value conversion. Effective literal declarations map to Serde
+  structs and scalar primitives; duplicate policy, lookup participation and
+  `BareKeys::Empty` are honored.
 
 ## [0.5.0] - 2026-10-18
 
