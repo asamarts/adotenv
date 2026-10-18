@@ -2,7 +2,7 @@ use alloc::{string::String, vec::Vec};
 
 use proptest::prelude::*;
 
-use crate::{parse, parse_strict, parse_with, AssignmentState, Dialect, ItemKind};
+use crate::{parse, parse_strict, parse_with, AssignmentState, Dialect, InlineComments, ItemKind};
 
 #[test]
 fn values_are_blanked_and_comments_and_layout_are_kept() {
@@ -99,6 +99,24 @@ fn node_colon_values_keep_an_empty_placeholder() {
     assert_eq!(example, "A: \"\"\n");
     let (after, _) = parse_with(&example, Dialect::NODE_DOTENV);
     assert_eq!(after.unique("A").unwrap().value(), Some(""));
+}
+
+#[test]
+fn custom_space_comments_move_to_a_safe_comment_line() {
+    let dialect = Dialect {
+        inline_comments: InlineComments::Space,
+        quoted_comments: false,
+        ..Dialect::PORTABLE
+    };
+    let source = "A=value # note\n";
+    let (doc, _) = parse_with(source, dialect);
+    let example = doc.example();
+    assert_eq!(example, "A=\n# note\n");
+    let (after, _) = parse_with(&example, dialect);
+    assert_eq!(after.unique("A").unwrap().value(), Some(""));
+    assert!(after
+        .items()
+        .any(|item| item.kind() == ItemKind::Comment && item.raw().contains("# note")));
 }
 
 #[test]

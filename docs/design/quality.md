@@ -555,16 +555,16 @@ Tested source: the unreleased 0.5 working tree containing effective-key
 comparison, safe example generation and their tests, fuzz checks, benchmark and
 documentation. Host and toolchains match the structure/formatting slice above.
 
-- With `PROPTEST_CASES=2000`, all 193 default-feature tests pass, the `exec`
-  feature adds three tests (196 total), and all 20 doctests pass. The same 193
+- With `PROPTEST_CASES=2000`, all 194 default-feature tests pass, the `exec`
+  feature adds three tests (197 total), and all 20 doctests pass. The same 194
   unit/property tests and 20 doctests pass with `--no-default-features`.
 - Six comparison tests cover value/state/export/missing differences, empty
   versus absent, duplicate policy, nonparticipating keys, stable ordering and an
-  arbitrary-UTF-8 symmetry property. Twelve example tests cover comments and
+  arbitrary-UTF-8 symmetry property. Thirteen example tests cover comments and
   layout, multiline values, raw values, BOM, Compose empty keys, Compose
   inline/trailing comments, Python adjacent comments, Node colon values,
-  malformed-value redaction, bare/empty states and an arbitrary-UTF-8 key/state
-  property.
+  custom Space comments, malformed-value redaction, bare/empty states and an
+  arbitrary-UTF-8 key/state property.
 - Root, fuzz and conformance formatting; all-target workspace Clippy;
   exec-feature Clippy; alloc-only Clippy; conformance-probe Clippy; and
   warning-denied rustdoc pass with Rust 1.99.0 stable. Rust 1.81 builds the
@@ -581,7 +581,8 @@ documentation. Host and toolchains match the structure/formatting slice above.
   edge cases: Compose comments needing a placeholder, quoted trailing comments
   under Compose's next-statement grammar, and colon/multiline empty values
   absorbing following lines. Empty-key and malformed statements are commented
-  rather than copied.
+  rather than copied. A final 20,940-input smoke after the custom-dialect
+  comment fix also passed without a failure.
 - The recorded conformance snapshot still matches 409 applicable observations
   and 798 field comparisons with
   `python3 conformance/check_adotenv.py --skip-upstream-replay`. No upstream

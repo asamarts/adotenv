@@ -7,7 +7,7 @@
 
 use alloc::string::String;
 
-use crate::{Document, ItemKind};
+use crate::{Document, InlineComments, ItemKind};
 
 impl Document<'_> {
     /// Generate a new example text with every assigned value removed.
@@ -42,6 +42,7 @@ impl Document<'_> {
         let mut items = self.items().peekable();
         while let Some(item) = items.next() {
             let span = item.span();
+            let mut moved_comment = false;
             output.push_str(&source[cursor..span.start]);
             match item.kind() {
                 ItemKind::Entry => {
@@ -74,11 +75,33 @@ impl Document<'_> {
                         {
                             output.push_str("\"\"");
                         }
+                        let ending = item.line_ending();
                         if let Some(comment) = &tokens.inline_comment {
-                            output.push_str(&source[tokens.trailing_space.clone()]);
-                            output.push_str(&source[comment.clone()]);
+                            if self.dialect().inline_comments == InlineComments::Space
+                                && !self.dialect().quoted_comments
+                            {
+                                // This custom grammar cannot attach a comment to
+                                // an empty value; retain it on the next line.
+                                moved_comment = true;
+                                output.push_str(if ending == crate::LineEnding::None {
+                                    "\n"
+                                } else {
+                                    ending.as_str()
+                                });
+                                output.push_str(&source[comment.clone()]);
+                                output.push_str(if ending == crate::LineEnding::None {
+                                    "\n"
+                                } else {
+                                    ending.as_str()
+                                });
+                            } else {
+                                output.push_str(&source[tokens.trailing_space.clone()]);
+                                output.push_str(&source[comment.clone()]);
+                                output.push_str(ending.as_str());
+                            }
+                        } else {
+                            output.push_str(ending.as_str());
                         }
-                        output.push_str(item.line_ending().as_str());
                     } else {
                         output.push_str(item.raw());
                     }
@@ -88,7 +111,10 @@ impl Document<'_> {
                 }
                 ItemKind::Blank | ItemKind::Comment => output.push_str(item.raw()),
             }
-            if item.line_ending() == crate::LineEnding::None && items.peek().is_some() {
+            if !moved_comment
+                && item.line_ending() == crate::LineEnding::None
+                && items.peek().is_some()
+            {
                 // A parser can split multiple statements without a line ending
                 // between them. Keep them on separate lines in the example.
                 output.push('\n');
