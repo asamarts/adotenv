@@ -50,6 +50,21 @@
 //! stay literal unless [`Document::resolve_with_commands`] receives an explicit
 //! callback; callback calls are provenance-recorded and never run by default.
 //!
+//! # Structure and formatting
+//!
+//! [`Document::groups`] exposes blank-line-separated item runs, and
+//! [`Document::header`] exposes the structural prefix before the first entry.
+//! [`Entry::leading_comments`] attaches only contiguous whole-line comments; a
+//! blank line breaks attachment. These are views over the selected dialect's
+//! lossless items and do not move or reinterpret source.
+//!
+//! [`Document::format`] applies explicit trivia-only [`FormatOptions`] and
+//! reparses the complete output with the exact selected dialect. It returns
+//! source-relative [`TextEdit`] values plus verified text. Raw values, multiline
+//! bodies, invalid/ignored statements and ambiguous mixed line endings are left
+//! untouched. Quoting changes, sorting and blank-line normalization are future
+//! work.
+//!
 //! # Source and positions
 //!
 //! Ranges always address the original source, BOM included. Item ranges plus
@@ -85,12 +100,14 @@ mod edit;
 mod encode;
 #[cfg(feature = "exec")]
 pub mod exec;
+mod format;
 mod model;
 mod parser;
 mod portability;
 mod position;
 mod references;
 mod resolve;
+mod structure;
 
 pub use diagnostic::{Diagnostic, DiagnosticCode, Severity};
 pub use dialect::{
@@ -100,6 +117,7 @@ pub use dialect::{
 };
 pub use edit::{remove, set, Edit, EditError, InsertPosition, TextEdit, VerifiedEdits};
 pub use encode::{encode_value, encode_value_with, EncodeError};
+pub use format::{EqualsSpacing, FinalNewline, FormatError, FormatOptions, FormatResult};
 pub use model::{AssignmentState, Document, Entry, EntryTokens, Item, ItemKind, LineEnding, Quote};
 pub use parser::{
     parse, parse_owned, parse_owned_with, parse_strict, parse_strict_with, parse_with,
@@ -117,6 +135,7 @@ pub use resolve::{
     LookupOrder, ResolveError, ResolveFailure, ResolvedDocument, ResolvedEntry, ResolvedSegment,
     ResolvedSegmentKind, Unresolved, ValueOrigin,
 };
+pub use structure::{Group, Groups};
 
 #[cfg(test)]
 mod dialect_tests;
@@ -125,6 +144,8 @@ mod edit_tests;
 #[cfg(test)]
 mod encode_tests;
 #[cfg(test)]
+mod format_tests;
+#[cfg(test)]
 mod portability_tests;
 #[cfg(test)]
 mod position_tests;
@@ -132,6 +153,8 @@ mod position_tests;
 mod reference_tests;
 #[cfg(test)]
 mod resolve_tests;
+#[cfg(test)]
+mod structure_tests;
 #[cfg(test)]
 mod tests;
 

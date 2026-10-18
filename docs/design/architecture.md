@@ -1,8 +1,9 @@
 # Architecture
 
-Status: the lossless core/native edit model, 0.3 dialect configuration/presets
-and 0.4 reference/resolution/command-callback APIs are implemented. Sections
-explicitly marked future are designs, not additional shipped interfaces.
+Status: the lossless core/native edit model, 0.3 dialect configuration/presets,
+0.4 reference/resolution/command-callback APIs and the unreleased 0.5
+structure/trivia-formatting views are implemented. Sections explicitly marked
+future are designs, not additional shipped interfaces.
 
 ## Document model
 
@@ -108,6 +109,17 @@ and selects first or last by configuration; ignored bare keys do not erase an
 earlier assigned value. `get_all()` and uniqueness checks retain all recognized
 declarations. Portable keeps its last-bare-means-`None` behavior.
 
+## Structure views
+
+`Document::groups()` yields borrowed views over maximal nonblank item runs;
+blank items are separators. `Document::header()` is the item prefix before the
+first entry, and `Entry::leading_comments()` walks backward through contiguous
+comment items only. These views do not create a second tree or copy source.
+They use the same snapshot-local item IDs and exact selected-dialect grouping
+as everything else. A blank line breaks comment attachment; inline comments are
+entry token data rather than leading items. See
+[formatting.md](formatting.md) for the full contracts.
+
 ## Diagnostics
 
 `parse` never fails. It returns the document and a list of diagnostics:
@@ -198,9 +210,10 @@ from the same document snapshot, so callers can fix duplicates without
 guessing or manually bypassing verification.
 
 Comments are preserved by default. Callers may explicitly select comment
-items/spans to remove with an entry in the same verified batch. Automatic
-attachment-based shortcuts arrive with the 0.5 comment/group model, not
-through guessed ownership in 0.2.
+items/spans to remove with an entry in the same verified batch. The 0.5
+structure views expose leading/inline attachment, but automatic
+attachment-based edit shortcuts are not implemented; ownership is never
+guessed.
 
 Comment generation follows the selected scanner's line breaks, so an internal
 CR remains data in LF-only modes and comment/uncomment restoration stays exact.
@@ -241,6 +254,22 @@ or regroup an unselected item. Custom byte caps include the surrounding physical
 line, including neighboring statements; same-line sets resolve against other
 final values with bounded retries, so spelling is independent of operation order.
 The complete output is always rechecked.
+
+## Trivia formatting
+
+`Document::format(&FormatOptions)` is a separate producer from `edit`: it plans
+only trivia changes, applies them, reparses the complete output with the exact
+dialect and compares the semantic and structural model before returning a
+`FormatResult`. `FormatResult` carries source-relative `TextEdit`s and verified
+text, mirroring `VerifiedEdits`.
+
+The formatter does not infer formatting intent. Spacing around `=`, trailing
+whitespace and final-newline policy are explicit. Raw values, multiline value
+bodies, invalid/ignored items, empty assignments whose spacing may be
+indentation, empty keys and ambiguous mixed line endings are preserved. The
+verifier compares BOM, item kinds and order, comment text after trailing
+whitespace, malformed statement content, and all declaration meaning. See
+[formatting.md](formatting.md) for the guarantees and conservative skips.
 
 ## Crate layout and platform
 

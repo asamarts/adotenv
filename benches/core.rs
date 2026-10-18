@@ -1,8 +1,9 @@
-//! Synthetic parsing, exact encoding, portability and complete verified-edit workloads.
+//! Synthetic parsing, exact encoding, portability, structure, formatting and
+//! complete verified-edit workloads.
 
 use std::{fmt::Write, hint::black_box};
 
-use adotenv::{encode_value_with, parse, parse_strict, Dialect, Edit};
+use adotenv::{encode_value_with, parse, parse_strict, Dialect, Edit, FormatOptions};
 use criterion::{BenchmarkId, Criterion, Throughput};
 
 fn fixture(entries: usize) -> String {
@@ -139,8 +140,50 @@ fn core(c: &mut Criterion) {
 
     references(c, &fixtures);
     resolution(c, &fixtures);
+    structure(c, &fixtures);
+    formatting(c, &fixtures);
 
     scaling(c);
+}
+
+fn structure(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
+    let mut grouping = c.benchmark_group("structure");
+    for (name, _, source) in fixtures {
+        let document = parse_strict(source).expect("benchmark fixture is valid Portable syntax");
+        grouping.throughput(Throughput::Bytes(source.len() as u64));
+        grouping.bench_function(BenchmarkId::new("groups", name), |b| {
+            b.iter(|| {
+                let value = document
+                    .groups()
+                    .map(|group| group.items().len())
+                    .sum::<usize>();
+                black_box(value)
+            });
+        });
+        grouping.bench_function(BenchmarkId::new("leading_comments", name), |b| {
+            b.iter(|| {
+                let value = document
+                    .entries()
+                    .map(|entry| entry.leading_comments().count())
+                    .sum::<usize>();
+                black_box(value)
+            });
+        });
+    }
+    grouping.finish();
+}
+
+fn formatting(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
+    let mut formatting = c.benchmark_group("format");
+    let options = FormatOptions::normalize();
+    for (name, _, source) in fixtures {
+        let document = parse_strict(source).expect("benchmark fixture is valid Portable syntax");
+        formatting.throughput(Throughput::Bytes(source.len() as u64));
+        formatting.bench_function(BenchmarkId::new("normalize", name), |b| {
+            b.iter(|| black_box(document.format(black_box(&options))));
+        });
+    }
+    formatting.finish();
 }
 
 fn resolution(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {

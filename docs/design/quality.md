@@ -75,6 +75,14 @@ UTF-8 before parsing rather than decoded lossily.
   order and determinism under reordered requests. Reference candidates check
   bounded UTF-8 spans, source ordering, operator/argument consistency, nesting
   containers and eligibility calls under every preset rule set.
+- `format`: all five presets, structure views and four formatting policies
+  (`normalize`, spacing-only, remove-and-trim, and spacing/trim/remove). Groups
+  must partition nonblank items in order; headers and leading comments must be
+  contiguous. Every successful formatting result must replay its sorted,
+  nonoverlapping source edits, reparse to identical declarations and item
+  structure, preserve malformed statement content and preserve comment text
+  after trailing whitespace. Normal policies must be idempotent; final-newline
+  removal is exempt because it removes one terminator at a time.
 - `resolve`: variable resolution under four rule sets, both scopes, both lookup
   orders and keep/error unresolved policies. Successful outputs check segment
   concatenation, byte limits, source-bounded literal/reference/origin spans and
@@ -142,6 +150,7 @@ cargo +nightly fuzz run parser -- -max_total_time=300 -timeout=10 -rss_limit_mb=
 cargo +nightly fuzz run edits -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
 cargo +nightly fuzz run encoding -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
 cargo +nightly fuzz run resolve -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
+cargo +nightly fuzz run format -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
 ```
 
 For an individual crash, use `cargo +nightly fuzz run <target> <reproducer>`.
@@ -495,6 +504,50 @@ Host and toolchains match the encoder evidence above.
   uses only the caller lookup and callback: no environment, file or command
   access occurs implicitly. Caller values are literal; commands run only
   through the explicit callback or the explicit opt-in `exec` helper.
+
+### Structure and formatting slice (0.5, unreleased; 2026-10-18)
+
+Tested source: the unreleased 0.5 working tree containing the structure views,
+verified formatter, tests, fuzz target, benchmarks and documentation in this
+commit. Host: Linux 7.2.8-arch1-2, x86_64-unknown-linux-gnu, AMD Ryzen 9 3900X.
+Stable compiler: rustc 1.95.0 (`59807616e`, 2026-04-14); MSRV compiler: 1.81.0.
+Fuzz nightly: rustc 1.100.0-nightly (`67eda617e`, 2026-09-10).
+
+- With `PROPTEST_CASES=2000`, all 175 default-feature tests pass, the `exec`
+  feature adds three tests (178 total), and all 16 doctests pass. The same 175
+  unit/property tests and 16 doctests pass with `--no-default-features`.
+- Ten formatting tests cover spacing, tabs, hash values, inline comments, raw
+  values, multiline bodies, invalid lines, mixed CR boundaries, empty Compose
+  keys, final-newline policies and edit replay/idempotence. Six structure tests
+  cover blank-line grouping, header ranges, attached comments, multiline
+  entries, BOM exclusion and an arbitrary-UTF-8 partitioning property.
+- Root, fuzz and conformance formatting; all-target workspace Clippy;
+  exec-feature Clippy; alloc-only Clippy; conformance-probe Clippy; and
+  warning-denied rustdoc pass. Rust 1.81 builds the library with default
+  features, with `exec`, and with no default features. The alloc-only
+  `thumbv7em-none-eabi` build and the locked package build pass. The package
+  contains 45 files (about 0.67 MiB, 0.16 MiB compressed).
+- All 48 Criterion smoke workloads pass, including the six new structure and
+  three normalize-format workloads.
+- The `format` sanitizer target completes 99,589 inputs in 121 engine seconds
+  with no crash, panic or invariant failure. It checks all five presets, four
+  policies, group/header/comment attachment, sorted nonoverlapping edits, edit
+  replay, declaration and item-structure preservation, comment/malformed
+  content preservation and normal-policy idempotence. The initial bounded
+  campaigns found and fixed three real formatter gaps: empty Compose keys
+  accumulating indentation, empty-assignment whitespace becoming continuation
+  indentation, and mixed CR/LF trimming merging physical lines. These were
+  fixed with conservative skips and strengthened structural verification rather
+  than suppressing the assertions.
+- The recorded conformance snapshot was compared with
+  `python3 conformance/check_adotenv.py --skip-upstream-replay`: 409 applicable
+  observations and 798 field comparisons match across all five presets, with
+  1,011 resolution/loading/fast-grammar exclusions and 20 fail-fast error-only
+  cases. Upstream replay was not run for this slice; this is snapshot
+  comparison, not a fresh upstream campaign.
+- The parser, dialect, resolution, edit and encoding behavior is unchanged.
+  Formatting is literal-only: no lookup, environment access, file I/O or
+  command execution.
 
 ## Local execution evidence (2026-10-15)
 

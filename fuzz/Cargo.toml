@@ -42,3 +42,10 @@ path = "fuzz_targets/resolve.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "format"
+path = "fuzz_targets/format.rs"
+test = false
+doc = false
+bench = false
