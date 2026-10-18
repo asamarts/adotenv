@@ -7,7 +7,7 @@
 use alloc::{string::String, vec, vec::Vec};
 use core::fmt;
 
-use crate::{Document, ItemKind, TextEdit};
+use crate::{Document, ItemKind, Quote, TextEdit};
 
 /// Preferred spacing around assignment separators.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -44,6 +44,20 @@ pub enum BlankLines {
     Collapse,
 }
 
+/// Preferred value quoting while formatting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum QuoteStyle {
+    /// Leave the existing quote style untouched.
+    Preserve,
+    /// Prefer a double-quoted value where the selected dialect can represent it.
+    Double,
+    /// Prefer a single-quoted value where the selected dialect can represent it.
+    Single,
+    /// Prefer an unquoted value where it remains unambiguous.
+    Unquoted,
+}
+
 /// Formatting policy for trivia-only changes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FormatOptions {
@@ -56,6 +70,8 @@ pub struct FormatOptions {
     pub trim_trailing_whitespace: bool,
     /// Blank-line grouping policy.
     pub blank_lines: BlankLines,
+    /// Preferred value quoting.
+    pub quote_style: QuoteStyle,
     /// Final-newline policy.
     pub final_newline: FinalNewline,
 }
@@ -66,6 +82,7 @@ impl Default for FormatOptions {
             equals_spacing: EqualsSpacing::Preserve,
             trim_trailing_whitespace: false,
             blank_lines: BlankLines::Preserve,
+            quote_style: QuoteStyle::Preserve,
             final_newline: FinalNewline::Preserve,
         }
     }
@@ -79,6 +96,7 @@ impl FormatOptions {
             equals_spacing: EqualsSpacing::Spaces,
             trim_trailing_whitespace: true,
             blank_lines: BlankLines::Preserve,
+            quote_style: QuoteStyle::Preserve,
             final_newline: FinalNewline::Ensure,
         }
     }
@@ -91,6 +109,7 @@ impl FormatOptions {
             equals_spacing: EqualsSpacing::Spaces,
             trim_trailing_whitespace: true,
             blank_lines: BlankLines::Collapse,
+            quote_style: QuoteStyle::Preserve,
             final_newline: FinalNewline::Ensure,
         }
     }
@@ -178,6 +197,7 @@ impl Document<'_> {
     pub fn format(&self, options: &FormatOptions) -> Result<FormatResult, FormatError> {
         let mut edits = Vec::new();
         self.plan_equals_spacing(*options, &mut edits);
+        self.plan_quotes(*options, &mut edits);
         let removed = self.plan_blank_lines(*options, &mut edits);
         if options.trim_trailing_whitespace {
             self.plan_trailing_whitespace(&removed, &mut edits);
@@ -192,7 +212,12 @@ impl Document<'_> {
         }
         let output = apply(self.source(), &edits);
         let (formatted, _) = crate::parse_with(&output, self.dialect());
-        if !same_meaning(self, &formatted, options.blank_lines) {
+        if !same_meaning(
+            self,
+            &formatted,
+            options.blank_lines,
+            options.quote_style == QuoteStyle::Preserve,
+        ) {
             return Err(FormatError::WouldChangeMeaning);
         }
         Ok(FormatResult { edits, output })
@@ -245,6 +270,53 @@ impl Document<'_> {
                         push(self.source(), edits, after, String::new());
                     }
                 }
+            }
+        }
+    }
+
+    fn plan_quotes(&self, options: FormatOptions, edits: &mut Vec<TextEdit>) {
+        let preferred = match options.quote_style {
+            QuoteStyle::Preserve => return,
+            QuoteStyle::Double => Quote::Double,
+            QuoteStyle::Single => Quote::Single,
+            QuoteStyle::Unquoted => Quote::None,
+        };
+        if self.dialect().raw_values {
+            return;
+        }
+        for item in self.items() {
+            let Some(entry) = item.entry() else {
+                continue;
+            };
+            if entry.key().is_empty() {
+                continue;
+            }
+            let Some(value) = entry.value_span() else {
+                continue;
+            };
+            let Some(decoded) = entry.value() else {
+                continue;
+            };
+            if decoded.is_empty() {
+                // Empty values interact with the after-`=` spacing policy and
+                // comment separators; preserve them in this slice.
+                continue;
+            }
+            let before = &self.source()[item.span().start..value.start];
+            let after = &self.source()[value.end..item.span().end];
+            let Ok((token, actual)) = crate::encode::encode_native(
+                decoded,
+                preferred,
+                self.dialect(),
+                before,
+                after,
+                false,
+                false,
+            ) else {
+                continue;
+            };
+            if actual == preferred && !token.is_empty() && token != self.source()[value.clone()] {
+                push(self.source(), edits, value, token);
             }
         }
     }
@@ -404,7 +476,12 @@ fn apply(source: &str, edits: &[TextEdit]) -> String {
     output
 }
 
-fn same_meaning(left: &Document<'_>, right: &Document<'_>, blank_lines: BlankLines) -> bool {
+fn same_meaning(
+    left: &Document<'_>,
+    right: &Document<'_>,
+    blank_lines: BlankLines,
+    preserve_quote: bool,
+) -> bool {
     if left.has_bom() != right.has_bom() {
         return false;
     }
@@ -414,14 +491,14 @@ fn same_meaning(left: &Document<'_>, right: &Document<'_>, blank_lines: BlankLin
                 && left
                     .items()
                     .zip(right.items())
-                    .all(|(left, right)| same_item(left, right))
+                    .all(|(left, right)| same_item(left, right, preserve_quote))
         }
         BlankLines::Collapse => {
             let mut left_items = left.items().filter(|item| item.kind() != ItemKind::Blank);
             let mut right_items = right.items().filter(|item| item.kind() != ItemKind::Blank);
             let same_nonblank = loop {
                 match (left_items.next(), right_items.next()) {
-                    (Some(left), Some(right)) if same_item(left, right) => {}
+                    (Some(left), Some(right)) if same_item(left, right, preserve_quote) => {}
                     (None, None) => break true,
                     _ => break false,
                 }
@@ -438,7 +515,7 @@ fn same_meaning(left: &Document<'_>, right: &Document<'_>, blank_lines: BlankLin
     }
 }
 
-fn same_item(left: crate::Item<'_>, right: crate::Item<'_>) -> bool {
+fn same_item(left: crate::Item<'_>, right: crate::Item<'_>, preserve_quote: bool) -> bool {
     if left.kind() != right.kind()
         || left.diagnostic().map(crate::Diagnostic::code)
             != right.diagnostic().map(crate::Diagnostic::code)
@@ -465,7 +542,7 @@ fn same_item(left: crate::Item<'_>, right: crate::Item<'_>) -> bool {
             left.key() == right.key()
                 && left.value() == right.value()
                 && left.state() == right.state()
-                && left.quote() == right.quote()
+                && (!preserve_quote || left.quote() == right.quote())
                 && left.exported() == right.exported()
                 && left.participates_in_lookup() == right.participates_in_lookup()
                 && left.inline_comment().map(trim_horizontal)

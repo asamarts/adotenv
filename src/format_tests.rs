@@ -6,7 +6,7 @@ use proptest::prelude::*;
 
 use crate::{
     parse, parse_strict, parse_with, BlankLines, Dialect, EqualsSpacing, FinalNewline, FormatError,
-    FormatOptions,
+    FormatOptions, QuoteStyle,
 };
 
 fn options(
@@ -18,6 +18,7 @@ fn options(
         equals_spacing,
         trim_trailing_whitespace: trim,
         blank_lines: BlankLines::Preserve,
+        quote_style: QuoteStyle::Preserve,
         final_newline,
     }
 }
@@ -57,6 +58,81 @@ fn spacing_does_not_turn_hash_values_into_comments() {
         after.unique("B").unwrap().inline_comment(),
         Some("#comment")
     );
+}
+
+#[test]
+fn quote_style_can_normalize_without_changing_values() {
+    let source = "A='value'\nB=\"two words\"\nC=plain\nD=value # note\n";
+    let doc = parse_strict(source).unwrap();
+    let formatted = doc
+        .format(&FormatOptions {
+            quote_style: QuoteStyle::Double,
+            ..FormatOptions::default()
+        })
+        .unwrap();
+    assert_eq!(
+        formatted.as_str(),
+        "A=\"value\"\nB=\"two words\"\nC=\"plain\"\nD=\"value\" # note\n"
+    );
+    let after = parse_strict(formatted.as_str()).unwrap();
+    for (left, right) in doc.entries().zip(after.entries()) {
+        assert_eq!(left.key(), right.key());
+        assert_eq!(left.value(), right.value());
+        assert_eq!(right.quote(), crate::Quote::Double);
+    }
+    let again = parse_strict(formatted.as_str())
+        .unwrap()
+        .format(&FormatOptions {
+            quote_style: QuoteStyle::Double,
+            ..FormatOptions::default()
+        })
+        .unwrap();
+    assert!(again.is_empty());
+}
+
+#[test]
+fn quote_style_can_use_single_quotes_for_multiline_values() {
+    let source = "A=\"first\nsecond\"\nB='two'\nC=''\n";
+    let doc = parse_strict(source).unwrap();
+    let formatted = doc
+        .format(&FormatOptions {
+            quote_style: QuoteStyle::Single,
+            ..FormatOptions::default()
+        })
+        .unwrap();
+    assert_eq!(formatted.as_str(), "A='first\nsecond'\nB='two'\nC=''\n");
+    let after = parse_strict(formatted.as_str()).unwrap();
+    assert_eq!(after.get("A"), Some("first\nsecond"));
+    assert_eq!(after.get("B"), Some("two"));
+}
+
+#[test]
+fn quote_style_can_prefer_unquoted_values_without_guessing() {
+    let source = "A=\"simple\"\nB=\"two words\"\nC=''\n";
+    let doc = parse_strict(source).unwrap();
+    let formatted = doc
+        .format(&FormatOptions {
+            quote_style: QuoteStyle::Unquoted,
+            ..FormatOptions::default()
+        })
+        .unwrap();
+    assert_eq!(formatted.as_str(), "A=simple\nB=two words\nC=''\n");
+    let after = parse_strict(formatted.as_str()).unwrap();
+    assert_eq!(after.get("A"), Some("simple"));
+    assert_eq!(after.get("B"), Some("two words"));
+    assert_eq!(after.get("C"), Some(""));
+}
+
+#[test]
+fn quote_normalization_skips_raw_values_and_bare_keys() {
+    let (doc, _) = parse_with("A='value'\nBARE\n", Dialect::DOCKER_RAW);
+    let formatted = doc
+        .format(&FormatOptions {
+            quote_style: QuoteStyle::Double,
+            ..FormatOptions::default()
+        })
+        .unwrap();
+    assert!(formatted.is_empty());
 }
 
 #[test]
@@ -173,6 +249,7 @@ fn blank_line_preserve_is_exact() {
             equals_spacing: EqualsSpacing::Preserve,
             trim_trailing_whitespace: false,
             blank_lines: BlankLines::Preserve,
+            quote_style: QuoteStyle::Preserve,
             final_newline: FinalNewline::Preserve,
         })
         .unwrap();

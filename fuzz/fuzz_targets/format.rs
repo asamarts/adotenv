@@ -3,7 +3,7 @@
 
 use adotenv::{
     parse_with, BlankLines, Dialect, EqualsSpacing, FinalNewline, FormatOptions, InlineComments,
-    ItemKind, TextEdit,
+    ItemKind, QuoteStyle, TextEdit,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -168,7 +168,9 @@ fn check_result(source: &str, document: &adotenv::Document<'_>, options: &Format
         assert_eq!(left.key(), right.key());
         assert_eq!(left.value(), right.value());
         assert_eq!(left.state(), right.state());
-        assert_eq!(left.quote(), right.quote());
+        if options.quote_style == QuoteStyle::Preserve {
+            assert_eq!(left.quote(), right.quote());
+        }
         assert_eq!(left.exported(), right.exported());
         assert_eq!(
             left.participates_in_lookup(),
@@ -214,21 +216,36 @@ fuzz_target!(|bytes: &[u8]| {
         FormatOptions::normalize(),
         FormatOptions::normalize_groups(),
         FormatOptions {
+            quote_style: QuoteStyle::Double,
+            ..FormatOptions::normalize()
+        },
+        FormatOptions {
+            quote_style: QuoteStyle::Single,
+            ..FormatOptions::normalize()
+        },
+        FormatOptions {
+            quote_style: QuoteStyle::Unquoted,
+            ..FormatOptions::normalize()
+        },
+        FormatOptions {
             equals_spacing: EqualsSpacing::Spaces,
             trim_trailing_whitespace: false,
             blank_lines: BlankLines::Preserve,
+            quote_style: QuoteStyle::Preserve,
             final_newline: FinalNewline::Preserve,
         },
         FormatOptions {
             equals_spacing: EqualsSpacing::None,
             trim_trailing_whitespace: true,
             blank_lines: BlankLines::Preserve,
+            quote_style: QuoteStyle::Preserve,
             final_newline: FinalNewline::Ensure,
         },
         FormatOptions {
             equals_spacing: EqualsSpacing::Spaces,
             trim_trailing_whitespace: true,
             blank_lines: BlankLines::Collapse,
+            quote_style: QuoteStyle::Preserve,
             final_newline: FinalNewline::Remove,
         },
     ];

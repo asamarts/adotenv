@@ -22,9 +22,9 @@ verification, exact per-dialect encoding, applicable pinned-upstream comparison
 and cross-dialect portability reporting. 0.4 implements literal reference
 inspection, opt-in variable resolution, explicit command callbacks and an
 opt-in `exec` helper. The unreleased 0.5 tree adds structure views, verified
-trivia formatting, key comparison, safe example generation and blank-line
-collapsing; quoting changes and group sorting remain. Loading and integration
-work remain future. Execution evidence is in the quality notes.
+trivia formatting, key comparison, safe example generation, blank-line
+collapsing and value quote normalization; group sorting remains. Loading and
+integration work remain future. Execution evidence is in the quality notes.
 
 ## Goals
 
@@ -153,12 +153,13 @@ Literal parsing into ordered entries with key, value and line spans;
   and `Entry::leading_comments` for contiguous attached whole-line comments.
   Inline comments remain on tokens; blank lines break attachment.
 - **Implemented:** verified trivia formatting through `Document::format`,
-  `FormatOptions`, `EqualsSpacing`, `FinalNewline`, `FormatResult` and
-  `FormatError`. Spacing around assignment separators, trailing spaces/tabs and
-  final-newline policy are explicit. `BlankLines::Collapse` reduces runs of
-  blank items to one group separator. The complete output is reparsed under the
-  exact dialect and checked for declaration, comment and item-structure
-  preservation. Raw values, multiline bodies, invalid/ignored statements,
+  `FormatOptions`, `EqualsSpacing`, `QuoteStyle`, `FinalNewline`,
+  `FormatResult` and `FormatError`. Spacing around assignment separators,
+  trailing spaces/tabs, value quote preference and final-newline policy are
+  explicit. `BlankLines::Collapse` reduces runs of blank items to one group
+  separator. The complete output is reparsed under the exact dialect and
+  checked for declaration, comment and item-structure preservation. Raw values,
+  multiline bodies, invalid/ignored statements, empty assigned values,
   ambiguous empty assignments and mixed lone-CR boundaries are left untouched.
 - **Implemented:** `Document::compare` for effective-key comparison. Missing,
   bare, empty and assigned states, decoded values and export differences are
@@ -167,9 +168,8 @@ Literal parsing into ordered entries with key, value and line spans;
   comments, blank lines, keys, exports, formatting, line endings and BOM. Bare
   declarations stay bare; malformed and ignored statements become comments so
   their text cannot leak values.
-- **Remaining:** quoting changes that keep every value identical, and sorting
-  within groups that keeps comments with their keys and respects `${VAR}`
-  dependencies.
+- **Remaining:** sorting within groups that keeps comments with their keys and
+  respects `${VAR}` dependencies.
 - **Not yet released.**
 
 ### 0.6: Loading (future)

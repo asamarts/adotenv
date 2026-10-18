@@ -290,15 +290,17 @@ assert!(parse_strict(formatted.as_str()).is_ok());
 ```
 
 `EqualsSpacing::{Preserve, Spaces, None}`,
-`BlankLines::{Preserve, Collapse}` and
-`FinalNewline::{Preserve, Ensure, Remove}` are explicit.
+`BlankLines::{Preserve, Collapse}`, `QuoteStyle::{Preserve, Double, Single,
+Unquoted}` and `FinalNewline::{Preserve, Ensure, Remove}` are explicit.
 `FormatOptions::normalize_groups` also collapses runs of consecutive blank
-lines to one group separator. Raw-value dialects, multiline value bodies,
+lines to one group separator. Quote changes are accepted only when the exact
+decoded value remains representable; empty assigned values keep their existing
+quote style in this slice. Raw-value dialects, multiline value bodies,
 invalid/ignored statements, empty assignments whose spacing could become
 indentation, and mixed lone-CR boundaries are preserved. `FinalNewline::Remove`
 removes one terminator from a nonblank final item; a trailing blank line is
-structure and is kept. Quoting changes, group sorting and line-ending conversion
-are not part of this slice.
+structure and is kept. Group sorting and line-ending conversion are not part of
+this slice.
 
 ## Compare files by key (0.5)
 

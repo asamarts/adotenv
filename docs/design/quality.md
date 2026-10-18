@@ -619,6 +619,31 @@ toolchains match the slices above.
 - Parser, dialect, resolution, edit, comparison, example and encoding behavior
   is unchanged. No I/O, environment, expansion or command execution is added.
 
+### Quote normalization slice (0.5, unreleased; 2026-10-18)
+
+Tested source: the unreleased 0.5 working tree adding `QuoteStyle` and
+quote-preserving formatter verification. Host and toolchains match the slices
+above.
+
+- With `PROPTEST_CASES=2000`, all 202 default-feature tests pass, the `exec`
+  feature adds three tests (205 total), and all 20 doctests pass. The same 202
+  unit/property tests and 20 doctests pass with `--no-default-features`.
+- Four quote tests cover double normalization with comments, single quotes for
+  multiline values, unquoted preference with the encoder's fallback, raw-value
+  skipping and decoded-value preservation. Empty assigned values intentionally
+  retain their quote style.
+- Root, fuzz and conformance formatting; workspace, exec, alloc-only and
+  conformance-probe Clippy; warning-denied rustdoc; Rust 1.81 builds; the
+  alloc-only Thumb build; and locked package verification pass.
+- All 57 Criterion smoke workloads pass, including three double-quote format
+  workloads.
+- The `format` sanitizer target adds double, single and unquoted policies to its
+  five-policy matrix. Its bounded campaign executes 26,424 inputs in 121 engine
+  seconds with no crash, panic or invariant failure. The campaign found and
+  fixed an empty-value/after-`=` spacing interaction; empty assigned values are
+  now left unchanged in this slice.
+- No I/O, environment, expansion or command execution is added.
+
 ## Local execution evidence (2026-10-15)
 
 Tested source: the unreleased 0.2 working tree based on

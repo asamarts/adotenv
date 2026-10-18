@@ -60,10 +60,11 @@
 //!
 //! [`Document::format`] applies explicit trivia-only [`FormatOptions`] and
 //! reparses the complete output with the exact selected dialect. It returns
-//! source-relative [`TextEdit`] values plus verified text. Raw values, multiline
-//! bodies, invalid/ignored statements and ambiguous mixed line endings are left
-//! untouched. Quoting changes, sorting and blank-line normalization are future
-//! work.
+//! source-relative [`TextEdit`] values plus verified text. [`BlankLines`] can
+//! collapse group separators and [`QuoteStyle`] can prefer a quote style when
+//! the exact decoded value survives. Raw values, multiline bodies,
+//! invalid/ignored statements, empty assigned values and ambiguous mixed line
+//! endings are left untouched. Group sorting is future work.
 //!
 //! [`Document::compare`] reports effective-key differences, distinguishing
 //! missing keys, bare/empty/assigned states, decoded values and exports.
@@ -127,7 +128,7 @@ pub use dialect::{
 pub use edit::{remove, set, Edit, EditError, InsertPosition, TextEdit, VerifiedEdits};
 pub use encode::{encode_value, encode_value_with, EncodeError};
 pub use format::{
-    BlankLines, EqualsSpacing, FinalNewline, FormatError, FormatOptions, FormatResult,
+    BlankLines, EqualsSpacing, FinalNewline, FormatError, FormatOptions, FormatResult, QuoteStyle,
 };
 pub use model::{AssignmentState, Document, Entry, EntryTokens, Item, ItemKind, LineEnding, Quote};
 pub use parser::{

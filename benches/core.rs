@@ -3,7 +3,7 @@
 
 use std::{fmt::Write, hint::black_box};
 
-use adotenv::{encode_value_with, parse, parse_strict, Dialect, Edit, FormatOptions};
+use adotenv::{encode_value_with, parse, parse_strict, Dialect, Edit, FormatOptions, QuoteStyle};
 use criterion::{BenchmarkId, Criterion, Throughput};
 
 fn fixture(entries: usize) -> String {
@@ -190,6 +190,10 @@ fn formatting(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
     let mut formatting = c.benchmark_group("format");
     let options = FormatOptions::normalize();
     let groups = FormatOptions::normalize_groups();
+    let quotes = FormatOptions {
+        quote_style: QuoteStyle::Double,
+        ..FormatOptions::normalize()
+    };
     for (name, _, source) in fixtures {
         let document = parse_strict(source).expect("benchmark fixture is valid Portable syntax");
         formatting.throughput(Throughput::Bytes(source.len() as u64));
@@ -198,6 +202,9 @@ fn formatting(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
         });
         formatting.bench_function(BenchmarkId::new("collapse", name), |b| {
             b.iter(|| black_box(document.format(black_box(&groups))));
+        });
+        formatting.bench_function(BenchmarkId::new("double_quotes", name), |b| {
+            b.iter(|| black_box(document.format(black_box(&quotes))));
         });
     }
     formatting.finish();
