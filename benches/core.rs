@@ -189,11 +189,15 @@ fn structure(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
 fn formatting(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
     let mut formatting = c.benchmark_group("format");
     let options = FormatOptions::normalize();
+    let groups = FormatOptions::normalize_groups();
     for (name, _, source) in fixtures {
         let document = parse_strict(source).expect("benchmark fixture is valid Portable syntax");
         formatting.throughput(Throughput::Bytes(source.len() as u64));
         formatting.bench_function(BenchmarkId::new("normalize", name), |b| {
             b.iter(|| black_box(document.format(black_box(&options))));
+        });
+        formatting.bench_function(BenchmarkId::new("collapse", name), |b| {
+            b.iter(|| black_box(document.format(black_box(&groups))));
         });
     }
     formatting.finish();

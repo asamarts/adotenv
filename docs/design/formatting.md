@@ -2,8 +2,8 @@
 
 Status: the 0.5 structure views and trivia-only verified formatter are
 implemented in the unreleased tree. Comparison and example generation are
-documented in [comparison.md](comparison.md); quoting changes, blank-line
-normalization and sorting remain future work.
+documented in [comparison.md](comparison.md); quoting changes and sorting remain
+future work.
 
 The formatter is deliberately smaller than a pretty-printer. It changes only
 syntax trivia that can be selected explicitly, then proves that every
@@ -73,10 +73,18 @@ verified. It is non-exhaustive so future safety checks can be added.
 |---|---|---|
 | `equals_spacing` | `Preserve`, `Spaces`, `None` | Normalize one ASCII space before/after applicable assignment separators, remove it, or leave it alone. |
 | `trim_trailing_whitespace` | `bool` | Remove trailing spaces/tabs from whole-line comments, blank lines and the final line of entries. |
+| `blank_lines` | `Preserve`, `Collapse` | Keep every blank item, or collapse each run of consecutive blank items to one blank line. |
 | `final_newline` | `Preserve`, `Ensure`, `Remove` | Leave EOF bytes, add one LF when missing, or remove one terminator from a nonblank final item. |
 
 `FormatOptions::default()` preserves everything. `FormatOptions::normalize()`
 uses `Spaces`, trimming and `Ensure`; it is idempotent.
+`FormatOptions::normalize_groups()` additionally uses `BlankLines::Collapse`.
+
+Blank-line collapsing removes only whole blank items after the first in each
+run. Verification then compares all nonblank items exactly and requires that
+the result contains no adjacent blank items. This preserves declarations,
+comments, malformed statements and group attachment while intentionally
+removing empty separators.
 
 `FinalNewline::Remove` intentionally removes only one terminator. A file ending
 in a blank line keeps that blank line: removing its terminator would change
@@ -148,6 +156,7 @@ let formatted = doc
     .format(&FormatOptions {
         equals_spacing: EqualsSpacing::Spaces,
         trim_trailing_whitespace: false,
+        blank_lines: adotenv::BlankLines::Preserve,
         final_newline: FinalNewline::Preserve,
     })
     .unwrap();
@@ -157,7 +166,6 @@ assert_eq!(formatted.as_str(), "A = 1\nB = 2\n");
 ## Future 0.5 work
 
 - Quoting changes that prove every decoded value identical.
-- Blank-line normalization with explicit group semantics.
 - Sorting inside groups, keeping attached comments and respecting `${VAR}`
   dependencies.
 - A CLI formatter and comparison/example command surfaces once the library

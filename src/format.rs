@@ -4,7 +4,7 @@
 //! complete result with the document's exact dialect and verifies that every
 //! declaration's meaning is unchanged.
 
-use alloc::{string::String, vec::Vec};
+use alloc::{string::String, vec, vec::Vec};
 use core::fmt;
 
 use crate::{Document, ItemKind, TextEdit};
@@ -34,6 +34,16 @@ pub enum FinalNewline {
     Remove,
 }
 
+/// Blank-line grouping policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum BlankLines {
+    /// Leave every blank item untouched.
+    Preserve,
+    /// Collapse every run of consecutive blank items to one blank line.
+    Collapse,
+}
+
 /// Formatting policy for trivia-only changes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FormatOptions {
@@ -44,6 +54,8 @@ pub struct FormatOptions {
     /// Whitespace inside multiline quoted values and invalid/ignored statements
     /// is never changed.
     pub trim_trailing_whitespace: bool,
+    /// Blank-line grouping policy.
+    pub blank_lines: BlankLines,
     /// Final-newline policy.
     pub final_newline: FinalNewline,
 }
@@ -53,6 +65,7 @@ impl Default for FormatOptions {
         Self {
             equals_spacing: EqualsSpacing::Preserve,
             trim_trailing_whitespace: false,
+            blank_lines: BlankLines::Preserve,
             final_newline: FinalNewline::Preserve,
         }
     }
@@ -65,6 +78,19 @@ impl FormatOptions {
         Self {
             equals_spacing: EqualsSpacing::Spaces,
             trim_trailing_whitespace: true,
+            blank_lines: BlankLines::Preserve,
+            final_newline: FinalNewline::Ensure,
+        }
+    }
+
+    /// Normalize spacing and trailing whitespace, collapse blank-line runs and
+    /// ensure a final LF.
+    #[must_use]
+    pub const fn normalize_groups() -> Self {
+        Self {
+            equals_spacing: EqualsSpacing::Spaces,
+            trim_trailing_whitespace: true,
+            blank_lines: BlankLines::Collapse,
             final_newline: FinalNewline::Ensure,
         }
     }
@@ -152,8 +178,9 @@ impl Document<'_> {
     pub fn format(&self, options: &FormatOptions) -> Result<FormatResult, FormatError> {
         let mut edits = Vec::new();
         self.plan_equals_spacing(*options, &mut edits);
+        let removed = self.plan_blank_lines(*options, &mut edits);
         if options.trim_trailing_whitespace {
-            self.plan_trailing_whitespace(&mut edits);
+            self.plan_trailing_whitespace(&removed, &mut edits);
         }
         self.plan_final_newline(*options, &mut edits);
         edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
@@ -165,7 +192,7 @@ impl Document<'_> {
         }
         let output = apply(self.source(), &edits);
         let (formatted, _) = crate::parse_with(&output, self.dialect());
-        if !same_meaning(self, &formatted) {
+        if !same_meaning(self, &formatted, options.blank_lines) {
             return Err(FormatError::WouldChangeMeaning);
         }
         Ok(FormatResult { edits, output })
@@ -222,10 +249,37 @@ impl Document<'_> {
         }
     }
 
-    fn plan_trailing_whitespace(&self, edits: &mut Vec<TextEdit>) {
+    fn plan_blank_lines(&self, options: FormatOptions, edits: &mut Vec<TextEdit>) -> Vec<bool> {
+        if options.blank_lines == BlankLines::Preserve {
+            return Vec::new();
+        }
+        let mut removed = vec![false; self.items().len()];
+        let mut previous_blank = false;
+        for item in self.items() {
+            if item.kind() != ItemKind::Blank {
+                previous_blank = false;
+                continue;
+            }
+            if previous_blank {
+                removed[item.id()] = true;
+                push(self.source(), edits, item.span(), String::new());
+            } else {
+                previous_blank = true;
+            }
+        }
+        removed
+    }
+
+    fn plan_trailing_whitespace(&self, removed: &[bool], edits: &mut Vec<TextEdit>) {
+        let kept: Vec<_> = self
+            .items()
+            .enumerate()
+            .filter(|(index, _)| !removed.get(*index).copied().unwrap_or(false))
+            .map(|(_, item)| item)
+            .collect();
         let mut previous_ending = crate::LineEnding::None;
         let mut protect_next = false;
-        let mut items = self.items().peekable();
+        let mut items = kept.into_iter().peekable();
         while let Some(item) = items.next() {
             let ending = item.line_ending();
             if protect_next {
@@ -350,44 +404,74 @@ fn apply(source: &str, edits: &[TextEdit]) -> String {
     output
 }
 
-fn same_meaning(left: &Document<'_>, right: &Document<'_>) -> bool {
-    left.has_bom() == right.has_bom()
-        && left.items().len() == right.items().len()
-        && left.items().zip(right.items()).all(|(left, right)| {
-            if left.kind() != right.kind()
-                || left.diagnostic().map(crate::Diagnostic::code)
-                    != right.diagnostic().map(crate::Diagnostic::code)
-            {
+fn same_meaning(left: &Document<'_>, right: &Document<'_>, blank_lines: BlankLines) -> bool {
+    if left.has_bom() != right.has_bom() {
+        return false;
+    }
+    match blank_lines {
+        BlankLines::Preserve => {
+            left.items().len() == right.items().len()
+                && left
+                    .items()
+                    .zip(right.items())
+                    .all(|(left, right)| same_item(left, right))
+        }
+        BlankLines::Collapse => {
+            let mut left_items = left.items().filter(|item| item.kind() != ItemKind::Blank);
+            let mut right_items = right.items().filter(|item| item.kind() != ItemKind::Blank);
+            let same_nonblank = loop {
+                match (left_items.next(), right_items.next()) {
+                    (Some(left), Some(right)) if same_item(left, right) => {}
+                    (None, None) => break true,
+                    _ => break false,
+                }
+            };
+            same_nonblank
+                && left.groups().count() == right.groups().count()
+                && !right
+                    .items()
+                    .zip(right.items().skip(1))
+                    .any(|(left, right)| {
+                        left.kind() == ItemKind::Blank && right.kind() == ItemKind::Blank
+                    })
+        }
+    }
+}
+
+fn same_item(left: crate::Item<'_>, right: crate::Item<'_>) -> bool {
+    if left.kind() != right.kind()
+        || left.diagnostic().map(crate::Diagnostic::code)
+            != right.diagnostic().map(crate::Diagnostic::code)
+    {
+        return false;
+    }
+    match left.kind() {
+        ItemKind::Blank => true,
+        ItemKind::Comment => {
+            trim_horizontal(&left.document.source()[left.content_span()])
+                == trim_horizontal(&right.document.source()[right.content_span()])
+        }
+        ItemKind::Invalid | ItemKind::Ignored => {
+            left.document.source()[left.content_span()]
+                == right.document.source()[right.content_span()]
+        }
+        ItemKind::Entry => {
+            let Some(left) = left.entry() else {
                 return false;
-            }
-            match left.kind() {
-                ItemKind::Blank => true,
-                ItemKind::Comment => {
-                    trim_horizontal(&left.document.source()[left.content_span()])
-                        == trim_horizontal(&right.document.source()[right.content_span()])
-                }
-                ItemKind::Invalid | ItemKind::Ignored => {
-                    left.document.source()[left.content_span()]
-                        == right.document.source()[right.content_span()]
-                }
-                ItemKind::Entry => {
-                    let Some(left) = left.entry() else {
-                        return false;
-                    };
-                    let Some(right) = right.entry() else {
-                        return false;
-                    };
-                    left.key() == right.key()
-                        && left.value() == right.value()
-                        && left.state() == right.state()
-                        && left.quote() == right.quote()
-                        && left.exported() == right.exported()
-                        && left.participates_in_lookup() == right.participates_in_lookup()
-                        && left.inline_comment().map(trim_horizontal)
-                            == right.inline_comment().map(trim_horizontal)
-                }
-            }
-        })
+            };
+            let Some(right) = right.entry() else {
+                return false;
+            };
+            left.key() == right.key()
+                && left.value() == right.value()
+                && left.state() == right.state()
+                && left.quote() == right.quote()
+                && left.exported() == right.exported()
+                && left.participates_in_lookup() == right.participates_in_lookup()
+                && left.inline_comment().map(trim_horizontal)
+                    == right.inline_comment().map(trim_horizontal)
+        }
+    }
 }
 
 fn trim_horizontal(text: &str) -> &str {

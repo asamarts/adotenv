@@ -591,6 +591,34 @@ documentation. Host and toolchains match the structure/formatting slice above.
   unchanged. Comparison and example generation are literal-only and perform no
   lookup, environment access, file I/O or command execution.
 
+### Blank-line grouping slice (0.5, unreleased; 2026-10-18)
+
+Tested source: the unreleased 0.5 working tree adding `BlankLines`,
+`FormatOptions::normalize_groups` and collapse-aware verification. Host and
+toolchains match the slices above.
+
+- With `PROPTEST_CASES=2000`, all 198 default-feature tests pass, the `exec`
+  feature adds three tests (201 total), and all 20 doctests pass. The same 198
+  unit/property tests and 20 doctests pass with `--no-default-features`.
+- Four blank-line tests cover inner/leading/trailing runs, exact preservation,
+  a CR-blank collapse/trim regression, group separators, idempotence and edit
+  replay. The formatter verifier compares
+  every nonblank item exactly and rejects adjacent blank items in collapsed
+  output.
+- Root, fuzz and conformance formatting; workspace, exec, alloc-only and
+  conformance-probe Clippy; warning-denied rustdoc; Rust 1.81 builds; the
+  alloc-only Thumb build; and locked package verification pass.
+- All 54 Criterion smoke workloads pass, including three collapse-format
+  workloads.
+- The `format` sanitizer target adds the five-policy matrix with blank collapse
+  and blank-aware item comparison. Its final bounded campaign executes 64,144
+  inputs in 121 engine seconds with no crash, panic or invariant failure. The
+  campaign found and fixed a collapse/trim interaction where skipping a line
+  after a lone CR made a second pass non-idempotent; trailing-whitespace planning
+  now uses the post-collapse kept-item sequence.
+- Parser, dialect, resolution, edit, comparison, example and encoding behavior
+  is unchanged. No I/O, environment, expansion or command execution is added.
+
 ## Local execution evidence (2026-10-15)
 
 Tested source: the unreleased 0.2 working tree based on

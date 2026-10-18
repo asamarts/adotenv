@@ -5,7 +5,7 @@ use alloc::{
 use proptest::prelude::*;
 
 use crate::{
-    parse, parse_strict, parse_with, Dialect, EqualsSpacing, FinalNewline, FormatError,
+    parse, parse_strict, parse_with, BlankLines, Dialect, EqualsSpacing, FinalNewline, FormatError,
     FormatOptions,
 };
 
@@ -17,6 +17,7 @@ fn options(
     FormatOptions {
         equals_spacing,
         trim_trailing_whitespace: trim,
+        blank_lines: BlankLines::Preserve,
         final_newline,
     }
 }
@@ -117,6 +118,65 @@ fn empty_compose_keys_are_not_indented_or_reformatted() {
         .format(&FormatOptions::normalize())
         .unwrap();
     assert!(again.is_empty());
+}
+
+#[test]
+fn blank_line_runs_collapse_to_one_group_separator() {
+    let source = "# header\n\n\nA=1\n\n\n\nB=2\n\n";
+    let doc = parse_strict(source).unwrap();
+    let formatted = doc.format(&FormatOptions::normalize_groups()).unwrap();
+    assert_eq!(formatted.as_str(), "# header\n\nA = 1\n\nB = 2\n\n");
+    assert_eq!(formatted.as_str().matches("\n\n").count(), 3);
+    let again = parse_strict(formatted.as_str())
+        .unwrap()
+        .format(&FormatOptions::normalize_groups())
+        .unwrap();
+    assert!(again.is_empty());
+}
+
+#[test]
+fn blank_line_collapse_handles_leading_and_trailing_runs() {
+    let source = "\n\n\nA=1\n\n\n";
+    let doc = parse_strict(source).unwrap();
+    let formatted = doc
+        .format(&FormatOptions {
+            blank_lines: BlankLines::Collapse,
+            ..FormatOptions::normalize()
+        })
+        .unwrap();
+    assert_eq!(formatted.as_str(), "\nA = 1\n\n");
+}
+
+#[test]
+fn collapse_is_idempotent_across_removed_cr_blank_runs() {
+    // Regression from the blank-collapse fuzz oracle: removing CR-only blank
+    // items changes which kept item owns trailing-whitespace planning.
+    let source = "\n]\nA]\n\n\n#A\n]A\u{1}\0\0\0\0\0\0\0e6666\n\n\n\n#\nA]A\n\n\r\r\r#1heling\0\0 \n\n#\nAo\n\n\n";
+    let (doc, _) = parse(source);
+    let first = doc.format(&FormatOptions::normalize_groups()).unwrap();
+    let (again, _) = parse(first.as_str());
+    let second = again.format(&FormatOptions::normalize_groups()).unwrap();
+    assert!(
+        second.is_empty(),
+        "second pass changed: {:?}",
+        second.edits()
+    );
+    assert_eq!(second.as_str(), first.as_str());
+}
+
+#[test]
+fn blank_line_preserve_is_exact() {
+    let source = "A=1\n\n\nB=2\n";
+    let doc = parse_strict(source).unwrap();
+    let formatted = doc
+        .format(&FormatOptions {
+            equals_spacing: EqualsSpacing::Preserve,
+            trim_trailing_whitespace: false,
+            blank_lines: BlankLines::Preserve,
+            final_newline: FinalNewline::Preserve,
+        })
+        .unwrap();
+    assert!(formatted.is_empty());
 }
 
 #[test]

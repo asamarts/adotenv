@@ -15,10 +15,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `Entry::leading_comments` returns contiguous whole-line comments immediately
   above a declaration; a blank line breaks attachment. Inline comments remain
   available through `Entry::inline_comment`.
-- `Document::format`, `FormatOptions`, `EqualsSpacing`, `FinalNewline`,
-  `FormatResult` and `FormatError` provide verified trivia-only formatting.
-  Spacing around `=`, trailing spaces/tabs and final-newline policy are
-  explicit; `FormatOptions::normalize` selects a conservative common policy.
+- `Document::format`, `FormatOptions`, `EqualsSpacing`, `BlankLines`,
+  `FinalNewline`, `FormatResult` and `FormatError` provide verified trivia-only
+  formatting. Spacing around assignment separators, trailing spaces/tabs,
+  blank-line grouping and final-newline policy are explicit;
+  `FormatOptions::normalize` selects a conservative common policy, and
+  `normalize_groups` additionally collapses blank-line runs.
 - Formatting edits are source-relative `TextEdit` values and the formatted text
   is always reparsed with the selected dialect before being returned. The
   verifier checks declarations, quotes, states, exports, lookup participation,
@@ -38,9 +40,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Notes
 
-- Quoting changes, blank-line normalization and group sorting remain future
-  0.5 work. No default I/O, environment, expansion or command execution is
-  introduced.
+- `FormatOptions` gained the `blank_lines` field; external struct literals that
+  do not use `..FormatOptions::default()` must add `BlankLines::Preserve`.
+- Quoting changes and group sorting remain future 0.5 work. No default I/O,
+  environment, expansion or command execution is introduced.
 
 ## [0.4.0] - 2026-10-18
 

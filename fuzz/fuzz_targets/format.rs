@@ -2,8 +2,8 @@
 #![forbid(unsafe_code)]
 
 use adotenv::{
-    parse_with, Dialect, EqualsSpacing, FinalNewline, FormatOptions, InlineComments, ItemKind,
-    TextEdit,
+    parse_with, BlankLines, Dialect, EqualsSpacing, FinalNewline, FormatOptions, InlineComments,
+    ItemKind, TextEdit,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -123,8 +123,32 @@ fn check_result(source: &str, document: &adotenv::Document<'_>, options: &Format
     }
     let (after, _) = parse_with(formatted.as_str(), document.dialect());
     assert_eq!(document.has_bom(), after.has_bom());
-    assert_eq!(document.items().len(), after.items().len());
-    for (left, right) in document.items().zip(after.items()) {
+    if options.blank_lines == BlankLines::Preserve {
+        assert_eq!(document.items().len(), after.items().len());
+    } else {
+        assert_eq!(document.groups().count(), after.groups().count());
+        assert!(!after
+            .items()
+            .zip(after.items().skip(1))
+            .any(|(left, right)| {
+                left.kind() == ItemKind::Blank && right.kind() == ItemKind::Blank
+            }));
+    }
+    assert_eq!(
+        document
+            .items()
+            .filter(|item| item.kind() != ItemKind::Blank)
+            .count(),
+        after
+            .items()
+            .filter(|item| item.kind() != ItemKind::Blank)
+            .count()
+    );
+    let before_items = document
+        .items()
+        .filter(|item| item.kind() != ItemKind::Blank);
+    let after_items = after.items().filter(|item| item.kind() != ItemKind::Blank);
+    for (left, right) in before_items.zip(after_items) {
         assert_eq!(left.kind(), right.kind());
         if left.kind() == ItemKind::Comment {
             assert_eq!(
@@ -188,19 +212,23 @@ fuzz_target!(|bytes: &[u8]| {
     };
     let options = [
         FormatOptions::normalize(),
+        FormatOptions::normalize_groups(),
         FormatOptions {
             equals_spacing: EqualsSpacing::Spaces,
             trim_trailing_whitespace: false,
+            blank_lines: BlankLines::Preserve,
             final_newline: FinalNewline::Preserve,
         },
         FormatOptions {
             equals_spacing: EqualsSpacing::None,
             trim_trailing_whitespace: true,
+            blank_lines: BlankLines::Preserve,
             final_newline: FinalNewline::Ensure,
         },
         FormatOptions {
             equals_spacing: EqualsSpacing::Spaces,
             trim_trailing_whitespace: true,
+            blank_lines: BlankLines::Collapse,
             final_newline: FinalNewline::Remove,
         },
     ];

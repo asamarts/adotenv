@@ -126,7 +126,9 @@ pub use dialect::{
 };
 pub use edit::{remove, set, Edit, EditError, InsertPosition, TextEdit, VerifiedEdits};
 pub use encode::{encode_value, encode_value_with, EncodeError};
-pub use format::{EqualsSpacing, FinalNewline, FormatError, FormatOptions, FormatResult};
+pub use format::{
+    BlankLines, EqualsSpacing, FinalNewline, FormatError, FormatOptions, FormatResult,
+};
 pub use model::{AssignmentState, Document, Entry, EntryTokens, Item, ItemKind, LineEnding, Quote};
 pub use parser::{
     parse, parse_owned, parse_owned_with, parse_strict, parse_strict_with, parse_with,

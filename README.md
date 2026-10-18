@@ -289,13 +289,16 @@ assert_eq!(
 assert!(parse_strict(formatted.as_str()).is_ok());
 ```
 
-`EqualsSpacing::{Preserve, Spaces, None}` and
-`FinalNewline::{Preserve, Ensure, Remove}` are explicit. Raw-value dialects,
-multiline value bodies, invalid/ignored statements, empty assignments whose
-spacing could become indentation, and mixed lone-CR boundaries are preserved.
-`FinalNewline::Remove` removes one terminator from a nonblank final item; a
-trailing blank line is structure and is kept. Quoting changes, group sorting,
-blank-line normalization and line-ending conversion are not part of this slice.
+`EqualsSpacing::{Preserve, Spaces, None}`,
+`BlankLines::{Preserve, Collapse}` and
+`FinalNewline::{Preserve, Ensure, Remove}` are explicit.
+`FormatOptions::normalize_groups` also collapses runs of consecutive blank
+lines to one group separator. Raw-value dialects, multiline value bodies,
+invalid/ignored statements, empty assignments whose spacing could become
+indentation, and mixed lone-CR boundaries are preserved. `FinalNewline::Remove`
+removes one terminator from a nonblank final item; a trailing blank line is
+structure and is kept. Quoting changes, group sorting and line-ending conversion
+are not part of this slice.
 
 ## Compare files by key (0.5)
 
