@@ -408,24 +408,26 @@ evidence above.
 ### Literal reference inspection (2026-10-17)
 
 Tested source: the 0.4 reference working tree based on
-`67fc0ba` (the reference module, tests, parser-fuzz invariants, benchmark and
-documentation pass). Host and toolchains match the encoder evidence above.
+`fc5a5024b034b2a05399a6913cb5b51b8cfa37cf` (the reference module plus delimiter
+and escape hardening), not that unchanged commit. Host and toolchains match the
+encoder evidence above.
 
-- All 134 unit/property tests and ten doctests pass in both feature modes with
+- All 135 unit/property tests and ten doctests pass in both feature modes with
   `PROPTEST_CASES=2000`. Root, fuzz and conformance formatting; all-target core
   and conformance-probe Clippy; alloc-only Clippy; warning-denied rustdoc; Rust
   1.81 builds in both modes; package construction; and all 36 Criterion smoke
   workloads pass.
-- Eleven reference tests cover short/braced variables, every operator form,
+- Twelve reference tests cover short/braced variables, every operator form,
   nested defaults, commands and nested commands, mixed delimiter nesting,
-  malformed forms, quoted/escaped dollars, Compose `$$`, appended tails,
-  bare/empty entries, eligibility and an arbitrary-UTF-8 property. The property
-  checks bounded UTF-8 spans, source ordering, operator/argument consistency,
-  value containment and eligibility calls under every preset rule set.
+  escaped literal blocks, malformed forms, quoted/escaped dollars, Compose
+  `$$`, appended tails, bare/empty entries, eligibility and an arbitrary-UTF-8
+  property. The property checks bounded UTF-8 spans, source ordering,
+  operator/argument consistency, value containment and eligibility calls under
+  every preset rule set.
 - The parser sanitizer target checks reference candidate spans, ordering,
   container depth, operator/argument consistency and eligibility under every
   preset rule set for all five presets and custom policies. Its final bounded
-  campaign executes 100,000 inputs in 138 engine seconds at 502 MiB peak RSS.
+  campaign executes 100,000 inputs in 139 engine seconds at 489 MiB peak RSS.
 - Pinned real-runtime replay still matches all 1,420 observations. Reference
   inspection is literal-only: no lookup, resolution, I/O or command execution.
 

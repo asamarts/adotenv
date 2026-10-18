@@ -187,6 +187,23 @@ fn nested_braces_and_commands_do_not_close_early() {
 }
 
 #[test]
+fn escaped_literal_braces_do_not_close_the_outer_form() {
+    let source = "A=${B:-\\${C}}\n";
+    let (doc, _) = parse(source);
+    let references = doc.unique("A").unwrap().references();
+    assert_eq!(references.len(), 2);
+    assert_eq!(text(source, &references[0].span), "${B:-\\${C}}");
+    assert_eq!(
+        text(source, references[0].argument.as_ref().unwrap()),
+        "\\${C}"
+    );
+    assert_eq!(text(source, &references[1].span), "${C}");
+    assert!(references[1].escaped);
+    assert_eq!(references[1].depth, 1);
+    assert!(!references[1].is_eligible(ReferenceRules::COMPOSE));
+}
+
+#[test]
 fn malformed_forms_are_observable_but_ineligible() {
     for source in ["A=${VAR\n", "A=$(echo\n"] {
         let (doc, _) = parse(source);

@@ -152,7 +152,7 @@ pub struct Reference {
     /// Quote context of the containing value.
     pub quote: Quote,
     /// Whether the dollar is escaped by backslashes under the selected quote
-    /// grammar or by Compose's `$$` escape.
+    /// grammar, inside a nested expansion argument, or by Compose's `$$` escape.
     pub escaped: bool,
     /// Nesting depth; zero at the value's top level.
     pub depth: usize,
@@ -296,7 +296,7 @@ impl Scanner<'_> {
                 at += 1;
                 continue;
             }
-            let escaped = escaped_at(source, range, at, quote, dialect);
+            let escaped = escaped_at(source, range, at, quote, dialect, depth > 0);
             if at + 1 < range.end && bytes[at + 1] == b'{' {
                 let (reference, nested) =
                     braced(source, range, at, quote, escaped, depth, containers);
@@ -484,6 +484,63 @@ enum Delimiter {
     Paren,
 }
 
+fn literal_balanced(
+    source: &str,
+    start: usize,
+    end: usize,
+    open: u8,
+    close: u8,
+) -> (Option<usize>, usize) {
+    let bytes = source.as_bytes();
+    let mut at = start;
+    let mut depth = 1;
+    let mut quote = None;
+    while at < end {
+        match quote {
+            Some(b'\'') => {
+                if bytes[at] == b'\'' {
+                    quote = None;
+                }
+                at += 1;
+            }
+            Some(_) => {
+                if bytes[at] == b'\\' {
+                    at = at.saturating_add(2);
+                } else {
+                    if bytes[at] == b'"' {
+                        quote = None;
+                    }
+                    at += 1;
+                }
+            }
+            None => match bytes[at] {
+                b'\\' => at = at.saturating_add(2),
+                b'\'' => {
+                    quote = Some(b'\'');
+                    at += 1;
+                }
+                b'"' => {
+                    quote = Some(b'"');
+                    at += 1;
+                }
+                byte if byte == open => {
+                    depth += 1;
+                    at += 1;
+                }
+                byte if byte == close => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return (Some(at), at);
+                    }
+                    at += 1;
+                }
+                _ => at += 1,
+            },
+        }
+    }
+    (None, end)
+}
+
 fn matching_delimited(
     source: &str,
     start: usize,
@@ -513,6 +570,20 @@ fn matching_delimited(
                 }
             }
             None => match bytes[at] {
+                b'\\' if bytes.get(at + 1) == Some(&b'$') => {
+                    at = at.saturating_add(2);
+                    match bytes.get(at).copied() {
+                        Some(b'{') => {
+                            let (close, end) = literal_balanced(source, at + 1, end, b'{', b'}');
+                            at = close.map_or(end, |close| close + 1);
+                        }
+                        Some(b'(') => {
+                            let (close, end) = literal_balanced(source, at + 1, end, b'(', b')');
+                            at = close.map_or(end, |close| close + 1);
+                        }
+                        _ => {}
+                    }
+                }
                 b'\\' => at = at.saturating_add(2),
                 b'\'' => {
                     quote = Some(b'\'');
@@ -561,6 +632,7 @@ fn escaped_at(
     at: usize,
     quote: Quote,
     dialect: Dialect,
+    nested: bool,
 ) -> bool {
     let bytes = source.as_bytes();
     let mut backslashes = 0;
@@ -569,9 +641,9 @@ fn escaped_at(
         backslashes += 1;
         cursor -= 1;
     }
-    let backslash = quote == Quote::Double
-        && dialect.double_escapes.contains(DoubleEscapes::DOLLAR)
-        && backslashes % 2 == 1;
+    let backslash = backslashes % 2 == 1
+        && ((quote == Quote::Double && dialect.double_escapes.contains(DoubleEscapes::DOLLAR))
+            || (quote == Quote::None && nested));
     let dollar = dialect.syntax == Syntax::Compose && {
         let mut dollars = 0;
         let mut cursor = at;
