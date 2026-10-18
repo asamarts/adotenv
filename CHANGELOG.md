@@ -19,6 +19,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   any result is returned. Missing cascade files are skipped; an existing file
   with an I/O, decoding, syntax or policy error invalidates the complete load.
   No process environment is changed.
+- Separate `adotenv-process` adapter with `validate` and an explicit
+  `unsafe apply`. Every key/value is validated before the first mutation; only
+  loaded keys are set, unrelated process variables are not cleared, and changes
+  cannot be rolled back.
 
 ## [0.5.0] - 2026-10-18
 

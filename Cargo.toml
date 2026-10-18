@@ -1,5 +1,5 @@
 [workspace]
-members = ["."]
+members = [".", "adotenv-process"]
 exclude = ["fuzz"]
 resolver = "2"
 

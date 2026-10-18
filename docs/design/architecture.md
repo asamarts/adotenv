@@ -3,7 +3,7 @@
 Status: the lossless core/native edit model, 0.3 dialect configuration/presets,
 0.4 reference/resolution/command-callback APIs, the released 0.5
 structure/trivia-formatting/comparison/example/sorting views and the unreleased
-0.6 opt-in file-loading adapter are implemented. Sections explicitly marked
+0.6 opt-in file-loading and process-environment adapters are implemented. Sections explicitly marked
 future are designs, not additional shipped interfaces.
 
 ## Document model
@@ -310,7 +310,13 @@ environment is mutated.
 `LoadedEnvironment` separates final values, active origins, all loaded entries,
 cross-file overrides, in-file repeats and skipped declarations. Origins retain
 the original path, value span and one-based line. Bare values are not guessed;
-they are reported as skipped. See [loading.md](loading.md).
+they are reported as skipped unless the dialect maps them to effective empty
+values. See [loading.md](loading.md).
+
+The separate `adotenv-process` crate contains the only process-environment
+mutation path. It prevalidates all keys and values, exposes an unsafe `apply`,
+sets only loaded keys and documents the lack of rollback and thread-safety
+requirements. The core crate remains `forbid(unsafe_code)`.
 
 ## Crate layout and platform
 

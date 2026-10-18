@@ -136,6 +136,19 @@ fn duplicate_and_bare_declarations_are_reported() {
 }
 
 #[test]
+fn bare_empty_policy_loads_an_effective_empty_value() {
+    let dir = TempDir::new();
+    dir.write(".env", "A\nX=1\n");
+    let dialect = Dialect {
+        bare_keys: crate::BareKeys::Empty,
+        ..Dialect::PORTABLE
+    };
+    let loaded = load_cascade_with(dir.path(), "", dialect).unwrap();
+    assert_eq!(loaded.get("A"), Some(""));
+    assert_eq!(loaded.get("X"), Some("1"));
+}
+
+#[test]
 fn nonparticipating_declarations_are_skipped() {
     let dir = TempDir::new();
     dir.write(".env", "A\nX=1\n");

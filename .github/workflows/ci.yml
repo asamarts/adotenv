@@ -81,6 +81,7 @@ jobs:
       - run: cargo build -p adotenv --lib --features exec --locked
       - run: cargo build -p adotenv --lib --features load --locked
       - run: cargo build -p adotenv --lib --no-default-features --locked
+      - run: cargo build -p adotenv-process --locked
 
   package:
     name: package

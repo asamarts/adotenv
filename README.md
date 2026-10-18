@@ -400,7 +400,25 @@ for change in loaded.overrides() {
 `overrides()`, `repeated()` and `skipped()` explain precedence, duplicate keys
 and bare/nonparticipating declarations. `load_files` accepts an explicit
 ordered file list. Values remain literal; no expansion, environment lookup or
-command execution occurs.
+command execution occurs. Bare declarations are skipped unless the selected
+dialect maps them to effective empty values.
+
+## Apply to the process environment (0.6, opt-in)
+
+The separate `adotenv-process` adapter applies a fully loaded environment
+through an explicit `unsafe fn`. Keys and values are validated before the first
+mutation; the adapter never clears or removes unrelated process variables and
+cannot roll changes back. Returning a map from `LoadedEnvironment::values()` is
+the default and does not mutate the process.
+
+```rust,ignore
+use adotenv::load::load_cascade;
+use adotenv_process::apply;
+
+let loaded = load_cascade("/srv/my-app", "production")?;
+// The caller must guarantee no concurrent process-environment access.
+unsafe { apply(&loaded)? };
+```
 
 ## Portable syntax (unchanged default)
 

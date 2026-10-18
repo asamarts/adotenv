@@ -25,10 +25,10 @@ and cross-dialect portability reporting. 0.4 implements literal reference
 inspection, opt-in variable resolution, explicit command callbacks and an
 opt-in `exec` helper. 0.5 implements structure views, verified trivia formatting,
 key comparison, safe example generation, blank-line collapsing, value quote
-normalization and comment-aware dependency sorting. 0.6 file cascade loading is
-in progress behind the opt-in `load` feature. Process-environment application,
-serde and integrations remain future. Execution evidence is in the quality
-notes.
+normalization and comment-aware dependency sorting. 0.6 file cascade loading
+and the separate process-environment adapter are in progress behind opt-in
+features. Serde and integrations remain future. Execution evidence is in the
+quality notes.
 
 ## Goals
 
@@ -190,9 +190,8 @@ Literal parsing into ordered entries with key, value and line spans;
   validated before any result is returned. Missing cascade files are skipped;
   malformed existing files invalidate the complete load. No process environment
   is changed.
-- **Remaining:** applying to the process environment through an `unsafe fn` in
-  a separate, opt-in std-only `adotenv-process` adapter; returning a map remains
-  the default.
+- **Implemented:** separate `adotenv-process` adapter with prevalidation and an
+  explicit unsafe `apply`; returning a map remains the default.
 - **Remaining:** a `serde` feature deserializing a document into a struct, with
   errors that point at the line.
 

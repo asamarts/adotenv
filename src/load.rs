@@ -336,7 +336,11 @@ fn merge_document(loaded: &mut LoadedEnvironment, path: &Path, document: &crate:
             });
             continue;
         }
-        let Some(value) = effective.value() else {
+        let value = if let Some(value) = effective.value() {
+            value.to_string()
+        } else if document.dialect().bare_keys == crate::BareKeys::Empty {
+            String::new()
+        } else {
             loaded.skipped.push(LoadSkipped {
                 key: Some(key),
                 origin: origin(path, effective),
@@ -344,7 +348,6 @@ fn merge_document(loaded: &mut LoadedEnvironment, path: &Path, document: &crate:
             });
             continue;
         };
-        let value = value.to_string();
         let entry_origin = origin(path, effective);
         loaded.entries.push(LoadedEntry {
             key: key.clone(),

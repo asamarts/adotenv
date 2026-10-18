@@ -673,13 +673,14 @@ comment-aware chunk planning, dependency ordering and sorting verification.
 Tested source: the unreleased 0.6 working tree adding the opt-in `load`
 feature, cascade validation and origin/report structures.
 
-- With `PROPTEST_CASES=2000`, all 225 default-feature + load tests pass, the
-  full feature set (`exec` + `load`) passes 228 tests, and all 22 running
-  doctests pass. The no-default-features build still passes 215 tests and 22
-  doctests.
-- Ten loading tests cover cascade precedence, missing files, explicit files,
-  invalid syntax, invalid UTF-8, duplicate and bare reports, nonparticipating
-  keys, mode traversal rejection, empty mode and exact origin spans/lines.
+- With `PROPTEST_CASES=2000`, all 226 default-feature + load tests pass, the
+  full feature set (`exec` + `load` + process adapter) passes 229 tests and
+  three process-adapter tests, and all 22 running doctests pass (two ignored
+  filesystem examples). The no-default-features build still passes 215 tests.
+- Eleven loading tests cover cascade precedence, missing files, explicit files,
+  invalid syntax, invalid UTF-8, duplicate and bare reports, `BareKeys::Empty`,
+  nonparticipating keys, mode traversal rejection, empty mode and exact origin
+  spans/lines.
 - Workspace, exec, load, alloc-only and conformance-probe Clippy pass with Rust
   1.99.0; warning-denied rustdoc passes with and without `load`. Rust 1.81
   builds pass with default, `exec`, `load` and no-default features. The

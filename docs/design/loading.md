@@ -1,8 +1,7 @@
 # Loading
 
-Status: standard file-cascade loading is implemented in the unreleased 0.6 tree
-behind the opt-in `load` feature. Process-environment application and `serde`
-integration remain future work.
+Status: standard file-cascade loading and the separate process adapter are
+implemented in the unreleased 0.6 tree. `serde` integration remains future work.
 
 The core parser still performs no I/O. Loading is a std-only adapter around the
 lossless document model.
@@ -63,7 +62,7 @@ skipped()     bare, nonparticipating or empty-key declarations
 load order and source order; `values` is sorted by key. Repeated declarations
 are still reported even when the duplicate policy selects one winner.
 
-Bare declarations are skipped rather than guessed as empty. Nonparticipating
+Bare declarations are skipped rather than guessed as empty, except when the selected dialect’s `BareKeys::Empty` policy makes them effective empty values. Nonparticipating
 declarations (for example Node’s `__proto__` object property or ignored bare
 keys) and empty keys are reported with a `SkipReason`.
 
@@ -79,10 +78,25 @@ keys) and empty keys are reported with a `SkipReason`.
 Missing explicit files passed to `load_files` are I/O errors; only the standard
 cascade skips missing names.
 
+## Process application
+
+The separate `adotenv-process` crate depends on `adotenv` with `load` enabled
+and exposes:
+
+```text
+validate(&LoadedEnvironment) -> Result<(), ApplyError>
+unsafe apply(&LoadedEnvironment) -> Result<(), ApplyError>
+```
+
+`validate` checks every key for emptiness/NUL/`=` and every value for NUL before
+mutation. `apply` performs the same validation, then calls the process
+environment API. It sets only loaded keys and never clears unrelated variables.
+The operation is explicitly unsafe because process environments are global and
+not thread-safe on all platforms; changes cannot be rolled back. Returning the
+`LoadedEnvironment` map remains the default.
+
 ## Future work
 
-- A separate opt-in `adotenv-process` adapter for applying values through an
-  `unsafe fn`, with no partial apply after validation failure.
 - A `serde` feature that deserializes a document into a struct with line-aware
   errors.
 - Optional command/expansion callbacks during loading, never enabled implicitly.

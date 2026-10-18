@@ -11,6 +11,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "adotenv-process"
+version = "0.0.0"
+dependencies = [
+ "adotenv",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
