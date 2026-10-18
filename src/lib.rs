@@ -65,6 +65,12 @@
 //! untouched. Quoting changes, sorting and blank-line normalization are future
 //! work.
 //!
+//! [`Document::compare`] reports effective-key differences, distinguishing
+//! missing keys, bare/empty/assigned states, decoded values and exports.
+//! [`Document::example`] removes assigned values while retaining comments and
+//! layout, and comments out malformed or ignored statements so their text cannot
+//! leak a value.
+//!
 //! # Source and positions
 //!
 //! Ranges always address the original source, BOM included. Item ranges plus
@@ -94,10 +100,12 @@
 
 extern crate alloc;
 
+mod compare;
 mod diagnostic;
 mod dialect;
 mod edit;
 mod encode;
+mod example;
 #[cfg(feature = "exec")]
 pub mod exec;
 mod format;
@@ -109,6 +117,7 @@ mod references;
 mod resolve;
 mod structure;
 
+pub use compare::{ComparedValue, Comparison, ComparisonEntry, DifferenceKind};
 pub use diagnostic::{Diagnostic, DiagnosticCode, Severity};
 pub use dialect::{
     BareKeys, BomPolicy, ColonSeparator, Dialect, DoubleEscapes, Duplicates, InlineComments,
@@ -138,11 +147,15 @@ pub use resolve::{
 pub use structure::{Group, Groups};
 
 #[cfg(test)]
+mod compare_tests;
+#[cfg(test)]
 mod dialect_tests;
 #[cfg(test)]
 mod edit_tests;
 #[cfg(test)]
 mod encode_tests;
+#[cfg(test)]
+mod example_tests;
 #[cfg(test)]
 mod format_tests;
 #[cfg(test)]

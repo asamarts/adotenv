@@ -2,7 +2,8 @@
 #![forbid(unsafe_code)]
 
 use adotenv::{
-    parse_with, Dialect, EqualsSpacing, FinalNewline, FormatOptions, ItemKind, TextEdit,
+    parse_with, Dialect, EqualsSpacing, FinalNewline, FormatOptions, InlineComments, ItemKind,
+    TextEdit,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -66,6 +67,49 @@ fn check_structure(source: &str, document: &adotenv::Document<'_>) {
         if let Some(last) = comments.last() {
             assert_eq!(last.id() + 1, entry.item_id());
         }
+    }
+}
+
+fn check_compare(source: &str, document: &adotenv::Document<'_>) {
+    assert!(document.compare(document).is_empty());
+    let (again, _) = parse_with(source, document.dialect());
+    assert!(document.compare(&again).is_empty());
+}
+
+fn check_example(document: &adotenv::Document<'_>) {
+    let example = document.example();
+    let (after, _) = parse_with(&example, document.dialect());
+    assert_eq!(document.has_bom(), after.has_bom());
+    let expected: Vec<_> = document
+        .entries()
+        .filter(|entry| !entry.key().is_empty())
+        .collect();
+    assert_eq!(expected.len(), after.entries().len());
+    for (left, right) in expected.into_iter().zip(after.entries()) {
+        assert_eq!(left.key(), right.key());
+        if left.state() == adotenv::AssignmentState::Bare {
+            assert_eq!(right.state(), adotenv::AssignmentState::Bare);
+            assert_eq!(right.value(), None);
+        } else {
+            assert_eq!(right.state(), adotenv::AssignmentState::Empty);
+            assert_eq!(right.value(), Some(""));
+        }
+        if let Some(comment) = left.inline_comment() {
+            if document.dialect().inline_comments == InlineComments::Space {
+                assert!(example.contains(comment));
+            } else {
+                assert_eq!(right.inline_comment(), Some(comment));
+            }
+        }
+    }
+    assert!(!after
+        .items()
+        .any(|item| matches!(item.kind(), ItemKind::Invalid | ItemKind::Ignored)));
+    for item in document
+        .items()
+        .filter(|item| item.kind() == ItemKind::Comment)
+    {
+        assert!(example.contains(item.raw()));
     }
 }
 
@@ -169,6 +213,8 @@ fuzz_target!(|bytes: &[u8]| {
     ] {
         let (document, _) = parse_with(source, dialect);
         check_structure(source, &document);
+        check_compare(source, &document);
+        check_example(&document);
         for options in &options {
             check_result(source, &document, options);
         }

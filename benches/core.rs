@@ -142,8 +142,21 @@ fn core(c: &mut Criterion) {
     resolution(c, &fixtures);
     structure(c, &fixtures);
     formatting(c, &fixtures);
+    examples(c, &fixtures);
 
     scaling(c);
+}
+
+fn examples(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
+    let mut examples = c.benchmark_group("example");
+    for (name, _, source) in fixtures {
+        let document = parse_strict(source).expect("benchmark fixture is valid Portable syntax");
+        examples.throughput(Throughput::Bytes(source.len() as u64));
+        examples.bench_function(BenchmarkId::from_parameter(name), |b| {
+            b.iter(|| black_box(document.example()));
+        });
+    }
+    examples.finish();
 }
 
 fn structure(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {

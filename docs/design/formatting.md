@@ -1,8 +1,9 @@
 # Structure and formatting
 
 Status: the 0.5 structure views and trivia-only verified formatter are
-implemented in the unreleased tree. Quoting changes, blank-line normalization,
-sorting, comparison and example generation remain future work.
+implemented in the unreleased tree. Comparison and example generation are
+documented in [comparison.md](comparison.md); quoting changes, blank-line
+normalization and sorting remain future work.
 
 The formatter is deliberately smaller than a pretty-printer. It changes only
 syntax trivia that can be selected explicitly, then proves that every
@@ -159,8 +160,8 @@ assert_eq!(formatted.as_str(), "A = 1\nB = 2\n");
 - Blank-line normalization with explicit group semantics.
 - Sorting inside groups, keeping attached comments and respecting `${VAR}`
   dependencies.
-- Key-based comparison and example generation.
-- A CLI formatter once the library primitives are stable.
+- A CLI formatter and comparison/example command surfaces once the library
+  primitives are stable.
 
 Evidence for this slice is recorded in
 [quality.md](quality.md#structure-and-formatting-slice-05-unreleased).

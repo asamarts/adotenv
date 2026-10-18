@@ -13,6 +13,7 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [dialects.md](docs/design/dialects.md) | The default syntax, dialect switches and presets, the portability check |
 | [expansion.md](docs/design/expansion.md) | `${VAR}` references, opt-in resolution, command substitution |
 | [formatting.md](docs/design/formatting.md) | Comment/group structure and verified trivia formatting |
+| [comparison.md](docs/design/comparison.md) | Effective-key comparison and safe example generation |
 | [quality.md](docs/design/quality.md) | Testing, fuzzing, conformance, benchmarks, MSRV and semver policy |
 
 **Current status:** 0.2.1, 0.3.0 and 0.4.0 are published. 0.3 implements
@@ -20,10 +21,10 @@ explicit dialect configuration, all five syntax presets, selected-dialect native
 verification, exact per-dialect encoding, applicable pinned-upstream comparison
 and cross-dialect portability reporting. 0.4 implements literal reference
 inspection, opt-in variable resolution, explicit command callbacks and an
-opt-in `exec` helper. The unreleased 0.5 tree adds structure views and verified
-trivia formatting; quoting changes, sorting, comparison and example generation
-remain. Loading and integration work remain future. Execution evidence is in
-the quality notes.
+opt-in `exec` helper. The unreleased 0.5 tree adds structure views, verified
+trivia formatting, key comparison and safe example generation; quoting changes,
+blank-line normalization and group sorting remain. Loading and integration work
+remain future. Execution evidence is in the quality notes.
 
 ## Goals
 
@@ -158,11 +159,16 @@ Literal parsing into ordered entries with key, value and line spans;
   and checked for declaration, comment and item-structure preservation.
   Raw values, multiline bodies, invalid/ignored statements, ambiguous empty
   assignments and mixed lone-CR boundaries are left untouched.
+- **Implemented:** `Document::compare` for effective-key comparison. Missing,
+  bare, empty and assigned states, decoded values and export differences are
+  distinct; duplicate policy and lookup participation follow each document.
+- **Implemented:** `Document::example` removes assigned values while retaining
+  comments, blank lines, keys, exports, formatting, line endings and BOM. Bare
+  declarations stay bare; malformed and ignored statements become comments so
+  their text cannot leak values.
 - **Remaining:** blank-line normalization, quoting changes that keep every
   value identical, and sorting within groups that keeps comments with their
   keys and respects `${VAR}` dependencies.
-- **Remaining:** comparing files by key (missing, extra, empty versus unset),
-  and generating an example file with values blanked and comments kept.
 - **Not yet released.**
 
 ### 0.6: Loading (future)

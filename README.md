@@ -21,6 +21,9 @@ formatters, editors, language servers, scanners and migration tools:
   and export changes return source-relative text edits and an already-verified
   output. Unrelated entries and invalid syntax must keep their meaning.
   Trivia-only formatting returns the same kind of verified edits.
+- **Comparison and examples.** Effective-key differences distinguish missing,
+  bare, empty and assigned values. Example generation removes values while
+  keeping comments and never copies malformed value text.
 - **Small, side-effect-free core.** Zero runtime dependencies, no file I/O,
   environment access or process spawning by default, and unconditional
   `forbid(unsafe_code)`. The opt-in `exec` feature is the only
@@ -293,6 +296,55 @@ spacing could become indentation, and mixed lone-CR boundaries are preserved.
 `FinalNewline::Remove` removes one terminator from a nonblank final item; a
 trailing blank line is structure and is kept. Quoting changes, group sorting,
 blank-line normalization and line-ending conversion are not part of this slice.
+
+## Compare files by key (0.5)
+
+`Document::compare` reports effective keys that differ between two documents.
+Missing keys, bare versus empty versus assigned values, decoded value changes and
+export differences are distinct. Duplicate-key resolution and lookup
+participation follow each document's own dialect.
+
+```rust
+use adotenv::{parse_strict, DifferenceKind};
+
+let left = parse_strict("A=1\nB=\nC=3\n").unwrap();
+let right = parse_strict("A=2\nB\nD=4\n").unwrap();
+let comparison = left.compare(&right);
+let changes: Vec<_> = comparison
+    .differences()
+    .iter()
+    .map(|entry| (entry.key.as_str(), entry.kind))
+    .collect();
+assert_eq!(
+    changes,
+    [
+        ("A", DifferenceKind::Value),
+        ("B", DifferenceKind::State),
+        ("C", DifferenceKind::OnlyLeft),
+        ("D", DifferenceKind::OnlyRight),
+    ]
+);
+```
+
+Comparison is literal and side-effect-free. It does not expand values, read the
+environment, execute commands or inspect files.
+
+## Generate an example (0.5)
+
+`Document::example` removes assigned values while retaining comments, blank
+lines, keys, export prefixes, formatting, line endings and the BOM. Bare
+declarations stay bare; an empty quoted placeholder keeps an inline comment
+attached where the grammar requires a value body. Malformed/ignored statements
+and entries with an empty key become indentation-preserving comments so they
+cannot leak a value.
+
+```rust
+use adotenv::parse;
+
+let source = "# app\nA=1\nB=\"two\" # note\nBARE\nBAD KEY=secret\n";
+let (doc, _) = parse(source);
+assert_eq!(doc.example(), "# app\nA=\nB= # note\nBARE\n#\n");
+```
 
 ## Portable syntax (unchanged default)
 

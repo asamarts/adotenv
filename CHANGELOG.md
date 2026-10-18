@@ -25,14 +25,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   comment text, item kinds and malformed statements. Raw values, multiline
   bodies, invalid/ignored statements, empty assignments whose spacing could
   become indentation and mixed lone-CR boundaries are preserved.
-- A dedicated `format` fuzz target, structure/format property tests, Criterion
-  structure/format workloads and checked-in synthetic format corpus seeds.
+- `Document::compare`, `Comparison`, `ComparisonEntry`, `ComparedValue` and
+  `DifferenceKind` compare effective keys between two documents. Missing keys,
+  bare/empty/assigned states, decoded values and export differences are
+  distinct; duplicate policy and lookup participation follow each document.
+- `Document::example` generates a value-free example while retaining comments,
+  blank lines, keys, exports, formatting, line endings and BOM. Bare keys remain
+  bare, and malformed/ignored statements become indentation-preserving comments
+  so their raw text cannot leak values.
+- A dedicated `format` fuzz target, structure/format/comparison/example
+  property tests, Criterion workloads and checked-in synthetic corpus seeds.
 
 ### Notes
 
-- Quoting changes, blank-line normalization, group sorting, key comparison and
-  example generation remain future 0.5 work. No default I/O, environment,
-  expansion or command execution is introduced.
+- Quoting changes, blank-line normalization and group sorting remain future
+  0.5 work. No default I/O, environment, expansion or command execution is
+  introduced.
 
 ## [0.4.0] - 2026-10-18
 

@@ -2,8 +2,9 @@
 
 Status: the lossless core/native edit model, 0.3 dialect configuration/presets,
 0.4 reference/resolution/command-callback APIs and the unreleased 0.5
-structure/trivia-formatting views are implemented. Sections explicitly marked
-future are designs, not additional shipped interfaces.
+structure/trivia-formatting, comparison and example-generation views are
+implemented. Sections explicitly marked future are designs, not additional
+shipped interfaces.
 
 ## Document model
 
@@ -270,6 +271,20 @@ indentation, empty keys and ambiguous mixed line endings are preserved. The
 verifier compares BOM, item kinds and order, comment text after trailing
 whitespace, malformed statement content, and all declaration meaning. See
 [formatting.md](formatting.md) for the guarantees and conservative skips.
+
+## Comparison and examples
+
+`Document::compare` builds an owned effective-key comparison. It selects each
+key through the document's duplicate policy and excludes nonparticipating
+declarations. Bare, empty and absent keys remain distinct, decoded values are
+literal, and export differences are reported independently. The result owns its
+keys and values so it can outlive either source snapshot.
+
+`Document::example` is deliberately not an edit or format operation. It removes
+assigned values, keeps comments/blank lines/keys/exports/layout and converts
+invalid or ignored statements into indentation-preserving comments so raw
+unrecognized text cannot leak a value. Both operations are pure and perform no
+lookup, I/O or execution. See [comparison.md](comparison.md).
 
 ## Crate layout and platform
 

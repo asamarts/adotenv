@@ -354,7 +354,10 @@ fn same_meaning(left: &Document<'_>, right: &Document<'_>) -> bool {
     left.has_bom() == right.has_bom()
         && left.items().len() == right.items().len()
         && left.items().zip(right.items()).all(|(left, right)| {
-            if left.kind() != right.kind() {
+            if left.kind() != right.kind()
+                || left.diagnostic().map(crate::Diagnostic::code)
+                    != right.diagnostic().map(crate::Diagnostic::code)
+            {
                 return false;
             }
             match left.kind() {
