@@ -526,7 +526,7 @@ Fuzz nightly: rustc 1.100.0-nightly (`67eda617e`, 2026-09-10).
   warning-denied rustdoc pass. Rust 1.81 builds the library with default
   features, with `exec`, and with no default features. The alloc-only
   `thumbv7em-none-eabi` build and the locked package build pass. The package
-  contains 46 files (696.5 KiB, 171.7 KiB compressed).
+  contains 45 files (670.7 KiB, 163.2 KiB compressed).
 - All 48 Criterion smoke workloads pass, including the six new structure and
   three normalize-format workloads.
 - The `format` sanitizer target completes 99,589 inputs in 121 engine seconds
