@@ -18,8 +18,9 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 dialect configuration, all five syntax presets, selected-dialect native
 verification, exact per-dialect encoding, applicable pinned-upstream comparison
 and cross-dialect portability reporting. 0.4 development implements literal
-reference inspection; resolution, formatting, loading and integration work
-remain future. Execution evidence is in the quality notes.
+reference inspection and opt-in variable resolution; command substitution,
+formatting, loading and integration work remain future. Execution evidence is
+in the quality notes.
 
 ## Goals
 
@@ -128,13 +129,14 @@ Literal parsing into ordered entries with key, value and line spans;
   nested containers, malformed-form metadata and appended-tail handling.
   `ReferenceRules` and `OperatorSet` provide pure eligibility decisions without
   lookup, expansion or execution.
-- **Next:** `resolve()`: opt-in expansion against a lookup the caller provides, with a
-  choice of operator set, lookup order and scope, unresolved-variable policy,
-  structured `:?` errors, cycle detection, size and depth limits, and the
-  origin of every resolved value.
-- Command substitution through a source-aware caller-supplied callback only;
-  an `exec::shell` callback for trusted files behind the `exec` feature,
-  requiring explicit execution-directory/origin context.
+- **Implemented:** `Document::resolve` for variable references with an explicit
+  caller lookup closure, sequential or whole-file scope, caller/file precedence,
+  all operators, unresolved policy, structured `:?` errors, cycle detection,
+  depth/size limits and file/lookup/nested provenance. Caller values are literal;
+  command forms remain literal.
+- **Next:** command substitution through a source-aware caller-supplied callback
+  only; an `exec::shell` callback for trusted files behind the `exec` feature,
+  requiring explicit execution-directory/origin context. Then release 0.4.0.
 
 ### 0.5: Formatting and structure (future)
 

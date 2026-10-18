@@ -5,8 +5,8 @@ unit/property/documentation tests, public synthetic fuzz seeds, Criterion
 workloads, real pinned upstream replay and a public-API Rust probe.
 This document distinguishes runnable checks from recorded execution evidence.
 Standalone dialect encoding, same-line native batch budgets, cross-dialect
-portability and literal reference inspection are covered; resolution remains
-future.
+portability, literal reference inspection and opt-in variable resolution are
+covered; command substitution remains future.
 
 ## Permanent test expectations
 
@@ -41,6 +41,12 @@ message wording:
   with bounded UTF-8 spans, name/operator/argument/payload spans, quote and
   escape context, nesting containers and malformed-form metadata. Eligibility
   decisions are pure and account for containing forms.
+- Variable resolution honors sequential/whole-file scope, caller/file
+  precedence, all operators, unresolved policy and limits. Every successful
+  segment concatenates to its entry value and carries bounded UTF-8 spans,
+  direct file/lookup origins and nested file provenance. Required variables,
+  cycles and exceeded limits are structured errors; caller values and command
+  forms remain literal.
 - README examples compile and run as documentation tests.
 
 ## Fuzz harnesses
@@ -62,6 +68,10 @@ UTF-8 before parsing rather than decoded lossily.
   order and determinism under reordered requests. Reference candidates check
   bounded UTF-8 spans, source ordering, operator/argument consistency, nesting
   containers and eligibility calls under every preset rule set.
+- `resolve`: variable resolution under four rule sets, both scopes, both lookup
+  orders and keep/error unresolved policies. Successful outputs check segment
+  concatenation, byte limits, source-bounded literal/reference/origin spans and
+  nested provenance; errors may be any structured `ResolveError`.
 - `edits`: native set/remove/rename/insert/comment/uncomment/export and batches,
   valid and invalid selectors, arbitrary values/keys and unrelated syntax
   errors. Successful results are independently replayed in the returned order;
@@ -122,6 +132,7 @@ cargo install cargo-fuzz --version 0.13.2 --locked
 cargo +nightly fuzz run parser -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
 cargo +nightly fuzz run edits -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
 cargo +nightly fuzz run encoding -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
+cargo +nightly fuzz run resolve -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
 ```
 
 For an individual crash, use `cargo +nightly fuzz run <target> <reproducer>`.
@@ -150,6 +161,8 @@ parsing are outside timed loops:
   Docker presets, including the document's own Portable reading.
 - `references/<size>` measures reference inspection across every entry in the
   parse fixture.
+- `resolve/<size>` measures portable variable resolution with a caller lookup
+  across every entry.
 
 Native edit costs include output generation and whole-result verification;
 they are not presented as isolated range-splice costs. Throughput counts
@@ -431,6 +444,34 @@ encoder evidence above.
 - Pinned real-runtime replay still matches all 1,420 observations. Reference
   inspection is literal-only: no lookup, resolution, I/O or command execution.
 
+### Opt-in variable resolution (2026-10-18)
+
+Tested source: the 0.4 resolution working tree based on
+`7adb29e` (the resolution module, tests, fuzz target, benchmark and
+documentation pass). Host and toolchains match the encoder evidence above.
+
+- All 153 unit/property tests and twelve doctests pass in both feature modes
+  with `PROPTEST_CASES=2000`. Root, fuzz and conformance formatting; all-target
+  core and conformance-probe Clippy; alloc-only Clippy; warning-denied rustdoc;
+  Rust 1.81 builds in both modes; package construction; and all 39 Criterion
+  smoke workloads pass.
+- Eighteen resolution tests cover sequential and whole-file scope,
+  caller/file precedence, every operator, empty versus unset values, nested
+  defaults, conditional arguments, required errors, cycles, depth and size
+  limits, effective bare values, duplicates and nonparticipating declarations,
+  caller-literal values, single-quote/escape/backtick eligibility, Compose
+  `$$`, appended tails, command forms and nested file provenance. An
+  arbitrary-UTF-8 property checks segment concatenation, value limits and
+  bounded literal spans.
+- The `resolve` sanitizer target checks four rule sets, both scopes, both
+  lookup orders and keep/error unresolved policies, validating segment
+  concatenation, byte limits, source-bounded literal/reference/origin spans and
+  nested provenance. Its final bounded campaign executes 100,000 inputs in
+  37 engine seconds at 467 MiB peak RSS.
+- Pinned real-runtime replay still matches all 1,420 observations. Resolution
+  uses only the caller lookup: no environment, file or command access. Caller
+  values and command forms remain literal.
+
 ## Local execution evidence (2026-10-15)
 
 Tested source: the unreleased 0.2 working tree based on
@@ -527,6 +568,7 @@ The equivalent command shape is:
 ```sh
 cargo +nightly fuzz run parser --target x86_64-unknown-linux-gnu /tmp/generated-parser-corpus fuzz/corpus/parser -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536 -artifact_prefix=/tmp/parser-artifacts/
 cargo +nightly fuzz run edits --target x86_64-unknown-linux-gnu /tmp/generated-edit-corpus fuzz/corpus/edits -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536 -artifact_prefix=/tmp/edit-artifacts/
+cargo +nightly fuzz run resolve --target x86_64-unknown-linux-gnu /tmp/generated-resolve-corpus fuzz/corpus/resolve -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536 -artifact_prefix=/tmp/resolve-artifacts/
 ```
 
 Create the temporary directories before running. These bounded local

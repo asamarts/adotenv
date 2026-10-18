@@ -169,6 +169,39 @@ assert!(reference.is_eligible(ReferenceRules::COMPOSE));
 assert!(!reference.is_eligible(ReferenceRules::PORTABLE));
 ```
 
+## Resolve values (unreleased 0.4)
+
+`Document::resolve` substitutes eligible variable references using the
+document's own bindings and an explicit caller lookup closure. It never reads
+the process environment, files or commands. Caller values are literal and are
+not re-expanded. `ExpandOptions` selects sequential or whole-file scope,
+caller-first or file-first precedence, unresolved-variable policy, quote/escape
+rules and expansion limits. Required `:?` variables, reachable cycles, depth and
+size limits return structured `ResolveError` values; successful substitutions
+record file or caller origins and nested file provenance.
+
+```rust
+use adotenv::{parse_strict, ExpandOptions};
+
+let doc = parse_strict("BASE=base\nURL=${BASE}/api\n").unwrap();
+let resolved = doc.resolve(|_| None, &ExpandOptions::portable()).unwrap();
+assert_eq!(resolved.entries()[1].value.as_deref(), Some("base/api"));
+
+let caller = doc
+    .resolve(
+        |key| (key == "BASE").then(|| "external".to_string()),
+        &ExpandOptions {
+            lookup_order: adotenv::LookupOrder::CallerFirst,
+            ..ExpandOptions::portable()
+        },
+    )
+    .unwrap();
+assert_eq!(caller.entries()[1].value.as_deref(), Some("external/api"));
+```
+
+Command substitutions and ineligible references remain literal in this slice.
+No preset enables ambient environment lookup, loading or command execution.
+
 ## Portable syntax (unchanged default)
 
 - Keys are nonempty ASCII letters, digits, `_`, `.` and `-`. Non-POSIX names
@@ -328,8 +361,8 @@ or loading. See the dialect section for the exact token span rules.
 
 Criterion workloads cover small, typical and multi-megabyte parsing, exact
 per-dialect value encoding, portability reports, and native edits including
-large set/set-rename batches. Public synthetic seeds feed parser, edit and encoding fuzz targets;
-scheduled CI runs bounded campaigns. Reproduction commands and evidence policy
+large set/set-rename batches. Public synthetic seeds feed parser, edit,
+encoding and resolution fuzz targets; scheduled CI runs bounded campaigns. Reproduction commands and evidence policy
 are in [quality.md](docs/design/quality.md). Harness availability is not a claim
 that any particular benchmark or fuzz duration has passed.
 
@@ -360,9 +393,9 @@ upstream scanner line-byte limit; this is not an application memory ceiling.
 0.3 includes explicit dialect configuration, five presets, per-dialect
 encoding, order-independent same-line native set batches under byte caps and
 cross-dialect portability reporting. 0.4 development adds literal reference
-inspection; resolution/expansion, formatting, loading and integration crates
-remain future milestones. See [ROADMAP.md](ROADMAP.md) and
-[design notes](docs/design/).
+inspection and opt-in variable resolution; command substitution, formatting,
+loading and integration crates remain future milestones. See
+[ROADMAP.md](ROADMAP.md) and [design notes](docs/design/).
 
 ## Minimum supported Rust version
 

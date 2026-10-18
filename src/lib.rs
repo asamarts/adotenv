@@ -44,6 +44,11 @@
 //! resolves a lookup or executes a command; [`Reference::is_eligible`] applies
 //! explicit caller-selected rules.
 //!
+//! [`Document::resolve`] performs opt-in variable substitution with a caller
+//! lookup closure. Sequential or whole-file scope, precedence, unresolved
+//! policy, operators, cycles and resource limits are explicit; command forms
+//! remain literal in this slice.
+//!
 //! # Source and positions
 //!
 //! Ranges always address the original source, BOM included. Item ranges plus
@@ -82,6 +87,7 @@ mod parser;
 mod portability;
 mod position;
 mod references;
+mod resolve;
 
 pub use diagnostic::{Diagnostic, DiagnosticCode, Severity};
 pub use dialect::{
@@ -103,6 +109,10 @@ pub use position::{ColumnEncoding, LineIndex, Position, PositionError};
 pub use references::{
     OperatorSet, Reference, ReferenceContainer, ReferenceKind, ReferenceOperator, ReferenceRules,
 };
+pub use resolve::{
+    ExpandOptions, ExpandScope, LookupOrder, ResolveError, ResolvedDocument, ResolvedEntry,
+    ResolvedSegment, ResolvedSegmentKind, Unresolved, ValueOrigin,
+};
 
 #[cfg(test)]
 mod dialect_tests;
@@ -116,6 +126,8 @@ mod portability_tests;
 mod position_tests;
 #[cfg(test)]
 mod reference_tests;
+#[cfg(test)]
+mod resolve_tests;
 #[cfg(test)]
 mod tests;
 

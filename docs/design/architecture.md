@@ -262,5 +262,6 @@ workspace crates will be versioned and released independently.
 
 0.2 fallible APIs use specific non-exhaustive `EditError` and `PositionError`
 enums; strict parsing returns a `Diagnostic`. Each implements `Display` and
-`core::error::Error` on MSRV 1.81. `ResolveError` and `LoadError` belong to
-future expansion and loading milestones.
+`core::error::Error` on MSRV 1.81. `ResolveError` covers 0.4 variable
+resolution; `LoadError` and command-callback errors belong to future loading
+and command-substitution milestones.

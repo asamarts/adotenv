@@ -1,8 +1,9 @@
 # References and expansion
 
-Status: 0.4 development. Literal reference inspection is implemented; resolution,
-command callbacks, the `exec` feature and the CLI remain future. The core still
-parses literal values and never expands or executes.
+Status: 0.4 development. Literal reference inspection and opt-in variable
+resolution are implemented; command callbacks, the `exec` feature and the CLI
+remain future. The core never executes commands; resolution uses only the
+caller-supplied lookup.
 
 Variable expansion is where `.env` handling most often goes wrong silently: a
 `$` inside a password or hash gets replaced, a variable name is cut short, a
@@ -48,14 +49,15 @@ executing expansion. Callers must still select eligibility and binding rules.
 Without caller values or conditional-branch state, undefined-variable,
 cycle and unused-key findings may be potential rather than certain.
 
-## Resolution (future opt-in)
+## Resolution (variable slice implemented in 0.4 development)
 
 ```rust,ignore
-let resolved = doc.resolve(&lookup, &ExpandOptions::compose())?;
+let resolved = doc.resolve(|key| lookup.get(key).cloned(), &ExpandOptions::compose())?;
 ```
 
-`lookup` is supplied by the caller: a map, a closure, or the process
-environment, which must be passed explicitly. Options:
+`lookup` is supplied by the caller as a closure: a map, a process-environment
+snapshot, or any other source must be wrapped explicitly. Caller values are
+literal and are not re-expanded. Options:
 
 | Option | Choices |
 |---|---|
@@ -63,15 +65,17 @@ environment, which must be passed explicitly. Options:
 | Lookup order | caller's lookup first, or the file first |
 | Scope | sequential (latest earlier definition) or whole-file (final definition, including for self-reference) |
 | Unresolved variable | empty string, kept as written, or an error |
-| Single quotes | not expanded (default) or expanded, for dialects that do |
+| Quotes/escapes | single-quote, escaped-dollar and backtick eligibility |
+| Limits | maximum active depth and resolved bytes per value |
 
 Bindings follow the selected scope consistently, with no special fallback
 to an earlier definition for self-reference. With no caller-supplied seed,
 `A=base` followed by `A=${A}x` resolves to `basex` in sequential scope but
 is a cycle in whole-file scope. Caller/file lookup precedence remains an
-explicit, separate option.
+explicit, separate option. Command substitutions and ineligible references
+remain literal until the command-callback slice; they are never executed.
 
-Guarantees:
+Variable-resolution guarantees (command substitution remains future):
 
 - `${VAR:?message}` produces a structured error naming the key, the
   reference and its span.
@@ -80,9 +84,10 @@ Guarantees:
 - Nesting depth and the size of an expanded value are limited, with
   configurable limits.
 - Every resolved value records where each part came from: which key, which
-  file and span, or the caller's lookup.
+  file and span, or the caller's lookup. File-origin parts retain nested
+  provenance.
 
-## Command substitution
+## Command substitution (future)
 
 adotenv never runs commands on its own. `$(command)` is reported as a raw
 candidate with its quote/escape context. A diagnostic says it would run under

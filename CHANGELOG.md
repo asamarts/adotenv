@@ -14,6 +14,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `OperatorSet` provide pure eligibility decisions without lookup, expansion,
   I/O or command execution. Appended quoted tails are inspected as unquoted
   context; Compose `$$` escaping and quote-specific escape rules are retained.
+- `Document::resolve`, `ExpandOptions`, `ResolvedDocument`, `ResolvedEntry`,
+  `ResolvedSegment`, `ResolvedSegmentKind`, `ValueOrigin` and `ResolveError`
+  for opt-in variable resolution with an explicit caller lookup. Sequential or
+  whole-file scope, caller/file precedence, every operator, unresolved policy,
+  required-variable errors, reachable cycle detection, depth/size limits and
+  file/lookup/nested provenance are supported. Caller values and command forms
+  remain literal; no environment, file or command access occurs.
 
 ## [0.3.0] - 2026-10-17
 

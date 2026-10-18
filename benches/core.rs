@@ -138,8 +138,24 @@ fn core(c: &mut Criterion) {
     portability.finish();
 
     references(c, &fixtures);
+    resolution(c, &fixtures);
 
     scaling(c);
+}
+
+fn resolution(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
+    let mut resolving = c.benchmark_group("resolve");
+    let options = adotenv::ExpandOptions::compose();
+    for (name, _, source) in fixtures {
+        let document = parse_strict(source).expect("benchmark fixture is valid Portable syntax");
+        resolving.throughput(Throughput::Bytes(source.len() as u64));
+        resolving.bench_function(BenchmarkId::from_parameter(name), |b| {
+            b.iter(|| {
+                black_box(document.resolve(|key| Some(format!("bench-{key}")), black_box(&options)))
+            });
+        });
+    }
+    resolving.finish();
 }
 
 fn references(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
