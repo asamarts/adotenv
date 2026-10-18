@@ -1,6 +1,6 @@
 # Quality, testing and compatibility
 
-Status: lossless-core quality harnesses and 0.3 dialect checks are implemented:
+Status: lossless-core quality harnesses and 0.3/0.4 checks are implemented:
 unit/property/documentation tests, public synthetic fuzz seeds, Criterion
 workloads, real pinned upstream replay and a public-API Rust probe.
 This document distinguishes runnable checks from recorded execution evidence.
@@ -458,13 +458,14 @@ encoder evidence above.
 
 ### Opt-in variable resolution and command callbacks (2026-10-18)
 
-Tested source: the 0.4 resolution working tree based on
-`845add2` (the resolution module plus command-callback slice, tests, fuzz
-target, benchmark and documentation pass). Host and toolchains match the
-encoder evidence above.
+Tested source: commit
+`3c3e358285fa3265b1e89f10db092d2ac42d63a1` (the resolution, command-callback
+and exec-helper slice, tests, fuzz target, benchmark and documentation pass).
+Host and toolchains match the encoder evidence above.
 
-- All 159 unit/property tests and thirteen doctests pass in both feature modes
-  with `PROPTEST_CASES=2000`. Root, fuzz and conformance formatting; all-target
+- All 159 default-feature unit/property tests and thirteen doctests pass in both
+  feature modes with `PROPTEST_CASES=2000`; the `exec` feature adds three tests
+  (162 total). Root, fuzz and conformance formatting; all-target
   core and conformance-probe Clippy; alloc-only Clippy; warning-denied rustdoc;
   Rust 1.81 builds in both modes; package construction; and all 39 Criterion
   smoke workloads pass.

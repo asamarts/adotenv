@@ -1,8 +1,8 @@
 # Architecture
 
-Status: the lossless core/native edit model and 0.3 dialect
-configuration/presets are implemented. Sections explicitly marked future are
-designs, not additional shipped interfaces.
+Status: the lossless core/native edit model, 0.3 dialect configuration/presets
+and 0.4 reference/resolution/command-callback APIs are implemented. Sections
+explicitly marked future are designs, not additional shipped interfaces.
 
 ## Document model
 

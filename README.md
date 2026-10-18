@@ -144,7 +144,7 @@ assert!(difference.readings[1].parts.iter().any(|part| {
 }));
 ```
 
-## Inspect references (unreleased 0.4)
+## Inspect references (0.4)
 
 `Entry::references` reports raw `$VAR`, `${VAR:-default}` and `$(command)`
 candidates in source order. Each candidate carries source spans, quote/escape
@@ -171,7 +171,7 @@ assert!(reference.is_eligible(ReferenceRules::COMPOSE));
 assert!(!reference.is_eligible(ReferenceRules::PORTABLE));
 ```
 
-## Resolve values (unreleased 0.4)
+## Resolve values (0.4)
 
 `Document::resolve` substitutes eligible variable references using the
 document's own bindings and an explicit caller lookup closure. It never reads
@@ -358,6 +358,14 @@ in original-source coordinates. `Entry::decoded_offset_to_raw` and
 `decoded_span_to_raw` map decoded value byte boundaries back to raw source
 spans, including escapes.
 
+## Migrating from 0.3
+
+0.4 is additive. Parsing, editing and 0.3 dialect APIs keep their behavior.
+`Entry::references`, `Document::resolve`, command callbacks and the `exec`
+feature are opt-in; commands remain literal unless a callback is supplied and
+the selected rules enable them. The `exec` feature is disabled by default and
+is the only process-spawning path.
+
 ## Migrating from 0.2
 
 0.3 is additive for parsing and editing. Portable defaults are unchanged.
@@ -423,10 +431,10 @@ upstream scanner line-byte limit; this is not an application memory ceiling.
 
 0.3 includes explicit dialect configuration, five presets, per-dialect
 encoding, order-independent same-line native set batches under byte caps and
-cross-dialect portability reporting. 0.4 development adds literal reference
-inspection, opt-in variable resolution, explicit command callbacks and an
-opt-in `exec` helper; formatting, loading and integration crates remain future
-milestones. See [ROADMAP.md](ROADMAP.md) and [design notes](docs/design/).
+cross-dialect portability reporting. 0.4 adds literal reference inspection,
+opt-in variable resolution, explicit command callbacks and an opt-in `exec`
+helper; formatting, loading and integration crates remain future milestones.
+See [ROADMAP.md](ROADMAP.md) and [design notes](docs/design/).
 
 ## Minimum supported Rust version
 

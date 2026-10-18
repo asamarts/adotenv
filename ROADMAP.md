@@ -14,13 +14,13 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [expansion.md](docs/design/expansion.md) | `${VAR}` references, opt-in resolution, command substitution |
 | [quality.md](docs/design/quality.md) | Testing, fuzzing, conformance, benchmarks, MSRV and semver policy |
 
-**Current status:** 0.2.1 and 0.3.0 are published. 0.3 implements explicit
-dialect configuration, all five syntax presets, selected-dialect native
+**Current status:** 0.2.1, 0.3.0 and 0.4.0 are published. 0.3 implements
+explicit dialect configuration, all five syntax presets, selected-dialect native
 verification, exact per-dialect encoding, applicable pinned-upstream comparison
-and cross-dialect portability reporting. 0.4 development implements literal
-reference inspection, opt-in variable resolution, explicit command callbacks
-and an opt-in `exec` helper; release preparation, formatting, loading and
-integration work remain future. Execution evidence is in the quality notes.
+and cross-dialect portability reporting. 0.4 implements literal reference
+inspection, opt-in variable resolution, explicit command callbacks and an
+opt-in `exec` helper. Formatting, loading and integration work remain future.
+Execution evidence is in the quality notes.
 
 ## Goals
 
@@ -122,7 +122,7 @@ Literal parsing into ordered entries with key, value and line spans;
   parts. Quote style alone is not a difference; no expansion or lookup occurs.
 - **Released:** 2026-10-17 after the complete quality gate.
 
-### 0.4: References and expansion (in development)
+### 0.4: References and expansion (released 2026-10-18)
 
 - **Implemented:** `Entry::references()` for `$VAR`, `${VAR}`, every listed
   operator form and `$(command)`, with source spans, quote/escape context,
@@ -140,7 +140,7 @@ Literal parsing into ordered entries with key, value and line spans;
 - **Implemented:** an opt-in std-only `exec::Shell` helper behind the `exec`
   feature, requiring an explicit working directory or source-directory origins,
   with nonzero-status, spawn and UTF-8 output errors.
-- **Next:** release 0.4.0 after the complete quality gate.
+- **Released:** 2026-10-18 after the complete quality gate.
 
 ### 0.5: Formatting and structure (future)
 

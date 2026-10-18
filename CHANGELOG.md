@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-10-18
 
 ### Added
 
@@ -31,6 +31,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   text, one trailing newline trimmed, and spawn/status/UTF-8 errors returned as
   `CommandError`. It is never enabled by default and never inherits the host
   working directory.
+
+### Breaking changes and migration
+
+- 0.4 is additive for existing parsing, editing and 0.3 APIs. Resolution is
+  opt-in and the `exec` feature is disabled by default; no default process,
+  environment or file access is introduced.
+- Command forms remain literal unless `resolve_with_commands` receives a
+  callback and the selected rules enable commands. Caller lookup values are
+  literal and are not re-expanded.
 
 ## [0.3.0] - 2026-10-17
 

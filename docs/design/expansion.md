@@ -1,6 +1,6 @@
 # References and expansion
 
-Status: 0.4 development. Literal reference inspection, opt-in variable
+Status: 0.4, released 2026-10-18. Literal reference inspection, opt-in variable
 resolution, explicit command callbacks and an opt-in `exec` helper are
 implemented; the CLI remains future. The core never executes commands by
 itself; resolution uses only the caller-supplied lookup and callback.
@@ -11,7 +11,7 @@ self-reference loops, or a command in a file runs on load. adotenv therefore
 separates finding references from resolving them, and resolves nothing unless
 asked.
 
-## References (implemented in 0.4 development)
+## References (0.4)
 
 `entry.references()` returns recognized raw candidates without deciding that
 they are eligible for expansion:
@@ -49,7 +49,7 @@ executing expansion. Callers must still select eligibility and binding rules.
 Without caller values or conditional-branch state, undefined-variable,
 cycle and unused-key findings may be potential rather than certain.
 
-## Resolution (variable slice implemented in 0.4 development)
+## Resolution (0.4)
 
 ```rust,ignore
 let resolved = doc.resolve(|key| lookup.get(key).cloned(), &ExpandOptions::compose())?;
