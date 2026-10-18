@@ -1,0 +1,392 @@
+//! Verified whitespace and line-ending formatting over the lossless model.
+//!
+//! Formatting only changes syntax trivia selected by the caller. It reparses the
+//! complete result with the document's exact dialect and verifies that every
+//! declaration's meaning is unchanged.
+
+use alloc::{string::String, vec::Vec};
+use core::fmt;
+
+use crate::{Document, ItemKind, TextEdit};
+
+/// Preferred spacing around assignment separators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum EqualsSpacing {
+    /// Leave existing spacing untouched.
+    Preserve,
+    /// Use exactly one ASCII space before and after each applicable assignment
+    /// separator (`=` or a configured colon form).
+    Spaces,
+    /// Remove spaces around applicable assignment separators.
+    None,
+}
+
+/// Final-newline policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum FinalNewline {
+    /// Leave the existing end-of-file bytes untouched.
+    Preserve,
+    /// Ensure a final LF when the source does not already end in a line break.
+    Ensure,
+    /// Remove one final LF, CRLF or lone CR.
+    Remove,
+}
+
+/// Formatting policy for trivia-only changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FormatOptions {
+    /// Spacing around assignment separators.
+    pub equals_spacing: EqualsSpacing,
+    /// Remove trailing spaces and tabs from blank, comment and final entry lines.
+    ///
+    /// Whitespace inside multiline quoted values and invalid/ignored statements
+    /// is never changed.
+    pub trim_trailing_whitespace: bool,
+    /// Final-newline policy.
+    pub final_newline: FinalNewline,
+}
+
+impl Default for FormatOptions {
+    fn default() -> Self {
+        Self {
+            equals_spacing: EqualsSpacing::Preserve,
+            trim_trailing_whitespace: false,
+            final_newline: FinalNewline::Preserve,
+        }
+    }
+}
+
+impl FormatOptions {
+    /// Normalize spacing, trim trailing whitespace and ensure a final LF.
+    #[must_use]
+    pub const fn normalize() -> Self {
+        Self {
+            equals_spacing: EqualsSpacing::Spaces,
+            trim_trailing_whitespace: true,
+            final_newline: FinalNewline::Ensure,
+        }
+    }
+}
+
+/// A verified trivia-only formatting result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormatResult {
+    edits: Vec<TextEdit>,
+    output: String,
+}
+
+impl FormatResult {
+    /// Text edits referring to the original source snapshot.
+    #[must_use]
+    pub fn edits(&self) -> &[TextEdit] {
+        &self.edits
+    }
+    /// Consume the result, retaining its edits.
+    #[must_use]
+    pub fn into_edits(self) -> Vec<TextEdit> {
+        self.edits
+    }
+    /// The verified formatted text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.output
+    }
+    /// Consume the result, retaining its text.
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.output
+    }
+    /// Whether formatting changed no bytes.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.edits.is_empty()
+    }
+}
+
+/// A formatting request that could not be verified.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FormatError {
+    /// The edits would have changed declaration meaning or structure.
+    WouldChangeMeaning,
+}
+
+impl fmt::Display for FormatError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("formatting would change document meaning")
+    }
+}
+
+impl core::error::Error for FormatError {}
+
+impl Document<'_> {
+    /// Apply trivia-only formatting and verify that every declaration survives.
+    ///
+    /// Invalid and ignored statements are not rewritten. Multiline value bodies
+    /// are not modified; only final-line trivia, whole-line comments and blank
+    /// lines are trimmed. The complete output is reparsed with this document's
+    /// exact dialect before it is returned.
+    ///
+    /// # Errors
+    /// Returns [`FormatError::WouldChangeMeaning`] if the complete output does
+    /// not preserve declaration keys, values, states, quotes, exports, lookup
+    /// participation, inline comments, item kinds or malformed statement
+    /// content.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::{parse_strict, EqualsSpacing, FormatOptions};
+    ///
+    /// let doc = parse_strict("A=1\nB =  2\n").unwrap();
+    /// let formatted = doc
+    ///     .format(&FormatOptions {
+    ///         equals_spacing: EqualsSpacing::Spaces,
+    ///         ..FormatOptions::default()
+    ///     })
+    ///     .unwrap();
+    /// assert_eq!(formatted.as_str(), "A = 1\nB = 2\n");
+    /// ```
+    pub fn format(&self, options: &FormatOptions) -> Result<FormatResult, FormatError> {
+        let mut edits = Vec::new();
+        self.plan_equals_spacing(*options, &mut edits);
+        if options.trim_trailing_whitespace {
+            self.plan_trailing_whitespace(&mut edits);
+        }
+        self.plan_final_newline(*options, &mut edits);
+        edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
+        if edits
+            .windows(2)
+            .any(|pair| pair[1].range.start < pair[0].range.end)
+        {
+            return Err(FormatError::WouldChangeMeaning);
+        }
+        let output = apply(self.source(), &edits);
+        let (formatted, _) = crate::parse_with(&output, self.dialect());
+        if !same_meaning(self, &formatted) {
+            return Err(FormatError::WouldChangeMeaning);
+        }
+        Ok(FormatResult { edits, output })
+    }
+
+    fn plan_equals_spacing(&self, options: FormatOptions, edits: &mut Vec<TextEdit>) {
+        if options.equals_spacing == EqualsSpacing::Preserve {
+            return;
+        }
+        for item in self.items() {
+            let Some(entry) = item.entry() else {
+                continue;
+            };
+            let tokens = entry.tokens();
+            if tokens.eq.is_none() || entry.key().is_empty() || self.dialect().raw_values {
+                continue;
+            }
+            let before = tokens.space_before_eq.clone();
+            match options.equals_spacing {
+                EqualsSpacing::Preserve => {}
+                EqualsSpacing::Spaces => push(self.source(), edits, before, " ".into()),
+                EqualsSpacing::None => push(self.source(), edits, before, String::new()),
+            }
+            let after = tokens.space_after_eq.clone();
+            let content_end = item.content_span().end;
+            let inline_comment = tokens.inline_comment.is_some();
+            let empty_value = entry.value().map_or(true, str::is_empty);
+            if empty_value && !inline_comment {
+                // Whitespace after an empty assignment can become indentation
+                // for the next physical line in some grammars.
+                continue;
+            }
+            let risky_hash_value =
+                !inline_comment && entry.value().is_some_and(|value| value.starts_with('#'));
+            if risky_hash_value {
+                continue;
+            }
+            match options.equals_spacing {
+                EqualsSpacing::Preserve => {}
+                EqualsSpacing::Spaces => {
+                    // Trailing whitespace is owned by the trim rule when enabled.
+                    if !(options.trim_trailing_whitespace && after.end == content_end) {
+                        push(self.source(), edits, after, " ".into());
+                    }
+                }
+                EqualsSpacing::None => {
+                    if !(inline_comment
+                        || options.trim_trailing_whitespace && after.end == content_end)
+                    {
+                        push(self.source(), edits, after, String::new());
+                    }
+                }
+            }
+        }
+    }
+
+    fn plan_trailing_whitespace(&self, edits: &mut Vec<TextEdit>) {
+        let mut previous_ending = crate::LineEnding::None;
+        let mut protect_next = false;
+        let mut items = self.items().peekable();
+        while let Some(item) = items.next() {
+            let ending = item.line_ending();
+            if protect_next {
+                protect_next = false;
+                previous_ending = ending;
+                continue;
+            }
+            if ending == crate::LineEnding::Cr || previous_ending == crate::LineEnding::Cr {
+                previous_ending = ending;
+                continue;
+            }
+            previous_ending = ending;
+            let next_indented = items
+                .peek()
+                .is_some_and(|next| matches!(next.raw().as_bytes().first(), Some(b' ' | b'\t')));
+            if item.kind() == ItemKind::Entry {
+                if self.dialect().raw_values {
+                    continue;
+                }
+                let bare_or_empty = item.entry().is_some_and(|entry| {
+                    entry.value().map_or(true, str::is_empty) && entry.inline_comment().is_none()
+                });
+                if bare_or_empty && next_indented {
+                    // Trailing spaces on an empty assignment can become the
+                    // next line's indentation in continuation-capable grammars.
+                    // Keep that next item's indentation as well, or a later
+                    // pass would see a different layout.
+                    protect_next = true;
+                    continue;
+                }
+            }
+            match item.kind() {
+                ItemKind::Blank | ItemKind::Comment | ItemKind::Entry => {
+                    let content = item.content_span();
+                    let trimmed = trim_end(self.source(), content.clone());
+                    if trimmed != content.end {
+                        push(self.source(), edits, trimmed..content.end, String::new());
+                    }
+                }
+                ItemKind::Invalid | ItemKind::Ignored => {}
+            }
+        }
+    }
+
+    fn plan_final_newline(&self, options: FormatOptions, edits: &mut Vec<TextEdit>) {
+        let source = self.source();
+        match options.final_newline {
+            FinalNewline::Preserve => {}
+            FinalNewline::Ensure => {
+                if !source.is_empty()
+                    && self.items().next().is_some()
+                    && !source.ends_with('\n')
+                    && !source.ends_with('\r')
+                {
+                    push(source, edits, source.len()..source.len(), "\n".into());
+                }
+            }
+            FinalNewline::Remove => {
+                // Removing the terminator of a blank final item would remove a
+                // blank line (or merge mixed CR/LF boundaries), not just a final
+                // newline. Keep that structure.
+                if self
+                    .items()
+                    .next_back()
+                    .is_some_and(|item| item.kind() != ItemKind::Blank)
+                {
+                    let remove = if source.ends_with("\r\n") {
+                        2
+                    } else {
+                        usize::from(source.ends_with('\n') || source.ends_with('\r'))
+                    };
+                    if remove != 0 {
+                        push(
+                            source,
+                            edits,
+                            source.len() - remove..source.len(),
+                            String::new(),
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn push(
+    source: &str,
+    edits: &mut Vec<TextEdit>,
+    range: core::ops::Range<usize>,
+    replacement: String,
+) {
+    if source[range.clone()] != replacement {
+        edits.push(TextEdit { range, replacement });
+    }
+}
+
+fn trim_end(source: &str, content: core::ops::Range<usize>) -> usize {
+    let mut end = content.end;
+    while end > content.start && matches!(source.as_bytes()[end - 1], b' ' | b'\t') {
+        end -= 1;
+    }
+    // Exposing a CR that was followed by horizontal whitespace would change how
+    // the next parse recognizes a mixed CR/LF line ending. Leave that line
+    // untouched instead of making the formatter non-idempotent.
+    if end != content.end && end > content.start && source.as_bytes()[end - 1] == b'\r' {
+        return content.end;
+    }
+    end
+}
+
+fn apply(source: &str, edits: &[TextEdit]) -> String {
+    let removed: usize = edits.iter().map(|edit| edit.range.len()).sum();
+    let added: usize = edits.iter().map(|edit| edit.replacement.len()).sum();
+    let mut output = String::with_capacity(source.len() - removed + added);
+    let mut cursor = 0;
+    for edit in edits {
+        output.push_str(&source[cursor..edit.range.start]);
+        output.push_str(&edit.replacement);
+        cursor = edit.range.end;
+    }
+    output.push_str(&source[cursor..]);
+    output
+}
+
+fn same_meaning(left: &Document<'_>, right: &Document<'_>) -> bool {
+    left.has_bom() == right.has_bom()
+        && left.items().len() == right.items().len()
+        && left.items().zip(right.items()).all(|(left, right)| {
+            if left.kind() != right.kind() {
+                return false;
+            }
+            match left.kind() {
+                ItemKind::Blank => true,
+                ItemKind::Comment => {
+                    trim_horizontal(&left.document.source()[left.content_span()])
+                        == trim_horizontal(&right.document.source()[right.content_span()])
+                }
+                ItemKind::Invalid | ItemKind::Ignored => {
+                    left.document.source()[left.content_span()]
+                        == right.document.source()[right.content_span()]
+                }
+                ItemKind::Entry => {
+                    let Some(left) = left.entry() else {
+                        return false;
+                    };
+                    let Some(right) = right.entry() else {
+                        return false;
+                    };
+                    left.key() == right.key()
+                        && left.value() == right.value()
+                        && left.state() == right.state()
+                        && left.quote() == right.quote()
+                        && left.exported() == right.exported()
+                        && left.participates_in_lookup() == right.participates_in_lookup()
+                        && left.inline_comment().map(trim_horizontal)
+                            == right.inline_comment().map(trim_horizontal)
+                }
+            }
+        })
+}
+
+fn trim_horizontal(text: &str) -> &str {
+    text.trim_end_matches([' ', '\t'])
+}

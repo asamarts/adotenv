@@ -20,6 +20,7 @@ formatters, editors, language servers, scanners and migration tools:
 - **Verified native edits.** Set, remove, rename, insert, comment, uncomment
   and export changes return source-relative text edits and an already-verified
   output. Unrelated entries and invalid syntax must keep their meaning.
+  Trivia-only formatting returns the same kind of verified edits.
 - **Small, side-effect-free core.** Zero runtime dependencies, no file I/O,
   environment access or process spawning by default, and unconditional
   `forbid(unsafe_code)`. The opt-in `exec` feature is the only
@@ -232,6 +233,66 @@ let resolved = doc
 assert_eq!(resolved.entries()[0].value.as_deref(), Some("ran:echo hi"));
 assert_eq!(resolved.commands().len(), 1);
 ```
+
+## Inspect structure (0.5)
+
+`Document::groups` partitions nonblank items on blank lines. `Group::entries`,
+`Group::comments` and `Group::span` inspect one run without copying source.
+`Document::header` is the structural prefix before the first declaration.
+`Entry::leading_comments` returns the contiguous whole-line comments directly
+above an entry; a blank line breaks attachment. Inline comments remain available
+through `Entry::inline_comment`.
+
+```rust
+use adotenv::parse_strict;
+
+let source = "# header\nA=1\n# note for B\nB=2\n\nC=3\n";
+let doc = parse_strict(source).unwrap();
+
+let header = doc.header().unwrap();
+assert_eq!(header.entries().count(), 0);
+assert_eq!(&source[header.span()], "# header\n");
+
+let groups: Vec<_> = doc.groups().collect();
+assert_eq!(groups.len(), 2);
+assert_eq!(groups[0].entries().count(), 2);
+assert_eq!(groups[0].leading_comments().count(), 1);
+
+let notes: Vec<_> = doc.unique("B").unwrap().leading_comments().collect();
+assert_eq!(notes[0].raw(), "# note for B\n");
+```
+
+Groups and headers are views over the selected dialect's items. They do not
+guess comment ownership, move comments, or perform expansion.
+
+## Format whitespace (0.5)
+
+`Document::format` changes only selected syntax trivia: spacing around
+assignment separators, trailing spaces/tabs and the final newline. It reparses the complete result with
+the document's exact dialect and verifies that every declaration, comment
+boundary, item kind and malformed statement survives. The returned edits refer
+to the original snapshot and the output is already verified.
+
+```rust
+use adotenv::{parse_strict, FormatOptions};
+
+let source = "# app   \n\nA=1   \nB =  2 # note   \n";
+let doc = parse_strict(source).unwrap();
+let formatted = doc.format(&FormatOptions::normalize()).unwrap();
+assert_eq!(
+    formatted.as_str(),
+    "# app\n\nA = 1\nB = 2 # note\n"
+);
+assert!(parse_strict(formatted.as_str()).is_ok());
+```
+
+`EqualsSpacing::{Preserve, Spaces, None}` and
+`FinalNewline::{Preserve, Ensure, Remove}` are explicit. Raw-value dialects,
+multiline value bodies, invalid/ignored statements, empty assignments whose
+spacing could become indentation, and mixed lone-CR boundaries are preserved.
+`FinalNewline::Remove` removes one terminator from a nonblank final item; a
+trailing blank line is structure and is kept. Quoting changes, group sorting,
+blank-line normalization and line-ending conversion are not part of this slice.
 
 ## Portable syntax (unchanged default)
 

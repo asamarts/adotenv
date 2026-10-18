@@ -12,6 +12,7 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [architecture.md](docs/design/architecture.md) | The lossless document model, diagnostics, edits, `no_std` |
 | [dialects.md](docs/design/dialects.md) | The default syntax, dialect switches and presets, the portability check |
 | [expansion.md](docs/design/expansion.md) | `${VAR}` references, opt-in resolution, command substitution |
+| [formatting.md](docs/design/formatting.md) | Comment/group structure and verified trivia formatting |
 | [quality.md](docs/design/quality.md) | Testing, fuzzing, conformance, benchmarks, MSRV and semver policy |
 
 **Current status:** 0.2.1, 0.3.0 and 0.4.0 are published. 0.3 implements
@@ -19,8 +20,10 @@ explicit dialect configuration, all five syntax presets, selected-dialect native
 verification, exact per-dialect encoding, applicable pinned-upstream comparison
 and cross-dialect portability reporting. 0.4 implements literal reference
 inspection, opt-in variable resolution, explicit command callbacks and an
-opt-in `exec` helper. Formatting, loading and integration work remain future.
-Execution evidence is in the quality notes.
+opt-in `exec` helper. The unreleased 0.5 tree adds structure views and verified
+trivia formatting; quoting changes, sorting, comparison and example generation
+remain. Loading and integration work remain future. Execution evidence is in
+the quality notes.
 
 ## Goals
 
@@ -142,16 +145,25 @@ Literal parsing into ordered entries with key, value and line spans;
   with nonzero-status, spawn and UTF-8 output errors.
 - **Released:** 2026-10-18 after the complete quality gate.
 
-### 0.5: Formatting and structure (future)
+### 0.5: Formatting and structure (in progress)
 
-- Comments attached to the entries they document (leading block, inline
-  comment), a file header, and groups separated by blank lines.
-- Formatter building blocks: spacing around `=`, trailing whitespace, blank
-  lines, final newline, quoting changes that keep every value identical, and
-  sorting within groups that keeps comments with their keys and respects
-  `${VAR}` dependencies.
-- Comparing files by key (missing, extra, empty versus unset), and generating
-  an example file with values blanked and comments kept.
+- **Implemented:** `Document::groups` for blank-line-separated item runs,
+  `Document::header` for the structural prefix before the first declaration,
+  and `Entry::leading_comments` for contiguous attached whole-line comments.
+  Inline comments remain on tokens; blank lines break attachment.
+- **Implemented:** verified trivia formatting through `Document::format`,
+  `FormatOptions`, `EqualsSpacing`, `FinalNewline`, `FormatResult` and
+  `FormatError`. Spacing around `=`, trailing spaces/tabs and final-newline
+  policy are explicit. The complete output is reparsed under the exact dialect
+  and checked for declaration, comment and item-structure preservation.
+  Raw values, multiline bodies, invalid/ignored statements, ambiguous empty
+  assignments and mixed lone-CR boundaries are left untouched.
+- **Remaining:** blank-line normalization, quoting changes that keep every
+  value identical, and sorting within groups that keeps comments with their
+  keys and respects `${VAR}` dependencies.
+- **Remaining:** comparing files by key (missing, extra, empty versus unset),
+  and generating an example file with values blanked and comments kept.
+- **Not yet released.**
 
 ### 0.6: Loading (future)
 

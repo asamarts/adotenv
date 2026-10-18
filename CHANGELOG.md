@@ -4,6 +4,36 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `Document::groups`, `Group` and `Groups` expose blank-line-separated runs of
+  nonblank items without copying or normalizing source. `Document::header`
+  exposes the structural prefix before the first declaration. Group views
+  provide `items`, `entries`, `comments`, `leading_comments` and `span`.
+- `Entry::leading_comments` returns contiguous whole-line comments immediately
+  above a declaration; a blank line breaks attachment. Inline comments remain
+  available through `Entry::inline_comment`.
+- `Document::format`, `FormatOptions`, `EqualsSpacing`, `FinalNewline`,
+  `FormatResult` and `FormatError` provide verified trivia-only formatting.
+  Spacing around `=`, trailing spaces/tabs and final-newline policy are
+  explicit; `FormatOptions::normalize` selects a conservative common policy.
+- Formatting edits are source-relative `TextEdit` values and the formatted text
+  is always reparsed with the selected dialect before being returned. The
+  verifier checks declarations, quotes, states, exports, lookup participation,
+  comment text, item kinds and malformed statements. Raw values, multiline
+  bodies, invalid/ignored statements, empty assignments whose spacing could
+  become indentation and mixed lone-CR boundaries are preserved.
+- A dedicated `format` fuzz target, structure/format property tests, Criterion
+  structure/format workloads and checked-in synthetic format corpus seeds.
+
+### Notes
+
+- Quoting changes, blank-line normalization, group sorting, key comparison and
+  example generation remain future 0.5 work. No default I/O, environment,
+  expansion or command execution is introduced.
+
 ## [0.4.0] - 2026-10-18
 
 ### Added
