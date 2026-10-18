@@ -644,6 +644,30 @@ above.
   now left unchanged in this slice.
 - No I/O, environment, expansion or command execution is added.
 
+### Group sorting slice (0.5, unreleased; 2026-10-18)
+
+Tested source: the unreleased 0.5 working tree adding `Document::sort`,
+comment-aware chunk planning, dependency ordering and sorting verification.
+
+- With `PROPTEST_CASES=2000`, all 215 default-feature tests pass, the `exec`
+  feature adds three tests (218 total), and all 22 doctests pass. The same 215
+  unit/property tests and 22 doctests pass with `--no-default-features`.
+- Thirteen sorting tests cover lexical order, group headers, leading and inline
+  comment movement, trailing comments, transitive dependencies, ready-key tie
+  ordering, cycles, duplicates, malformed groups, cross-group independence,
+  multi-group plans and an arbitrary-UTF-8 preservation/idempotence property.
+- Root, fuzz and conformance formatting; workspace, exec, alloc-only and
+  conformance-probe Clippy; warning-denied rustdoc; Rust 1.81 builds; the
+  alloc-only Thumb build; and locked package verification pass.
+- All 60 Criterion smoke workloads pass, including three sorting workloads.
+- The locked package contains 53 files (about 0.73 MiB, 0.18 MiB compressed).
+- The `format` sanitizer target now checks sort output group counts, entry
+  multisets, comment multisets and sort idempotence across all five presets. Its
+  final bounded campaign executes 18,829 inputs in 61 engine seconds with no
+  crash, panic or invariant failure. The campaign drove a plan-index/header
+  regression fix for unsortable groups between sortable ones.
+- No I/O, environment, expansion or command execution is added.
+
 ## Local execution evidence (2026-10-15)
 
 Tested source: the unreleased 0.2 working tree based on

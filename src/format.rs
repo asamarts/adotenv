@@ -123,6 +123,10 @@ pub struct FormatResult {
 }
 
 impl FormatResult {
+    pub(crate) fn from_parts(edits: Vec<TextEdit>, output: String) -> Self {
+        Self { edits, output }
+    }
+
     /// Text edits referring to the original source snapshot.
     #[must_use]
     pub fn edits(&self) -> &[TextEdit] {
@@ -281,6 +285,16 @@ impl Document<'_> {
             QuoteStyle::Single => Quote::Single,
             QuoteStyle::Unquoted => Quote::None,
         };
+        if preferred == Quote::None
+            && (options.equals_spacing != EqualsSpacing::Preserve
+                || options.trim_trailing_whitespace
+                || options.blank_lines != BlankLines::Preserve
+                || options.final_newline != FinalNewline::Preserve)
+        {
+            // Removing quotes changes the declaration boundary; keep that
+            // conservative operation separate from other trivia rewrites.
+            return;
+        }
         if self.dialect().raw_values {
             return;
         }

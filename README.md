@@ -295,12 +295,37 @@ Unquoted}` and `FinalNewline::{Preserve, Ensure, Remove}` are explicit.
 `FormatOptions::normalize_groups` also collapses runs of consecutive blank
 lines to one group separator. Quote changes are accepted only when the exact
 decoded value remains representable; empty assigned values keep their existing
-quote style in this slice. Raw-value dialects, multiline value bodies,
+quote style, and `Unquoted` is applied only with otherwise-preserved trivia in
+this slice. Raw-value dialects, multiline value bodies,
 invalid/ignored statements, empty assignments whose spacing could become
 indentation, and mixed lone-CR boundaries are preserved. `FinalNewline::Remove`
 removes one terminator from a nonblank final item; a trailing blank line is
 structure and is kept. Group sorting and line-ending conversion are not part of
 this slice.
+
+## Sort within groups (0.5)
+
+`Document::sort` orders declarations by key inside each blank-line-separated
+group. Comments before the first entry stay as a group header; comments before
+later entries move with them. Inline comments and multiline entries move intact.
+`${VAR}` dependencies inside a group are placed before their dependents. Groups
+with duplicates, empty keys, malformed/ignored items or dependency cycles are
+left byte-for-byte unchanged.
+
+```rust
+use adotenv::parse_strict;
+
+let source = "# header\nB=${A}\n# A note\nA=1\n# bottom\n";
+let doc = parse_strict(source).unwrap();
+let sorted = doc.sort().unwrap();
+assert_eq!(
+    sorted.as_str(),
+    "# header\n# A note\nA=1\nB=${A}\n# bottom\n"
+);
+```
+
+Sorting is separate from trivia formatting, returns the same verified-edit
+shape, and performs no expansion, environment access or I/O.
 
 ## Compare files by key (0.5)
 

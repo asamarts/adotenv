@@ -2,9 +2,9 @@
 
 Status: the lossless core/native edit model, 0.3 dialect configuration/presets,
 0.4 reference/resolution/command-callback APIs and the unreleased 0.5
-structure/trivia-formatting, comparison and example-generation views are
-implemented. Sections explicitly marked future are designs, not additional
-shipped interfaces.
+structure, trivia-formatting, comparison, example-generation and group-sorting
+views are implemented. Sections explicitly marked future are designs, not
+additional shipped interfaces.
 
 ## Document model
 
@@ -285,6 +285,19 @@ assigned values, keeps comments/blank lines/keys/exports/layout and converts
 invalid or ignored statements into indentation-preserving comments so raw
 unrecognized text cannot leak a value. Both operations are pure and perform no
 lookup, I/O or execution. See [comparison.md](comparison.md).
+
+## Group sorting
+
+`Document::sort` is a separate verified transformation from trivia formatting.
+It builds one replacement edit per sortable blank-line group. Group-leading
+comments stay at the top, comments before later entries move with those entries,
+and trailing comments stay at the bottom. Entries are ordered by key with
+`${VAR}` dependencies before dependents; lexical key order breaks ties.
+
+Malformed groups, empty/duplicate keys and cycles are left unchanged. The output
+is reparsed and checked for group count, planned group text and key order, entry
+meaning, inline comments, and comment-text multisets. See
+[sorting.md](sorting.md).
 
 ## Crate layout and platform
 

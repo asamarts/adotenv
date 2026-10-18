@@ -91,7 +91,10 @@ Quote normalization reuses the context-aware native encoder. A value changes
 only when the encoder reports the requested quote style and the complete output
 reparses to the same decoded value. Empty assigned values are intentionally left
 alone because their spacing/comment separators are syntax-sensitive. The
-verifier ignores quote style only when a non-`Preserve` quote policy is active.
+`Unquoted` preference is applied only while the other trivia policies are
+`Preserve`; removing delimiters changes declaration boundaries and is kept
+conservative in this slice. The verifier ignores quote style only when a
+non-`Preserve` quote policy is active.
 
 `FinalNewline::Remove` intentionally removes only one terminator. A file ending
 in a blank line keeps that blank line: removing its terminator would change

@@ -14,6 +14,7 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [expansion.md](docs/design/expansion.md) | `${VAR}` references, opt-in resolution, command substitution |
 | [formatting.md](docs/design/formatting.md) | Comment/group structure and verified trivia formatting |
 | [comparison.md](docs/design/comparison.md) | Effective-key comparison and safe example generation |
+| [sorting.md](docs/design/sorting.md) | Comment-aware, dependency-respecting group sorting |
 | [quality.md](docs/design/quality.md) | Testing, fuzzing, conformance, benchmarks, MSRV and semver policy |
 
 **Current status:** 0.2.1, 0.3.0 and 0.4.0 are published. 0.3 implements
@@ -23,8 +24,9 @@ and cross-dialect portability reporting. 0.4 implements literal reference
 inspection, opt-in variable resolution, explicit command callbacks and an
 opt-in `exec` helper. The unreleased 0.5 tree adds structure views, verified
 trivia formatting, key comparison, safe example generation, blank-line
-collapsing and value quote normalization; group sorting remains. Loading and
-integration work remain future. Execution evidence is in the quality notes.
+collapsing, value quote normalization and comment-aware dependency sorting.
+Loading and integration work remain future. Execution evidence is in the
+quality notes.
 
 ## Goals
 
@@ -168,8 +170,10 @@ Literal parsing into ordered entries with key, value and line spans;
   comments, blank lines, keys, exports, formatting, line endings and BOM. Bare
   declarations stay bare; malformed and ignored statements become comments so
   their text cannot leak values.
-- **Remaining:** sorting within groups that keeps comments with their keys and
-  respects `${VAR}` dependencies.
+- **Implemented:** `Document::sort` orders entries within each blank-line group,
+  keeps leading/inline comments attached, preserves group headers/trailing
+  comments, and places `${VAR}` dependencies before dependents. Duplicate/empty
+  keys, malformed groups and dependency cycles are left unchanged.
 - **Not yet released.**
 
 ### 0.6: Loading (future)

@@ -38,7 +38,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   blank lines, keys, exports, formatting, line endings and BOM. Bare keys remain
   bare, and malformed/ignored statements become indentation-preserving comments
   so their raw text cannot leak values.
-- A dedicated `format` fuzz target, structure/format/comparison/example
+- `Document::sort` orders declarations by key within blank-line-separated
+  groups. Group headers and trailing comments stay in place; leading/inline
+  comments and multiline entries move with their declarations. `${VAR}`
+  dependencies are ordered before dependents. Duplicate/empty keys, malformed
+  groups and dependency cycles are left unchanged, and the result is reparsed
+  and verified.
+- A dedicated `format` fuzz target, structure/format/comparison/example/sort
   property tests, Criterion workloads and checked-in synthetic corpus seeds.
 
 ### Notes
@@ -46,8 +52,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `FormatOptions` gained the `blank_lines` and `quote_style` fields; external
   struct literals that do not use `..FormatOptions::default()` must add
   `BlankLines::Preserve` and `QuoteStyle::Preserve`.
-- Group sorting remains future 0.5 work. No default I/O, environment, expansion
-  or command execution is introduced.
+- No default I/O, environment, expansion or command execution is introduced.
 
 ## [0.4.0] - 2026-10-18
 

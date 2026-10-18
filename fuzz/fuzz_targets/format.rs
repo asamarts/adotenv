@@ -113,6 +113,54 @@ fn check_example(document: &adotenv::Document<'_>) {
     }
 }
 
+fn check_sort(document: &adotenv::Document<'_>) {
+    let Ok(sorted) = document.sort() else {
+        return;
+    };
+    let (after, _) = parse_with(sorted.as_str(), document.dialect());
+    assert_eq!(document.groups().count(), after.groups().count());
+    assert_eq!(document.entries().len(), after.entries().len());
+    for (before, after) in document.groups().zip(after.groups()) {
+        let mut left: Vec<_> = before
+            .entries()
+            .map(|entry| {
+                format!(
+                    "{:?}|{:?}|{:?}|{:?}|{:?}",
+                    entry.key(),
+                    entry.value(),
+                    entry.state(),
+                    entry.quote(),
+                    entry.exported()
+                )
+            })
+            .collect();
+        let mut right: Vec<_> = after
+            .entries()
+            .map(|entry| {
+                format!(
+                    "{:?}|{:?}|{:?}|{:?}|{:?}",
+                    entry.key(),
+                    entry.value(),
+                    entry.state(),
+                    entry.quote(),
+                    entry.exported()
+                )
+            })
+            .collect();
+        left.sort_unstable();
+        right.sort_unstable();
+        assert_eq!(left, right);
+        let mut left_comments: Vec<_> = before.comments().map(|item| item.raw()).collect();
+        let mut right_comments: Vec<_> = after.comments().map(|item| item.raw()).collect();
+        left_comments.sort_unstable();
+        right_comments.sort_unstable();
+        assert_eq!(left_comments, right_comments);
+    }
+    let again = after.sort().expect("verified sort is representable again");
+    assert!(again.is_empty());
+    assert_eq!(again.as_str(), sorted.as_str());
+}
+
 fn check_result(source: &str, document: &adotenv::Document<'_>, options: &FormatOptions) {
     let Ok(formatted) = document.format(options) else {
         return;
@@ -260,6 +308,7 @@ fuzz_target!(|bytes: &[u8]| {
         check_structure(source, &document);
         check_compare(source, &document);
         check_example(&document);
+        check_sort(&document);
         for options in &options {
             check_result(source, &document, options);
         }

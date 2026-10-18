@@ -116,6 +116,7 @@ mod portability;
 mod position;
 mod references;
 mod resolve;
+mod sort;
 mod structure;
 
 pub use compare::{ComparedValue, Comparison, ComparisonEntry, DifferenceKind};
@@ -169,6 +170,8 @@ mod position_tests;
 mod reference_tests;
 #[cfg(test)]
 mod resolve_tests;
+#[cfg(test)]
+mod sort_tests;
 #[cfg(test)]
 mod structure_tests;
 #[cfg(test)]

@@ -122,6 +122,18 @@ fn core(c: &mut Criterion) {
     }
     editing.finish();
 
+    portability(c, &fixtures);
+    references(c, &fixtures);
+    resolution(c, &fixtures);
+    structure(c, &fixtures);
+    formatting(c, &fixtures);
+    examples(c, &fixtures);
+    sorting(c, &fixtures);
+
+    scaling(c);
+}
+
+fn portability(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
     let dialects = [
         Dialect::NODE_DOTENV,
         Dialect::PYTHON_DOTENV,
@@ -129,7 +141,7 @@ fn core(c: &mut Criterion) {
         Dialect::DOCKER_RAW,
     ];
     let mut portability = c.benchmark_group("portability");
-    for (name, _, source) in &fixtures {
+    for (name, _, source) in fixtures {
         let document = parse_strict(source).expect("benchmark fixture is valid Portable syntax");
         portability.throughput(Throughput::Bytes(source.len() as u64));
         portability.bench_function(BenchmarkId::from_parameter(name), |b| {
@@ -137,14 +149,18 @@ fn core(c: &mut Criterion) {
         });
     }
     portability.finish();
+}
 
-    references(c, &fixtures);
-    resolution(c, &fixtures);
-    structure(c, &fixtures);
-    formatting(c, &fixtures);
-    examples(c, &fixtures);
-
-    scaling(c);
+fn sorting(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
+    let mut sorting = c.benchmark_group("sort");
+    for (name, _, source) in fixtures {
+        let document = parse_strict(source).expect("benchmark fixture is valid Portable syntax");
+        sorting.throughput(Throughput::Bytes(source.len() as u64));
+        sorting.bench_function(BenchmarkId::from_parameter(name), |b| {
+            b.iter(|| black_box(document.sort()));
+        });
+    }
+    sorting.finish();
 }
 
 fn examples(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
