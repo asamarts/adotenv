@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Opt-in std-only `load` feature with `load_cascade`, `load_cascade_with` and
+  `load_files`. The standard cascade is `.env`, `.env.local`, `.env.{mode}` and
+  `.env.{mode}.local`, with later files overriding earlier files by key.
+- `LoadedEnvironment` exposes final literal values and effective origins
+  (path, source span and one-based line), every loaded declaration, cross-file
+  overrides, per-file repeated keys and skipped bare/nonparticipating/empty-key
+  declarations.
+- All participating files are read, UTF-8 decoded, parsed and validated before
+  any result is returned. Missing cascade files are skipped; an existing file
+  with an I/O, decoding, syntax or policy error invalidates the complete load.
+  No process environment is changed.
+
 ## [0.5.0] - 2026-10-18
 
 ### Added

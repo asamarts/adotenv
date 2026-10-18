@@ -26,9 +26,9 @@ formatters, editors, language servers, scanners and migration tools:
   keeping comments and never copies malformed value text.
 - **Small, side-effect-free core.** Zero runtime dependencies, no file I/O,
   environment access or process spawning by default, and unconditional
-  `forbid(unsafe_code)`. The opt-in `exec` feature is the only
-  process-spawning path. Disable the default `std` feature for `no_std` with
-  `alloc`.
+  `forbid(unsafe_code)`. The opt-in `load` feature is the only filesystem path
+  and `exec` is the only process-spawning path. Disable the default `std`
+  feature for `no_std` with `alloc`.
 
 ## Read a document
 
@@ -375,6 +375,32 @@ let source = "# app\nA=1\nB=\"two\" # note\nBARE\nBAD KEY=secret\n";
 let (doc, _) = parse(source);
 assert_eq!(doc.example(), "# app\nA=\nB= # note\nBARE\n#\n");
 ```
+
+## Load files (0.6, opt-in)
+
+Enable the `load` feature to read standard cascades from an explicit directory.
+The order is `.env`, `.env.local`, `.env.{mode}`, `.env.{mode}.local`; later
+files override earlier files by key. Missing files are skipped, but a file that
+exists and cannot be read, decoded or parsed invalidates the complete load.
+Nothing is applied to the process environment.
+
+```rust,ignore
+use adotenv::load::load_cascade;
+
+let loaded = load_cascade("/srv/my-app", "production")?;
+assert_eq!(loaded.get("PORT"), Some("8080"));
+let origin = loaded.origin("PORT").unwrap();
+println!("{}:{}", origin.path.display(), origin.line);
+for change in loaded.overrides() {
+    println!("{}: {:?} -> {:?}", change.key, change.previous, change.replacement);
+}
+```
+
+`entries()` retains every loaded declaration, including later-overridden ones;
+`overrides()`, `repeated()` and `skipped()` explain precedence, duplicate keys
+and bare/nonparticipating declarations. `load_files` accepts an explicit
+ordered file list. Values remain literal; no expansion, environment lookup or
+command execution occurs.
 
 ## Portable syntax (unchanged default)
 

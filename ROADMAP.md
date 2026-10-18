@@ -15,6 +15,7 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [formatting.md](docs/design/formatting.md) | Comment/group structure and verified trivia formatting |
 | [comparison.md](docs/design/comparison.md) | Effective-key comparison and safe example generation |
 | [sorting.md](docs/design/sorting.md) | Comment-aware, dependency-respecting group sorting |
+| [loading.md](docs/design/loading.md) | Opt-in file cascade loading, validation and origins |
 | [quality.md](docs/design/quality.md) | Testing, fuzzing, conformance, benchmarks, MSRV and semver policy |
 
 **Current status:** 0.2.1, 0.3.0, 0.4.0 and 0.5.0 are published. 0.3 implements
@@ -22,11 +23,12 @@ explicit dialect configuration, all five syntax presets, selected-dialect native
 verification, exact per-dialect encoding, applicable pinned-upstream comparison
 and cross-dialect portability reporting. 0.4 implements literal reference
 inspection, opt-in variable resolution, explicit command callbacks and an
-opt-in `exec` helper. 0.5 implements structure views, verified trivia formatting, key
-comparison, safe example generation, blank-line collapsing, value quote
-normalization and comment-aware dependency sorting.
-Loading and integration work remain future. Execution evidence is in the
-quality notes.
+opt-in `exec` helper. 0.5 implements structure views, verified trivia formatting,
+key comparison, safe example generation, blank-line collapsing, value quote
+normalization and comment-aware dependency sorting. 0.6 file cascade loading is
+in progress behind the opt-in `load` feature. Process-environment application,
+serde and integrations remain future. Execution evidence is in the quality
+notes.
 
 ## Goals
 
@@ -176,19 +178,23 @@ Literal parsing into ordered entries with key, value and line spans;
   keys, malformed groups and dependency cycles are left unchanged.
 - **Released:** 2026-10-18 after the complete quality gate.
 
-### 0.6: Loading (future)
+### 0.6: Loading (in progress)
 
-- Reading files and the `.env`, `.env.local`, `.env.{mode}` cascade, behind a
-  `load` feature.
-- Every value with its origin (file and span); a report of overridden,
-  repeated and skipped keys.
-- All files are parsed and validated before process-environment changes are
-  applied. A broken file leaves the environment unchanged; side effects of
-  explicitly supplied command callbacks cannot be rolled back.
-- Applying to the process environment through an `unsafe fn` in a separate,
-  opt-in std-only `adotenv-process` adapter; returning a map is the default.
-- A `serde` feature: deserialize a document into a struct, with errors that
-  point at the line.
+- **Implemented:** opt-in `load` feature reading `.env`, `.env.local`,
+  `.env.{mode}` and `.env.{mode}.local` from an explicit directory, plus
+  explicit ordered `load_files`.
+- **Implemented:** `LoadedEnvironment` values, file/span/line origins,
+  cross-file overrides, per-file repeated keys, and skipped bare,
+  nonparticipating or empty-key declarations.
+- **Implemented:** all participating files are read, decoded, parsed and
+  validated before any result is returned. Missing cascade files are skipped;
+  malformed existing files invalidate the complete load. No process environment
+  is changed.
+- **Remaining:** applying to the process environment through an `unsafe fn` in
+  a separate, opt-in std-only `adotenv-process` adapter; returning a map remains
+  the default.
+- **Remaining:** a `serde` feature deserializing a document into a struct, with
+  errors that point at the line.
 
 ### 0.7: Integrations and tools (future)
 

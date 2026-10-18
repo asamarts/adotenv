@@ -1,0 +1,88 @@
+# Loading
+
+Status: standard file-cascade loading is implemented in the unreleased 0.6 tree
+behind the opt-in `load` feature. Process-environment application and `serde`
+integration remain future work.
+
+The core parser still performs no I/O. Loading is a std-only adapter around the
+lossless document model.
+
+## Feature and API
+
+```toml
+adotenv = { version = "0.5", features = ["load"] }
+```
+
+- `load_cascade(directory, mode)` uses Portable syntax.
+- `load_cascade_with(directory, mode, dialect)` selects a dialect.
+- `load_files(paths, dialect)` loads an explicit ordered list; every listed file
+  must exist.
+
+The standard cascade order is:
+
+1. `.env`
+2. `.env.local`
+3. `.env.{mode}`
+4. `.env.{mode}.local`
+
+Later files override earlier files by effective key. An empty mode loads only
+the base and local files. Mode names containing path separators, NUL, `.` or
+`..` are rejected.
+
+## Validation and atomicity
+
+Every participating file is read as bytes and decoded as strict UTF-8 before
+parsing. Invalid UTF-8 is an error, never replacement decoding. Each document is
+parsed with the selected dialect; the first error-severity diagnostic rejects
+the whole load. Warnings and ignored statements remain subject to the selected
+dialect’s normal policy.
+
+The result is built only after all files have been read and validated. A missing
+cascade file is skipped, but an existing file that fails to read, decode or parse
+returns `LoadError` and no partial environment. No process-environment variables
+are changed by this module.
+
+## Merging and origins
+
+Each document contributes its effective declarations according to the dialect’s
+duplicate and lookup-participation policy. Values remain literal; no expansion,
+environment lookup or command execution occurs.
+
+`LoadedEnvironment` contains:
+
+```text
+values        final BTreeMap<String, String>
+origin(key)   final path, value span and one-based line
+entries()     every loaded effective declaration, including overridden ones
+overrides()   previous -> replacement origins for cross-file wins
+repeated()    duplicate keys within a single file
+skipped()     bare, nonparticipating or empty-key declarations
+```
+
+`LoadOrigin.span` addresses the original file bytes. `entries()` preserves file
+load order and source order; `values` is sorted by key. Repeated declarations
+are still reported even when the duplicate policy selects one winner.
+
+Bare declarations are skipped rather than guessed as empty. Nonparticipating
+declarations (for example Node’s `__proto__` object property or ignored bare
+keys) and empty keys are reported with a `SkipReason`.
+
+## Errors
+
+`LoadError` distinguishes:
+
+- I/O failure with path and OS error;
+- invalid UTF-8;
+- the first syntax/policy error with path and diagnostic;
+- invalid mode names.
+
+Missing explicit files passed to `load_files` are I/O errors; only the standard
+cascade skips missing names.
+
+## Future work
+
+- A separate opt-in `adotenv-process` adapter for applying values through an
+  `unsafe fn`, with no partial apply after validation failure.
+- A `serde` feature that deserializes a document into a struct with line-aware
+  errors.
+- Optional command/expansion callbacks during loading, never enabled implicitly.

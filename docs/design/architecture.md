@@ -1,10 +1,10 @@
 # Architecture
 
 Status: the lossless core/native edit model, 0.3 dialect configuration/presets,
-0.4 reference/resolution/command-callback APIs and the released 0.5
-structure, trivia-formatting, comparison, example-generation and group-sorting
-views are implemented. Sections explicitly marked future are designs, not
-additional shipped interfaces.
+0.4 reference/resolution/command-callback APIs, the released 0.5
+structure/trivia-formatting/comparison/example/sorting views and the unreleased
+0.6 opt-in file-loading adapter are implemented. Sections explicitly marked
+future are designs, not additional shipped interfaces.
 
 ## Document model
 
@@ -298,6 +298,19 @@ Malformed groups, empty/duplicate keys and cycles are left unchanged. The output
 is reparsed and checked for group count, planned group text and key order, entry
 meaning, inline comments, and comment-text multisets. See
 [sorting.md](sorting.md).
+
+## Loading
+
+The opt-in std-only `load` feature is the only path in the crate that reads
+files. It reads a standard `.env` cascade or an explicit ordered file list,
+strictly decodes UTF-8, parses every file with the selected dialect and rejects
+the complete load on the first error before returning any values. No process
+environment is mutated.
+
+`LoadedEnvironment` separates final values, active origins, all loaded entries,
+cross-file overrides, in-file repeats and skipped declarations. Origins retain
+the original path, value span and one-based line. Bare values are not guessed;
+they are reported as skipped. See [loading.md](loading.md).
 
 ## Crate layout and platform
 

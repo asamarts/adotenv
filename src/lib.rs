@@ -72,6 +72,14 @@
 //! layout, and comments out malformed or ignored statements so their text cannot
 //! leak a value.
 //!
+//! # Loading
+//!
+//! The opt-in std-only `load` feature provides `load::load_cascade` and
+//! `load::load_files`. They strictly read and validate every participating file
+//! before returning `load::LoadedEnvironment`, which carries final values,
+//! origins, overrides, repeats and skipped declarations. Loading performs no
+//! expansion and does not mutate the process environment.
+//!
 //! # Source and positions
 //!
 //! Ranges always address the original source, BOM included. Item ranges plus
@@ -92,8 +100,9 @@
 //! # Platform
 //!
 //! Zero runtime dependencies. Disable default features for `no_std` with `alloc`.
-//! Unsafe code is forbidden regardless of features. Reference resolution,
-//! loading and process-environment mutation are not part of literal parsing.
+//! Unsafe code is forbidden regardless of features. Reference resolution and
+//! process-environment mutation are not part of literal parsing; filesystem
+//! loading is available only through the opt-in `load` feature.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
@@ -110,6 +119,8 @@ mod example;
 #[cfg(feature = "exec")]
 pub mod exec;
 mod format;
+#[cfg(feature = "load")]
+pub mod load;
 mod model;
 mod parser;
 mod portability;
@@ -162,6 +173,8 @@ mod encode_tests;
 mod example_tests;
 #[cfg(test)]
 mod format_tests;
+#[cfg(all(test, feature = "load"))]
+mod load_tests;
 #[cfg(test)]
 mod portability_tests;
 #[cfg(test)]

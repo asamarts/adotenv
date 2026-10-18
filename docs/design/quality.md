@@ -668,6 +668,32 @@ comment-aware chunk planning, dependency ordering and sorting verification.
   regression fix for unsortable groups between sortable ones.
 - No I/O, environment, expansion or command execution is added.
 
+### File-loading slice (0.6, unreleased; 2026-10-18)
+
+Tested source: the unreleased 0.6 working tree adding the opt-in `load`
+feature, cascade validation and origin/report structures.
+
+- With `PROPTEST_CASES=2000`, all 225 default-feature + load tests pass, the
+  full feature set (`exec` + `load`) passes 228 tests, and all 22 running
+  doctests pass. The no-default-features build still passes 215 tests and 22
+  doctests.
+- Ten loading tests cover cascade precedence, missing files, explicit files,
+  invalid syntax, invalid UTF-8, duplicate and bare reports, nonparticipating
+  keys, mode traversal rejection, empty mode and exact origin spans/lines.
+- Workspace, exec, load, alloc-only and conformance-probe Clippy pass with Rust
+  1.99.0; warning-denied rustdoc passes with and without `load`. Rust 1.81
+  builds pass with default, `exec`, `load` and no-default features. The
+  alloc-only Thumb build passes. The locked package contains 56 files (about
+  0.75 MiB, 0.18 MiB compressed).
+- All 60 Criterion smoke workloads still pass. The load feature adds no default
+  benchmark or runtime dependency to the core.
+- The recorded conformance snapshot still matches 409 applicable observations
+  and 798 field comparisons. No upstream replay was run for this slice.
+- Loading reads and validates all participating files before returning a result;
+  missing cascade files are skipped and errors return no partial environment.
+  No process environment is mutated, and no expansion or command execution is
+  performed.
+
 ## Local execution evidence (2026-10-15)
 
 Tested source: the unreleased 0.2 working tree based on
