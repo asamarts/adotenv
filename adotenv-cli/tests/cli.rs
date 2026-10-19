@@ -220,3 +220,20 @@ fn dialect_selection_applies_to_commands() {
     assert_eq!(unknown.status.code(), Some(2));
     assert!(stderr(&unknown).contains("unknown dialect"));
 }
+
+#[test]
+fn fmt_check_reports_changes_without_writing() {
+    let dir = TempDir::new();
+    let file = dir.file("app.env", "A=1\n");
+    let output = run(&["fmt", "--check", file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stdout(&output).contains("would reformat"));
+    assert_eq!(fs::read_to_string(&file).unwrap(), "A=1\n");
+
+    let formatted = dir.file("formatted.env", "A = 1\n");
+    let output = run(&["fmt", "--check", formatted.to_str().unwrap()]);
+    assert!(output.status.success());
+
+    let output = run(&["fmt", "--write", "--check", file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(2));
+}

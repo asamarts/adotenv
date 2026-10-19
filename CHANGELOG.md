@@ -13,7 +13,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `run`. `run` starts a child with loaded values without mutating the parent
   process environment; child environment values are validated and command
   substitution from files is not enabled. A global `--dialect` option selects
-  all library presets for CLI commands.
+  all library presets for CLI commands; `fmt --check` reports drift without
+  writing, and Unix writes use atomic same-directory replacement.
 
 ## [0.6.0] - 2026-10-19
 

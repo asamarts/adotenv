@@ -454,8 +454,8 @@ The zero-dependency `adotenv-cli` workspace binary accepts a global
 ```text
 get <file> <key>          print an effective literal value
 check <file>...           print parse diagnostics
-fmt [--write] [--sort] <file>...
-                          format documents, optionally sorted
+fmt [--write|--check] [--sort] <file>...
+                          format, check or write documents
 diff <left> <right>       compare effective keys
 example <file>            print a value-free example
 load <directory> [mode]   load the standard dotenv cascade
@@ -466,7 +466,8 @@ run <directory> [mode] -- <program> [args...]
 
 `run` loads the cascade and starts a child with those values added to its
 environment; the parent environment is never mutated. Child environment keys
-and values are validated before execution. Command substitution from
+and values are validated before execution. `fmt --check` reports required
+changes without writing; `--write` uses an atomic same-directory rename on Unix. Command substitution from
 files remains disabled. The CLI uses the library’s verified formatting, sorting,
 loading and edit APIs. It is currently a workspace companion and is not
 published to crates.io.

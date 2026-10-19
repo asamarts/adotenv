@@ -2,8 +2,10 @@
 
 use std::{
     env, fs,
-    path::Path,
+    io::{self, Write},
+    path::{Path, PathBuf},
     process::{Command, ExitCode},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use adotenv::{
@@ -86,7 +88,7 @@ fn usage() {
          Commands:\n\
            get <file> <key>             Print an effective literal value\n\
            check <file>...              Report parse diagnostics\n\
-           fmt [--write] [--sort] <file>...\n\
+           fmt [--write|--check] [--sort] <file>...\n\
                                         Format documents (optionally sorted)\n\
            diff <left> <right>          Compare effective keys\n\
            example <file>               Print a value-free example\n\
@@ -160,17 +162,23 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
 
 fn fmt(args: &[String], dialect: Dialect) -> u8 {
     let mut write = false;
+    let mut check = false;
     let mut sort = false;
     let mut paths = Vec::new();
     for arg in args {
         match arg.as_str() {
             "--write" => write = true,
+            "--check" => check = true,
             "--sort" => sort = true,
             _ => paths.push(arg.as_str()),
         }
     }
     if paths.is_empty() {
-        eprintln!("usage: adotenv-cli fmt [--write] [--sort] <file>...");
+        eprintln!("usage: adotenv-cli fmt [--write|--check] [--sort] <file>...");
+        return 2;
+    }
+    if write && check {
+        eprintln!("--write and --check are mutually exclusive");
         return 2;
     }
     let mut failed = false;
@@ -222,8 +230,13 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
                 continue;
             }
         };
-        if write {
-            if let Err(error) = fs::write(path, formatted.as_str()) {
+        if check {
+            if formatted.as_str() != source {
+                println!("{path}: would reformat");
+                failed = true;
+            }
+        } else if write {
+            if let Err(error) = write_atomic(Path::new(path), formatted.as_str()) {
                 fail(format!("{path}: {error}"));
                 failed = true;
             }
@@ -316,7 +329,7 @@ fn set(args: &[String], dialect: Dialect) -> u8 {
         Ok(edited) => edited,
         Err(error) => return fail(format!("{}: {error}", args[0])),
     };
-    if let Err(error) = fs::write(&args[0], edited.as_str()) {
+    if let Err(error) = write_atomic(Path::new(&args[0]), edited.as_str()) {
         return fail(format!("{}: {error}", args[0]));
     }
     0
@@ -400,6 +413,59 @@ fn describe(value: Option<&ComparedValue>) -> String {
         (AssignmentState::Empty, _) => "\"\"".to_string(),
         (_, Some(value)) => value.to_string(),
         (_, None) => "<unset>".to_string(),
+    }
+}
+
+fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        let name = path
+            .file_name()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
+        let mut temporary: Option<PathBuf> = None;
+        for _ in 0..16 {
+            let candidate = parent.join(format!(
+                ".{}.adotenv-{}-{}",
+                name.to_string_lossy(),
+                std::process::id(),
+                NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+            ));
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&candidate)
+            {
+                Ok(file) => {
+                    temporary = Some(candidate);
+                    let mut file = file;
+                    file.write_all(contents.as_bytes())?;
+                    file.sync_all()?;
+                    break;
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        let Some(temporary) = temporary else {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "could not create a temporary file",
+            ));
+        };
+        if let Ok(metadata) = fs::metadata(path) {
+            fs::set_permissions(&temporary, metadata.permissions())?;
+        }
+        if let Err(error) = fs::rename(&temporary, path) {
+            let _ = fs::remove_file(&temporary);
+            return Err(error);
+        }
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        fs::write(path, contents)
     }
 }
 

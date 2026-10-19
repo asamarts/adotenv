@@ -11,7 +11,7 @@ adotenv-cli [--dialect <portable|node|python|compose|docker>] <command> ...
 
 adotenv-cli get <file> <key>
 adotenv-cli check <file>...
-adotenv-cli fmt [--write] [--sort] <file>...
+adotenv-cli fmt [--write|--check] [--sort] <file>...
 adotenv-cli diff <left> <right>
 adotenv-cli example <file>
 adotenv-cli load <directory> [mode]
@@ -35,9 +35,12 @@ diagnostic makes the command exit 1.
 
 Reads, repairs invalid syntax as the parser permits, formats with
 `FormatOptions::normalize_groups`, and optionally sorts each blank-line group
-with `Document::sort`. `--write` replaces files in place; otherwise output is
-printed. Multiple files are labeled. Invalid syntax is reported and the command
-exits 1, though the formatter still preserves invalid statements.
+with `Document::sort`. `--check` reports files that would change and exits 1
+without writing. `--write` replaces files in place using a same-directory
+temporary file and rename on Unix; other platforms fall back to direct writes.
+Otherwise output is printed. Multiple files are labeled. Invalid syntax is
+reported and the command exits 1, though the formatter still preserves invalid
+statements.
 
 ### diff
 
@@ -81,5 +84,4 @@ lookup policy and native edit verification for every command, including
 
 - Command substitution from loaded files is not enabled.
 - The CLI is not published yet.
-- File writes are direct rather than atomic; callers should use version-control
-  workflows or external atomic-write tooling where required.
+- Windows writes fall back to direct replacement; Unix uses atomic rename.

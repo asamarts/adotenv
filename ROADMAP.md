@@ -202,7 +202,8 @@ Literal parsing into ordered entries with key, value and line spans;
 ### 0.7: Integrations and tools (in progress)
 
 - **Implemented:** zero-dependency workspace `adotenv-cli` with `get`, `check`,
-  `fmt`, `diff`, `example`, `load`, `set`, `run` and global `--dialect` selection.
+  `fmt`, `diff`, `example`, `load`, `set`, `run`, global `--dialect` selection,
+  `fmt --check` and atomic Unix writes.
 - **Implemented:** `run` with an environment-inheriting child process and no
   parent mutation.
 - **Remaining:** publishing the companion CLI crate and config/figment adapters.
