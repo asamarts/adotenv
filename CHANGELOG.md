@@ -12,9 +12,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `config` source, and `adotenv-figment` exposing them as a Figment provider.
   Both companions offer an optional `load` feature for loaded environments.
 - `adotenv-process`, `adotenv-cli`, `adotenv-config` and `adotenv-figment` are
-  versioned and packaged as 0.7.0 companions. The release workflow publishes
-  all workspace crates in dependency order; first-time crates.io publication
-  requires a temporary bootstrap token.
+  published as 0.7.0 companions. The release workflow publishes all workspace
+  crates in dependency order; first-time crates.io publication uses a temporary
+  bootstrap token.
 - Zero-dependency `adotenv-cli` workspace companion with `get`, `check`, `fmt`
   (including `--write` and `--sort`), `diff`, `example`, `load`, `set` and
   `run`. `run` starts a child with loaded values without mutating the parent
@@ -51,7 +51,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `adotenv-process` was a workspace companion crate at the 0.6 release and had
   not yet been published to crates.io. It depends on the 0.6 loading feature;
-  0.7 packages it for publication.
+  0.7 publishes it.
 
 ## [0.5.0] - 2026-10-18
 

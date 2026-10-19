@@ -420,8 +420,7 @@ let loaded = load_cascade("/srv/my-app", "production")?;
 unsafe { apply(&loaded)? };
 ```
 
-The adapter is packaged as `adotenv-process` 0.7.0 and publishes with the
-tagged workspace release. See
+The adapter is published as `adotenv-process` 0.7.0. See
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md) for
 the one-time crates.io bootstrap.
 
@@ -471,8 +470,7 @@ environment; the parent environment is never mutated. Child environment keys
 and values are validated before execution. `fmt --check` reports required
 changes without writing; `--write` uses an atomic same-directory rename on Unix. Command substitution from
 files remains disabled. The CLI uses the library’s verified formatting, sorting,
-loading and edit APIs. It is packaged as `adotenv-cli` 0.7.0 and publishes
-with the tagged workspace release; see
+loading and edit APIs. It is published as `adotenv-cli` 0.7.0; see
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md).
 
 ## Integrations (0.7, workspace companions)
@@ -495,8 +493,7 @@ let config = config::Config::builder()
 ```
 
 Figment values remain strings and require string fields or explicit conversion.
-Both adapters are packaged as 0.7.0 companion crates and publish with the
-tagged workspace release; see
+Both adapters are published as 0.7.0 companion crates; see
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md).
 
 ## Portable syntax (unchanged default)

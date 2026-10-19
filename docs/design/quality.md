@@ -721,9 +721,9 @@ feature and `Document::deserialize`.
   field comparisons.
 - Deserialization performs no file, environment, expansion or command access.
 
-### CLI slice (0.7, unreleased; 2026-10-19)
+### CLI slice (0.7, released 2026-10-19)
 
-Tested source: the unreleased 0.7 tree adding the zero-dependency
+Tested source: the 0.7 release tree adding the zero-dependency
 `adotenv-cli` workspace companion.
 
 - Fourteen CLI tests cover `get`, `check`, `fmt` with writing/sorting
@@ -744,9 +744,9 @@ Tested source: the unreleased 0.7 tree adding the zero-dependency
   without mutating the parent process environment; file command substitution is
   not enabled.
 
-### Ecosystem integration slice (0.7, unreleased; 2026-10-19)
+### Ecosystem integration slice (0.7, released 2026-10-19)
 
-Tested source: the unreleased 0.7 tree adding `adotenv-config` and
+Tested source: the 0.7 release tree adding `adotenv-config` and
 `adotenv-figment` workspace companions.
 
 - Ten adapter tests (four default and one `load`-gated per crate) cover
@@ -773,6 +773,15 @@ Tested source: the unreleased 0.7 tree adding `adotenv-config` and
 - The release workflow passes `actionlint`. Its tag/version check, publication
   plan, bootstrap-token selection and sparse-index wait were exercised locally
   with simulated registry responses.
+- 0.7.0 was published on 2026-10-19. The tag-triggered Release run
+  [39317378941](https://github.com/asamarts/adotenv/actions/runs/39317378941)
+  passed every quality and publish job. crates.io returns HTTP 200 for all five
+  0.7.0 versions and docs.rs serves documentation for all five crates; GitHub
+  Release v0.7.0 is the latest release. A downstream crates.io project installed
+  `adotenv-cli` 0.7.0 and consumed all four companion crates through the
+  `config`, Figment and process APIs. Trusted Publishing configuration for the
+  four new companion crates remains a one-time crates.io settings step; the
+  retained bootstrap token is used only for first-time crates.
 
 ## Local execution evidence (2026-10-15)
 
@@ -1069,6 +1078,6 @@ still need byte and line/declaration budgets for retained lossless data.
 - After 1.0, the API follows semver. Stable diagnostic identities do not depend
   on enum order or message wording. Non-exhaustive enums allow new variants;
   callers retain a fallback arm.
-- Workspace companions share the 0.7.0 release version and publish after core.
-  They are versioned and released independently once their one-time crates.io
-  bootstrap and Trusted Publishing configuration are complete.
+- Workspace companions share the 0.7.0 release version and were published after
+  core. Trusted Publishing configuration for the four new companions remains
+  manual; the retained bootstrap token is reserved for future first-time crates.

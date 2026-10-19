@@ -22,7 +22,7 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [quality.md](docs/design/quality.md) | Testing, fuzzing, conformance, benchmarks, MSRV and semver policy |
 | [RELEASING.md](RELEASING.md) | Tag release, first-publish bootstrap and Trusted Publishing |
 
-**Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0 and 0.6.0 are published. 0.3 implements
+**Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0 and 0.7.0 are published. 0.3 implements
 explicit dialect configuration, all five syntax presets, selected-dialect native
 verification, exact per-dialect encoding, applicable pinned-upstream comparison
 and cross-dialect portability reporting. 0.4 implements literal reference
@@ -31,10 +31,10 @@ opt-in `exec` helper. 0.5 implements structure views, verified trivia formatting
 key comparison, safe example generation, blank-line collapsing, value quote
 normalization and comment-aware dependency sorting. 0.6 implements file
 cascade loading, serde deserialization and a separate workspace process
-adapter. 0.7 tooling is in progress with the workspace CLI and the `config` and
-Figment integration adapters. Companion packages and release automation are
-prepared; first-time crates.io publication and Trusted Publishing setup remain
-manual. Execution evidence is in the quality notes.
+adapter. 0.7 publishes the workspace CLI, the process and tooling companions,
+and the `config`/Figment integration adapters. Trusted Publishing configuration
+for the four new companion crates remains a one-time manual step. Execution
+evidence is in the quality notes.
 
 ## Goals
 
@@ -198,13 +198,12 @@ Literal parsing into ordered entries with key, value and line spans;
   is changed.
 - **Implemented:** separate workspace `adotenv-process` adapter with
   prevalidation and an explicit unsafe `apply`; returning a map remains the
-  default. At the 0.6 release it was not yet published; 0.7 packages it for
-  publication.
+  default. At the 0.6 release it was not yet published; 0.7 publishes it.
 - **Implemented:** opt-in `serde` feature with `Document::deserialize`, typed
   literal values, dialect-aware key selection and line/key-aware conversion errors.
 - **Released:** 2026-10-19 after the complete quality gate.
 
-### 0.7: Integrations and tools (in progress)
+### 0.7: Integrations and tools (released 2026-10-19)
 
 - **Implemented:** zero-dependency workspace `adotenv-cli` with `get`, `check`,
   `fmt`, `diff`, `example`, `load`, `set`, `run`, global `--dialect` selection,
@@ -213,9 +212,9 @@ Literal parsing into ordered entries with key, value and line spans;
   parent mutation.
 - **Implemented:** `adotenv-config` and `adotenv-figment` workspace adapters,
   each with an optional `load` feature for loaded environments.
-- **Remaining:** the one-time crates.io bootstrap for the four new companion
-  crates, Trusted Publishing configuration, and the `v0.7.0` tag. See
-  [RELEASING.md](RELEASING.md).
+- **Released:** 2026-10-19 after the complete quality gate.
+- **Remaining:** one-time Trusted Publishing configuration for the four new
+  companion crates at crates.io. See [RELEASING.md](RELEASING.md).
 
 ### 1.0: Stable API (future)
 
