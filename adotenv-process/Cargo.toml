@@ -1,15 +1,18 @@
 [package]
 name = "adotenv-process"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 rust-version = "1.81"
-publish = false
 description = "Unsafe process-environment adapter for adotenv loaded values."
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/asamarts/adotenv"
+documentation = "https://docs.rs/adotenv-process"
+readme = "README.md"
+keywords = ["dotenv", "environment", "process", "config"]
+categories = ["config", "development-tools"]
 
 [dependencies]
-adotenv = { path = "..", version = "0.6.0", features = ["load"] }
+adotenv = { path = "..", version = "0.7.0", features = ["load"] }
 
 [lints.rust]
 missing_docs = "warn"

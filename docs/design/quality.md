@@ -219,12 +219,14 @@ the `exec`/`load` features, feature tests on all platforms, and an alloc-only
 build for `thumbv7em-none-eabi` where `std` is unavailable. MSRV jobs build the
 library configurations and the process, CLI and integration companions; their
 dev/fuzz dependencies can still require newer Rust.
-Release metadata and publishing select the package by name, not workspace
-package order. Tag publication depends on the complete reusable CI workflow at
-the same commit, including all platforms, MSRV, embedded, package and benchmark
-gates. A manually dispatched Release runs only those checks and cannot publish.
-Ordinary CI and the release's called CI have distinct concurrency groups so one
-cannot cancel the other.
+Release metadata and publishing select packages by name in explicit dependency
+order: core, then process/config/Figment, then CLI. The tag workflow waits for
+each version in the crates.io sparse index before publishing dependents. Tag
+publication depends on the complete reusable CI workflow at the same commit,
+including all platforms, MSRV, embedded, package and benchmark gates. A manually
+dispatched Release runs only those checks and cannot publish. Ordinary CI and
+the release's called CI have distinct concurrency groups so one cannot cancel
+the other.
 
 Representative local checks (after updating the root lockfile):
 
@@ -761,10 +763,15 @@ Tested source: the unreleased 0.7 tree adding `adotenv-config` and
   adapters (default and `load`), CLI, process and core configurations.
   Warning-denied workspace rustdoc passes.
 - All 60 Criterion smoke workloads pass.
-- The root package verifies at 61 files (about 0.79 MiB); the CLI package at six
-  files, and process, config and Figment packages at five files each.
-  Conformance snapshot still matches 409 applicable observations and 798 field
-  comparisons.
+- The root package verifies at 61 files (about 0.79 MiB). Companion package
+  manifests and file lists verify with `cargo package --list` before the core
+  version exists on crates.io: CLI seven files; process, config and Figment six
+  files each. The tag workflow performs the full verified publish in dependency
+  order. Conformance snapshot still matches 409 applicable observations and 798
+  field comparisons.
+- The release workflow passes `actionlint`. Its tag/version check, publication
+  plan, bootstrap-token selection and sparse-index wait were exercised locally
+  with simulated registry responses.
 
 ## Local execution evidence (2026-10-15)
 
@@ -1061,5 +1068,6 @@ still need byte and line/declaration budgets for retained lossless data.
 - After 1.0, the API follows semver. Stable diagnostic identities do not depend
   on enum order or message wording. Non-exhaustive enums allow new variants;
   callers retain a fallback arm.
-- Workspace companions are versioned and released independently once their
-  publication policy is enabled; all current companions remain `publish = false`.
+- Workspace companions share the 0.7.0 release version and publish after core.
+  They are versioned and released independently once their one-time crates.io
+  bootstrap and Trusted Publishing configuration are complete.

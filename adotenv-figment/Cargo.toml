@@ -1,19 +1,25 @@
 [package]
 name = "adotenv-figment"
-version = "0.0.0"
+version = "0.7.0"
 edition = "2021"
 rust-version = "1.81"
-publish = false
 description = "Figment provider for adotenv documents."
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/asamarts/adotenv"
+documentation = "https://docs.rs/adotenv-figment"
+readme = "README.md"
+keywords = ["dotenv", "figment", "config", "env"]
+categories = ["config", "parser-implementations"]
 
 [features]
 default = []
 load = ["adotenv/load"]
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
-adotenv = { path = "..", version = "0.6.0" }
+adotenv = { path = "..", version = "0.7.0" }
 figment = { version = "0.10", default-features = false }
 
 [dev-dependencies]

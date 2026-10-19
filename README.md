@@ -403,7 +403,7 @@ ordered file list. Values remain literal; no expansion, environment lookup or
 command execution occurs. Bare declarations are skipped unless the selected
 dialect maps them to effective empty values.
 
-## Apply to the process environment (0.6, opt-in)
+## Apply to the process environment (0.7, opt-in)
 
 The separate `adotenv-process` adapter applies a fully loaded environment
 through an explicit `unsafe fn`. Keys and values are validated before the first
@@ -420,8 +420,10 @@ let loaded = load_cascade("/srv/my-app", "production")?;
 unsafe { apply(&loaded)? };
 ```
 
-The adapter is currently a workspace companion crate; crates.io publication is
-pending. Use the repository workspace if you need it before that release.
+The adapter is packaged as `adotenv-process` 0.7.0 and publishes with the
+tagged workspace release. See
+[RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md) for
+the one-time crates.io bootstrap.
 
 ## Deserialize with serde (0.6, opt-in)
 
@@ -469,8 +471,9 @@ environment; the parent environment is never mutated. Child environment keys
 and values are validated before execution. `fmt --check` reports required
 changes without writing; `--write` uses an atomic same-directory rename on Unix. Command substitution from
 files remains disabled. The CLI uses the library’s verified formatting, sorting,
-loading and edit APIs. It is currently a workspace companion and is not
-published to crates.io.
+loading and edit APIs. It is packaged as `adotenv-cli` 0.7.0 and publishes
+with the tagged workspace release; see
+[RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md).
 
 ## Integrations (0.7, workspace companions)
 
@@ -492,7 +495,9 @@ let config = config::Config::builder()
 ```
 
 Figment values remain strings and require string fields or explicit conversion.
-Both adapters are currently workspace companions and are not published.
+Both adapters are packaged as 0.7.0 companion crates and publish with the
+tagged workspace release; see
+[RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md).
 
 ## Portable syntax (unchanged default)
 

@@ -1,8 +1,13 @@
 name: Release
 
-# Publishes to crates.io when a `vX.Y.Z` tag is pushed, keylessly: the job
-# mints a short-lived token through crates.io Trusted Publishing (OIDC), so no
-# registry token is stored in this repository.
+# Publishes the workspace crates when a `vX.Y.Z` tag is pushed.
+#
+# Existing crates are authenticated through crates.io Trusted Publishing
+# (OIDC), so no registry token is stored for normal releases. crates.io does
+# not support a pending trusted publisher for a brand-new crate: the first
+# publish of each new crate needs a temporary CARGO_REGISTRY_TOKEN secret.
+# See RELEASING.md for the one-time bootstrap and verification steps.
+#
 # Manual dispatch runs the same checks without publishing.
 on:
   push:
@@ -37,34 +42,179 @@ jobs:
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           toolchain: stable
-      - name: tag matches Cargo.toml version
+      - name: verify tag and workspace package versions
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "adotenv"))')"
-          if [[ "$TAG" != "v$version" ]]; then
-            echo "::error::tag $TAG does not match Cargo.toml version $version"
-            exit 1
-          fi
-      # Idempotent: a version already on crates.io (published by hand, or by an
-      # earlier attempt of this run) is skipped, so re-running the job is safe.
-      - name: skip if this version is already published
-        id: exists
+          python3 - "$TAG" <<'PY'
+          import json
+          import subprocess
+          import sys
+
+          tag = sys.argv[1]
+          expected = [
+              "adotenv",
+              "adotenv-process",
+              "adotenv-config",
+              "adotenv-figment",
+              "adotenv-cli",
+          ]
+          metadata = json.loads(
+              subprocess.check_output(
+                  ["cargo", "metadata", "--no-deps", "--format-version", "1"],
+                  text=True,
+              )
+          )
+          packages = {package["name"]: package for package in metadata["packages"]}
+          missing = [name for name in expected if name not in packages]
+          if missing:
+              raise SystemExit(f"workspace is missing packages: {', '.join(missing)}")
+          version = packages["adotenv"]["version"]
+          if tag != f"v{version}":
+              raise SystemExit(f"tag {tag} does not match adotenv version {version}")
+          for name in expected:
+              package = packages[name]
+              if package["version"] != version:
+                  raise SystemExit(
+                      f"{name} is version {package['version']}, expected {version}"
+                  )
+              if package.get("publish") is not None:
+                  raise SystemExit(f"{name} is not publishable")
+          print(f"all workspace packages are publishable at {version}")
+          PY
+
+      - name: plan crates.io publishes
+        id: plan
         env:
           TAG: ${{ github.ref_name }}
+          BOOTSTRAP_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          code="$(curl -sS -o /dev/null -w '%{http_code}' -H 'User-Agent: adotenv-release' \
-            "https://crates.io/api/v1/crates/adotenv/${TAG#v}")"
-          case "$code" in
-            200) echo "already=true" >> "$GITHUB_OUTPUT"; echo "::notice::${TAG#v} is already on crates.io; skipping publish" ;;
-            404) echo "already=false" >> "$GITHUB_OUTPUT" ;;
-            *) echo "::error::crates.io lookup returned HTTP $code"; exit 1 ;;
-          esac
+          set -euo pipefail
+          version="${TAG#v}"
+          packages="adotenv adotenv-process adotenv-config adotenv-figment adotenv-cli"
+          pending=""
+          oidc_packages=""
+          new_packages=""
+          for package in $packages; do
+            code="$(curl -sS -o /dev/null -w '%{http_code}' -H 'User-Agent: adotenv-release' \
+              "https://crates.io/api/v1/crates/$package/$version")"
+            case "$code" in
+              200)
+                echo "::notice::$package $version is already published"
+                ;;
+              404)
+                crate_code="$(curl -sS -o /dev/null -w '%{http_code}' -H 'User-Agent: adotenv-release' \
+                  "https://crates.io/api/v1/crates/$package")"
+                case "$crate_code" in
+                  200)
+                    pending="$pending $package"
+                    oidc_packages="$oidc_packages $package"
+                    ;;
+                  404)
+                    if [[ -z "$BOOTSTRAP_TOKEN" ]]; then
+                      echo "::error::$package does not exist on crates.io; Trusted Publishing cannot make its first publish. Add a temporary CARGO_REGISTRY_TOKEN secret (see RELEASING.md)."
+                      exit 1
+                    fi
+                    pending="$pending $package"
+                    new_packages="$new_packages $package"
+                    ;;
+                  *)
+                    echo "::error::crates.io crate lookup for $package returned HTTP $crate_code"
+                    exit 1
+                    ;;
+                esac
+                ;;
+              *)
+                echo "::error::crates.io version lookup for $package $version returned HTTP $code"
+                exit 1
+                ;;
+            esac
+          done
+          pending="${pending# }"
+          oidc_packages="${oidc_packages# }"
+          new_packages="${new_packages# }"
+          {
+            echo "packages=$pending"
+            echo "oidc_packages=$oidc_packages"
+            echo "new_packages=$new_packages"
+            if [[ -n "$pending" ]]; then
+              echo "needs_publish=true"
+            else
+              echo "needs_publish=false"
+            fi
+            if [[ -n "$oidc_packages" ]]; then
+              echo "needs_oidc=true"
+            else
+              echo "needs_oidc=false"
+            fi
+          } >> "$GITHUB_OUTPUT"
+
       - name: mint a short-lived crates.io token via OIDC
-        if: steps.exists.outputs.already == 'false'
+        if: steps.plan.outputs.needs_oidc == 'true'
         uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1
         id: crates-auth
-      - if: steps.exists.outputs.already == 'false'
-        run: cargo publish -p adotenv --locked
+
+      - name: publish pending crates
+        if: steps.plan.outputs.needs_publish == 'true'
         env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+          PACKAGES: ${{ steps.plan.outputs.packages }}
+          OIDC_PACKAGES: ${{ steps.plan.outputs.oidc_packages }}
+          NEW_PACKAGES: ${{ steps.plan.outputs.new_packages }}
+          TAG: ${{ github.ref_name }}
+          BOOTSTRAP_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          OIDC_TOKEN: ${{ steps.crates-auth.outputs.token }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+
+          wait_for_index() {
+            local package="$1"
+            local version="$2"
+            local path=""
+            local body=""
+            case "${#package}" in
+              1) path="1/$package" ;;
+              2) path="2/$package" ;;
+              3) path="3/${package:0:1}/$package" ;;
+              *) path="${package:0:2}/${package:2:2}/$package" ;;
+            esac
+            for _ in $(seq 1 90); do
+              if body="$(curl -fsSL --max-time 10 -H 'User-Agent: adotenv-release' \
+                "https://index.crates.io/$path")" \
+                && grep -Fq "\"vers\":\"$version\"" <<<"$body"; then
+                echo "::notice::$package $version is visible in the sparse index"
+                return 0
+              fi
+              sleep 2
+            done
+            echo "::error::$package $version did not appear in the sparse index within 180 seconds"
+            return 1
+          }
+
+          if [[ -n "$NEW_PACKAGES" && -z "$BOOTSTRAP_TOKEN" ]]; then
+            echo "::error::A first publish is pending but CARGO_REGISTRY_TOKEN is not set. See RELEASING.md."
+            exit 1
+          fi
+          if [[ -n "$OIDC_PACKAGES" && -z "$OIDC_TOKEN" ]]; then
+            echo "::error::Trusted Publishing did not provide a token for: $OIDC_PACKAGES"
+            exit 1
+          fi
+
+          for package in $PACKAGES; do
+            case " $NEW_PACKAGES " in
+              *" $package "*)
+                token="$BOOTSTRAP_TOKEN"
+                ;;
+              *)
+                token="$OIDC_TOKEN"
+                ;;
+            esac
+            if [[ -z "$token" ]]; then
+              echo "::error::no registry credential is available for $package"
+              exit 1
+            fi
+            echo "::group::Publishing $package $version"
+            CARGO_REGISTRY_TOKEN="$token" cargo publish -p "$package" --locked
+            wait_for_index "$package" "$version"
+            echo "::endgroup::"
+          done

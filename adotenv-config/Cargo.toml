@@ -1,19 +1,25 @@
 [package]
 name = "adotenv-config"
-version = "0.0.0"
+version = "0.7.0"
 edition = "2021"
 rust-version = "1.81"
-publish = false
 description = "config crate source adapter for adotenv documents."
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/asamarts/adotenv"
+documentation = "https://docs.rs/adotenv-config"
+readme = "README.md"
+keywords = ["dotenv", "config", "configuration", "env"]
+categories = ["config", "parser-implementations"]
 
 [features]
 default = []
 load = ["adotenv/load"]
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
-adotenv = { path = "..", version = "0.6.0" }
+adotenv = { path = "..", version = "0.7.0" }
 config = { version = "0.14", default-features = false }
 
 [lints.rust]

@@ -1,15 +1,18 @@
 [package]
 name = "adotenv-cli"
-version = "0.0.0"
+version = "0.7.0"
 edition = "2021"
 rust-version = "1.81"
-publish = false
 description = "Command-line tools for reading, checking, formatting and comparing dotenv files."
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/asamarts/adotenv"
+documentation = "https://docs.rs/adotenv-cli"
+readme = "README.md"
+keywords = ["dotenv", "cli", "formatter", "linter", "env"]
+categories = ["command-line-utilities", "development-tools", "config"]
 
 [dependencies]
-adotenv = { path = "..", version = "0.6.0", features = ["load"] }
+adotenv = { path = "..", version = "0.7.0", features = ["load"] }
 
 [lints.rust]
 missing_docs = "warn"

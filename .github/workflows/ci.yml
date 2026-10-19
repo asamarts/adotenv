@@ -107,7 +107,10 @@ jobs:
         with:
           toolchain: stable
       - run: cargo package -p adotenv --locked
-      - run: cargo package -p adotenv-cli -p adotenv-process -p adotenv-config -p adotenv-figment --locked
+      # Companion packages depend on the not-yet-published core version. Before
+      # the release, verify their file lists; the tag workflow performs the full
+      # verified publish in dependency order after publishing adotenv.
+      - run: cargo package -p adotenv-cli -p adotenv-process -p adotenv-config -p adotenv-figment --locked --list
       - run: cargo bench -p adotenv --bench core --locked -- --test
 
   no-std:
