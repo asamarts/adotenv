@@ -717,6 +717,27 @@ feature and `Document::deserialize`.
   field comparisons.
 - Deserialization performs no file, environment, expansion or command access.
 
+### CLI slice (0.7, unreleased; 2026-10-19)
+
+Tested source: the unreleased 0.7 tree adding the zero-dependency
+`adotenv-cli` workspace companion.
+
+- Eight integration tests cover `get`, `check`, `fmt` with writing/sorting,
+  output-only formatting, `diff`, `example`, `load`, `set`, help and version.
+- The full workspace all-feature suite passes 236 `adotenv` tests, three process
+  tests and eight CLI tests; 23 doctests pass with three filesystem examples
+  ignored. The no-default core still passes 215 tests.
+- Workspace, serde, alloc-only and conformance Clippy pass with Rust 1.99.
+  Rust 1.81 builds pass for the CLI, process crate, core configurations and the
+  alloc-only Thumb target. Warning-denied workspace rustdoc passes.
+- All 60 Criterion smoke workloads pass.
+- Root package verifies at 60 files (about 0.78 MiB); CLI package verifies at six
+  files and process package at five files.
+- Conformance snapshot still matches 409 applicable observations and 798 field
+  comparisons.
+- The CLI uses only library APIs, never mutates the process environment, and
+  leaves trusted command execution (`run`) reserved.
+
 ## Local execution evidence (2026-10-15)
 
 Tested source: the unreleased 0.2 working tree based on

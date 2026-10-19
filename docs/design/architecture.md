@@ -3,7 +3,7 @@
 Status: the lossless core/native edit model, 0.3 dialect configuration/presets,
 0.4 reference/resolution/command-callback APIs, the released 0.5
 structure/trivia-formatting/comparison/example/sorting views and the released
-0.6 file-loading, process-environment and serde adapters are implemented. Sections explicitly marked
+0.6 file-loading, process-environment and serde adapters and the 0.7 workspace CLI are implemented. Sections explicitly marked
 future are designs, not additional shipped interfaces.
 
 ## Document model
@@ -322,6 +322,11 @@ The opt-in `serde` feature implements `Document::deserialize` over a
 string-valued effective map. Scalar visitors parse literal strings; nested
 sequences/maps/enums are rejected rather than synthesized. Conversion errors
 carry source lines and keys. See [serde.md](serde.md).
+
+The zero-dependency workspace `adotenv-cli` exposes read, check, format, sort,
+compare, example, load and set commands through the public library APIs. It does
+not mutate the process environment; `run` remains reserved for an explicit
+trusted-command design. See [cli.md](cli.md).
 
 ## Crate layout and platform
 

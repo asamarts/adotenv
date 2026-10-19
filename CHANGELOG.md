@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Zero-dependency `adotenv-cli` workspace companion with `get`, `check`, `fmt`
+  (including `--write` and `--sort`), `diff`, `example`, `load` and `set`.
+  `run` is reserved for the later explicit trusted-command mode. The CLI uses
+  only library APIs and never mutates the process environment.
+
 ## [0.6.0] - 2026-10-19
 
 ### Added

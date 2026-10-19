@@ -446,6 +446,26 @@ let doc = parse_strict("host=localhost\nport=8080\n").unwrap();
 let config: Config = doc.deserialize()?;
 ```
 
+## CLI (0.7, workspace companion)
+
+The zero-dependency `adotenv-cli` workspace binary currently provides:
+
+```text
+get <file> <key>          print an effective literal value
+check <file>...           print parse diagnostics
+fmt [--write] [--sort] <file>...
+                          format documents, optionally sorted
+diff <left> <right>       compare effective keys
+example <file>            print a value-free example
+load <directory> [mode]   load the standard dotenv cascade
+set <file> <key> <value>  set and write one declaration
+```
+
+`run` is reserved for the later explicit trusted-command mode. The CLI uses the
+library’s verified formatting, sorting, loading and edit APIs; it does not
+mutate the process environment. It is currently a workspace companion and is
+not published to crates.io.
+
 ## Portable syntax (unchanged default)
 
 - Keys are nonempty ASCII letters, digits, `_`, `.` and `-`. Non-POSIX names

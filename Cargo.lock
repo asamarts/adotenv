@@ -12,6 +12,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "adotenv-cli"
+version = "0.0.0"
+dependencies = [
+ "adotenv",
+]
+
+[[package]]
 name = "adotenv-process"
 version = "0.6.0"
 dependencies = [

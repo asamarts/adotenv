@@ -17,6 +17,7 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [sorting.md](docs/design/sorting.md) | Comment-aware, dependency-respecting group sorting |
 | [loading.md](docs/design/loading.md) | Opt-in file cascade loading, validation and origins |
 | [serde.md](docs/design/serde.md) | Opt-in typed deserialization with line-aware errors |
+| [cli.md](docs/design/cli.md) | Zero-dependency workspace command-line tools |
 | [quality.md](docs/design/quality.md) | Testing, fuzzing, conformance, benchmarks, MSRV and semver policy |
 
 **Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0 and 0.6.0 are published. 0.3 implements
@@ -28,8 +29,8 @@ opt-in `exec` helper. 0.5 implements structure views, verified trivia formatting
 key comparison, safe example generation, blank-line collapsing, value quote
 normalization and comment-aware dependency sorting. 0.6 implements file
 cascade loading, serde deserialization and a separate workspace process
-adapter. Integrations remain future. Execution evidence is in the quality
-notes.
+adapter. 0.7 tooling is in progress with the workspace CLI. Integrations remain
+future. Execution evidence is in the quality notes.
 
 ## Goals
 
@@ -198,12 +199,14 @@ Literal parsing into ordered entries with key, value and line spans;
   literal values, dialect-aware key selection and line/key-aware conversion errors.
 - **Released:** 2026-10-19 after the complete quality gate.
 
-### 0.7: Integrations and tools (future)
+### 0.7: Integrations and tools (in progress)
 
-- `adotenv-cli`: `get`, `set`, `fmt`, `check`, `diff` and `run`, with
-  `--allow-commands` for trusted files.
-- `adotenv-config` (a `config` crate source) and `adotenv-figment` (a figment
-  provider).
+- **Implemented:** zero-dependency workspace `adotenv-cli` with `get`, `check`,
+  `fmt`, `diff`, `example`, `load` and `set`.
+- **Remaining:** `run` with an explicit trusted-command opt-in, plus publishing
+  the companion CLI crate.
+- **Remaining:** `adotenv-config` (a `config` crate source) and `adotenv-figment`
+  (a figment provider).
 
 ### 1.0: Stable API (future)
 
