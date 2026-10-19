@@ -464,7 +464,8 @@ run <directory> [mode] -- <program> [args...]
 ```
 
 `run` loads the cascade and starts a child with those values added to its
-environment; the parent environment is never mutated. Command substitution from
+environment; the parent environment is never mutated. Child environment keys
+and values are validated before execution. Command substitution from
 files remains disabled. The CLI uses the library’s verified formatting, sorting,
 loading and edit APIs. It is currently a workspace companion and is not
 published to crates.io.

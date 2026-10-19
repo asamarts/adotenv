@@ -7,8 +7,9 @@ use std::{
 };
 
 use adotenv::{
-    load::load_cascade, parse, parse_strict, parse_with, AssignmentState, ComparedValue,
-    Comparison, DifferenceKind, FormatOptions, Severity,
+    load::{load_cascade, LoadedEnvironment},
+    parse, parse_strict, parse_with, AssignmentState, ComparedValue, Comparison, DifferenceKind,
+    FormatOptions, Severity,
 };
 
 fn main() -> ExitCode {
@@ -309,6 +310,9 @@ fn run_command(args: &[String]) -> u8 {
         Ok(loaded) => loaded,
         Err(error) => return fail(error.to_string()),
     };
+    if let Err(error) = validate_child_environment(&loaded) {
+        return fail(error);
+    }
     let status = Command::new(program)
         .args(program_args)
         .envs(loaded.values())
@@ -317,6 +321,18 @@ fn run_command(args: &[String]) -> u8 {
         Ok(status) => status.code().unwrap_or(1).clamp(0, 255) as u8,
         Err(error) => fail(format!("failed to run {program}: {error}")),
     }
+}
+
+fn validate_child_environment(loaded: &LoadedEnvironment) -> Result<(), String> {
+    for (key, value) in loaded.values() {
+        if key.is_empty() || key.bytes().any(|byte| byte == 0 || byte == b'=') {
+            return Err(format!("invalid child environment key: {key:?}"));
+        }
+        if value.as_bytes().contains(&0) {
+            return Err(format!("child environment value for {key:?} contains NUL"));
+        }
+    }
+    Ok(())
 }
 
 fn print_comparison(comparison: &Comparison) {

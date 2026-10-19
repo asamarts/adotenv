@@ -722,11 +722,11 @@ feature and `Document::deserialize`.
 Tested source: the unreleased 0.7 tree adding the zero-dependency
 `adotenv-cli` workspace companion.
 
-- Eleven integration tests cover `get`, `check`, `fmt` with writing/sorting,
-  output-only formatting, `diff`, `example`, `load`, `set`, `run`, help and
-  version.
+- Twelve integration tests cover `get`, `check`, `fmt` with writing/sorting,
+  output-only formatting, `diff`, `example`, `load`, `set`, `run`, unsafe child
+  environment rejection, help and version.
 - The full workspace all-feature suite passes 236 `adotenv` tests, three process
-  tests and eleven CLI tests; 23 doctests pass with three filesystem examples
+  tests and twelve CLI tests; 23 doctests pass with three filesystem examples
   ignored. The no-default core still passes 215 tests.
 - Workspace, serde, alloc-only and conformance Clippy pass with Rust 1.99.
   Rust 1.81 builds pass for the CLI, process crate, core configurations and the

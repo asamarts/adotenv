@@ -65,7 +65,8 @@ Loads the standard cascade, starts the requested program with `Command`, and
 adds loaded values to the child environment. The child inherits the parent
 environment, with loaded values taking precedence for their keys. The parent
 process environment is not changed. The child exit code is returned; spawn
-errors return 2. Command substitution from `.env` files is not enabled.
+errors return 2. Keys and values are checked for empty/NUL/`=` conditions before
+spawning. Command substitution from `.env` files is not enabled.
 
 ## Deliberate limits
 
