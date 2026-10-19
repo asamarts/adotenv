@@ -459,12 +459,15 @@ diff <left> <right>       compare effective keys
 example <file>            print a value-free example
 load <directory> [mode]   load the standard dotenv cascade
 set <file> <key> <value>  set and write one declaration
+run <directory> [mode] -- <program> [args...]
+                          run a child with loaded values
 ```
 
-`run` is reserved for the later explicit trusted-command mode. The CLI uses the
-library’s verified formatting, sorting, loading and edit APIs; it does not
-mutate the process environment. It is currently a workspace companion and is
-not published to crates.io.
+`run` loads the cascade and starts a child with those values added to its
+environment; the parent environment is never mutated. Command substitution from
+files remains disabled. The CLI uses the library’s verified formatting, sorting,
+loading and edit APIs. It is currently a workspace companion and is not
+published to crates.io.
 
 ## Portable syntax (unchanged default)
 

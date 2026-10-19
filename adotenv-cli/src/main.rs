@@ -1,6 +1,10 @@
 //! Small zero-dependency CLI for adotenv documents.
 
-use std::{env, fs, path::Path, process::ExitCode};
+use std::{
+    env, fs,
+    path::Path,
+    process::{Command, ExitCode},
+};
 
 use adotenv::{
     load::load_cascade, parse, parse_strict, parse_with, AssignmentState, ComparedValue,
@@ -33,10 +37,7 @@ fn run(args: &[String]) -> u8 {
         "example" => example(&args[1..]),
         "load" => load(&args[1..]),
         "set" => set(&args[1..]),
-        "run" => {
-            eprintln!("run is not implemented yet");
-            2
-        }
+        "run" => run_command(&args[1..]),
         _ => {
             eprintln!("unknown command: {command}");
             usage();
@@ -58,8 +59,11 @@ fn usage() {
            example <file>               Print a value-free example\n\
            load <directory> [mode]      Load the standard dotenv cascade\n\
            set <file> <key> <value>     Set and write one declaration\n\
+           run <directory> [mode] -- <program> [args...]\n\
+                                        Run a child with loaded values\n\
          \n\
-         run is reserved for a future trusted-command mode."
+         run never mutates the parent environment. Command substitution from\n\
+         files is not enabled."
     );
 }
 
@@ -283,6 +287,36 @@ fn set(args: &[String]) -> u8 {
         return fail(format!("{}: {error}", args[0]));
     }
     0
+}
+
+fn run_command(args: &[String]) -> u8 {
+    let Some(separator) = args.iter().position(|arg| arg == "--") else {
+        eprintln!("usage: adotenv-cli run <directory> [mode] -- <program> [args...]");
+        return 2;
+    };
+    if separator == 0 || separator + 1 >= args.len() || separator > 2 {
+        eprintln!("usage: adotenv-cli run <directory> [mode] -- <program> [args...]");
+        return 2;
+    }
+    let directory = &args[0];
+    let mode = args
+        .get(1)
+        .filter(|_| separator == 2)
+        .map_or("", String::as_str);
+    let program = &args[separator + 1];
+    let program_args = &args[separator + 2..];
+    let loaded = match load_cascade(directory, mode) {
+        Ok(loaded) => loaded,
+        Err(error) => return fail(error.to_string()),
+    };
+    let status = Command::new(program)
+        .args(program_args)
+        .envs(loaded.values())
+        .status();
+    match status {
+        Ok(status) => status.code().unwrap_or(1).clamp(0, 255) as u8,
+        Err(error) => fail(format!("failed to run {program}: {error}")),
+    }
 }
 
 fn print_comparison(comparison: &Comparison) {

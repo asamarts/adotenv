@@ -203,8 +203,9 @@ Literal parsing into ordered entries with key, value and line spans;
 
 - **Implemented:** zero-dependency workspace `adotenv-cli` with `get`, `check`,
   `fmt`, `diff`, `example`, `load` and `set`.
-- **Remaining:** `run` with an explicit trusted-command opt-in, plus publishing
-  the companion CLI crate.
+- **Implemented:** `run` with an environment-inheriting child process and no
+  parent mutation.
+- **Remaining:** publishing the companion CLI crate and config/figment adapters.
 - **Remaining:** `adotenv-config` (a `config` crate source) and `adotenv-figment`
   (a figment provider).
 

@@ -9,9 +9,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Zero-dependency `adotenv-cli` workspace companion with `get`, `check`, `fmt`
-  (including `--write` and `--sort`), `diff`, `example`, `load` and `set`.
-  `run` is reserved for the later explicit trusted-command mode. The CLI uses
-  only library APIs and never mutates the process environment.
+  (including `--write` and `--sort`), `diff`, `example`, `load`, `set` and
+  `run`. `run` starts a child with loaded values without mutating the parent
+  process environment; command substitution from files is not enabled.
 
 ## [0.6.0] - 2026-10-19
 

@@ -1,8 +1,8 @@
 # Command-line interface
 
 Status: the zero-dependency `adotenv-cli` workspace companion is implemented in
-the unreleased 0.7 tree. It is not yet published to crates.io, and `run` is
-reserved for a later explicit trusted-command mode.
+the unreleased 0.7 tree. It is not yet published to crates.io. `run` starts a
+child process with loaded values but does not mutate the parent environment.
 
 ## Commands
 
@@ -14,6 +14,7 @@ adotenv-cli diff <left> <right>
 adotenv-cli example <file>
 adotenv-cli load <directory> [mode]
 adotenv-cli set <file> <key> <value>
+adotenv-cli run <directory> [mode] -- <program> [args...]
 ```
 
 ### get
@@ -58,10 +59,17 @@ Requires a unique key, uses the verified native edit API and writes the file.
 Values are passed exactly as one argument; shell quoting is the caller’s
 responsibility.
 
+### run
+
+Loads the standard cascade, starts the requested program with `Command`, and
+adds loaded values to the child environment. The child inherits the parent
+environment, with loaded values taking precedence for their keys. The parent
+process environment is not changed. The child exit code is returned; spawn
+errors return 2. Command substitution from `.env` files is not enabled.
+
 ## Deliberate limits
 
-- `run` is not implemented; executing `.env` contents needs an explicit
-  trusted-command design and must never be implicit.
+- Command substitution from loaded files is not enabled.
 - The CLI is not published yet.
 - File writes are direct rather than atomic; callers should use version-control
   workflows or external atomic-write tooling where required.

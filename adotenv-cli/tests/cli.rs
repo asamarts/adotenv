@@ -148,3 +148,43 @@ fn help_and_version_are_available() {
     assert!(output.status.success());
     assert!(stdout(&output).contains("adotenv-cli"));
 }
+
+#[test]
+fn run_requires_a_separator_and_program() {
+    let dir = TempDir::new();
+    let output = run(&["run", dir.path().to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(2));
+}
+
+#[cfg(unix)]
+#[test]
+fn run_executes_a_child_with_loaded_values() {
+    let dir = TempDir::new();
+    fs::write(dir.path().join(".env"), "ADOTENV_CLI_RUN=value\n").unwrap();
+    let output = run(&[
+        "run",
+        dir.path().to_str().unwrap(),
+        "--",
+        "sh",
+        "-c",
+        "printf %s \"$ADOTENV_CLI_RUN\"",
+    ]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(stdout(&output), "value");
+}
+
+#[cfg(unix)]
+#[test]
+fn run_propagates_the_child_exit_code() {
+    let dir = TempDir::new();
+    fs::write(dir.path().join(".env"), "A=1\n").unwrap();
+    let output = run(&[
+        "run",
+        dir.path().to_str().unwrap(),
+        "--",
+        "sh",
+        "-c",
+        "exit 7",
+    ]);
+    assert_eq!(output.status.code(), Some(7));
+}
