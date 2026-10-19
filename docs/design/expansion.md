@@ -117,5 +117,6 @@ never falls back to the host process's working directory, runs the command
 through the platform shell exactly as written, trims one trailing newline and
 returns nonzero-status, spawn and UTF-8 output errors as `CommandError`. Its
 documentation is explicit that it executes arbitrary trusted input. The core
-and default features contain no process-spawning code. The future CLI will
-offer the same explicit trust decision through `--allow-commands`.
+and default features contain no process-spawning code. The workspace CLI does
+not enable command substitution; its `run` command starts a child with loaded
+values and remains separate from `exec`.

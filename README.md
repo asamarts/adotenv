@@ -699,8 +699,10 @@ upstream scanner line-byte limit; this is not an application memory ceiling.
 encoding, order-independent same-line native set batches under byte caps and
 cross-dialect portability reporting. 0.4 adds literal reference inspection,
 opt-in variable resolution, explicit command callbacks and an opt-in `exec`
-helper; formatting, loading and integration crates remain future milestones.
-See [ROADMAP.md](ROADMAP.md) and [design notes](docs/design/).
+helper. 0.5 adds formatting, structure views, comparison, examples and sorting;
+0.6 adds loading, serde and the process adapter; 0.7 adds the CLI and the
+`config`/Figment integration companions. See [ROADMAP.md](ROADMAP.md) and
+[design notes](docs/design/).
 
 ## Minimum supported Rust version
 

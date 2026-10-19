@@ -1,13 +1,14 @@
 # Quality, testing and compatibility
 
-Status: lossless-core quality harnesses and 0.3/0.4 checks are implemented:
+Status: lossless-core quality harnesses through 0.7 are implemented:
 unit/property/documentation tests, public synthetic fuzz seeds, Criterion
 workloads, real pinned upstream replay and a public-API Rust probe.
 This document distinguishes runnable checks from recorded execution evidence.
 Standalone dialect encoding, same-line native batch budgets, cross-dialect
 portability, literal reference inspection, opt-in variable resolution,
-explicit command callbacks and the opt-in `exec` helper are covered; the CLI
-and loading remain future.
+explicit command callbacks, the opt-in `exec` helper, file loading, serde,
+the process adapter, CLI workflows and the config/Figment adapters are
+covered.
 
 ## Permanent test expectations
 

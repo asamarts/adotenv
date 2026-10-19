@@ -174,12 +174,12 @@ let formatted = doc
 assert_eq!(formatted.as_str(), "A = 1\nB = 2\n");
 ```
 
-## Future 0.5 work
+## Delivered follow-ons
 
-- Sorting inside groups, keeping attached comments and respecting `${VAR}`
-  dependencies.
-- A CLI formatter and comparison/example command surfaces once the library
-  primitives are stable.
+- Comment-aware, dependency-respecting sorting inside groups is implemented and
+  exposed through `Document::sort`.
+- The workspace CLI provides formatter, comparison and example surfaces through
+  the library APIs.
 
 Evidence for this slice is recorded in
 [quality.md](quality.md#structure-and-formatting-slice-05-unreleased).

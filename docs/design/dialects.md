@@ -105,7 +105,7 @@ Portable is strict where implementations disagree and literal everywhere:
   spelling, with an informational diagnostic. Lone carriage returns are
   retained as line endings and get warnings.
 - No expansion: `$` is literal after any documented escape decoding.
-  Reference inspection and resolution remain future 0.4 interfaces (see
+  Reference inspection and resolution are the opt-in 0.4 interfaces (see
   [expansion.md](expansion.md)).
 
 ## Presets (0.3)
