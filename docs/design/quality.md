@@ -207,17 +207,18 @@ workspace. `std` is default-on but adds no I/O or environment/process behavior.
 `--no-default-features` uses `no_std` with `alloc`; callers still supply their
 own allocator on targets that require one.
 
-`#![forbid(unsafe_code)]` is unconditional in the core. No core feature in 0.2
-or 0.3 loads files, changes environment variables, executes commands or expands
-values. Loading/expansion/command helpers remain later opt-in work. A future
-process adapter, not core, will own any unsafe environment application API.
+`#![forbid(unsafe_code)]` is unconditional in the core. The `exec` and `load`
+features are opt-in; there is no implicit file, environment, process or command
+access. The separate process companion, not core, owns the unsafe environment
+application API.
 
 CI covers stable tests on Linux/macOS/Windows, README doctests, formatting,
-Clippy and documentation warnings, packaging the explicit `adotenv` package,
+Clippy and documentation warnings, packaging the root and companion packages,
 benchmark smoke, Rust 1.81 library builds with and without defaults and with
-the `exec` feature, feature tests on all platforms, and an alloc-only build for
-`thumbv7em-none-eabi` where `std` is unavailable. MSRV jobs
-build only the library because dev/fuzz dependencies can require newer Rust.
+the `exec`/`load` features, feature tests on all platforms, and an alloc-only
+build for `thumbv7em-none-eabi` where `std` is unavailable. MSRV jobs build the
+library configurations and the process, CLI and integration companions; their
+dev/fuzz dependencies can still require newer Rust.
 Release metadata and publishing select the package by name, not workspace
 package order. Tag publication depends on the complete reusable CI workflow at
 the same commit, including all platforms, MSRV, embedded, package and benchmark
@@ -1060,4 +1061,5 @@ still need byte and line/declaration budgets for retained lossless data.
 - After 1.0, the API follows semver. Stable diagnostic identities do not depend
   on enum order or message wording. Non-exhaustive enums allow new variants;
   callers retain a fallback arm.
-- Future workspace crates will be versioned and released independently.
+- Workspace companions are versioned and released independently once their
+  publication policy is enabled; all current companions remain `publish = false`.
