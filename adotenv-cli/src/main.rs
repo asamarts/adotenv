@@ -1,10 +1,14 @@
 //! Small zero-dependency CLI for adotenv documents.
 
 use std::{
-    env, fs,
-    io::{self, Write},
-    path::{Path, PathBuf},
+    env, fs, io,
+    path::Path,
     process::{Command, ExitCode},
+};
+#[cfg(unix)]
+use std::{
+    io::Write,
+    path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
 };
 
