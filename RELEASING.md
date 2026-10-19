@@ -68,9 +68,12 @@ This applies to `adotenv-process`, `adotenv-cli`, `adotenv-config` and
 
    Optionally enable “Trusted Publishing Only” after the configuration works.
 
-9. Delete the `CARGO_REGISTRY_TOKEN` repository secret. Future releases are
-   keyless. The workflow intentionally keeps OIDC as the default for existing
-   crates and never stores the bootstrap token itself.
+9. The temporary token is no longer required once all four crates exist.
+   Delete it if you do not need a break-glass credential. If you intentionally
+   retain it, restrict it to `publish-new`/`publish-update`, protect the
+   repository secret and rotate it on your normal credential schedule. The
+   workflow uses OIDC for existing crates and uses the token only for a
+   first-time crate.
 
 ## If a release fails partway
 
