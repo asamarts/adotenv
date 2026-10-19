@@ -1,0 +1,23 @@
+[package]
+name = "adotenv-figment"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.81"
+publish = false
+description = "Figment provider for adotenv documents."
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/asamarts/adotenv"
+
+[features]
+default = []
+load = ["adotenv/load"]
+
+[dependencies]
+adotenv = { path = "..", version = "0.6.0" }
+figment = { version = "0.10", default-features = false }
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[lints.rust]
+missing_docs = "warn"

@@ -8,6 +8,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `adotenv-config` workspace adapter exposing effective literal values as a
+  `config` source, and `adotenv-figment` exposing them as a Figment provider.
+  Both companions offer an optional `load` feature for loaded environments.
 - Zero-dependency `adotenv-cli` workspace companion with `get`, `check`, `fmt`
   (including `--write` and `--sort`), `diff`, `example`, `load`, `set` and
   `run`. `run` starts a child with loaded values without mutating the parent

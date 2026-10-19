@@ -323,31 +323,36 @@ string-valued effective map. Scalar visitors parse literal strings; nested
 sequences/maps/enums are rejected rather than synthesized. Conversion errors
 carry source lines and keys. See [serde.md](serde.md).
 
+The workspace `adotenv-config` and `adotenv-figment` companions expose effective
+literal values to those configuration ecosystems without changing core behavior.
 The zero-dependency workspace `adotenv-cli` exposes read, check, format, sort,
 compare, example, load and set commands through the public library APIs. It does
-not mutate the process environment; `run` remains reserved for an explicit
-trusted-command design. See [cli.md](cli.md).
+not mutate the process environment. `run` starts a child with loaded values
+and file command substitution remains disabled. See [cli.md](cli.md).
 
 ## Crate layout and platform
 
-The repository is a Cargo workspace with the core package at the root
-(`members = ["."]`). Fuzzing has an excluded, separate workspace. `adotenv`
-has zero runtime dependencies, `#![no_std]` with `alloc`, and unconditional
+The repository is a Cargo workspace with the core package at the root. Its
+members are `adotenv`, `adotenv-process`, `adotenv-cli`, `adotenv-config` and
+`adotenv-figment`; fuzzing has an excluded, separate workspace. `adotenv` has
+zero runtime dependencies, `#![no_std]` with `alloc`, and unconditional
 `#![forbid(unsafe_code)]`. Default feature `std` can be disabled without losing
 core parsing/editing/position APIs or `core::error::Error` implementations.
-There is no I/O or environment/process integration under either mode.
+There is no implicit I/O or environment/process integration under either mode.
 
-The unsafe prohibition in `adotenv` is unconditional. A future opt-in,
-std-only `adotenv-process` adapter will own the narrowly documented unsafe
-function for applying validated values to the process environment. Future
-file loading and map generation remain safe `adotenv` features, not current
-core behavior. Later CLI/config/figment crates will join the workspace;
-workspace crates will be versioned and released independently.
+The unsafe prohibition in `adotenv` is unconditional. The opt-in, std-only
+`adotenv-process` adapter owns the narrowly documented unsafe function for
+applying validated values to the process environment. File loading remains an
+opt-in safe `adotenv` feature. The CLI is zero-dependency; the config and
+Figment adapters keep their ecosystem dependencies outside the core and expose
+the optional `load` feature for environment constructors. Workspace crates are
+versioned and released independently.
 
 ## Error types
 
 0.2 fallible APIs use specific non-exhaustive `EditError` and `PositionError`
 enums; strict parsing returns a `Diagnostic`. Each implements `Display` and
 `core::error::Error` on MSRV 1.81. `ResolveError` covers 0.4 variable
-resolution and command-callback failures; `LoadError` belongs to a future
-loading milestone.
+resolution and command-callback failures, `LoadError` covers the opt-in file
+cascade, and `DeserializeError` carries typed serde failures. The process
+companion reports invalid keys/values through `ApplyError`.

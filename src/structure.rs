@@ -21,6 +21,7 @@ impl<'doc> Group<'doc> {
     /// # Panics
     /// Panics only if an internal document-snapshot invariant is broken; groups
     /// are always created from valid item ranges.
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn items(self) -> impl DoubleEndedIterator<Item = Item<'doc>> + ExactSizeIterator + 'doc {
         (self.start..self.end).map(move |index| {
             self.document
@@ -144,6 +145,7 @@ impl<'doc> Entry<'doc> {
     /// # Panics
     /// Panics only if an internal document-snapshot invariant is broken; leading
     /// comment indexes are derived from the same document.
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn leading_comments(
         self,
     ) -> impl DoubleEndedIterator<Item = Item<'doc>> + ExactSizeIterator + 'doc {

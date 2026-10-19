@@ -84,4 +84,5 @@ lookup policy and native edit verification for every command, including
 
 - Command substitution from loaded files is not enabled.
 - The CLI is not published yet.
+- The companion `config` and `figment` adapters live in separate workspace crates.
 - Windows writes fall back to direct replacement; Unix uses atomic rename.

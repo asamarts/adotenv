@@ -34,12 +34,13 @@ jobs:
       - run: cargo fmt --manifest-path fuzz/Cargo.toml --all --check
       - run: cargo fmt --manifest-path conformance/rust/Cargo.toml --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo clippy -p adotenv-config -p adotenv-figment --features load --all-targets --locked -- -D warnings
       - run: cargo clippy -p adotenv --features exec --all-targets --locked -- -D warnings
       - run: cargo clippy -p adotenv --features load --all-targets --locked -- -D warnings
       - run: cargo clippy -p adotenv --features serde --all-targets --locked -- -D warnings
       - run: cargo clippy -p adotenv --lib --no-default-features --locked -- -D warnings
       - run: cargo clippy --manifest-path conformance/rust/Cargo.toml --all-targets --locked -- -D warnings
-      - run: cargo doc -p adotenv --no-deps --locked
+      - run: cargo doc --workspace --no-deps --all-features --locked
         env:
           RUSTDOCFLAGS: -D warnings
 
@@ -62,6 +63,8 @@ jobs:
       - run: cargo test --workspace --locked
         env:
           PROPTEST_CASES: "2000"
+      - run: cargo test -p adotenv-config --features load --locked
+      - run: cargo test -p adotenv-figment --features load --locked
       - run: cargo test -p adotenv --features exec --locked
       - run: cargo test -p adotenv --features load --locked
       - run: cargo test -p adotenv --features serde --locked
@@ -86,6 +89,10 @@ jobs:
       - run: cargo build -p adotenv --lib --no-default-features --locked
       - run: cargo build -p adotenv-process --locked
       - run: cargo build -p adotenv-cli --locked
+      - run: cargo build -p adotenv-config --locked
+      - run: cargo build -p adotenv-config --features load --locked
+      - run: cargo build -p adotenv-figment --locked
+      - run: cargo build -p adotenv-figment --features load --locked
 
   package:
     name: package
@@ -100,6 +107,7 @@ jobs:
         with:
           toolchain: stable
       - run: cargo package -p adotenv --locked
+      - run: cargo package -p adotenv-cli -p adotenv-process -p adotenv-config -p adotenv-figment --locked
       - run: cargo bench -p adotenv --bench core --locked -- --test
 
   no-std:

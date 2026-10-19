@@ -472,6 +472,28 @@ files remains disabled. The CLI uses the library’s verified formatting, sortin
 loading and edit APIs. It is currently a workspace companion and is not
 published to crates.io.
 
+## Integrations (0.7, workspace companions)
+
+`adotenv-config` exposes effective literal declarations as a `config` source;
+enable its `load` feature to accept a loaded environment. `config` applies its
+native key rules: names are case-insensitive and dots denote nested paths.
+`adotenv-figment` exposes a `Profile::Default` dictionary with the original key
+spelling; enable its `load` feature for loaded environments. Both honor
+duplicate policy, lookup participation and `BareKeys::Empty`.
+
+```rust,ignore
+use adotenv::parse_strict;
+use adotenv_config::AdotenvSource;
+
+let doc = parse_strict("host=localhost\nport=8080\n").unwrap();
+let config = config::Config::builder()
+    .add_source(AdotenvSource::from_document(&doc))
+    .build()?;
+```
+
+Figment values remain strings and require string fields or explicit conversion.
+Both adapters are currently workspace companions and are not published.
+
 ## Portable syntax (unchanged default)
 
 - Keys are nonempty ASCII letters, digits, `_`, `.` and `-`. Non-POSIX names

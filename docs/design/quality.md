@@ -722,11 +722,11 @@ feature and `Document::deserialize`.
 Tested source: the unreleased 0.7 tree adding the zero-dependency
 `adotenv-cli` workspace companion.
 
-- Fourteen integration tests cover `get`, `check`, `fmt` with writing/sorting
+- Fourteen CLI tests cover `get`, `check`, `fmt` with writing/sorting
   and check-only mode, output-only formatting, `diff`, `example`, `load`, `set`,
   `run`, unsafe child environment rejection, dialect selection, help and version.
 - The full workspace all-feature suite passes 236 `adotenv` tests, three process
-  tests and twelve CLI tests; 23 doctests pass with three filesystem examples
+  tests and fourteen CLI tests; 23 doctests pass with four filesystem examples
   ignored. The no-default core still passes 215 tests.
 - Workspace, serde, alloc-only and conformance Clippy pass with Rust 1.99.
   Rust 1.81 builds pass for the CLI, process crate, core configurations and the
@@ -736,8 +736,34 @@ Tested source: the unreleased 0.7 tree adding the zero-dependency
   files and process package at five files.
 - Conformance snapshot still matches 409 applicable observations and 798 field
   comparisons.
-- The CLI uses only library APIs, never mutates the process environment, and
-  leaves trusted command execution (`run`) reserved.
+- The CLI uses only library APIs. `run` starts an environment-inheriting child
+  without mutating the parent process environment; file command substitution is
+  not enabled.
+
+### Ecosystem integration slice (0.7, unreleased; 2026-10-19)
+
+Tested source: the unreleased 0.7 tree adding `adotenv-config` and
+`adotenv-figment` workspace companions.
+
+- Ten adapter tests (four default and one `load`-gated per crate) cover
+  flat-value construction, native `config` path/case semantics, literal
+  Figment key spelling, duplicate policy, bare/ignored declarations, quoted
+  decoding, scalar coercion, string extraction and loaded environments.
+- The all-feature workspace suite passes 236 `adotenv` tests, three process
+  tests, fourteen CLI tests and five tests for each integration adapter; 23
+  doctests pass with four filesystem examples ignored. The default workspace
+  suite passes 226 `adotenv`, three process, fourteen CLI and four tests for
+  each adapter, with 22 doctests and the same four ignored examples. The
+  no-default core still passes 215 tests.
+- Workspace, load-enabled adapter, serde, alloc-only and conformance Clippy pass
+  with Rust 1.95 and Rust 1.99. Rust 1.81 builds pass for both integration
+  adapters (default and `load`), CLI, process and core configurations.
+  Warning-denied workspace rustdoc passes.
+- All 60 Criterion smoke workloads pass.
+- The root package verifies at 61 files (about 0.79 MiB); the CLI package at six
+  files, and process, config and Figment packages at five files each.
+  Conformance snapshot still matches 409 applicable observations and 798 field
+  comparisons.
 
 ## Local execution evidence (2026-10-15)
 

@@ -1,5 +1,11 @@
 [workspace]
-members = [".", "adotenv-process", "adotenv-cli"]
+members = [
+    ".",
+    "adotenv-process",
+    "adotenv-cli",
+    "adotenv-config",
+    "adotenv-figment",
+]
 exclude = ["fuzz"]
 resolver = "2"
 
