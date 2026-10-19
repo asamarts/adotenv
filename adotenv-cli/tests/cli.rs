@@ -202,3 +202,21 @@ fn run_rejects_nul_environment_values_before_spawning() {
     assert_eq!(output.status.code(), Some(2));
     assert!(stderr(&output).contains("NUL"));
 }
+
+#[test]
+fn dialect_selection_applies_to_commands() {
+    let dir = TempDir::new();
+    let file = dir.file("node.env", "A=a#b\n");
+    let portable = run(&["get", file.to_str().unwrap(), "A"]);
+    assert_eq!(stdout(&portable), "a#b\n");
+
+    let node = run(&["get", "--dialect", "node", file.to_str().unwrap(), "A"]);
+    assert_eq!(stdout(&node), "a\n");
+
+    let node = run(&["--dialect", "node", "get", file.to_str().unwrap(), "A"]);
+    assert_eq!(stdout(&node), "a\n");
+
+    let unknown = run(&["get", "--dialect", "nope", file.to_str().unwrap(), "A"]);
+    assert_eq!(unknown.status.code(), Some(2));
+    assert!(stderr(&unknown).contains("unknown dialect"));
+}

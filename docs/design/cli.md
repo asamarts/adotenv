@@ -7,6 +7,8 @@ child process with loaded values but does not mutate the parent environment.
 ## Commands
 
 ```text
+adotenv-cli [--dialect <portable|node|python|compose|docker>] <command> ...
+
 adotenv-cli get <file> <key>
 adotenv-cli check <file>...
 adotenv-cli fmt [--write] [--sort] <file>...
@@ -19,8 +21,8 @@ adotenv-cli run <directory> [mode] -- <program> [args...]
 
 ### get
 
-Reads one file with strict Portable parsing and prints the effective decoded
-value. Missing keys exit 1. Empty values print an empty line. Parse failures
+Reads one file with strict parsing under the selected dialect and prints the
+effective decoded value. Missing keys exit 1. Empty values print an empty line. Parse failures
 exit 2.
 
 ### check
@@ -68,10 +70,16 @@ process environment is not changed. The child exit code is returned; spawn
 errors return 2. Keys and values are checked for empty/NUL/`=` conditions before
 spawning. Command substitution from `.env` files is not enabled.
 
+## Dialects
+
+The global `--dialect` option accepts `portable` (default), `node`, `python`,
+`compose`, `docker` or `docker-raw`. It selects the exact library parser,
+lookup policy and native edit verification for every command, including
+`load`/`run` cascades.
+
 ## Deliberate limits
 
 - Command substitution from loaded files is not enabled.
 - The CLI is not published yet.
 - File writes are direct rather than atomic; callers should use version-control
   workflows or external atomic-write tooling where required.
-- The CLI exposes only Portable syntax; a dialect flag is future work.

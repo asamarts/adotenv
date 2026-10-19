@@ -7,9 +7,9 @@ use std::{
 };
 
 use adotenv::{
-    load::{load_cascade, LoadedEnvironment},
-    parse, parse_strict, parse_with, AssignmentState, ComparedValue, Comparison, DifferenceKind,
-    FormatOptions, Severity,
+    load::{load_cascade_with, LoadedEnvironment},
+    parse_strict_with, parse_with, AssignmentState, ComparedValue, Comparison, Dialect,
+    DifferenceKind, FormatOptions, Severity,
 };
 
 fn main() -> ExitCode {
@@ -18,6 +18,11 @@ fn main() -> ExitCode {
 }
 
 fn run(args: &[String]) -> u8 {
+    let mut args = args.to_vec();
+    let dialect = match extract_dialect(&mut args) {
+        Ok(dialect) => dialect,
+        Err(()) => return 2,
+    };
     let Some(command) = args.first().map(String::as_str) else {
         usage();
         return 2;
@@ -31,14 +36,14 @@ fn run(args: &[String]) -> u8 {
             println!("adotenv-cli {}", env!("CARGO_PKG_VERSION"));
             0
         }
-        "get" => get(&args[1..]),
-        "check" => check(&args[1..]),
-        "fmt" => fmt(&args[1..]),
-        "diff" => diff(&args[1..]),
-        "example" => example(&args[1..]),
-        "load" => load(&args[1..]),
-        "set" => set(&args[1..]),
-        "run" => run_command(&args[1..]),
+        "get" => get(&args[1..], dialect),
+        "check" => check(&args[1..], dialect),
+        "fmt" => fmt(&args[1..], dialect),
+        "diff" => diff(&args[1..], dialect),
+        "example" => example(&args[1..], dialect),
+        "load" => load(&args[1..], dialect),
+        "set" => set(&args[1..], dialect),
+        "run" => run_command(&args[1..], dialect),
         _ => {
             eprintln!("unknown command: {command}");
             usage();
@@ -47,9 +52,36 @@ fn run(args: &[String]) -> u8 {
     }
 }
 
+fn extract_dialect(args: &mut Vec<String>) -> Result<Dialect, ()> {
+    let limit = args
+        .iter()
+        .position(|arg| arg == "--")
+        .unwrap_or(args.len());
+    let Some(position) = args[..limit].iter().position(|arg| arg == "--dialect") else {
+        return Ok(Dialect::PORTABLE);
+    };
+    if position + 1 >= limit {
+        eprintln!("--dialect requires a value");
+        return Err(());
+    }
+    let dialect = match args[position + 1].as_str() {
+        "portable" => Dialect::PORTABLE,
+        "node" => Dialect::NODE_DOTENV,
+        "python" => Dialect::PYTHON_DOTENV,
+        "compose" => Dialect::COMPOSE,
+        "docker" | "docker-raw" => Dialect::DOCKER_RAW,
+        other => {
+            eprintln!("unknown dialect: {other}");
+            return Err(());
+        }
+    };
+    args.drain(position..=position + 1);
+    Ok(dialect)
+}
+
 fn usage() {
     println!(
-        "adotenv-cli <command> [options]\n\
+        "adotenv-cli [--dialect <portable|node|python|compose|docker>] <command> [options]\n\
          \n\
          Commands:\n\
            get <file> <key>             Print an effective literal value\n\
@@ -68,7 +100,7 @@ fn usage() {
     );
 }
 
-fn get(args: &[String]) -> u8 {
+fn get(args: &[String], dialect: Dialect) -> u8 {
     if args.len() != 2 {
         eprintln!("usage: adotenv-cli get <file> <key>");
         return 2;
@@ -78,7 +110,7 @@ fn get(args: &[String]) -> u8 {
         Ok(source) => source,
         Err(error) => return fail(error),
     };
-    let doc = match parse_strict(&source) {
+    let doc = match parse_strict_with(&source, dialect) {
         Ok(doc) => doc,
         Err(error) => return fail(format!("{path}: {error}")),
     };
@@ -94,7 +126,7 @@ fn get(args: &[String]) -> u8 {
     }
 }
 
-fn check(args: &[String]) -> u8 {
+fn check(args: &[String], dialect: Dialect) -> u8 {
     if args.is_empty() {
         eprintln!("usage: adotenv-cli check <file>...");
         return 2;
@@ -109,7 +141,7 @@ fn check(args: &[String]) -> u8 {
                 continue;
             }
         };
-        let (_, diagnostics) = parse(&source);
+        let (_, diagnostics) = parse_with(&source, dialect);
         for diagnostic in diagnostics {
             println!(
                 "{path}:{}: {:?} {}: {}",
@@ -126,7 +158,7 @@ fn check(args: &[String]) -> u8 {
     u8::from(failed)
 }
 
-fn fmt(args: &[String]) -> u8 {
+fn fmt(args: &[String], dialect: Dialect) -> u8 {
     let mut write = false;
     let mut sort = false;
     let mut paths = Vec::new();
@@ -151,7 +183,7 @@ fn fmt(args: &[String]) -> u8 {
                 continue;
             }
         };
-        let (doc, diagnostics) = parse_with(&source, adotenv::Dialect::PORTABLE);
+        let (doc, diagnostics) = parse_with(&source, dialect);
         let has_errors = diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity() == Severity::Error);
@@ -170,7 +202,7 @@ fn fmt(args: &[String]) -> u8 {
                 }
             };
             formatting_source = sorted.into_string();
-            formatting_doc = match parse_strict(&formatting_source) {
+            formatting_doc = match parse_strict_with(&formatting_source, dialect) {
                 Ok(doc) => doc,
                 Err(error) => {
                     fail(format!("{path}: {error}"));
@@ -208,7 +240,7 @@ fn fmt(args: &[String]) -> u8 {
     u8::from(failed)
 }
 
-fn diff(args: &[String]) -> u8 {
+fn diff(args: &[String], dialect: Dialect) -> u8 {
     if args.len() != 2 {
         eprintln!("usage: adotenv-cli diff <left> <right>");
         return 2;
@@ -221,11 +253,11 @@ fn diff(args: &[String]) -> u8 {
         Ok(source) => source,
         Err(error) => return fail(error),
     };
-    let left = match parse_strict(&left_source) {
+    let left = match parse_strict_with(&left_source, dialect) {
         Ok(doc) => doc,
         Err(error) => return fail(format!("{}: {error}", args[0])),
     };
-    let right = match parse_strict(&right_source) {
+    let right = match parse_strict_with(&right_source, dialect) {
         Ok(doc) => doc,
         Err(error) => return fail(format!("{}: {error}", args[1])),
     };
@@ -234,7 +266,7 @@ fn diff(args: &[String]) -> u8 {
     u8::from(!comparison.is_empty())
 }
 
-fn example(args: &[String]) -> u8 {
+fn example(args: &[String], dialect: Dialect) -> u8 {
     if args.len() != 1 {
         eprintln!("usage: adotenv-cli example <file>");
         return 2;
@@ -243,7 +275,7 @@ fn example(args: &[String]) -> u8 {
         Ok(source) => source,
         Err(error) => return fail(error),
     };
-    let (doc, diagnostics) = parse(&source);
+    let (doc, diagnostics) = parse_with(&source, dialect);
     for diagnostic in diagnostics {
         eprintln!("{}: {diagnostic}", args[0]);
     }
@@ -251,13 +283,13 @@ fn example(args: &[String]) -> u8 {
     0
 }
 
-fn load(args: &[String]) -> u8 {
+fn load(args: &[String], dialect: Dialect) -> u8 {
     if args.is_empty() || args.len() > 2 {
         eprintln!("usage: adotenv-cli load <directory> [mode]");
         return 2;
     }
     let mode = args.get(1).map_or("", String::as_str);
-    let loaded = match load_cascade(&args[0], mode) {
+    let loaded = match load_cascade_with(&args[0], mode, dialect) {
         Ok(loaded) => loaded,
         Err(error) => return fail(error.to_string()),
     };
@@ -267,7 +299,7 @@ fn load(args: &[String]) -> u8 {
     0
 }
 
-fn set(args: &[String]) -> u8 {
+fn set(args: &[String], dialect: Dialect) -> u8 {
     if args.len() != 3 {
         eprintln!("usage: adotenv-cli set <file> <key> <value>");
         return 2;
@@ -276,7 +308,7 @@ fn set(args: &[String]) -> u8 {
         Ok(source) => source,
         Err(error) => return fail(error),
     };
-    let doc = match parse_strict(&source) {
+    let doc = match parse_strict_with(&source, dialect) {
         Ok(doc) => doc,
         Err(error) => return fail(format!("{}: {error}", args[0])),
     };
@@ -290,7 +322,7 @@ fn set(args: &[String]) -> u8 {
     0
 }
 
-fn run_command(args: &[String]) -> u8 {
+fn run_command(args: &[String], dialect: Dialect) -> u8 {
     let Some(separator) = args.iter().position(|arg| arg == "--") else {
         eprintln!("usage: adotenv-cli run <directory> [mode] -- <program> [args...]");
         return 2;
@@ -306,7 +338,7 @@ fn run_command(args: &[String]) -> u8 {
         .map_or("", String::as_str);
     let program = &args[separator + 1];
     let program_args = &args[separator + 2..];
-    let loaded = match load_cascade(directory, mode) {
+    let loaded = match load_cascade_with(directory, mode, dialect) {
         Ok(loaded) => loaded,
         Err(error) => return fail(error.to_string()),
     };

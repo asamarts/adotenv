@@ -722,9 +722,9 @@ feature and `Document::deserialize`.
 Tested source: the unreleased 0.7 tree adding the zero-dependency
 `adotenv-cli` workspace companion.
 
-- Twelve integration tests cover `get`, `check`, `fmt` with writing/sorting,
+- Thirteen integration tests cover `get`, `check`, `fmt` with writing/sorting,
   output-only formatting, `diff`, `example`, `load`, `set`, `run`, unsafe child
-  environment rejection, help and version.
+  environment rejection, dialect selection, help and version.
 - The full workspace all-feature suite passes 236 `adotenv` tests, three process
   tests and twelve CLI tests; 23 doctests pass with three filesystem examples
   ignored. The no-default core still passes 215 tests.

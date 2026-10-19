@@ -448,7 +448,8 @@ let config: Config = doc.deserialize()?;
 
 ## CLI (0.7, workspace companion)
 
-The zero-dependency `adotenv-cli` workspace binary currently provides:
+The zero-dependency `adotenv-cli` workspace binary accepts a global
+`--dialect <portable|node|python|compose|docker>` option and currently provides:
 
 ```text
 get <file> <key>          print an effective literal value
