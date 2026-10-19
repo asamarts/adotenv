@@ -9,6 +9,11 @@ workspace packages in dependency order:
 4. `adotenv-figment`
 5. `adotenv-cli`
 
+The 0.7.0 bootstrap is complete: all five crates are published and their
+Trusted Publishing configurations point at this repository, `release.yml`, and
+no environment. The temporary token was retained intentionally as a fallback
+for future first-time crates.
+
 A tag push runs the full CI quality gate first. The workflow then:
 
 - verifies that the tag matches every package version;
@@ -21,8 +26,8 @@ A tag push runs the full CI quality gate first. The workflow then:
 
 crates.io does not support a trusted publisher for a crate that does not exist
 yet. The first publish of each new crate therefore needs a temporary API token.
-This applies to `adotenv-process`, `adotenv-cli`, `adotenv-config` and
-`adotenv-figment` for 0.7.0.
+For 0.7.0 this applied to `adotenv-process`, `adotenv-cli`, `adotenv-config`
+and `adotenv-figment`; all five trusted publishers are now configured.
 
 1. Confirm that the crates.io account has a verified email address and owns
    `adotenv`.

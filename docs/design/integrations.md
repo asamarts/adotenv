@@ -1,8 +1,7 @@
 # Ecosystem integrations
 
 Status: the `config` and `figment` companion adapters were published as 0.7.0
-on 2026-10-19. Trusted Publishing configuration for the new companion crates
-remains a one-time crates.io settings step.
+on 2026-10-19. Trusted Publishing is configured for both crates.
 
 Both adapters consume effective literal values from either a `Document` or,
 with their optional `load` feature, a `LoadedEnvironment`. They never expand
@@ -68,7 +67,7 @@ the `load` feature, and `from_values` accepts an explicit map.
 
 Both crates are published at version `0.7.0`. Their default feature set is
 empty; `load` enables only the environment constructors and the core crate’s
-file-loading feature. Docs.rs builds them with all features. `adotenv-config` is built against `config` 0.14,
-the version compatible with the workspace MSRV. See
-[RELEASING.md](../../RELEASING.md) for the release bootstrap and Trusted
+file-loading feature. Docs.rs builds them with all features. `adotenv-config`
+is built against `config` 0.14, the version compatible with the workspace MSRV.
+See [RELEASING.md](../../RELEASING.md) for the release bootstrap and Trusted
 Publishing setup.

@@ -22,19 +22,18 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [quality.md](docs/design/quality.md) | Testing, fuzzing, conformance, benchmarks, MSRV and semver policy |
 | [RELEASING.md](RELEASING.md) | Tag release, first-publish bootstrap and Trusted Publishing |
 
-**Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0 and 0.7.0 are published. 0.3 implements
-explicit dialect configuration, all five syntax presets, selected-dialect native
-verification, exact per-dialect encoding, applicable pinned-upstream comparison
-and cross-dialect portability reporting. 0.4 implements literal reference
+**Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0 and 0.7.0 are
+published. 0.3 implements explicit dialect configuration, all five syntax
+presets, selected-dialect native verification, exact per-dialect encoding,
+applicable pinned-upstream comparison and cross-dialect portability reporting. 0.4 implements literal reference
 inspection, opt-in variable resolution, explicit command callbacks and an
 opt-in `exec` helper. 0.5 implements structure views, verified trivia formatting,
 key comparison, safe example generation, blank-line collapsing, value quote
 normalization and comment-aware dependency sorting. 0.6 implements file
 cascade loading, serde deserialization and a separate workspace process
 adapter. 0.7 publishes the workspace CLI, the process and tooling companions,
-and the `config`/Figment integration adapters. Trusted Publishing configuration
-for the four new companion crates remains a one-time manual step. Execution
-evidence is in the quality notes.
+and the `config`/Figment integration adapters. Trusted Publishing is configured
+for all five crates. Execution evidence is in the quality notes.
 
 ## Goals
 
@@ -213,8 +212,9 @@ Literal parsing into ordered entries with key, value and line spans;
 - **Implemented:** `adotenv-config` and `adotenv-figment` workspace adapters,
   each with an optional `load` feature for loaded environments.
 - **Released:** 2026-10-19 after the complete quality gate.
-- **Remaining:** one-time Trusted Publishing configuration for the four new
-  companion crates at crates.io. See [RELEASING.md](RELEASING.md).
+- **Configured:** Trusted Publishing for all five crates. The bootstrap token is
+  intentionally retained as a fallback for future first-time crates. See
+  [RELEASING.md](RELEASING.md).
 
 ### 1.0: Stable API (future)
 

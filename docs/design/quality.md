@@ -779,9 +779,9 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   0.7.0 versions and docs.rs serves documentation for all five crates; GitHub
   Release v0.7.0 is the latest release. A downstream crates.io project installed
   `adotenv-cli` 0.7.0 and consumed all four companion crates through the
-  `config`, Figment and process APIs. Trusted Publishing configuration for the
-  four new companion crates remains a one-time crates.io settings step; the
-  retained bootstrap token is used only for first-time crates.
+  `config`, Figment and process APIs. Trusted Publishing is configured for all
+  five crates; the retained bootstrap token is reserved for future first-time
+  crates.
 
 ## Local execution evidence (2026-10-15)
 
@@ -1079,5 +1079,5 @@ still need byte and line/declaration budgets for retained lossless data.
   on enum order or message wording. Non-exhaustive enums allow new variants;
   callers retain a fallback arm.
 - Workspace companions share the 0.7.0 release version and were published after
-  core. Trusted Publishing configuration for the four new companions remains
-  manual; the retained bootstrap token is reserved for future first-time crates.
+  core. Trusted Publishing is configured for all five crates; the retained
+  bootstrap token is reserved for future first-time crates.
