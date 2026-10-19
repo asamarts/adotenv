@@ -505,9 +505,9 @@ Host and toolchains match the encoder evidence above.
   access occurs implicitly. Caller values are literal; commands run only
   through the explicit callback or the explicit opt-in `exec` helper.
 
-### Structure and formatting slice (0.5, unreleased; 2026-10-18)
+### Structure and formatting slice (0.5, released 2026-10-18)
 
-Tested source: the unreleased 0.5 working tree containing the structure views,
+Tested source: the 0.5 release working tree containing the structure views,
 verified formatter, tests, fuzz target, benchmarks and documentation in this
 commit. Host: Linux 7.2.8-arch1-2, x86_64-unknown-linux-gnu, AMD Ryzen 9 3900X.
 Stable compiler: rustc 1.95.0 (`59807616e`, 2026-04-14); MSRV compiler: 1.81.0.
@@ -549,9 +549,9 @@ Fuzz nightly: rustc 1.100.0-nightly (`67eda617e`, 2026-09-10).
   Formatting is literal-only: no lookup, environment access, file I/O or
   command execution.
 
-### Comparison and example slice (0.5, unreleased; 2026-10-18)
+### Comparison and example slice (0.5, released 2026-10-18)
 
-Tested source: the unreleased 0.5 working tree containing effective-key
+Tested source: the 0.5 release working tree containing effective-key
 comparison, safe example generation and their tests, fuzz checks, benchmark and
 documentation. Host and toolchains match the structure/formatting slice above.
 
@@ -591,9 +591,9 @@ documentation. Host and toolchains match the structure/formatting slice above.
   unchanged. Comparison and example generation are literal-only and perform no
   lookup, environment access, file I/O or command execution.
 
-### Blank-line grouping slice (0.5, unreleased; 2026-10-18)
+### Blank-line grouping slice (0.5, released 2026-10-18)
 
-Tested source: the unreleased 0.5 working tree adding `BlankLines`,
+Tested source: the 0.5 release working tree adding `BlankLines`,
 `FormatOptions::normalize_groups` and collapse-aware verification. Host and
 toolchains match the slices above.
 
@@ -619,9 +619,9 @@ toolchains match the slices above.
 - Parser, dialect, resolution, edit, comparison, example and encoding behavior
   is unchanged. No I/O, environment, expansion or command execution is added.
 
-### Quote normalization slice (0.5, unreleased; 2026-10-18)
+### Quote normalization slice (0.5, released 2026-10-18)
 
-Tested source: the unreleased 0.5 working tree adding `QuoteStyle` and
+Tested source: the 0.5 release working tree adding `QuoteStyle` and
 quote-preserving formatter verification. Host and toolchains match the slices
 above.
 
@@ -644,9 +644,9 @@ above.
   now left unchanged in this slice.
 - No I/O, environment, expansion or command execution is added.
 
-### Group sorting slice (0.5, unreleased; 2026-10-18)
+### Group sorting slice (0.5, released 2026-10-18)
 
-Tested source: the unreleased 0.5 working tree adding `Document::sort`,
+Tested source: the 0.5 release working tree adding `Document::sort`,
 comment-aware chunk planning, dependency ordering and sorting verification.
 
 - With `PROPTEST_CASES=2000`, all 215 default-feature tests pass, the `exec`
@@ -668,9 +668,9 @@ comment-aware chunk planning, dependency ordering and sorting verification.
   regression fix for unsortable groups between sortable ones.
 - No I/O, environment, expansion or command execution is added.
 
-### File-loading slice (0.6, unreleased; 2026-10-18)
+### File-loading slice (0.6, released 2026-10-19)
 
-Tested source: the unreleased 0.6 working tree adding the opt-in `load`
+Tested source: the 0.6 release working tree adding the opt-in `load`
 feature, cascade validation and origin/report structures.
 
 - With `PROPTEST_CASES=2000`, all 226 default-feature + load tests pass, the
@@ -695,9 +695,9 @@ feature, cascade validation and origin/report structures.
   No process environment is mutated, and no expansion or command execution is
   performed.
 
-### Serde slice (0.6, unreleased; 2026-10-18)
+### Serde slice (0.6, released 2026-10-19)
 
-Tested source: the unreleased 0.6 working tree adding the opt-in `serde`
+Tested source: the 0.6 release working tree adding the opt-in `serde`
 feature and `Document::deserialize`.
 
 - With `PROPTEST_CASES=2000`, all 236 all-feature tests pass, the process

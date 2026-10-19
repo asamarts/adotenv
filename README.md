@@ -420,6 +420,9 @@ let loaded = load_cascade("/srv/my-app", "production")?;
 unsafe { apply(&loaded)? };
 ```
 
+The adapter is currently a workspace companion crate; crates.io publication is
+pending. Use the repository workspace if you need it before that release.
+
 ## Deserialize with serde (0.6, opt-in)
 
 With the `serde` feature, `Document::deserialize` maps effective literal

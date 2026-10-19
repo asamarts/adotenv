@@ -1,7 +1,6 @@
 # Serde deserialization
 
-Status: opt-in `serde` deserialization is implemented in the unreleased 0.6
-tree. It is a literal mapping into Serde; it never expands references, reads
+Status: opt-in `serde` deserialization is implemented in 0.6. It is a literal mapping into Serde; it never expands references, reads
 files or inspects the process environment.
 
 ## Feature and API

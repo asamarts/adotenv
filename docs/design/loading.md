@@ -1,7 +1,7 @@
 # Loading
 
 Status: standard file-cascade loading and the separate process adapter are
-implemented in the unreleased 0.6 tree. `serde` integration remains future work.
+implemented in 0.6. `serde` integration is documented separately.
 
 The core parser still performs no I/O. Loading is a std-only adapter around the
 lossless document model.
@@ -80,8 +80,8 @@ cascade skips missing names.
 
 ## Process application
 
-The separate `adotenv-process` crate depends on `adotenv` with `load` enabled
-and exposes:
+The separate `adotenv-process` workspace crate depends on `adotenv` with `load`
+enabled and exposes:
 
 ```text
 validate(&LoadedEnvironment) -> Result<(), ApplyError>

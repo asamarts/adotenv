@@ -19,17 +19,17 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [serde.md](docs/design/serde.md) | Opt-in typed deserialization with line-aware errors |
 | [quality.md](docs/design/quality.md) | Testing, fuzzing, conformance, benchmarks, MSRV and semver policy |
 
-**Current status:** 0.2.1, 0.3.0, 0.4.0 and 0.5.0 are published. 0.3 implements
+**Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0 and 0.6.0 are published. 0.3 implements
 explicit dialect configuration, all five syntax presets, selected-dialect native
 verification, exact per-dialect encoding, applicable pinned-upstream comparison
 and cross-dialect portability reporting. 0.4 implements literal reference
 inspection, opt-in variable resolution, explicit command callbacks and an
 opt-in `exec` helper. 0.5 implements structure views, verified trivia formatting,
 key comparison, safe example generation, blank-line collapsing, value quote
-normalization and comment-aware dependency sorting. 0.6 file cascade loading,
-the separate process-environment adapter and serde deserialization are
-implemented behind opt-in features; the 0.6 release is pending. Integrations
-remain future. Execution evidence is in the quality notes.
+normalization and comment-aware dependency sorting. 0.6 implements file
+cascade loading, serde deserialization and a separate workspace process
+adapter. Integrations remain future. Execution evidence is in the quality
+notes.
 
 ## Goals
 
@@ -179,7 +179,7 @@ Literal parsing into ordered entries with key, value and line spans;
   keys, malformed groups and dependency cycles are left unchanged.
 - **Released:** 2026-10-18 after the complete quality gate.
 
-### 0.6: Loading (in progress)
+### 0.6: Loading (released 2026-10-19)
 
 - **Implemented:** opt-in `load` feature reading `.env`, `.env.local`,
   `.env.{mode}` and `.env.{mode}.local` from an explicit directory, plus
@@ -191,11 +191,12 @@ Literal parsing into ordered entries with key, value and line spans;
   validated before any result is returned. Missing cascade files are skipped;
   malformed existing files invalidate the complete load. No process environment
   is changed.
-- **Implemented:** separate `adotenv-process` adapter with prevalidation and an
-  explicit unsafe `apply`; returning a map remains the default.
+- **Implemented:** separate workspace `adotenv-process` adapter with
+  prevalidation and an explicit unsafe `apply`; returning a map remains the
+  default. The companion crate is not yet published to crates.io.
 - **Implemented:** opt-in `serde` feature with `Document::deserialize`, typed
   literal values, dialect-aware key selection and line/key-aware conversion errors.
-- **Remaining:** release preparation for 0.6.0.
+- **Released:** 2026-10-19 after the complete quality gate.
 
 ### 0.7: Integrations and tools (future)
 
