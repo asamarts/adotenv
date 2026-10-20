@@ -441,11 +441,15 @@ fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
                 .create_new(true)
                 .open(&candidate)
             {
-                Ok(file) => {
+                Ok(mut file) => {
+                    if let Err(error) = file
+                        .write_all(contents.as_bytes())
+                        .and_then(|()| file.sync_all())
+                    {
+                        let _ = fs::remove_file(&candidate);
+                        return Err(error);
+                    }
                     temporary = Some(candidate);
-                    let mut file = file;
-                    file.write_all(contents.as_bytes())?;
-                    file.sync_all()?;
                     break;
                 }
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
@@ -458,8 +462,18 @@ fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
                 "could not create a temporary file",
             ));
         };
-        if let Ok(metadata) = fs::metadata(path) {
-            fs::set_permissions(&temporary, metadata.permissions())?;
+        match fs::metadata(path) {
+            Ok(metadata) => {
+                if let Err(error) = fs::set_permissions(&temporary, metadata.permissions()) {
+                    let _ = fs::remove_file(&temporary);
+                    return Err(error);
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => {
+                let _ = fs::remove_file(&temporary);
+                return Err(error);
+            }
         }
         if let Err(error) = fs::rename(&temporary, path) {
             let _ = fs::remove_file(&temporary);

@@ -1,10 +1,10 @@
 # Architecture
 
-Status: the lossless core/native edit model, 0.3 dialect configuration/presets,
-0.4 reference/resolution/command-callback APIs, the released 0.5
-structure/trivia-formatting/comparison/example/sorting views and the released
-0.6 file-loading, process-environment and serde adapters and the 0.7 workspace CLI are implemented. Sections explicitly marked
-future are designs, not additional shipped interfaces.
+Status: the lossless core/native edit model, 0.3 dialect configuration and
+presets, 0.4 references/resolution/command callbacks, 0.5 structure, formatting,
+comparison, example and sorting APIs, 0.6 loading, serde and process adapters,
+and the 0.7 CLI plus config/Figment integrations are implemented. Sections
+explicitly marked future are designs, not additional shipped interfaces.
 
 ## Document model
 

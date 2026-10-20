@@ -2,8 +2,9 @@
 
 Status: 0.4, released 2026-10-18. Literal reference inspection, opt-in variable
 resolution, explicit command callbacks and an opt-in `exec` helper are
-implemented; the CLI remains future. The core never executes commands by
-itself; resolution uses only the caller-supplied lookup and callback.
+implemented. The workspace CLI does not enable command substitution. The core
+never executes commands by itself; resolution uses only the caller-supplied
+lookup and callback.
 
 Variable expansion is where `.env` handling most often goes wrong silently: a
 `$` inside a password or hash gets replaced, a variable name is cut short, a

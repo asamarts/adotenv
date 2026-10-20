@@ -79,11 +79,13 @@ fn missing_cascade_files_are_skipped() {
     dir.write(".env", "A=1\n");
     let loaded = load_cascade(dir.path(), "production").unwrap();
     assert_eq!(loaded.get("A"), Some("1"));
+    assert_eq!(loaded.len(), 1);
     assert_eq!(loaded.entries().len(), 1);
 
     let empty = TempDir::new();
     let loaded = load_cascade(empty.path(), "production").unwrap();
     assert!(loaded.is_empty());
+    assert_eq!(loaded.len(), 0);
     assert_eq!(loaded.entries().len(), 0);
 }
 

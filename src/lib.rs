@@ -64,7 +64,8 @@
 //! collapse group separators and [`QuoteStyle`] can prefer a quote style when
 //! the exact decoded value survives. Raw values, multiline bodies,
 //! invalid/ignored statements, empty assigned values and ambiguous mixed line
-//! endings are left untouched. Group sorting is future work.
+//! endings are left untouched. [`Document::sort`] reorders groups with attached
+//! comments and reference dependencies, then verifies the result.
 //!
 //! [`Document::compare`] reports effective-key differences, distinguishing
 //! missing keys, bare/empty/assigned states, decoded values and exports.

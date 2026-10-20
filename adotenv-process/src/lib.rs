@@ -80,7 +80,7 @@ pub fn validate(environment: &LoadedEnvironment) -> Result<(), ApplyError> {
 pub unsafe fn apply(environment: &LoadedEnvironment) -> Result<(), ApplyError> {
     validate(environment)?;
     for (key, value) in environment.values() {
-        env::set_var(key, value);
+        unsafe { env::set_var(key, value) };
     }
     Ok(())
 }

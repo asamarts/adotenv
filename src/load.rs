@@ -131,6 +131,11 @@ impl LoadedEnvironment {
     pub fn skipped(&self) -> &[LoadSkipped] {
         &self.skipped
     }
+    /// Number of effective values.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
     /// Whether no effective values were loaded.
     #[must_use]
     pub fn is_empty(&self) -> bool {

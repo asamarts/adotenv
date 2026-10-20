@@ -1,9 +1,8 @@
 # Structure and formatting
 
-Status: the 0.5 structure views and trivia-only verified formatter are
-implemented and released. Comparison and example generation are
-documented in [comparison.md](comparison.md); group sorting remains future
-work.
+Status: the 0.5 structure views, trivia-only verified formatter, comparison,
+example generation and group sorting are implemented and released. Comparison
+and example generation are documented in [comparison.md](comparison.md).
 
 The formatter is deliberately smaller than a pretty-printer. It changes only
 syntax trivia that can be selected explicitly, then proves that every

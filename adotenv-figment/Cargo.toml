@@ -26,4 +26,5 @@ figment = { version = "0.10", default-features = false }
 serde = { version = "1", features = ["derive"] }
 
 [lints.rust]
+unsafe_code = "forbid"
 missing_docs = "warn"

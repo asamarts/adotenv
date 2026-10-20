@@ -15,4 +15,5 @@ categories = ["config", "development-tools"]
 adotenv = { path = "..", version = "0.7.0", features = ["load"] }
 
 [lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
 missing_docs = "warn"

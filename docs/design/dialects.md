@@ -153,8 +153,8 @@ bare declarations from supplied project lookup and retain a preceding value
 without lookup, while an explicit YAML `environment:` null is an unset override.
 The reference's bare-unset wording differs from these pinned loader results;
 [`conformance/manifest.json`](../../conformance/manifest.json) records this rather
-than normalizing it away. Future resolution/loading APIs must supply explicit
-role and lookup policy; parsing never infers either.
+than normalizing it away. Resolution and loading APIs supply explicit role and
+lookup policy; parsing never infers either.
 
 ## Encoding per dialect (0.3)
 

@@ -659,11 +659,12 @@ or loading. See the dialect section for the exact token span rules.
 7. Update the toolchain to Rust **1.81**. The default `std` feature is optional:
    `adotenv = { version = "0.2", default-features = false }` uses `alloc` only.
 
-## Quality and future work
+## Quality evidence
 
 Criterion workloads cover small, typical and multi-megabyte parsing, exact
-per-dialect value encoding, portability reports, and native edits including
-large set/set-rename batches. Public synthetic seeds feed parser, edit,
+per-dialect value encoding, portability reports, reference inspection,
+resolution, structure/formatting/sorting and native edits including large
+set/set-rename batches. Public synthetic seeds feed parser, edit,
 encoding and resolution fuzz targets; scheduled CI runs bounded campaigns. Reproduction commands and evidence policy
 are in [quality.md](docs/design/quality.md). Harness availability is not a claim
 that any particular benchmark or fuzz duration has passed.

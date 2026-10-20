@@ -23,4 +23,5 @@ adotenv = { path = "..", version = "0.7.0" }
 config = { version = "0.14", default-features = false }
 
 [lints.rust]
+unsafe_code = "forbid"
 missing_docs = "warn"

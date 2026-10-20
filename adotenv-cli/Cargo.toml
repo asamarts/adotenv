@@ -15,4 +15,5 @@ categories = ["command-line-utilities", "development-tools", "config"]
 adotenv = { path = "..", version = "0.7.0", features = ["load"] }
 
 [lints.rust]
+unsafe_code = "forbid"
 missing_docs = "warn"

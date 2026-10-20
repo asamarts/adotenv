@@ -187,8 +187,8 @@ Native edit costs include output generation and whole-result verification;
 they are not presented as isolated range-splice costs. Throughput counts
 source bytes, and Criterion reports timings and byte throughput. Large inputs
 make scaling visible; no regression threshold is asserted without a recorded
-baseline on a controlled machine. Parsing benchmarks currently use Portable;
-resolution and portability benchmarking remain future work.
+baseline on a controlled machine. Parsing fixtures use the Portable default;
+portability and resolution have separate deterministic workloads.
 
 ```sh
 cargo bench -p adotenv --bench core --locked -- --test  # smoke every workload
@@ -216,10 +216,11 @@ application API.
 CI covers stable tests on Linux/macOS/Windows, README doctests, formatting,
 Clippy and documentation warnings, packaging the root and companion packages,
 benchmark smoke, Rust 1.81 library builds with and without defaults and with
-the `exec`/`load` features, feature tests on all platforms, and an alloc-only
-build for `thumbv7em-none-eabi` where `std` is unavailable. MSRV jobs build the
-library configurations and the process, CLI and integration companions; their
-dev/fuzz dependencies can still require newer Rust.
+the `exec`, `load` and alloc-only `serde` configurations, feature tests on all
+platforms, and an alloc-only build for `thumbv7em-none-eabi` where `std` is
+unavailable. MSRV jobs build the library configurations and the process, CLI
+and integration companions; their dev/fuzz dependencies can still require
+newer Rust.
 Release metadata and publishing select packages by name in explicit dependency
 order: core, then process/config/Figment, then CLI. The tag workflow waits for
 each version in the crates.io sparse index before publishing dependents. Tag
@@ -736,8 +737,8 @@ Tested source: the 0.7 release tree adding the zero-dependency
   Rust 1.81 builds pass for the CLI, process crate, core configurations and the
   alloc-only Thumb target. Warning-denied workspace rustdoc passes.
 - All 60 Criterion smoke workloads pass.
-- Root package verifies at 60 files (about 0.78 MiB); CLI package verifies at six
-  files and process package at five files.
+- At this slice, the root package verified at 60 files (about 0.78 MiB); the
+  CLI package at six files and the process package at five files.
 - Conformance snapshot still matches 409 applicable observations and 798 field
   comparisons.
 - The CLI uses only library APIs. `run` starts an environment-inheriting child
