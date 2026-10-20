@@ -1,7 +1,8 @@
 //! Small zero-dependency CLI for adotenv documents.
 
 use std::{
-    env, fs, io,
+    env, fs,
+    io::{self, Read},
     path::Path,
     process::{Command, ExitCode},
 };
@@ -137,6 +138,10 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
         eprintln!("usage: adotenv-cli check <file>...");
         return 2;
     }
+    if args.iter().filter(|path| is_stdin(path)).count() > 1 {
+        eprintln!("standard input may be used at most once");
+        return 2;
+    }
     let mut failed = false;
     for path in args {
         let source = match read_text(path) {
@@ -183,6 +188,14 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
     }
     if write && check {
         eprintln!("--write and --check are mutually exclusive");
+        return 2;
+    }
+    if paths.iter().filter(|path| is_stdin(path)).count() > 1 {
+        eprintln!("standard input may be used at most once");
+        return 2;
+    }
+    if write && paths.iter().any(|path| is_stdin(path)) {
+        eprintln!("--write cannot write standard input");
         return 2;
     }
     let mut failed = false;
@@ -262,6 +275,10 @@ fn diff(args: &[String], dialect: Dialect) -> u8 {
         eprintln!("usage: adotenv-cli diff <left> <right>");
         return 2;
     }
+    if is_stdin(&args[0]) && is_stdin(&args[1]) {
+        eprintln!("standard input may be used at most once");
+        return 2;
+    }
     let left_source = match read_text(&args[0]) {
         Ok(source) => source,
         Err(error) => return fail(error),
@@ -319,6 +336,10 @@ fn load(args: &[String], dialect: Dialect) -> u8 {
 fn set(args: &[String], dialect: Dialect) -> u8 {
     if args.len() != 3 {
         eprintln!("usage: adotenv-cli set <file> <key> <value>");
+        return 2;
+    }
+    if is_stdin(&args[0]) {
+        eprintln!("set cannot write standard input");
         return 2;
     }
     let source = match read_text(&args[0]) {
@@ -487,8 +508,20 @@ fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
     }
 }
 
+fn is_stdin(path: &str) -> bool {
+    path == "-" || path == "--stdin"
+}
+
 fn read_text(path: &str) -> Result<String, String> {
-    let bytes = fs::read(Path::new(path)).map_err(|error| format!("{path}: {error}"))?;
+    let bytes = if is_stdin(path) {
+        let mut bytes = Vec::new();
+        io::stdin()
+            .read_to_end(&mut bytes)
+            .map_err(|error| format!("-: {error}"))?;
+        bytes
+    } else {
+        fs::read(Path::new(path)).map_err(|error| format!("{path}: {error}"))?
+    };
     String::from_utf8(bytes).map_err(|_| format!("{path}: invalid UTF-8"))
 }
 

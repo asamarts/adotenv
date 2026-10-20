@@ -474,8 +474,9 @@ run <directory> [mode] -- <program> [args...]
                           run a child with loaded values
 ```
 
-`run` loads the cascade and starts a child with those values added to its
-environment; the parent environment is never mutated. Child environment keys
+File-reading commands accept `-` or `--stdin` for standard input. `run` loads
+the cascade and starts a child with those values added to its environment; the
+parent environment is never mutated. Child environment keys
 and values are validated before execution. `fmt --check` reports required
 changes without writing; `--write` uses an atomic same-directory rename on Unix. Command substitution from
 files remains disabled. The CLI uses the library’s verified formatting, sorting,

@@ -19,6 +19,10 @@ adotenv-cli set <file> <key> <value>
 adotenv-cli run <directory> [mode] -- <program> [args...]
 ```
 
+Commands that read source accept `-` or `--stdin` in place of a file.
+Standard input may be used at most once per invocation; `fmt --write` and `set`
+reject it because they require a writable file.
+
 ### get
 
 Reads one file with strict parsing under the selected dialect and prints the

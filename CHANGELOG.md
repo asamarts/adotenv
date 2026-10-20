@@ -13,6 +13,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `LoadedEnvironment::deserialize` maps final loaded values to a Serde type
   when both `load` and `serde` are enabled, preserving origin lines in value
   conversion errors.
+- CLI commands that read source accept `-` or `--stdin` for standard input.
+  Writes and `set` reject standard input; multiple stdin inputs are rejected.
 
 ## [0.7.1] - 2026-10-20
 

@@ -2,8 +2,9 @@
 
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -42,6 +43,23 @@ fn run(args: &[&str]) -> Output {
         .args(args)
         .output()
         .unwrap()
+}
+
+fn run_with_stdin(args: &[&str], input: &str) -> Output {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_adotenv-cli"))
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
 }
 
 fn stdout(output: &Output) -> String {
@@ -236,4 +254,41 @@ fn fmt_check_reports_changes_without_writing() {
 
     let output = run(&["fmt", "--write", "--check", file.to_str().unwrap()]);
     assert_eq!(output.status.code(), Some(2));
+}
+
+#[test]
+fn stdin_is_accepted_for_read_only_commands() {
+    let dir = TempDir::new();
+    let other = dir.file("other.env", "A=2\n");
+
+    let output = run_with_stdin(&["get", "-", "A"], "A=1\n");
+    assert!(output.status.success());
+    assert_eq!(stdout(&output), "1\n");
+
+    let output = run_with_stdin(&["get", "--stdin", "A"], "A=1\n");
+    assert!(output.status.success());
+    assert_eq!(stdout(&output), "1\n");
+
+    let output = run_with_stdin(&["check", "--stdin"], "BAD KEY=value\n");
+    assert_eq!(output.status.code(), Some(1));
+
+    let output = run_with_stdin(&["fmt", "-"], "B=2\nA=1\n");
+    assert!(output.status.success());
+    assert_eq!(stdout(&output), "B = 2\nA = 1\n");
+
+    let output = run_with_stdin(&["diff", "-", other.to_str().unwrap()], "A=1\n");
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(stdout(&output), "~ A: 1 -> 2\n");
+
+    let output = run(&["fmt", "--write", "-"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("cannot write standard input"));
+
+    let output = run(&["set", "-", "A", "1"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("cannot write standard input"));
+
+    let output = run_with_stdin(&["check", "-", "--stdin"], "A=1\n");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("at most once"));
 }
