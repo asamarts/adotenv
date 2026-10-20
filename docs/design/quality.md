@@ -802,6 +802,8 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   five crates were published through their configured Trusted Publishers; no
   bootstrap token was needed. crates.io returns HTTP 200 for all five 0.7.1
   versions, docs.rs serves all five, and GitHub Release v0.7.1 is Latest.
+- A downstream crates.io project installed `adotenv-cli` 0.7.1 and consumed all
+  four companion crates through the `config`, Figment and process APIs.
 
 ### Post-release audit (0.7.0; 2026-10-19)
 
