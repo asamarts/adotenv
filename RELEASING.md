@@ -22,6 +22,21 @@ A tag push runs the full CI quality gate first. The workflow then:
 - waits for each version to appear in the crates.io sparse index before
   publishing a dependent crate.
 
+## Pre-tag API check
+
+Before tagging a core release, compare the current tree against the previous
+published core version even when the next version is still pre-1.0:
+
+```console
+cargo install cargo-semver-checks --locked
+cargo semver-checks check-release --baseline-version <previous-version> --release-type patch
+```
+
+`--release-type patch` forces the complete check set instead of skipping checks
+for a pre-1.0 minor bump. Intentional API changes must be reviewed against the
+changelog; accidental breakage should not be released just because semver allows
+it before 1.0.
+
 ## One-time bootstrap for new crates
 
 crates.io does not support a trusted publisher for a crate that does not exist
