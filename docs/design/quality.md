@@ -765,7 +765,7 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   adapters (default and `load`), CLI, process and core configurations.
   Warning-denied workspace rustdoc passes.
 - All 60 Criterion smoke workloads pass.
-- The root package verifies at 61 files (about 0.79 MiB). Companion packages
+- The root package verifies at 62 files (about 0.80 MiB). Companion packages
   fully verify once the core version exists on crates.io; before that, CI
   verifies their manifests and file lists with `cargo package --list`. Packages
   contain seven files for the CLI and six for process, config and Figment. The
@@ -797,6 +797,12 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - Full companion `cargo package` verification passes now that `adotenv` 0.7.0
   is on crates.io. CI now selects full package verification for published core
   versions and file-list verification for pre-release versions.
+- CI now also covers the alloc-only + `serde` Clippy, test and MSRV paths. That
+  configuration passes 222 tests and 23 doctests; no-default core remains 215
+  tests and 22 doctests.
+- The CLI now removes its temporary file when an atomic Unix write fails before
+  replacement. Companion crates forbid unsafe code except for the explicitly
+  unsafe process adapter, which now enforces `unsafe_op_in_unsafe_fn`.
 - `cargo-semver-checks` 0.51.0 compared crates.io 0.6.0 with 0.7.0 under forced
   patch semantics: 228 of 229 checks pass. The only failure is the intentional
   `#[must_use]` addition on `Group::items` and `Entry::leading_comments`, which
@@ -1098,8 +1104,9 @@ still need byte and line/declaration budgets for retained lossless data.
 
 ## Supported Rust versions and semver
 
-- MSRV is **1.81** for 0.2/0.3 (1.74 for 0.1), edition 2021. Raises happen only in
-  minor releases and stay at least six months behind the latest stable Rust.
+- MSRV is **1.81** for 0.2 through 0.7 (1.74 for 0.1), edition 2021. Raises
+  happen only in minor releases and stay at least six months behind the latest
+  stable Rust.
 - Before 1.0, breaking changes belong in minor releases with explicit migration
   guidance in the changelog and README. 0.2 includes both Portable syntax and
   API changes; there is no hidden 0.1 compatibility grammar.

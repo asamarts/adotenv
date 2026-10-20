@@ -20,6 +20,7 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [cli.md](docs/design/cli.md) | Zero-dependency workspace command-line tools |
 | [integrations.md](docs/design/integrations.md) | `config` and `figment` companion adapters |
 | [quality.md](docs/design/quality.md) | Testing, fuzzing, conformance, benchmarks, MSRV and semver policy |
+| [strategy.md](docs/design/strategy.md) | Post-0.7 product/API/performance review and candidate priorities |
 | [RELEASING.md](RELEASING.md) | Tag release, first-publish bootstrap and Trusted Publishing |
 
 **Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0 and 0.7.0 are
@@ -216,11 +217,23 @@ Literal parsing into ordered entries with key, value and line spans;
   intentionally retained as a fallback for future first-time crates. See
   [RELEASING.md](RELEASING.md).
 
+### After 0.7: candidate priorities
+
+The post-0.7 strategy review proposes two candidate milestones before 1.0:
+
+- **0.8:** a resolved/typed environment façade, shared effective-value
+  extraction, API-freeze decisions and initial CLI machine output.
+- **0.9:** recursive discovery, diagnostic rendering, multi-file diffing and
+  Windows write hardening.
+
+These are proposals, not committed release dates. See
+[strategy.md](docs/design/strategy.md) for the full analysis.
+
 ### 1.0: Stable API (future)
 
 The core API is frozen and follows semver. Criteria:
 
-- Every item through 0.7 shipped.
+- Every item through 0.9 shipped.
 - Fuzzing clean for a sustained period, and the conformance corpus passing
   for every preset. A weekly/manual workflow runs bounded 300-second jobs for all
   five fuzz targets; a longer campaign is still required before 1.0.
