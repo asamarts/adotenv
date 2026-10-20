@@ -764,12 +764,13 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   adapters (default and `load`), CLI, process and core configurations.
   Warning-denied workspace rustdoc passes.
 - All 60 Criterion smoke workloads pass.
-- The root package verifies at 61 files (about 0.79 MiB). Companion package
-  manifests and file lists verify with `cargo package --list` before the core
-  version exists on crates.io: CLI seven files; process, config and Figment six
-  files each. The tag workflow performs the full verified publish in dependency
-  order. Conformance snapshot still matches 409 applicable observations and 798
-  field comparisons.
+- The root package verifies at 61 files (about 0.79 MiB). Companion packages
+  fully verify once the core version exists on crates.io; before that, CI
+  verifies their manifests and file lists with `cargo package --list`. Packages
+  contain seven files for the CLI and six for process, config and Figment. The
+  tag workflow performs the full verified publish in dependency order.
+  Conformance snapshot still matches 409 applicable observations and 798 field
+  comparisons.
 - The release workflow passes `actionlint`. Its tag/version check, publication
   plan, bootstrap-token selection and sparse-index wait were exercised locally
   with simulated registry responses.
@@ -782,6 +783,21 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   `config`, Figment and process APIs. Trusted Publishing is configured for all
   five crates; the retained bootstrap token is reserved for future first-time
   crates.
+
+### Post-release audit (0.7.0; 2026-10-19)
+
+- Refreshed `fuzz/Cargo.lock` from the stale 0.5.0 path dependency to 0.7.0.
+- Bounded libFuzzer smoke against the release tree on
+  `x86_64-unknown-linux-gnu`, using the existing corpus: parser 36,795
+  executions, edits 22,922, encoding 29,196, resolve 47,859 and format 8,385. No crash, assertion failure or artifact was produced; generated
+  corpus files were not committed.
+- `cargo audit --deny warnings` scanned 77 locked dependencies with no
+  vulnerability advisory.
+- Full companion `cargo package` verification passes now that `adotenv` 0.7.0
+  is on crates.io. CI now selects full package verification for published core
+  versions and file-list verification for pre-release versions.
+- Crates.io, docs.rs, GitHub Release and the installed CLI were rechecked after
+  publication; all five trusted-publisher configurations are present.
 
 ## Local execution evidence (2026-10-15)
 

@@ -107,10 +107,27 @@ jobs:
         with:
           toolchain: stable
       - run: cargo package -p adotenv --locked
-      # Companion packages depend on the not-yet-published core version. Before
-      # the release, verify their file lists; the tag workflow performs the full
-      # verified publish in dependency order after publishing adotenv.
-      - run: cargo package -p adotenv-cli -p adotenv-process -p adotenv-config -p adotenv-figment --locked --list
+      - name: package companion crates
+        run: |
+          version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "adotenv"))')"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' -H 'User-Agent: adotenv-ci' \
+            "https://crates.io/api/v1/crates/adotenv/$version")"
+          case "$code" in
+            200)
+              # The core version is on crates.io, so companion packages can
+              # resolve their registry dependency and be fully verified.
+              cargo package -p adotenv-cli -p adotenv-process -p adotenv-config -p adotenv-figment --locked
+              ;;
+            404)
+              # Release-prep version: verify file lists now; the tag workflow
+              # performs the full verified publish after publishing adotenv.
+              cargo package -p adotenv-cli -p adotenv-process -p adotenv-config -p adotenv-figment --locked --list
+              ;;
+            *)
+              echo "::error::crates.io lookup for adotenv $version returned HTTP $code"
+              exit 1
+              ;;
+          esac
       - run: cargo bench -p adotenv --bench core --locked -- --test
 
   no-std:
