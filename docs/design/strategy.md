@@ -69,6 +69,8 @@ Recommended direction:
 
 - Add `LoadedEnvironment::resolve` (or a `ResolvedEnvironment`) that applies
   explicit `ExpandOptions` to the final merged values while retaining origins.
+  Whole-file scope is the natural merged-environment semantic; sequential scope
+  needs preserved source order or an explicit rejection.
 - Add `LoadedEnvironment::deserialize` behind `load + serde`, mapping final
   values to a Serde type with origins in errors. The first slice is implemented
   in the unreleased tree.
