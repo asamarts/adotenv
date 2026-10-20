@@ -104,6 +104,9 @@ Two surfaces over one model:
 `entries()` and `items()` return exact-size double-ended view iterators, not
 slices. `entry(id)` and `item(id)` return optional views for zero-based IDs
 local to this exact snapshot. Views are borrowed from the document.
+`effective_entries()` applies duplicate and bare-key policy once and yields
+`EffectiveEntry` values with the winning declaration and effective string; serde
+and the integration adapters share this primitive.
 
 Duplicates remain ordered. Effective lookup filters `participates_in_lookup()`
 and selects first or last by configuration; ignored bare keys do not erase an

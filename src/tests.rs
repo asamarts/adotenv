@@ -3,7 +3,8 @@ use proptest::prelude::*;
 
 use crate::{
     encode_value, parse, parse_owned, parse_strict, parse_with, AssignmentState, BareKeys,
-    DiagnosticCode as Code, Dialect, Duplicates, ItemKind, PositionError, Quote, Severity,
+    DiagnosticCode as Code, Dialect, Duplicates, EffectiveEntry, ItemKind, PositionError, Quote,
+    Severity,
 };
 
 #[test]
@@ -397,11 +398,14 @@ proptest! {
 #[test]
 fn effective_entries_honor_duplicate_and_bare_policy() {
     let (document, _) = parse_with("A=first\nA=second\nBARE\nC=3\n", Dialect::PORTABLE);
-    let entries: Vec<_> = document
-        .effective_entries()
-        .map(|entry| (entry.key(), entry.value(), entry.line()))
-        .collect();
-    assert_eq!(entries, [("A", "second", 2), ("C", "3", 4)]);
+    let entries: Vec<EffectiveEntry<'_>> = document.effective_entries().collect();
+    assert_eq!(
+        entries
+            .iter()
+            .map(|entry| (entry.key(), entry.value(), entry.line()))
+            .collect::<Vec<_>>(),
+        [("A", "second", 2), ("C", "3", 4)]
+    );
 
     let dialect = Dialect {
         duplicates: Duplicates::First,
