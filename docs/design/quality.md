@@ -806,7 +806,8 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - `cargo-semver-checks` 0.51.0 compared crates.io 0.6.0 with 0.7.0 under forced
   patch semantics: 228 of 229 checks pass. The only failure is the intentional
   `#[must_use]` addition on `Group::items` and `Entry::leading_comments`, which
-  is covered by the 0.7.0 minor version. No other public API change was found.
+  is covered by the 0.7.0 minor version. No breaking public API change was
+  found; the later `LoadedEnvironment::len` addition is additive.
 - The existing weekly/manual Fuzz workflow covers all five targets with
   bounded 300-second jobs and uploads crash artifacts. Manual validation run
   [39352940619](https://github.com/asamarts/adotenv/actions/runs/39352940619)
