@@ -189,7 +189,8 @@ schema the stable surface.
 - `LoadedEnvironment::resolve` with explicit options and origins.
 - `LoadedEnvironment::deserialize` behind `load + serde`; implemented in the
   unreleased post-0.7.1 tree.
-- Shared effective-value primitive used by core adapters.
+- Shared effective-value primitive used by core adapters; implemented in the
+  unreleased tree.
 - Public API inventory; decide `non_exhaustive`/builder policy for option types.
 - Optional lookup index prototype and benchmark baseline.
 - CLI `--stdin` and JSON diagnostics.
