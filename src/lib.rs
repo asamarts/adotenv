@@ -83,6 +83,8 @@
 //!
 //! The opt-in `serde` feature adds `Document::deserialize`, mapping effective
 //! literal declarations into a Serde type with line/key-aware conversion errors.
+//! With `load` enabled as well, `LoadedEnvironment::deserialize` maps the final
+//! merged cascade into the same Serde types and preserves origin lines.
 //!
 //! # Source and positions
 //!

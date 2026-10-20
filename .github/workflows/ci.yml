@@ -38,6 +38,7 @@ jobs:
       - run: cargo clippy -p adotenv --features exec --all-targets --locked -- -D warnings
       - run: cargo clippy -p adotenv --features load --all-targets --locked -- -D warnings
       - run: cargo clippy -p adotenv --features serde --all-targets --locked -- -D warnings
+      - run: cargo clippy -p adotenv --features load,serde --all-targets --locked -- -D warnings
       - run: cargo clippy -p adotenv --lib --no-default-features --locked -- -D warnings
       - run: cargo clippy -p adotenv --lib --no-default-features --features serde --locked -- -D warnings
       - run: cargo clippy --manifest-path conformance/rust/Cargo.toml --all-targets --locked -- -D warnings
@@ -69,6 +70,7 @@ jobs:
       - run: cargo test -p adotenv --features exec --locked
       - run: cargo test -p adotenv --features load --locked
       - run: cargo test -p adotenv --features serde --locked
+      - run: cargo test -p adotenv --features load,serde --locked
       - run: cargo test -p adotenv --no-default-features --features serde --locked
 
   msrv:
@@ -88,6 +90,7 @@ jobs:
       - run: cargo build -p adotenv --lib --features exec --locked
       - run: cargo build -p adotenv --lib --features load --locked
       - run: cargo build -p adotenv --lib --features serde --locked
+      - run: cargo build -p adotenv --lib --features load,serde --locked
       - run: cargo build -p adotenv --lib --no-default-features --locked
       - run: cargo build -p adotenv --lib --no-default-features --features serde --locked
       - run: cargo build -p adotenv-process --locked

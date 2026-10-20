@@ -89,6 +89,36 @@ fn missing_cascade_files_are_skipped() {
     assert_eq!(loaded.entries().len(), 0);
 }
 
+#[cfg(feature = "serde")]
+#[test]
+fn loaded_environment_deserializes_final_values_with_origins() {
+    #[derive(Debug, serde::Deserialize, PartialEq)]
+    struct Config {
+        host: String,
+        port: u16,
+    }
+
+    let dir = TempDir::new();
+    dir.write(".env", "host=localhost\nport=8080\n");
+    dir.write(".env.local", "port=9090\n");
+    let loaded = load_cascade(dir.path(), "").unwrap();
+    let config: Config = loaded.deserialize().unwrap();
+    assert_eq!(
+        config,
+        Config {
+            host: "localhost".to_string(),
+            port: 9090,
+        }
+    );
+
+    let invalid = TempDir::new();
+    invalid.write(".env", "host=localhost\nport=not-a-number\n");
+    let loaded = load_cascade(invalid.path(), "").unwrap();
+    let error = loaded.deserialize::<Config>().unwrap_err();
+    assert_eq!(error.line(), 2);
+    assert_eq!(error.key(), Some("port"));
+}
+
 #[test]
 fn explicit_file_load_requires_each_file() {
     let dir = TempDir::new();

@@ -319,9 +319,11 @@ sets only loaded keys and documents the lack of rollback and thread-safety
 requirements. The core crate remains `forbid(unsafe_code)`.
 
 The opt-in `serde` feature implements `Document::deserialize` over a
-string-valued effective map. Scalar visitors parse literal strings; nested
-sequences/maps/enums are rejected rather than synthesized. Conversion errors
-carry source lines and keys. See [serde.md](serde.md).
+string-valued effective map. With `load` enabled, it also implements
+`LoadedEnvironment::deserialize` over final merged values. Scalar visitors parse
+literal strings; nested sequences/maps/enums are rejected rather than
+synthesized. Conversion errors carry source lines and keys. See
+[serde.md](serde.md).
 
 The workspace `adotenv-config` and `adotenv-figment` companions expose effective
 literal values to those configuration ecosystems without changing core behavior.

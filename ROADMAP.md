@@ -34,7 +34,8 @@ normalization and comment-aware dependency sorting. 0.6 implements file
 cascade loading, serde deserialization and a separate workspace process
 adapter. 0.7 publishes the workspace CLI, the process and tooling companions,
 and the `config`/Figment integration adapters. Trusted Publishing is configured
-for all five crates. Execution evidence is in the quality notes.
+for all five crates. 0.8 API work has started with
+`LoadedEnvironment::deserialize`. Execution evidence is in the quality notes.
 
 ## Goals
 
@@ -225,6 +226,7 @@ The post-0.7 strategy review proposes two candidate milestones before 1.0:
 
 - **0.8:** a resolved/typed environment façade, shared effective-value
   extraction, API-freeze decisions and initial CLI machine output.
+  `LoadedEnvironment::deserialize` is implemented in the unreleased tree.
 - **0.9:** recursive discovery, diagnostic rendering, multi-file diffing and
   Windows write hardening.
 

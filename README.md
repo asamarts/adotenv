@@ -447,6 +447,15 @@ let doc = parse_strict("host=localhost\nport=8080\n").unwrap();
 let config: Config = doc.deserialize()?;
 ```
 
+With `load` and `serde` enabled together, a loaded cascade can be deserialized
+directly from its final merged values:
+
+```rust,ignore
+use adotenv::load::load_cascade;
+let loaded = load_cascade("/srv/my-app", "production")?;
+let config: Config = loaded.deserialize()?;
+```
+
 ## CLI (0.7, workspace companion)
 
 The zero-dependency `adotenv-cli` workspace binary accepts a global

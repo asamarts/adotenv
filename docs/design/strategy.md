@@ -70,7 +70,8 @@ Recommended direction:
 - Add `LoadedEnvironment::resolve` (or a `ResolvedEnvironment`) that applies
   explicit `ExpandOptions` to the final merged values while retaining origins.
 - Add `LoadedEnvironment::deserialize` behind `load + serde`, mapping final
-  values to a Serde type with origins in errors.
+  values to a Serde type with origins in errors. The first slice is implemented
+  in the unreleased tree.
 - Keep mutation separate: resolved environments should still be applied only
   through `adotenv-process` or consumed as a map.
 - Factor effective-value extraction into one core primitive so `load`, `serde`,
@@ -185,7 +186,8 @@ schema the stable surface.
 ### 0.8: Environment façade and API freeze preparation
 
 - `LoadedEnvironment::resolve` with explicit options and origins.
-- `LoadedEnvironment::deserialize` behind `load + serde`.
+- `LoadedEnvironment::deserialize` behind `load + serde`; implemented in the
+  unreleased post-0.7.1 tree.
 - Shared effective-value primitive used by core adapters.
 - Public API inventory; decide `non_exhaustive`/builder policy for option types.
 - Optional lookup index prototype and benchmark baseline.

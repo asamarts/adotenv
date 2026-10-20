@@ -785,33 +785,14 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   five crates; the retained bootstrap token is reserved for future first-time
   crates.
 
-### 0.7.1 release (2026-10-20)
-
-- `cargo-semver-checks` 0.7.0 -> 0.7.1 under forced patch semantics with the
-  `load` feature: 229 of 229 checks pass, 31 skipped. The additive
-  `LoadedEnvironment::len` method is accepted.
-- All-feature workspace: 236 core, 3 process, 14 CLI, 5 config and 5 Figment
-  tests; 23 doctests pass with four ignored.
-- Alloc-only + serde: 222 tests and 23 doctests; no-default core: 215 tests and
-  22 doctests.
-- Clippy passes on Rust 1.95 and 1.99; Rust 1.81 builds pass; warning-denied
-  workspace rustdoc passes. Root package contains 62 files.
-- Release run
-  [39372957394](https://github.com/asamarts/adotenv/actions/runs/39372957394)
-  passed all quality and publish jobs. The OIDC token step succeeded and all
-  five crates were published through their configured Trusted Publishers; no
-  bootstrap token was needed. crates.io returns HTTP 200 for all five 0.7.1
-  versions, docs.rs serves all five, and GitHub Release v0.7.1 is Latest.
-- A downstream crates.io project installed `adotenv-cli` 0.7.1 and consumed all
-  four companion crates through the `config`, Figment and process APIs.
-
 ### Post-release audit (0.7.0; 2026-10-19)
 
 - Refreshed `fuzz/Cargo.lock` from the stale 0.5.0 path dependency to 0.7.0.
 - Bounded libFuzzer smoke against the release tree on
   `x86_64-unknown-linux-gnu`, using the existing corpus: parser 36,795
-  executions, edits 22,922, encoding 29,196, resolve 47,859 and format 8,385. No crash, assertion failure or artifact was produced; generated
-  corpus files were not committed.
+  executions, edits 22,922, encoding 29,196, resolve 47,859 and format 8,385.
+  No crash, assertion failure or artifact was produced; generated corpus files
+  were not committed.
 - `cargo audit --deny warnings` scanned 77 locked dependencies with no
   vulnerability advisory.
 - Full companion `cargo package` verification passes now that `adotenv` 0.7.0
@@ -837,6 +818,38 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   scan reports no broken local files or anchors.
 - Crates.io, docs.rs, GitHub Release and the installed CLI were rechecked after
   publication; all five trusted-publisher configurations are present.
+
+### 0.7.1 release (2026-10-20)
+
+- `cargo-semver-checks` 0.7.0 -> 0.7.1 under forced patch semantics with the
+  `load` feature: 229 of 229 checks pass, 31 skipped. The additive
+  `LoadedEnvironment::len` method is accepted.
+- All-feature workspace: 236 core, 3 process, 14 CLI, 5 config and 5 Figment
+  tests; 23 doctests pass with four ignored.
+- Alloc-only + serde: 222 tests and 23 doctests; no-default core: 215 tests and
+  22 doctests.
+- Clippy passes on Rust 1.95 and 1.99; Rust 1.81 builds pass; warning-denied
+  workspace rustdoc passes. Root package contains 62 files.
+- Release run
+  [39372957394](https://github.com/asamarts/adotenv/actions/runs/39372957394)
+  passed all quality and publish jobs. The OIDC token step succeeded and all
+  five crates were published through their configured Trusted Publishers; no
+  bootstrap token was needed. crates.io returns HTTP 200 for all five 0.7.1
+  versions, docs.rs serves all five, and GitHub Release v0.7.1 is Latest.
+- A downstream crates.io project installed `adotenv-cli` 0.7.1 and consumed all
+  four companion crates through the `config`, Figment and process APIs.
+
+### Unreleased 0.8 slice (2026-10-20)
+
+- Added `LoadedEnvironment::deserialize` behind `load + serde`. It maps final
+  merged values to a Serde type and uses the winning declaration origin line in
+  conversion errors.
+- All-feature workspace: 237 core, 3 process, 14 CLI, 5 config and 5 Figment
+  tests; 24 doctests pass with five ignored. Alloc-only + serde remains 222
+  tests and 23 doctests (five ignored); no-default core remains 215 tests and
+  22 doctests (five ignored).
+- Clippy passes for `load,serde` and the workspace; warning-denied docs and the
+  package/manifest checks remain green.
 
 ## Local execution evidence (2026-10-15)
 

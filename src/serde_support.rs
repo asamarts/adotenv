@@ -15,6 +15,8 @@ use core::fmt;
 
 use serde::de::{self, DeserializeOwned, Deserializer, MapAccess, Visitor};
 
+#[cfg(feature = "load")]
+use crate::load::LoadedEnvironment;
 use crate::{BareKeys, Document};
 
 /// A serde error tied to the literal document line where possible.
@@ -122,6 +124,77 @@ impl Document<'_> {
     pub fn deserialize<T: DeserializeOwned>(&self) -> Result<T, DeserializeError> {
         T::deserialize(DocumentDeserializer { document: self })
     }
+}
+
+#[cfg(feature = "load")]
+impl LoadedEnvironment {
+    /// Deserialize final loaded values into a Serde type.
+    ///
+    /// The map contains the effective values after cascade precedence and
+    /// dialect lookup policy, without expansion or process-environment access.
+    /// Value-conversion errors carry the one-based source line of the winning
+    /// declaration when an origin is available.
+    ///
+    /// # Errors
+    /// Returns [`DeserializeError`] when a value cannot be parsed as the
+    /// requested type.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use adotenv::load::load_cascade;
+    ///
+    /// #[derive(serde::Deserialize)]
+    /// struct Config {
+    ///     host: String,
+    ///     port: u16,
+    /// }
+    ///
+    /// let loaded = load_cascade("/srv/app", "production")?;
+    /// let config: Config = loaded.deserialize()?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn deserialize<T: DeserializeOwned>(&self) -> Result<T, DeserializeError> {
+        T::deserialize(LoadedEnvironmentDeserializer { environment: self })
+    }
+}
+
+#[cfg(feature = "load")]
+struct LoadedEnvironmentDeserializer<'env> {
+    environment: &'env LoadedEnvironment,
+}
+
+#[cfg(feature = "load")]
+impl<'de> Deserializer<'de> for LoadedEnvironmentDeserializer<'_> {
+    type Error = DeserializeError;
+
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        visitor.visit_map(EntriesAccess {
+            entries: loaded_entries(self.environment).into_iter(),
+            current: None,
+        })
+    }
+
+    serde::forward_to_deserialize_any! {
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
+        bytes byte_buf option unit unit_struct newtype_struct seq tuple
+        tuple_struct map struct enum identifier ignored_any
+    }
+}
+
+#[cfg(feature = "load")]
+fn loaded_entries(environment: &LoadedEnvironment) -> Vec<(String, String, usize)> {
+    environment
+        .values()
+        .iter()
+        .map(|(key, value)| {
+            let line = environment.origin(key).map_or(0, |origin| origin.line);
+            (key.clone(), value.clone(), line)
+        })
+        .collect()
 }
 
 struct DocumentDeserializer<'doc, 'src> {
