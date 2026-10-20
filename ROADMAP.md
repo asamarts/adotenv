@@ -23,7 +23,7 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [strategy.md](docs/design/strategy.md) | Post-0.7 product/API/performance review and candidate priorities |
 | [RELEASING.md](RELEASING.md) | Tag release, first-publish bootstrap and Trusted Publishing |
 
-**Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0 and 0.7.0 are
+**Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0, 0.7.0 and 0.7.1 are
 published. 0.3 implements explicit dialect configuration, all five syntax
 presets, selected-dialect native verification, exact per-dialect encoding,
 applicable pinned-upstream comparison and cross-dialect portability reporting. 0.4 implements literal reference
@@ -213,6 +213,8 @@ Literal parsing into ordered entries with key, value and line spans;
 - **Implemented:** `adotenv-config` and `adotenv-figment` workspace adapters,
   each with an optional `load` feature for loaded environments.
 - **Released:** 2026-10-19 after the complete quality gate.
+- **Patch:** 0.7.1 on 2026-10-20 adds `LoadedEnvironment::len` and cleans up
+  atomic CLI temporary files on write failure.
 - **Configured:** Trusted Publishing for all five crates. The bootstrap token is
   intentionally retained as a fallback for future first-time crates. See
   [RELEASING.md](RELEASING.md).

@@ -1,7 +1,7 @@
 # Strategy: from strong core to best-in-class tooling
 
 Status: post-0.7 review, 2026-10-20. This document is analysis and proposed
-direction, not additional shipped API. The current release is 0.7.0.
+direction, not additional shipped API. The current release is 0.7.1.
 
 ## Positioning
 
@@ -137,7 +137,7 @@ machine-readable output and diagnostics presentation.
 
 Recommended additions, in order:
 
-1. `--stdin` and explicit file-list support for every read-only command.
+1. `--stdin` and consistent `-`/file handling for commands that read source.
 2. `--recursive`, `--exclude` and glob/path discovery for `check`/`fmt`.
 3. `--json` output for `check`, `diff`, `load` and `fmt --check`, with a
    versioned schema.

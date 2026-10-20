@@ -785,6 +785,18 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   five crates; the retained bootstrap token is reserved for future first-time
   crates.
 
+### Pre-release 0.7.1 gate (2026-10-20)
+
+- `cargo-semver-checks` 0.7.0 -> 0.7.1 under forced patch semantics with the
+  `load` feature: 229 of 229 checks pass, 31 skipped. The additive
+  `LoadedEnvironment::len` method is accepted.
+- All-feature workspace: 236 core, 3 process, 14 CLI, 5 config and 5 Figment
+  tests; 23 doctests pass with four ignored.
+- Alloc-only + serde: 222 tests and 23 doctests; no-default core: 215 tests and
+  22 doctests.
+- Clippy passes on Rust 1.95 and 1.99; Rust 1.81 builds pass; warning-denied
+  workspace rustdoc passes. Root package contains 62 files.
+
 ### Post-release audit (0.7.0; 2026-10-19)
 
 - Refreshed `fuzz/Cargo.lock` from the stale 0.5.0 path dependency to 0.7.0.
@@ -1114,6 +1126,6 @@ still need byte and line/declaration budgets for retained lossless data.
 - After 1.0, the API follows semver. Stable diagnostic identities do not depend
   on enum order or message wording. Non-exhaustive enums allow new variants;
   callers retain a fallback arm.
-- Workspace companions share the 0.7.0 release version and were published after
-  core. Trusted Publishing is configured for all five crates; the retained
+- Workspace companions share the workspace release version and were published
+  after core. Trusted Publishing is configured for all five crates; the retained
   bootstrap token is reserved for future first-time crates.
