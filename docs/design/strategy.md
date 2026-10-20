@@ -71,6 +71,10 @@ Recommended direction:
   explicit `ExpandOptions` to the final merged values while retaining origins.
   Whole-file scope is the natural merged-environment semantic; sequential scope
   needs preserved source order or an explicit rejection.
+  The current `LoadedEnvironment` retains decoded values and origins but not the
+  original quote/escape context, so a lossless resolve façade must either retain
+  per-file parsed documents or explicitly define a decoded-value policy. Do not
+  silently reinterpret every loaded value as unquoted source.
 - Add `LoadedEnvironment::deserialize` behind `load + serde`, mapping final
   values to a Serde type with origins in errors. The first slice is implemented
   in the unreleased tree.
