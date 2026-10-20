@@ -801,7 +801,9 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   `#[must_use]` addition on `Group::items` and `Entry::leading_comments`, which
   is covered by the 0.7.0 minor version. No other public API change was found.
 - The existing weekly/manual Fuzz workflow covers all five targets with
-  bounded 300-second jobs and uploads crash artifacts. It complements, but does
+  bounded 300-second jobs and uploads crash artifacts. Manual validation run
+  [39352940619](https://github.com/asamarts/adotenv/actions/runs/39352940619)
+  passed parser, edits, encoding, resolve and format. It complements, but does
   not yet satisfy, the sustained pre-1.0 fuzzing criterion.
 - Fixed a broken cross-document anchor in `formatting.md`; a local Markdown link
   scan reports no broken local files or anchors.
