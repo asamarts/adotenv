@@ -55,11 +55,12 @@ and `adotenv-figment`; all five trusted publishers are now configured.
    `publish-update` permissions.
 4. Add it as the repository secret `CARGO_REGISTRY_TOKEN` in
    **Settings → Secrets and variables → Actions**.
-5. Push the release tag from the release commit:
+5. Push the release tag from the release commit. Substitute the current
+   version; the example below is the historical 0.7.0 bootstrap:
 
    ```console
-   git tag -a v0.7.0 -m "adotenv 0.7.0"
-   git push origin v0.7.0
+   git tag -a vX.Y.Z -m "adotenv X.Y.Z"
+   git push origin vX.Y.Z
    ```
 
 6. Watch the **Release** workflow. It uses OIDC for the existing `adotenv`

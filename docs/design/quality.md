@@ -779,13 +779,13 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   [39317378941](https://github.com/asamarts/adotenv/actions/runs/39317378941)
   passed every quality and publish job. crates.io returns HTTP 200 for all five
   0.7.0 versions and docs.rs serves documentation for all five crates; GitHub
-  Release v0.7.0 is the latest release. A downstream crates.io project installed
-  `adotenv-cli` 0.7.0 and consumed all four companion crates through the
-  `config`, Figment and process APIs. Trusted Publishing is configured for all
+  Release v0.7.0 was the latest release at that point. A downstream crates.io
+  project installed `adotenv-cli` 0.7.0 and consumed all four companion crates
+  through the `config`, Figment and process APIs. Trusted Publishing is configured for all
   five crates; the retained bootstrap token is reserved for future first-time
   crates.
 
-### Pre-release 0.7.1 gate (2026-10-20)
+### 0.7.1 release (2026-10-20)
 
 - `cargo-semver-checks` 0.7.0 -> 0.7.1 under forced patch semantics with the
   `load` feature: 229 of 229 checks pass, 31 skipped. The additive
@@ -796,6 +796,12 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   22 doctests.
 - Clippy passes on Rust 1.95 and 1.99; Rust 1.81 builds pass; warning-denied
   workspace rustdoc passes. Root package contains 62 files.
+- Release run
+  [39372957394](https://github.com/asamarts/adotenv/actions/runs/39372957394)
+  passed all quality and publish jobs. The OIDC token step succeeded and all
+  five crates were published through their configured Trusted Publishers; no
+  bootstrap token was needed. crates.io returns HTTP 200 for all five 0.7.1
+  versions, docs.rs serves all five, and GitHub Release v0.7.1 is Latest.
 
 ### Post-release audit (0.7.0; 2026-10-19)
 
