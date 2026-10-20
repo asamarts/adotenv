@@ -208,6 +208,21 @@ schema the stable surface.
   cycle.
 - Stable JSON/CLI contracts and documented compatibility policy.
 
+## Priority matrix
+
+| Priority | Work | Why it changes the product |
+|---|---|---|
+| P0 | Resolved/typed environment façade | Removes the largest application-usage gap between loading, resolution, deserialization and process application. |
+| P0 | API-freeze policy for option structs | Prevents a 1.0 stability promise from becoming a trap for future dialect/formatting fields. |
+| P0 | CLI `--stdin` and JSON diagnostics | Makes the tool usable from editors, CI and scripts without parsing human output. |
+| P0 | Lookup index and benchmark baseline | Keeps large-file and LSP-adjacent workloads predictable. |
+| P0 | Sustained fuzz and semver gates | Turns existing harnesses into evidence for the 1.0 contract. |
+| P1 | Recursive discovery, excludes, multi-file diff | Matches mature `.env` tooling workflows while retaining verified edits. |
+| P1 | Diagnostic renderer and CI annotations | Lowers adoption cost for linters and code review. |
+| P1 | Windows replacement hardening | Makes the formatter’s write story trustworthy on the remaining major platform. |
+| P2 | LSP/semantic tokens and WASM playground | Expands the product beyond batch CLI use. |
+| P2 | Additional dialect presets and adapters | Grows coverage after the core contract is stable. |
+
 ## Non-goals
 
 - Implicit environment mutation or parent-directory search in the core.
