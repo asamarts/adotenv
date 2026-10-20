@@ -839,15 +839,17 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - A downstream crates.io project installed `adotenv-cli` 0.7.1 and consumed all
   four companion crates through the `config`, Figment and process APIs.
 
-### Unreleased 0.8 slice (2026-10-20)
+### 0.8.0 development slice (2026-10-20)
 
+- Added `Document::effective_entries`, the shared value-aware extraction now
+  used by serde and both integration adapters.
 - Added `LoadedEnvironment::deserialize` behind `load + serde`. It maps final
   merged values to a Serde type and uses the winning declaration origin line in
   conversion errors.
-- All-feature workspace: 237 core, 3 process, 14 CLI, 5 config and 5 Figment
-  tests; 24 doctests pass with five ignored. Alloc-only + serde remains 222
-  tests and 23 doctests (five ignored); no-default core remains 215 tests and
-  22 doctests (five ignored).
+- All-feature workspace: 238 core, 3 process, 14 CLI, 5 config and 5 Figment
+  tests; 24 doctests pass with five ignored. Alloc-only + serde is 223 tests and
+  23 doctests (five ignored); no-default core is 216 tests and 22 doctests
+  (five ignored).
 - Clippy passes for `load,serde` and the workspace; warning-denied docs and the
   package/manifest checks remain green.
 

@@ -8,6 +8,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `Document::effective_entries` yields the winning declaration and effective
+  value for each key, honoring duplicate and bare-key policy.
 - `LoadedEnvironment::deserialize` maps final loaded values to a Serde type
   when both `load` and `serde` are enabled, preserving origin lines in value
   conversion errors.

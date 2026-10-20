@@ -2,8 +2,8 @@ use alloc::{format, string::String, vec::Vec};
 use proptest::prelude::*;
 
 use crate::{
-    encode_value, parse, parse_owned, parse_strict, AssignmentState, DiagnosticCode as Code,
-    ItemKind, PositionError, Quote, Severity,
+    encode_value, parse, parse_owned, parse_strict, parse_with, AssignmentState, BareKeys,
+    DiagnosticCode as Code, Dialect, Duplicates, ItemKind, PositionError, Quote, Severity,
 };
 
 #[test]
@@ -392,4 +392,33 @@ proptest! {
             prop_assert_eq!(doc.get("VALUE"), Some(value.as_str()));
         }
     }
+}
+
+#[test]
+fn effective_entries_honor_duplicate_and_bare_policy() {
+    let (document, _) = parse_with("A=first\nA=second\nBARE\nC=3\n", Dialect::PORTABLE);
+    let entries: Vec<_> = document
+        .effective_entries()
+        .map(|entry| (entry.key(), entry.value(), entry.line()))
+        .collect();
+    assert_eq!(entries, [("A", "second", 2), ("C", "3", 4)]);
+
+    let dialect = Dialect {
+        duplicates: Duplicates::First,
+        bare_keys: BareKeys::Empty,
+        ..Dialect::PORTABLE
+    };
+    let (document, _) = parse_with("A=first\nA=second\nBARE\n", dialect);
+    let entries: Vec<_> = document
+        .effective_entries()
+        .map(|entry| (entry.key(), entry.value(), entry.line()))
+        .collect();
+    assert_eq!(entries, [("A", "first", 1), ("BARE", "", 3)]);
+
+    let bare = document
+        .effective_entries()
+        .find(|entry| entry.key() == "BARE")
+        .unwrap();
+    assert_eq!(bare.entry().value(), None);
+    assert_eq!(bare.entry().state(), AssignmentState::Bare);
 }

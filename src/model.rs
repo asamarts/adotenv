@@ -1,4 +1,4 @@
-use alloc::{borrow::Cow, string::String, vec::Vec};
+use alloc::{borrow::Cow, collections::BTreeSet, string::String, vec::Vec};
 use core::{fmt, ops::Range};
 
 use crate::{
@@ -226,6 +226,41 @@ impl Document<'_> {
             })
         })
     }
+    /// Effective declarations in source order, with their effective values.
+    ///
+    /// Duplicate selection follows the dialect. Nonparticipating and empty-key
+    /// declarations are omitted. A bare declaration contributes an empty value
+    /// only under `BareKeys::Empty`; otherwise that key is omitted, matching
+    /// [`Document::get`]. The returned entries borrow this document.
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
+    pub fn effective_entries(&self) -> impl Iterator<Item = EffectiveEntry<'_>> {
+        let mut seen = BTreeSet::new();
+        let mut effective = Vec::new();
+        let indices: alloc::boxed::Box<dyn Iterator<Item = usize>> = match self.dialect.duplicates {
+            Duplicates::First => alloc::boxed::Box::new(0..self.entries.len()),
+            Duplicates::Last => alloc::boxed::Box::new((0..self.entries.len()).rev()),
+        };
+        for index in indices {
+            let Some(entry) = self.entry(index) else {
+                continue;
+            };
+            let key = entry.key();
+            if !entry.participates_in_lookup() || key.is_empty() || !seen.insert(key) {
+                continue;
+            }
+            let value = entry.value().or_else(|| {
+                (entry.state() == AssignmentState::Bare
+                    && self.dialect.bare_keys == BareKeys::Empty)
+                    .then_some("")
+            });
+            if let Some(value) = value {
+                effective.push((index, EffectiveEntry { entry, value }));
+            }
+        }
+        effective.sort_unstable_by_key(|(index, _)| *index);
+        effective.into_iter().map(|(_, entry)| entry)
+    }
+
     /// Select a unique declaration without guessing between duplicate occurrences.
     ///
     /// # Errors
@@ -313,6 +348,41 @@ pub struct Entry<'doc> {
     pub(crate) document: &'doc Document<'doc>,
     pub(crate) index: usize,
 }
+/// One effective declaration and its effective literal value.
+///
+/// This is the value-aware companion to [`Entry`]. It exists only for a
+/// participating declaration that wins duplicate selection and has an
+/// effective value. A bare declaration under `BareKeys::Empty` is represented
+/// with `""` while its underlying entry remains bare.
+#[derive(Debug, Clone, Copy)]
+pub struct EffectiveEntry<'doc> {
+    entry: Entry<'doc>,
+    value: &'doc str,
+}
+
+impl<'doc> EffectiveEntry<'doc> {
+    /// The winning declaration.
+    #[must_use]
+    pub const fn entry(self) -> Entry<'doc> {
+        self.entry
+    }
+    /// The literal key.
+    #[must_use]
+    pub fn key(self) -> &'doc str {
+        self.entry.key()
+    }
+    /// The effective literal value.
+    #[must_use]
+    pub const fn value(self) -> &'doc str {
+        self.value
+    }
+    /// One-based source line of the winning declaration.
+    #[must_use]
+    pub fn line(self) -> usize {
+        self.entry.line()
+    }
+}
+
 impl<'doc> Entry<'doc> {
     fn data(self) -> &'doc EntryData {
         &self.document.entries[self.index]

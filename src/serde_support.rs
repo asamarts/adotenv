@@ -6,7 +6,6 @@
 //! source line for value conversion failures.
 
 use alloc::{
-    collections::BTreeSet,
     format,
     string::{String, ToString},
     vec::Vec,
@@ -17,7 +16,7 @@ use serde::de::{self, DeserializeOwned, Deserializer, MapAccess, Visitor};
 
 #[cfg(feature = "load")]
 use crate::load::LoadedEnvironment;
-use crate::{BareKeys, Document};
+use crate::Document;
 
 /// A serde error tied to the literal document line where possible.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -222,28 +221,16 @@ impl<'de> Deserializer<'de> for DocumentDeserializer<'_, '_> {
 }
 
 fn entries(document: &Document<'_>) -> Vec<(String, String, usize)> {
-    let mut seen = BTreeSet::new();
-    let mut entries = Vec::new();
-    for entry in document.entries() {
-        if !entry.participates_in_lookup() || entry.key().is_empty() {
-            continue;
-        }
-        if !seen.insert(entry.key().to_string()) {
-            continue;
-        }
-        let Some(effective) = document.get_entry(entry.key()) else {
-            continue;
-        };
-        let value = if let Some(value) = effective.value() {
-            value.to_string()
-        } else if document.dialect().bare_keys == BareKeys::Empty {
-            String::new()
-        } else {
-            continue;
-        };
-        entries.push((effective.key().to_string(), value, effective.line()));
-    }
-    entries
+    document
+        .effective_entries()
+        .map(|entry| {
+            (
+                entry.key().to_string(),
+                entry.value().to_string(),
+                entry.line(),
+            )
+        })
+        .collect()
 }
 
 struct EntriesAccess {

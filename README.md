@@ -448,7 +448,7 @@ let config: Config = doc.deserialize()?;
 ```
 
 With `load` and `serde` enabled together, a loaded cascade can be deserialized
-directly from its final merged values:
+directly from its final merged values (unreleased 0.8.0):
 
 ```rust,ignore
 use adotenv::load::load_cascade;
@@ -527,6 +527,8 @@ Both adapters are published as 0.7.1 companion crates; see
 - Duplicates remain ordered and generate warnings. `get_entry()` selects the
   last declaration; `get()` returns its value, including `None` if it is bare.
   Use `get_all()` to inspect every occurrence and `unique()` to reject ambiguity.
+  `effective_entries()` yields the winning declaration and effective value for
+  each key, including `""` for a bare key under `BareKeys::Empty`.
 - LF, CRLF and lone CR line endings, a leading UTF-8 BOM and final-newline
   state are retained. BOM presence is informational; lone CR generates a warning.
 - Backticks are literal, not quotes; unquoted backticks generate warnings.

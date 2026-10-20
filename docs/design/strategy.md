@@ -2,7 +2,7 @@
 
 Status: post-0.7 review, updated after 0.7.1 on 2026-10-20. This document is
 analysis and proposed direction, not additional shipped API. The current
-release is 0.7.1.
+published release is 0.7.1; the tree is in 0.8.0 development.
 
 ## Positioning
 
@@ -75,7 +75,8 @@ Recommended direction:
 - Keep mutation separate: resolved environments should still be applied only
   through `adotenv-process` or consumed as a map.
 - Factor effective-value extraction into one core primitive so `load`, `serde`,
-  `adotenv-config` and `adotenv-figment` cannot drift.
+  `adotenv-config` and `adotenv-figment` cannot drift. `Document::effective_entries`
+  is implemented in the unreleased tree; serde and both adapters use it.
 - Consider a small builder-style `LoadOptions` instead of positional
   directory/mode arguments once the API-freeze review begins.
 

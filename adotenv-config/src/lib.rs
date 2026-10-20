@@ -9,11 +9,11 @@
 //! case-insensitive and dotted-path semantics. See the crate documentation for
 //! those native key rules.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 #[cfg(feature = "load")]
 use adotenv::load::LoadedEnvironment;
-use adotenv::{BareKeys, Document};
+use adotenv::Document;
 use config::{Map, Source, Value};
 
 /// A `config` source containing the adapter's effective string values.
@@ -47,27 +47,10 @@ impl AdotenvSource {
     /// `BareKeys::Empty`.
     #[must_use]
     pub fn from_document(document: &Document<'_>) -> Self {
-        let mut values = BTreeMap::new();
-        let mut seen = BTreeSet::new();
-        for entry in document.entries() {
-            if !entry.participates_in_lookup() || entry.key().is_empty() {
-                continue;
-            }
-            if !seen.insert(entry.key().to_string()) {
-                continue;
-            }
-            let Some(effective) = document.get_entry(entry.key()) else {
-                continue;
-            };
-            let value = if let Some(value) = effective.value() {
-                value.to_string()
-            } else if document.dialect().bare_keys == BareKeys::Empty {
-                String::new()
-            } else {
-                continue;
-            };
-            values.insert(effective.key().to_string(), value);
-        }
+        let values = document
+            .effective_entries()
+            .map(|entry| (entry.key().to_string(), entry.value().to_string()))
+            .collect();
         Self { values }
     }
 
@@ -95,7 +78,7 @@ impl Source for AdotenvSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adotenv::{parse_with, Dialect, Duplicates};
+    use adotenv::{parse_with, BareKeys, Dialect, Duplicates};
     use config::Config;
 
     #[test]
