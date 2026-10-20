@@ -796,6 +796,15 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - Full companion `cargo package` verification passes now that `adotenv` 0.7.0
   is on crates.io. CI now selects full package verification for published core
   versions and file-list verification for pre-release versions.
+- `cargo-semver-checks` 0.51.0 compared crates.io 0.6.0 with 0.7.0 under forced
+  patch semantics: 228 of 229 checks pass. The only failure is the intentional
+  `#[must_use]` addition on `Group::items` and `Entry::leading_comments`, which
+  is covered by the 0.7.0 minor version. No other public API change was found.
+- The existing weekly/manual Fuzz workflow covers all five targets with
+  bounded 300-second jobs and uploads crash artifacts. It complements, but does
+  not yet satisfy, the sustained pre-1.0 fuzzing criterion.
+- Fixed a broken cross-document anchor in `formatting.md`; a local Markdown link
+  scan reports no broken local files or anchors.
 - Crates.io, docs.rs, GitHub Release and the installed CLI were rechecked after
   publication; all five trusted-publisher configurations are present.
 

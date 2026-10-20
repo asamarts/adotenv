@@ -1,5 +1,7 @@
 name: Fuzz
 
+# Bounded, corpus-driven fuzzing on a weekly cadence and on demand. This is a
+# recurring smoke, not a substitute for a longer pre-1.0 fuzzing campaign.
 on:
   schedule:
     - cron: "23 4 * * 1"
@@ -29,10 +31,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           toolchain: nightly
-      - run: cargo install cargo-fuzz --version 0.13.2 --locked
-      - name: Run bounded synthetic-corpus fuzzing
-        run: cargo +nightly fuzz run "${{ matrix.target }}" -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
-      - name: Preserve crash reproducers
+      - name: install cargo-fuzz
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - name: run bounded synthetic-corpus fuzzing
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          cargo +nightly fuzz run "$TARGET" -- \
+            -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536 \
+            -print_final_stats=1
+      - name: preserve crash reproducers
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

@@ -222,7 +222,8 @@ The core API is frozen and follows semver. Criteria:
 
 - Every item through 0.7 shipped.
 - Fuzzing clean for a sustained period, and the conformance corpus passing
-  for every preset.
+  for every preset. A weekly/manual workflow runs bounded 300-second jobs for all
+  five fuzz targets; a longer campaign is still required before 1.0.
 - Complete API documentation with examples for each common task.
 - At least one user outside this project.
 

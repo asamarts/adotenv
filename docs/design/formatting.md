@@ -182,4 +182,4 @@ assert_eq!(formatted.as_str(), "A = 1\nB = 2\n");
   the library APIs.
 
 Evidence for this slice is recorded in
-[quality.md](quality.md#structure-and-formatting-slice-05-unreleased).
+[quality.md](quality.md#structure-and-formatting-slice-05-released-2026-10-18).
