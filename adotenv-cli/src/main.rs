@@ -92,7 +92,7 @@ fn usage() {
          \n\
          Commands:\n\
            get <file> <key>             Print an effective literal value\n\
-           check <file>...              Report parse diagnostics\n\
+           check [--json] <file>...      Report parse diagnostics\n\
            fmt [--write|--check] [--sort] <file>...\n\
                                         Format documents (optionally sorted)\n\
            diff <left> <right>          Compare effective keys\n\
@@ -134,39 +134,123 @@ fn get(args: &[String], dialect: Dialect) -> u8 {
 }
 
 fn check(args: &[String], dialect: Dialect) -> u8 {
-    if args.is_empty() {
-        eprintln!("usage: adotenv-cli check <file>...");
+    let mut json = false;
+    let mut paths = Vec::new();
+    for arg in args {
+        if arg == "--json" {
+            json = true;
+        } else {
+            paths.push(arg.as_str());
+        }
+    }
+    if paths.is_empty() {
+        eprintln!("usage: adotenv-cli check [--json] <file>...");
         return 2;
     }
-    if args.iter().filter(|path| is_stdin(path)).count() > 1 {
+    if paths.iter().filter(|path| is_stdin(path)).count() > 1 {
         eprintln!("standard input may be used at most once");
         return 2;
     }
     let mut failed = false;
-    for path in args {
+    let mut files = Vec::new();
+    for path in paths {
         let source = match read_text(path) {
             Ok(source) => source,
             Err(error) => {
-                fail(error);
                 failed = true;
+                if json {
+                    files.push(format!(
+                        "{{\"path\":{},\"ok\":false,\"error\":{},\"diagnostics\":[]}}",
+                        json_string(path),
+                        json_string(&error)
+                    ));
+                } else {
+                    eprintln!("{error}");
+                }
                 continue;
             }
         };
         let (_, diagnostics) = parse_with(&source, dialect);
-        for diagnostic in diagnostics {
-            println!(
-                "{path}:{}: {:?} {}: {}",
-                diagnostic.line(),
-                diagnostic.severity(),
-                diagnostic.code().as_str(),
-                diagnostic.message()
-            );
-            if diagnostic.severity() == Severity::Error {
-                failed = true;
+        let has_errors = diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity() == Severity::Error);
+        if has_errors {
+            failed = true;
+        }
+        if json {
+            let rendered = diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    let secondary = diagnostic.secondary_span().map_or_else(
+                        || "null".to_string(),
+                        |span| format!("{{\"start\":{},\"end\":{}}}", span.start, span.end),
+                    );
+                    let span = diagnostic.span();
+                    format!(
+                        "{{\"line\":{},\"severity\":{},\"code\":{},\"message\":{},\"span\":{{\"start\":{},\"end\":{}}},\"secondary_span\":{}}}",
+                        diagnostic.line(),
+                        json_string(severity_name(diagnostic.severity())),
+                        json_string(diagnostic.code().as_str()),
+                        json_string(diagnostic.message()),
+                        span.start,
+                        span.end,
+                        secondary
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            files.push(format!(
+                "{{\"path\":{},\"ok\":{},\"diagnostics\":[{}]}}",
+                json_string(path),
+                !has_errors,
+                rendered
+            ));
+        } else {
+            for diagnostic in diagnostics {
+                println!(
+                    "{path}:{}: {:?} {}: {}",
+                    diagnostic.line(),
+                    diagnostic.severity(),
+                    diagnostic.code().as_str(),
+                    diagnostic.message()
+                );
             }
         }
     }
+    if json {
+        println!("{{\"version\":1,\"files\":[{}]}}", files.join(","));
+    }
     u8::from(failed)
+}
+
+fn severity_name(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Error => "error",
+        Severity::Warning => "warning",
+        _ => "info",
+    }
+}
+
+fn json_string(value: &str) -> String {
+    let mut output = String::with_capacity(value.len() + 2);
+    output.push('"');
+    for character in value.chars() {
+        match character {
+            '"' => output.push_str("\\\""),
+            '\\' => output.push_str("\\\\"),
+            '\n' => output.push_str("\\n"),
+            '\r' => output.push_str("\\r"),
+            '\t' => output.push_str("\\t"),
+            '\u{08}' => output.push_str("\\b"),
+            '\u{0c}' => output.push_str("\\f"),
+            character if (character as u32) < 0x20 => {
+                output.push_str(&format!("\\u{:04x}", character as u32));
+            }
+            character => output.push(character),
+        }
+    }
+    output.push('"');
+    output
 }
 
 fn fmt(args: &[String], dialect: Dialect) -> u8 {

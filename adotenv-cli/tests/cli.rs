@@ -292,3 +292,35 @@ fn stdin_is_accepted_for_read_only_commands() {
     assert_eq!(output.status.code(), Some(2));
     assert!(stderr(&output).contains("at most once"));
 }
+
+#[test]
+fn check_json_uses_a_versioned_schema() {
+    let dir = TempDir::new();
+    let good = dir.file("good.env", "A=1\n");
+    let bad = dir.file("bad.env", "BAD KEY=value\n");
+
+    let output = run(&["check", "--json", good.to_str().unwrap()]);
+    assert!(output.status.success());
+    let json = stdout(&output);
+    assert!(json.starts_with("{\"version\":1,\"files\":["));
+    assert!(json.contains("\"ok\":true"));
+    assert!(json.contains("\"diagnostics\":[]"));
+
+    let output = run(&["check", "--json", bad.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+    let json = stdout(&output);
+    assert!(json.contains("\"ok\":false"));
+    assert!(json.contains("\"code\":\"dotenv.invalid-key\""));
+    assert!(json.contains("\"line\":1"));
+    assert!(json.contains("\"span\":{\"start\":0,"));
+
+    let output = run(&["check", "--json", "definitely-missing.env"]);
+    assert_eq!(output.status.code(), Some(1));
+    let json = stdout(&output);
+    assert!(json.contains("\"ok\":false"));
+    assert!(json.contains("\"error\":"));
+
+    let output = run_with_stdin(&["check", "--json", "-"], "A=1\n");
+    assert!(output.status.success());
+    assert!(stdout(&output).contains("\"ok\":true"));
+}

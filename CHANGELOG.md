@@ -15,6 +15,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   conversion errors.
 - CLI commands that read source accept `-` or `--stdin` for standard input.
   Writes and `set` reject standard input; multiple stdin inputs are rejected.
+- `check --json` emits a versioned machine-readable diagnostic document with
+  paths, severity, stable codes, messages and exact spans.
 
 ## [0.7.1] - 2026-10-20
 

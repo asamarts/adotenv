@@ -35,6 +35,16 @@ Parses every file recoveringly and prints one line per diagnostic with the path,
 one-based line, severity, stable code and message. Any error-severity
 diagnostic makes the command exit 1.
 
+`check --json` emits one versioned JSON object:
+
+```json
+{"version":1,"files":[{"path":".env","ok":false,"diagnostics":[{"line":1,"severity":"error","code":"dotenv.invalid-key","message":"...","span":{"start":0,"end":3},"secondary_span":null}]}]}
+```
+
+Read failures produce `{"path":"...","ok":false,"error":"...","diagnostics":[]}`.
+The schema version and stable diagnostic codes are the machine contract; message
+wording remains descriptive.
+
 ### fmt
 
 Reads, repairs invalid syntax as the parser permits, formats with

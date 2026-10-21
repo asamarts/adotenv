@@ -199,8 +199,8 @@ schema the stable surface.
   unreleased tree.
 - Public API inventory; decide `non_exhaustive`/builder policy for option types.
 - Optional lookup index prototype and benchmark baseline.
-- CLI `-`/`--stdin` input; implemented in the unreleased tree. JSON diagnostics
-  remain.
+- CLI `-`/`--stdin` input and `check --json` diagnostics; implemented in the
+  unreleased tree. Recursive discovery and multi-file diff remain.
 
 ### 0.9: Tooling surface
 

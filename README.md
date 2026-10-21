@@ -463,7 +463,7 @@ The zero-dependency `adotenv-cli` workspace binary accepts a global
 
 ```text
 get <file> <key>          print an effective literal value
-check <file>...           print parse diagnostics
+check [--json] <file>...  print parse diagnostics
 fmt [--write|--check] [--sort] <file>...
                           format, check or write documents
 diff <left> <right>       compare effective keys
@@ -473,6 +473,10 @@ set <file> <key> <value>  set and write one declaration
 run <directory> [mode] -- <program> [args...]
                           run a child with loaded values
 ```
+
+`check --json` emits a versioned `{"version":1,"files":[...]}` document with
+stable diagnostic codes, severities, exact spans and read errors, suitable for
+editor or CI integration.
 
 File-reading commands accept `-` or `--stdin` for standard input. `run` loads
 the cascade and starts a child with those values added to its environment; the
