@@ -30,6 +30,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   This is a deliberate pre-1.0 API-freeze change. Library-produced report
   structs and entry tokens are also non-exhaustive; caller-built value types
   such as `TextEdit` and `Position` remain constructible with literals.
+  Dialect/format policy enums and `Multiline` are non-exhaustive as well;
+  `Multiline` exposes `with_single`, `with_double` and `with_backtick`.
 
 ## [0.7.1] - 2026-10-20
 

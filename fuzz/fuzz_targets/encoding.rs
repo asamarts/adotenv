@@ -96,11 +96,10 @@ fn dialect_for(header: &[u8]) -> Dialect {
         4 => QuotedTail::Skip,
         _ => QuotedTail::NextStatement,
     };
-    dialect.multiline = Multiline {
-        single: header[3] & 1 != 0,
-        double: header[3] & 2 != 0,
-        backtick: header[3] & 4 != 0,
-    };
+    dialect.multiline = Multiline::ALL
+        .with_single(header[3] & 1 != 0)
+        .with_double(header[3] & 2 != 0)
+        .with_backtick(header[3] & 4 != 0);
     dialect.backticks = header[3] & 8 != 0;
     dialect.normalize_newlines = header[3] & 16 != 0;
     dialect.line_breaks = if header[3] & 32 == 0 {

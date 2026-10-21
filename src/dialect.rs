@@ -2,6 +2,7 @@
 
 /// The statement grammar used to recognize bindings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Syntax {
     /// The crate's conservative, lossless default grammar.
     Portable,
@@ -17,6 +18,7 @@ pub enum Syntax {
 
 /// Recognition of inline comments (whole-statement comments are always enabled).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum InlineComments {
     /// A hash preceded by configured whitespace.
     Whitespace,
@@ -82,6 +84,7 @@ impl DoubleEscapes {
 
 /// Handling of unrecognized double-quoted escapes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum UnknownEscapes {
     /// Keep both characters literally.
     Preserve,
@@ -94,6 +97,7 @@ pub enum UnknownEscapes {
 }
 /// Escapes recognized inside single quotes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum SingleEscapes {
     /// No single-quoted escapes.
     None,
@@ -104,6 +108,7 @@ pub enum SingleEscapes {
 }
 /// Colon assignment separators.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ColonSeparator {
     /// Only equals signs separate keys and values.
     None,
@@ -114,6 +119,7 @@ pub enum ColonSeparator {
 }
 /// Validation of unquoted key bodies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum KeySyntax {
     /// ASCII letters/underscore followed by letters, digits or underscore.
     Posix,
@@ -132,6 +138,7 @@ pub enum KeySyntax {
 }
 /// Effective treatment of declarations with no assignment separator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum BareKeys {
     /// Retain a participating declaration whose value is absent.
     Preserve,
@@ -144,6 +151,7 @@ pub enum BareKeys {
 }
 /// Physical line recognition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum LineBreaks {
     /// LF, CRLF and lone CR terminate lines.
     Universal,
@@ -152,6 +160,7 @@ pub enum LineBreaks {
 }
 /// Treatment of an initial UTF-8 byte-order mark.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum BomPolicy {
     /// Retain it as a separate prelude and diagnose it informationally.
     Strip,
@@ -162,6 +171,7 @@ pub enum BomPolicy {
 }
 /// Which participating duplicate declaration wins lookup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Duplicates {
     /// The first declaration wins.
     First,
@@ -170,6 +180,7 @@ pub enum Duplicates {
 }
 /// Handling of noncomment text following a closing quote.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum QuotedTail {
     /// Reject the statement.
     Error,
@@ -186,6 +197,7 @@ pub enum QuotedTail {
 }
 /// Independently enabled multiline quote forms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct Multiline {
     /// Permit line endings inside single quotes.
     pub single: bool,
@@ -193,6 +205,26 @@ pub struct Multiline {
     pub double: bool,
     /// Permit line endings inside backticks.
     pub backtick: bool,
+}
+impl Multiline {
+    /// Permit or forbid line endings inside single quotes.
+    #[must_use]
+    pub const fn with_single(mut self, value: bool) -> Self {
+        self.single = value;
+        self
+    }
+    /// Permit or forbid line endings inside double quotes.
+    #[must_use]
+    pub const fn with_double(mut self, value: bool) -> Self {
+        self.double = value;
+        self
+    }
+    /// Permit or forbid line endings inside backticks.
+    #[must_use]
+    pub const fn with_backtick(mut self, value: bool) -> Self {
+        self.backtick = value;
+        self
+    }
 }
 impl Multiline {
     /// Permit multiline content in every quote form.
@@ -210,6 +242,7 @@ impl Multiline {
 }
 /// Whitespace classification used by syntax policies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Whitespace {
     /// ASCII space and tab.
     Ascii,
@@ -224,6 +257,7 @@ pub enum Whitespace {
 }
 /// Handling of malformed statements, excluding explicit policy violations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum MalformedLines {
     /// Retain invalid syntax and report an error.
     Error,

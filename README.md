@@ -675,10 +675,11 @@ let dialect = Dialect::NODE_DOTENV.with_bare_keys(BareKeys::Ignore);
 let options = ExpandOptions::portable().with_scope(ExpandScope::WholeFile);
 ```
 
-Library-produced report/result structs are also non-exhaustive, while simple
-caller-built values such as `TextEdit` and `Position` remain constructible with
-struct literals. This preserves the ability to add policy and diagnostic fields
-after 1.0 without another breaking change.
+Library-produced report/result structs are also non-exhaustive, as are the
+dialect/format policy enums and `Multiline`. Simple caller-built values such as
+`TextEdit` and `Position` remain constructible with struct literals. This
+preserves the ability to add policy, diagnostic and enum variants after 1.0
+without another breaking change.
 
 ## Migrating from 0.2
 
