@@ -613,3 +613,16 @@ fn fail(message: String) -> u8 {
     eprintln!("{message}");
     2
 }
+
+#[cfg(test)]
+mod tests {
+    use super::json_string;
+
+    #[test]
+    fn json_strings_escape_controls_quotes_and_backslashes() {
+        assert_eq!(
+            json_string("quote\" slash\\ line\n tab\t control\u{1}"),
+            "\"quote\\\" slash\\\\ line\\n tab\\t control\\u0001\""
+        );
+    }
+}
