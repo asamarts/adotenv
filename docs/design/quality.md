@@ -871,6 +871,19 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   follow the same hybrid policy; `TextEdit` and `Position` remain
   caller-constructible.
 
+### 0.9.0 development slice (2026-10-21)
+
+- Added recursive `.env` discovery and repeatable excludes to `check` and
+  `fmt`; discovery skips `.git`, `target`, `node_modules` and symlinks.
+- All-feature workspace: 242 core, 3 process, 19 CLI, 5 config and 5 Figment
+  tests; 26 doctests pass with six ignored. Alloc-only + serde is 224 tests and
+  25 doctests (six ignored); no-default core is 217 tests and 24 doctests
+  (six ignored).
+- Clippy, rustdoc, MSRV, package and 66 Criterion smoke workloads remain green.
+  The CLI discovery tests cover env-name filtering, default ignored
+  directories, excludes, short flags, symlink non-following and recursive
+  check/fmt behavior.
+
 ## Local execution evidence (2026-10-15)
 
 Tested source: the unreleased 0.2 working tree based on

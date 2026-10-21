@@ -3,13 +3,12 @@
 use std::{
     env, fs,
     io::{self, Read},
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, ExitCode},
 };
 #[cfg(unix)]
 use std::{
     io::Write,
-    path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -86,25 +85,29 @@ fn extract_dialect(args: &mut Vec<String>) -> Result<Dialect, ()> {
     Ok(dialect)
 }
 
+const USAGE: &str = r#"adotenv-cli [--dialect <portable|node|python|compose|docker>] <command> [options]
+
+Commands:
+  get <file> <key>             Print an effective literal value
+  check [--json] [--recursive] [--exclude <path>] <file-or-dir>...
+                                Report parse diagnostics
+  fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <file-or-dir>...
+                                Format documents (optionally sorted)
+  diff <left> <right>          Compare effective keys
+  example <file>               Print a value-free example
+  load <directory> [mode]      Load the standard dotenv cascade
+  set <file> <key> <value>     Set and write one declaration
+  run <directory> [mode] -- <program> [args...]
+                                Run a child with loaded values
+
+File-reading commands accept '-' or '--stdin' for standard input. Recursive
+commands skip .git, target and node_modules and do not follow symlinks.
+run never mutates the parent environment. Command substitution from files is
+not enabled.
+"#;
+
 fn usage() {
-    println!(
-        "adotenv-cli [--dialect <portable|node|python|compose|docker>] <command> [options]\n\
-         \n\
-         Commands:\n\
-           get <file> <key>             Print an effective literal value\n\
-           check [--json] <file>...      Report parse diagnostics\n\
-           fmt [--write|--check] [--sort] <file>...\n\
-                                        Format documents (optionally sorted)\n\
-           diff <left> <right>          Compare effective keys\n\
-           example <file>               Print a value-free example\n\
-           load <directory> [mode]      Load the standard dotenv cascade\n\
-           set <file> <key> <value>     Set and write one declaration\n\
-           run <directory> [mode] -- <program> [args...]\n\
-                                        Run a child with loaded values\n\
-         \n\
-         run never mutates the parent environment. Command substitution from\n\
-         files is not enabled."
-    );
+    print!("{USAGE}");
 }
 
 fn get(args: &[String], dialect: Dialect) -> u8 {
@@ -133,19 +136,216 @@ fn get(args: &[String], dialect: Dialect) -> u8 {
     }
 }
 
-fn check(args: &[String], dialect: Dialect) -> u8 {
-    let mut json = false;
-    let mut paths = Vec::new();
-    for arg in args {
-        if arg == "--json" {
-            json = true;
+const DEFAULT_IGNORED_DIRS: [&str; 3] = [".git", "target", "node_modules"];
+
+fn is_env_file(name: &str) -> bool {
+    name == ".env" || name.starts_with(".env.")
+}
+
+fn is_ignored_dir(name: &str) -> bool {
+    DEFAULT_IGNORED_DIRS.contains(&name)
+}
+
+fn is_excluded(base: &Path, path: &Path, excludes: &[PathBuf]) -> bool {
+    let relative = path.strip_prefix(base).unwrap_or(path);
+    excludes.iter().any(|exclude| {
+        if exclude.as_os_str().is_empty() {
+            false
+        } else if exclude.is_absolute() {
+            path.starts_with(exclude)
         } else {
-            paths.push(arg.as_str());
+            relative == exclude || relative.starts_with(exclude)
+        }
+    })
+}
+
+fn walk_env_files(
+    base: &Path,
+    directory: &Path,
+    excludes: &[PathBuf],
+    found: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    let entries =
+        fs::read_dir(directory).map_err(|error| format!("{}: {error}", directory.display()))?;
+    let mut entries = entries
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("{}: {error}", directory.display()))?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    for entry in entries {
+        let path = entry.path();
+        if is_excluded(base, &path, excludes) {
+            continue;
+        }
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
+            let name = entry.file_name();
+            if !is_ignored_dir(&name.to_string_lossy()) {
+                walk_env_files(base, &path, excludes, found)?;
+            }
+        } else if file_type.is_file() {
+            let name = entry.file_name();
+            if is_env_file(&name.to_string_lossy()) {
+                found.push(path);
+            }
         }
     }
-    if paths.is_empty() {
-        eprintln!("usage: adotenv-cli check [--json] <file>...");
+    Ok(())
+}
+
+fn expand_paths(
+    paths: &[String],
+    recursive: bool,
+    excludes: &[PathBuf],
+) -> Result<Vec<String>, String> {
+    if !recursive {
+        return Ok(paths.to_vec());
+    }
+    let roots = if paths.is_empty() {
+        vec![".".to_string()]
+    } else {
+        paths.to_vec()
+    };
+    let mut found = Vec::new();
+    for root in roots {
+        if is_stdin(&root) {
+            found.push(PathBuf::from(root));
+            continue;
+        }
+        let root_path = Path::new(&root);
+        let metadata =
+            fs::symlink_metadata(root_path).map_err(|error| format!("{root}: {error}"))?;
+        if metadata.file_type().is_symlink() {
+            return Err(format!("{root}: refusing to follow symbolic links"));
+        }
+        if metadata.is_file() {
+            let base = root_path.parent().unwrap_or_else(|| Path::new("."));
+            if !is_excluded(base, root_path, excludes) {
+                found.push(root_path.to_path_buf());
+            }
+        } else if metadata.is_dir() {
+            walk_env_files(root_path, root_path, excludes, &mut found)?;
+        } else {
+            return Err(format!("{root}: not a regular file or directory"));
+        }
+    }
+    let mut found: Vec<String> = found
+        .into_iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect();
+    found.sort();
+    found.dedup();
+    Ok(found)
+}
+
+fn parse_discovery_args(
+    args: &[String],
+    allow_json: bool,
+) -> Result<(Vec<String>, bool, bool, Vec<PathBuf>), String> {
+    let mut paths = Vec::new();
+    let mut json = false;
+    let mut recursive = false;
+    let mut excludes = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--json" if allow_json => json = true,
+            "--recursive" | "-r" => recursive = true,
+            "--exclude" => {
+                index += 1;
+                if index >= args.len() {
+                    return Err("--exclude requires a path".to_string());
+                }
+                excludes.push(PathBuf::from(&args[index]));
+            }
+            argument => paths.push(argument.to_string()),
+        }
+        index += 1;
+    }
+    if !recursive && !excludes.is_empty() {
+        return Err("--exclude requires --recursive".to_string());
+    }
+    Ok((paths, json, recursive, excludes))
+}
+
+struct FmtArgs {
+    paths: Vec<String>,
+    write: bool,
+    check: bool,
+    sort: bool,
+    recursive: bool,
+    excludes: Vec<PathBuf>,
+}
+
+fn parse_fmt_args(args: &[String]) -> Result<FmtArgs, String> {
+    let mut paths = Vec::new();
+    let mut write = false;
+    let mut check = false;
+    let mut sort = false;
+    let mut recursive = false;
+    let mut excludes = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--write" => write = true,
+            "--check" => check = true,
+            "--sort" => sort = true,
+            "--recursive" | "-r" => recursive = true,
+            "--exclude" => {
+                index += 1;
+                if index >= args.len() {
+                    return Err("--exclude requires a path".to_string());
+                }
+                excludes.push(PathBuf::from(&args[index]));
+            }
+            argument => paths.push(argument.to_string()),
+        }
+        index += 1;
+    }
+    if !recursive && !excludes.is_empty() {
+        return Err("--exclude requires --recursive".to_string());
+    }
+    Ok(FmtArgs {
+        paths,
+        write,
+        check,
+        sort,
+        recursive,
+        excludes,
+    })
+}
+
+fn check(args: &[String], dialect: Dialect) -> u8 {
+    let (raw_paths, json, recursive, excludes) = match parse_discovery_args(args, true) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            eprintln!("{error}");
+            return 2;
+        }
+    };
+    if raw_paths.is_empty() && !recursive {
+        eprintln!(
+            "usage: adotenv-cli check [--json] [--recursive] [--exclude <path>] <file-or-dir>..."
+        );
         return 2;
+    }
+    let paths = match expand_paths(&raw_paths, recursive, &excludes) {
+        Ok(paths) => paths,
+        Err(error) => {
+            eprintln!("{error}");
+            return 2;
+        }
+    };
+    if paths.is_empty() {
+        eprintln!("no .env files found");
+        if json {
+            println!("{{\"version\":1,\"files\":[]}}");
+        }
+        return 0;
     }
     if paths.iter().filter(|path| is_stdin(path)).count() > 1 {
         eprintln!("standard input may be used at most once");
@@ -153,7 +353,7 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
     }
     let mut failed = false;
     let mut files = Vec::new();
-    for path in paths {
+    for path in &paths {
         let source = match read_text(path) {
             Ok(source) => source,
             Err(error) => {
@@ -254,21 +454,36 @@ fn json_string(value: &str) -> String {
 }
 
 fn fmt(args: &[String], dialect: Dialect) -> u8 {
-    let mut write = false;
-    let mut check = false;
-    let mut sort = false;
-    let mut paths = Vec::new();
-    for arg in args {
-        match arg.as_str() {
-            "--write" => write = true,
-            "--check" => check = true,
-            "--sort" => sort = true,
-            _ => paths.push(arg.as_str()),
+    let FmtArgs {
+        paths: raw_paths,
+        write,
+        check,
+        sort,
+        recursive,
+        excludes,
+    } = match parse_fmt_args(args) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            eprintln!("{error}");
+            return 2;
         }
-    }
-    if paths.is_empty() {
-        eprintln!("usage: adotenv-cli fmt [--write|--check] [--sort] <file>...");
+    };
+    if raw_paths.is_empty() && !recursive {
+        eprintln!(
+            "usage: adotenv-cli fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <file-or-dir>..."
+        );
         return 2;
+    }
+    let paths = match expand_paths(&raw_paths, recursive, &excludes) {
+        Ok(paths) => paths,
+        Err(error) => {
+            eprintln!("{error}");
+            return 2;
+        }
+    };
+    if paths.is_empty() {
+        eprintln!("no .env files found");
+        return 0;
     }
     if write && check {
         eprintln!("--write and --check are mutually exclusive");

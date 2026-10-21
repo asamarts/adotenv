@@ -1,8 +1,9 @@
 # Strategy: from strong core to best-in-class tooling
 
-Status: post-0.7 review, updated after 0.8.0 on 2026-10-21. This document is
+Status: post-0.7 review, updated after 0.8.0 and during 0.9 development. This document is
 analysis and proposed direction, not additional shipped API. The current
-published release is 0.8.0. The next candidate milestone is 0.9.
+published release is 0.8.0; 0.9 development has started with recursive
+discovery and excludes.
 
 ## Positioning
 
@@ -195,11 +196,11 @@ schema the stable surface.
 - `Document::lookup_index`; implemented. The local 0.8 benchmark baseline is
   recorded in [performance.md](performance.md).
 - CLI `-`/`--stdin` input and `check --json` diagnostics; implemented in the
-  0.8.0 release. Recursive discovery and multi-file diff remain.
+  0.8.0 release. Multi-file diff remains.
 
 ### 0.9: Tooling surface
 
-- Recursive discovery and excludes.
+- Recursive discovery and excludes; implemented in development.
 - Multi-file diff/matrix.
 - Diagnostic renderer and CI annotations.
 - Windows replacement hardening.

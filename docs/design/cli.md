@@ -1,8 +1,9 @@
 # Command-line interface
 
 Status: the zero-dependency `adotenv-cli` companion was published as 0.7.0 on
-2026-10-19, 0.7.1 on 2026-10-20 and 0.8.0 on 2026-10-21. `run` starts a child process with loaded
-values but does not mutate the parent environment.
+2026-10-19, 0.7.1 on 2026-10-20 and 0.8.0 on 2026-10-21. Recursive discovery is
+in 0.9 development. `run` starts a child process with loaded values but does
+not mutate the parent environment.
 
 ## Commands
 
@@ -10,8 +11,8 @@ values but does not mutate the parent environment.
 adotenv-cli [--dialect <portable|node|python|compose|docker>] <command> ...
 
 adotenv-cli get <file> <key>
-adotenv-cli check <file>...
-adotenv-cli fmt [--write|--check] [--sort] <file>...
+adotenv-cli check [--json] [--recursive] [--exclude <path>] <file-or-dir>...
+adotenv-cli fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <file-or-dir>...
 adotenv-cli diff <left> <right>
 adotenv-cli example <file>
 adotenv-cli load <directory> [mode]
@@ -55,6 +56,18 @@ temporary file and rename on Unix; other platforms fall back to direct writes.
 Otherwise output is printed. Multiple files are labeled. Invalid syntax is
 reported and the command exits 1, though the formatter still preserves invalid
 statements.
+
+### Recursive discovery
+
+`check --recursive` and `fmt --recursive` walk supplied directories, or `.` if
+none are supplied, and select files named `.env` or `.env.*`. Repeatable
+`--exclude <path>` values are interpreted relative to each discovery root;
+absolute excludes match when the discovery roots are absolute. The defaults
+skip `.git`, `target` and `node_modules`, and symbolic links are never
+followed. Explicit files are
+included regardless of name. Multiple roots are sorted and deduplicated.
+If a recursive search finds nothing, the command reports that on stderr and
+exits successfully.
 
 ### diff
 

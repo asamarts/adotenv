@@ -27,6 +27,14 @@ impl TempDir {
         fs::write(&path, source).unwrap();
         path
     }
+    fn file_at(&self, relative: &str, source: &str) -> PathBuf {
+        let path = self.0.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&path, source).unwrap();
+        path
+    }
     fn path(&self) -> &Path {
         &self.0
     }
@@ -323,4 +331,80 @@ fn check_json_uses_a_versioned_schema() {
     let output = run_with_stdin(&["check", "--json", "-"], "A=1\n");
     assert!(output.status.success());
     assert!(stdout(&output).contains("\"ok\":true"));
+}
+
+#[test]
+fn recursive_discovery_applies_env_names_ignores_and_excludes() {
+    let dir = TempDir::new();
+    dir.file_at(".env", "A = 1\n");
+    dir.file_at(".env.local", "B = 2\n");
+    dir.file_at("sub/.env.production", "C = 3\n");
+    dir.file_at("sub/.env.bad", "BAD KEY=value\n");
+    dir.file_at(".envrc", "BAD KEY=value\n");
+    dir.file_at(".git/.env", "BAD KEY=value\n");
+    dir.file_at("target/.env", "BAD KEY=value\n");
+    dir.file_at("sub/not-env", "BAD KEY=value\n");
+
+    let output = run(&["check", "--json", "-r", dir.path().to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+    let json = stdout(&output);
+    assert!(json.contains(".env.production"));
+    assert!(json.contains(".env.bad"));
+    assert!(!json.contains(".git/.env"));
+    assert!(!json.contains("target/.env"));
+    assert!(!json.contains("not-env"));
+    assert!(!json.contains(".envrc"));
+
+    let output = run(&[
+        "check",
+        "--json",
+        "--recursive",
+        "--exclude",
+        "sub",
+        dir.path().to_str().unwrap(),
+    ]);
+    assert!(output.status.success());
+    let json = stdout(&output);
+    assert!(json.contains(".env"));
+    assert!(json.contains(".env.local"));
+    assert!(!json.contains("sub/"));
+
+    let output = run(&["check", "--exclude", "sub", dir.path().to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("--recursive"));
+
+    let output = run(&[
+        "fmt",
+        "--recursive",
+        "--check",
+        "--exclude",
+        "sub",
+        dir.path().to_str().unwrap(),
+    ]);
+    assert!(output.status.success());
+}
+
+#[cfg(unix)]
+#[test]
+fn recursive_discovery_does_not_follow_symlinks() {
+    use std::os::unix::fs::symlink;
+
+    let dir = TempDir::new();
+    let outside = TempDir::new();
+    dir.file_at(".env", "A = 1\n");
+    outside.file_at(".env", "BAD KEY=value\n");
+    symlink(outside.path(), dir.path().join("linked-dir")).unwrap();
+    symlink(outside.path().join(".env"), dir.path().join(".env.link")).unwrap();
+
+    let output = run(&[
+        "check",
+        "--json",
+        "--recursive",
+        dir.path().to_str().unwrap(),
+    ]);
+    assert!(output.status.success());
+    let json = stdout(&output);
+    assert!(json.contains(".env\""));
+    assert!(!json.contains("linked-dir"));
+    assert!(!json.contains(".env.link"));
 }

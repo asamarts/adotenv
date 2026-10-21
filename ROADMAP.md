@@ -37,7 +37,8 @@ adapter. 0.7 publishes the workspace CLI, the process and tooling companions,
 and the `config`/Figment integration adapters. Trusted Publishing is configured
 for all five crates. 0.8 adds effective-entry extraction, loaded deserialization,
 decoded/contextual loaded resolution, lookup indexing, CLI stdin/JSON output and
-the API-freeze policy. Execution evidence is in the quality notes.
+the API-freeze policy. 0.9 development has started with recursive discovery and
+excludes. Execution evidence is in the quality notes.
 
 ## Goals
 
@@ -233,9 +234,11 @@ Literal parsing into ordered entries with key, value and line spans;
 - Local performance baseline; no CI performance threshold yet.
 - **Released:** 2026-10-21 after the complete quality gate.
 
-### 0.9: Tooling surface (planned)
+### 0.9: Tooling surface (in progress)
 
 - Recursive discovery and excludes.
+  - **Implemented:** `check --recursive`, `fmt --recursive`, repeatable
+    `--exclude`, default ignored directories and symlink skipping.
 - Diagnostic rendering and CI annotations.
 - Multi-file diff/matrix.
 - Windows replacement hardening.
