@@ -94,6 +94,31 @@ mod tests {
         assert_eq!(config.get_int("port").unwrap(), 8080);
     }
 
+    #[derive(Debug, serde::Deserialize, PartialEq)]
+    struct TypedConfig {
+        host: String,
+        port: u16,
+    }
+
+    #[test]
+    fn typed_deserialization_uses_config_scalar_coercion() {
+        let config = Config::builder()
+            .add_source(AdotenvSource::from_values(BTreeMap::from([
+                ("host".to_string(), "localhost".to_string()),
+                ("port".to_string(), "8080".to_string()),
+            ])))
+            .build()
+            .unwrap();
+        let typed: TypedConfig = config.try_deserialize().unwrap();
+        assert_eq!(
+            typed,
+            TypedConfig {
+                host: "localhost".to_string(),
+                port: 8080,
+            }
+        );
+    }
+
     #[test]
     fn config_uses_native_path_and_case_semantics() {
         let config = Config::builder()

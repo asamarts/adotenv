@@ -20,6 +20,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   attempt a direct replace, and fall back to a backup swap that restores the old
   file on failure and cleans up on success. The fallback remains best-effort
   rather than crash-atomic.
+- Documented and tested typed adapter usage: `config` uses its native scalar
+  coercion, while Figment requires string fields and explicit conversion.
+  Retained `config` 0.14 after evaluating 0.15 key semantics and MSRV.
 
 ## [0.8.0] - 2026-10-21
 

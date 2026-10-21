@@ -24,6 +24,7 @@ version = "0.9.0"
 dependencies = [
  "adotenv",
  "config",
+ "serde",
 ]
 
 [[package]]

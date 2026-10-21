@@ -204,8 +204,9 @@ schema the stable surface.
 - Multi-file diff/matrix; implemented in development.
 - Diagnostic renderer and CI annotations; implemented in development.
 - Windows replacement hardening; implemented in development.
-- Typed/structured adapter output where the ecosystem supports it.
-- `config` 0.15 evaluation if MSRV permits.
+- Typed/structured adapter output where the ecosystem supports it; evaluated
+  and documented without adapter coercion.
+- `config` 0.15 evaluation if MSRV permits; retained 0.14 after evaluation.
 
 ### 1.0: Stable contract
 

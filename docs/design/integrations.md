@@ -33,6 +33,21 @@ assert_eq!(config.get_string("host").unwrap(), "localhost");
 assert_eq!(config.get_int("port").unwrap(), 8080);
 ```
 
+Typed extraction uses `config`'s own scalar coercion; the adapter does not add a
+second conversion layer:
+
+```rust
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct App {
+    host: String,
+    port: u16,
+}
+
+let app: App = config.try_deserialize()?;
+```
+
 `from_environment` consumes a `LoadedEnvironment` when the `load` feature is
 enabled; `from_values` accepts an explicit map.
 
@@ -60,9 +75,26 @@ let figment = Figment::new().merge(AdotenvProvider::from_document(&doc));
 The provider preserves the original key spelling in its dictionary. Figment’s
 path-oriented lookup APIs still treat dots as separators; extraction into a
 literal map or a matching typed structure is the lossless route. Figment values
-are strings. Deserialize string fields or convert them explicitly; the adapter
-does not infer numeric or boolean types. `from_environment` is available with
-the `load` feature, and `from_values` accepts an explicit map.
+are strings and Figment does not coerce them to numbers or booleans. Deserialize
+string fields and convert explicitly:
+
+```rust
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct RawApp {
+    host: String,
+    port: String,
+}
+
+let raw: RawApp = Figment::new()
+    .merge(AdotenvProvider::from_document(&doc))
+    .extract()?;
+let port: u16 = raw.port.parse()?;
+```
+
+`from_environment` is available with the `load` feature, and `from_values`
+accepts an explicit map.
 
 ## Packaging
 
@@ -72,3 +104,12 @@ file-loading feature. Docs.rs builds them with all features. `adotenv-config`
 is built against `config` 0.14, the version compatible with the workspace MSRV.
 See [RELEASING.md](../../RELEASING.md) for the release bootstrap and Trusted
 Publishing setup.
+
+### `config` 0.15 evaluation
+
+`config` remains at 0.14. Version 0.15.0 declares Rust 1.75 support, but its
+key-normalization behavior differs from 0.14: the adapter’s `A.B` source no
+longer resolves through the lowercase `a.b` lookup in the compatibility test.
+The current 0.15 release line also requires Rust 1.88 and edition 2024. Upgrading
+would therefore require pinning an old 0.15 patch while accepting or documenting
+a key-semantics change, so the workspace keeps 0.14 and its native semantics.

@@ -547,7 +547,8 @@ let config = config::Config::builder()
     .build()?;
 ```
 
-Figment values remain strings and require string fields or explicit conversion.
+`config` can deserialize typed structures using its own scalar coercion.
+Figment values remain strings: deserialize string fields and convert explicitly.
 Both adapters are published as 0.8.0 companion crates; see
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md).
 

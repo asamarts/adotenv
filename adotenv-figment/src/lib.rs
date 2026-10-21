@@ -206,3 +206,35 @@ mod tests {
         let _ = std::fs::remove_file(path);
     }
 }
+
+#[cfg(test)]
+mod typed_tests {
+    use super::*;
+    use figment::Figment;
+    use serde::Deserialize;
+
+    #[derive(Debug, Deserialize)]
+    #[allow(dead_code)]
+    struct NumericConfig {
+        port: u16,
+    }
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct StringConfig {
+        port: String,
+    }
+
+    #[test]
+    fn numeric_values_require_explicit_conversion() {
+        let figment = Figment::new().merge(AdotenvProvider::from_values(BTreeMap::from([(
+            "port".to_string(),
+            "8080".to_string(),
+        )])));
+
+        let direct: Result<NumericConfig, _> = figment.extract();
+        assert!(direct.is_err());
+
+        let raw: StringConfig = figment.extract().unwrap();
+        assert_eq!(raw.port.parse::<u16>().unwrap(), 8080);
+    }
+}

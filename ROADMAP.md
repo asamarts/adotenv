@@ -37,9 +37,10 @@ adapter. 0.7 publishes the workspace CLI, the process and tooling companions,
 and the `config`/Figment integration adapters. Trusted Publishing is configured
 for all five crates. 0.8 adds effective-entry extraction, loaded deserialization,
 decoded/contextual loaded resolution, lookup indexing, CLI stdin/JSON output and
-the API-freeze policy. 0.9 development has started with recursive discovery and
-excludes, diagnostic rendering and CI annotations, and baseline-first
-multi-file diff/matrix output. Execution evidence is in the quality notes.
+the API-freeze policy. 0.9 development has added recursive discovery and
+excludes, diagnostic rendering and CI annotations, baseline-first multi-file
+diff/matrix output, Windows replacement hardening, and adapter typed-usage
+evaluation. Execution evidence is in the quality notes.
 
 ## Goals
 
@@ -250,7 +251,12 @@ Literal parsing into ordered entries with key, value and line spans;
   - **Implemented:** same-directory temporary file, direct-replace attempt and
     backup-swap fallback with failure restoration; no unsafe or new dependencies.
 - Typed/structured adapter output where the ecosystem supports it.
+  - **Evaluated:** `config` typed extraction uses its native scalar coercion;
+    Figment requires string fields and explicit conversion. Both paths are
+    documented and tested without adding a second coercion layer.
 - `config` 0.15 evaluation if MSRV permits.
+  - **Evaluated:** retained 0.14. 0.15.0 changes key-normalization behavior,
+    and the current 0.15 line requires Rust 1.88/edition 2024.
 
 See [strategy.md](docs/design/strategy.md) for the full analysis.
 

@@ -23,6 +23,21 @@ extraction into a literal map or a matching typed structure is the lossless
 route. Values are strings: deserialize string fields or convert explicitly.
 The adapter does not infer numeric or boolean types.
 
+```rust,ignore
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct RawApp {
+    host: String,
+    port: String,
+}
+
+let raw: RawApp = Figment::new()
+    .merge(AdotenvProvider::from_document(&doc))
+    .extract()?;
+let port: u16 = raw.port.parse()?;
+```
+
 Duplicate policy, nonparticipating keys and `BareKeys::Empty` follow the wrapped
 document or loaded environment. No expansion, command execution or implicit
 file access occurs.

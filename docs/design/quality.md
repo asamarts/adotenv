@@ -885,7 +885,12 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   replace attempt and a backup-swap fallback. It restores the old file on
   failure and cleans up on success, but the fallback is explicitly not
   crash-atomic.
-- All-feature workspace: 242 core, 3 process, 26 CLI, 5 config and 5 Figment
+- Evaluated typed adapter usage and `config` 0.15. `config` typed extraction
+  relies on its native scalar coercion and is covered by a test; Figment is
+  documented and tested as requiring string fields and explicit conversion.
+  `config` remains at 0.14 because 0.15.0 changes key-normalization behavior
+  and the current 0.15 line requires Rust 1.88/edition 2024.
+- All-feature workspace: 242 core, 3 process, 26 CLI, 6 config and 6 Figment
   tests; 26 doctests pass with six ignored. Alloc-only + serde is 224 tests and
   25 doctests (six ignored); no-default core is 217 tests and 24 doctests
   (six ignored).
@@ -894,7 +899,8 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   excludes, short flags, symlink non-following, recursive check/fmt behavior,
   human/JSON/GitHub rendering, workflow escaping, columns, summaries, the
   source opt-in boundary, baseline-first multi-file diff, matrix output,
-  diff JSON and replacement-file cleanup.
+  diff JSON, replacement-file cleanup, config typed coercion and Figment's
+  explicit-conversion boundary.
 
 ## Local execution evidence (2026-10-15)
 
