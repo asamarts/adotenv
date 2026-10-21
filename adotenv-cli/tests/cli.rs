@@ -489,3 +489,100 @@ fn github_format_annotates_read_failures() {
     assert!(text.contains("::error file=definitely-missing.env,title=adotenv::"));
     assert!(text.contains("definitely-missing.env"));
 }
+
+#[test]
+fn diff_compares_multiple_files_against_a_baseline_and_renders_a_matrix() {
+    let dir = TempDir::new();
+    let base = dir.file("base.env", "A=1\nB=2\n");
+    let one = dir.file("one.env", "A=3\nC=4\n");
+    let two = dir.file("two.env", "A=1\nB=2\n");
+
+    let output = run(&[
+        "diff",
+        base.to_str().unwrap(),
+        one.to_str().unwrap(),
+        two.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = stdout(&output);
+    assert!(text.contains("base.env ->"));
+    assert!(text.contains("one.env"));
+    assert!(text.contains("~ A: 1 -> 3"));
+    assert!(text.contains("- B=2"));
+    assert!(text.contains("+ C=4"));
+    assert!(text.contains("two.env"));
+    assert!(text.contains("(no differences)"));
+
+    let output = run(&[
+        "diff",
+        "--format",
+        "matrix",
+        base.to_str().unwrap(),
+        one.to_str().unwrap(),
+        two.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = stdout(&output);
+    assert!(text.contains("key"));
+    assert!(text.contains("base.env"));
+    assert!(text.contains("one.env"));
+    assert!(text.contains("two.env"));
+    assert!(text.contains("C"));
+    assert!(text.contains("<unset>"));
+}
+
+#[test]
+fn diff_json_is_versioned_and_reports_each_candidate() {
+    let dir = TempDir::new();
+    let base = dir.file("base.env", "A=1\n");
+    let changed = dir.file("changed.env", "A=2\n");
+    let same = dir.file("same.env", "A=1\n");
+
+    let output = run(&[
+        "diff",
+        "--format=json",
+        base.to_str().unwrap(),
+        changed.to_str().unwrap(),
+        same.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    let json = stdout(&output);
+    assert!(json.starts_with("{\"version\":1,\"baseline\":"));
+    assert!(json.contains("\"path\":"));
+    assert!(json.contains("\"kind\":\"value\""));
+    assert!(json.contains("\"left\":{\"state\":\"value\",\"value\":\"1\",\"exported\":false}"));
+    assert!(json.contains("\"right\":{\"state\":\"value\",\"value\":\"2\",\"exported\":false}"));
+
+    let output = run(&[
+        "diff",
+        "--json",
+        base.to_str().unwrap(),
+        same.to_str().unwrap(),
+    ]);
+    assert!(output.status.success());
+    assert!(stdout(&output).contains("\"differences\":[]"));
+
+    let output = run(&[
+        "diff",
+        "--json",
+        "--format",
+        "matrix",
+        base.to_str().unwrap(),
+        changed.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("conflicting output formats"));
+
+    let output = run(&[
+        "diff",
+        "--format",
+        "sarif",
+        base.to_str().unwrap(),
+        changed.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("--format expects human, matrix or json"));
+
+    let output = run(&["diff", base.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(2));
+}

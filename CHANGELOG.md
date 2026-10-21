@@ -14,6 +14,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Human output adds columns and a summary; GitHub output emits workflow
   annotations. `--source` adds source lines and carets only as an explicit
   human-output opt-in because values may be secret.
+- Baseline-first multi-file `diff` with `--format human|matrix|json`; the first
+  file is the baseline, and `--json` remains an alias for JSON output.
 
 ## [0.8.0] - 2026-10-21
 

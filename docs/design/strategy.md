@@ -201,7 +201,7 @@ schema the stable surface.
 ### 0.9: Tooling surface
 
 - Recursive discovery and excludes; implemented in development.
-- Multi-file diff/matrix.
+- Multi-file diff/matrix; implemented in development.
 - Diagnostic renderer and CI annotations; implemented in development.
 - Windows replacement hardening.
 - Typed/structured adapter output where the ecosystem supports it.

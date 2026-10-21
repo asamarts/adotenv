@@ -487,7 +487,8 @@ check [--format human|json|github] [--json] [--source]
                           print parse diagnostics
 fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <file-or-dir>...
                           format, check or write documents
-diff <left> <right>       compare effective keys
+diff [--format human|matrix|json] [--json] <baseline> <file>...
+                          compare effective keys
 example <file>            print a value-free example
 load <directory> [mode]   load the standard dotenv cascade
 set <file> <key> <value>  set and write one declaration
@@ -509,6 +510,11 @@ for human output.
 below the supplied directories (or `.` when no path is given). Repeatable
 `--exclude <path>` values are relative to each root. Discovery skips `.git`,
 `target`, `node_modules` and symbolic links, and does not follow them.
+
+`diff` treats the first file as the baseline and compares every following file
+to it. Two-file diff output is unchanged. `--format matrix` prints a key-by-file
+table, while `--format json` (or `--json`) emits a versioned per-candidate
+comparison document. The command exits 1 if any candidate differs.
 
 File-reading commands accept `-` or `--stdin` for standard input. `run` loads
 the cascade and starts a child with those values added to its environment; the

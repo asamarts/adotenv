@@ -879,15 +879,18 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   human output, GitHub Actions annotations, and secret-safe `--source` as an
   explicit human-only opt-in. `--json` remains a JSON alias and the versioned
   JSON schema is unchanged.
-- All-feature workspace: 242 core, 3 process, 23 CLI, 5 config and 5 Figment
+- Added baseline-first multi-file `diff` with unchanged two-file human output,
+  a matrix table and versioned JSON output.
+- All-feature workspace: 242 core, 3 process, 25 CLI, 5 config and 5 Figment
   tests; 26 doctests pass with six ignored. Alloc-only + serde is 224 tests and
   25 doctests (six ignored); no-default core is 217 tests and 24 doctests
   (six ignored).
 - Clippy, rustdoc, MSRV, package and 66 Criterion smoke workloads remain green.
   The CLI tests cover env-name filtering, default ignored directories,
   excludes, short flags, symlink non-following, recursive check/fmt behavior,
-  human/JSON/GitHub rendering, workflow escaping, columns, summaries and the
-  source opt-in boundary.
+  human/JSON/GitHub rendering, workflow escaping, columns, summaries, the
+  source opt-in boundary, baseline-first multi-file diff, matrix output and
+  diff JSON.
 
 ## Local execution evidence (2026-10-15)
 

@@ -13,7 +13,7 @@ adotenv-cli [--dialect <portable|node|python|compose|docker>] <command> ...
 adotenv-cli get <file> <key>
 adotenv-cli check [--format human|json|github] [--json] [--source] [--recursive] [--exclude <path>] <file-or-dir>...
 adotenv-cli fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <file-or-dir>...
-adotenv-cli diff <left> <right>
+adotenv-cli diff [--format human|matrix|json] [--json] <baseline> <file>...
 adotenv-cli example <file>
 adotenv-cli load <directory> [mode]
 adotenv-cli set <file> <key> <value>
@@ -84,9 +84,27 @@ exits successfully.
 
 ### diff
 
-Compares effective keys with `Document::compare`. It prints `-` for left-only,
-`+` for right-only and `~` for state/value/export changes, and exits 1 when
-there are differences.
+The first file is the baseline; every following file is compared with it using
+`Document::compare`. With exactly two files, the existing output is unchanged:
+`-` for baseline-only, `+` for candidate-only and `~` for state/value/export
+changes. With three or more files, each candidate gets a `baseline -> candidate`
+heading, and identical candidates print `(no differences)`. The command exits 1
+if any candidate differs from the baseline.
+
+`--format matrix` prints a table with keys as rows and the baseline plus every
+candidate as columns. Missing keys show `<unset>`, bare declarations show
+`<bare>`, empty values show `""`, and exported declarations are prefixed with
+`export`. Values are escaped for tabs, carriage returns and line feeds.
+
+`--format json` (also available as `--json`) emits one versioned object:
+
+```json
+{"version":1,"baseline":"base.env","files":[{"path":"one.env","ok":true,"differences":[{"key":"A","kind":"value","left":{"state":"value","value":"1","exported":false},"right":{"state":"value","value":"2","exported":false}}]}]}
+```
+
+Difference kinds are `only-left`, `only-right`, `state`, `value` and `export`.
+Values are decoded literals; absent sides are `null`. Read and strict parse
+failures exit 2 without partial output. Standard input may be used at most once.
 
 ### example
 
