@@ -1,9 +1,9 @@
 # Command-line interface
 
 Status: the zero-dependency `adotenv-cli` companion was published as 0.7.0 on
-2026-10-19, 0.7.1 on 2026-10-20 and 0.8.0 on 2026-10-21. Recursive discovery is
-in 0.9 development. `run` starts a child process with loaded values but does
-not mutate the parent environment.
+2026-10-19, 0.7.1 on 2026-10-20 and 0.8.0 on 2026-10-21. Recursive discovery
+and diagnostic renderers are in 0.9 development. `run` starts a child process
+with loaded values but does not mutate the parent environment.
 
 ## Commands
 
@@ -11,7 +11,7 @@ not mutate the parent environment.
 adotenv-cli [--dialect <portable|node|python|compose|docker>] <command> ...
 
 adotenv-cli get <file> <key>
-adotenv-cli check [--json] [--recursive] [--exclude <path>] <file-or-dir>...
+adotenv-cli check [--format human|json|github] [--json] [--source] [--recursive] [--exclude <path>] <file-or-dir>...
 adotenv-cli fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <file-or-dir>...
 adotenv-cli diff <left> <right>
 adotenv-cli example <file>
@@ -32,11 +32,13 @@ exit 2.
 
 ### check
 
-Parses every file recoveringly and prints one line per diagnostic with the path,
-one-based line, severity, stable code and message. Any error-severity
-diagnostic makes the command exit 1.
+Parses every file recoveringly. Human output, the default, prints one line per
+diagnostic with the path, one-based line and character column, severity, stable
+code and message, followed by a summary of errors, warnings, info diagnostics and
+affected files. Any error-severity diagnostic makes the command exit 1.
 
-`check --json` emits one versioned JSON object:
+`--format json` (also available as the compatibility alias `--json`) emits one
+versioned JSON object:
 
 ```json
 {"version":1,"files":[{"path":".env","ok":false,"diagnostics":[{"line":1,"severity":"error","code":"dotenv.invalid-key","message":"...","span":{"start":0,"end":3},"secondary_span":null}]}]}
@@ -45,6 +47,17 @@ diagnostic makes the command exit 1.
 Read failures produce `{"path":"...","ok":false,"error":"...","diagnostics":[]}`.
 The schema version and stable diagnostic codes are the machine contract; message
 wording remains descriptive.
+
+`--format github` emits GitHub Actions workflow commands instead, using
+`::error`, `::warning` and `::notice` severities with `file`, `line`, `col` and
+the stable diagnostic code as the title. File paths and messages are escaped
+according to the workflow-command rules. Read failures become `::error`
+annotations without a line. The output goes to standard output and the exit
+status is unchanged.
+
+Human output does not echo source lines by default because `.env` files commonly
+contain secrets. `--source` opts in to a source line and caret display; it may
+reveal values and is rejected with JSON or GitHub output.
 
 ### fmt
 
@@ -64,8 +77,8 @@ none are supplied, and select files named `.env` or `.env.*`. Repeatable
 `--exclude <path>` values are interpreted relative to each discovery root;
 absolute excludes match when the discovery roots are absolute. The defaults
 skip `.git`, `target` and `node_modules`, and symbolic links are never
-followed. Explicit files are
-included regardless of name. Multiple roots are sorted and deduplicated.
+followed. Explicit files are included regardless of name. Multiple roots are
+sorted and deduplicated.
 If a recursive search finds nothing, the command reports that on stderr and
 exits successfully.
 

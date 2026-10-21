@@ -38,7 +38,8 @@ and the `config`/Figment integration adapters. Trusted Publishing is configured
 for all five crates. 0.8 adds effective-entry extraction, loaded deserialization,
 decoded/contextual loaded resolution, lookup indexing, CLI stdin/JSON output and
 the API-freeze policy. 0.9 development has started with recursive discovery and
-excludes. Execution evidence is in the quality notes.
+excludes, plus diagnostic rendering and CI annotations. Execution evidence is
+in the quality notes.
 
 ## Goals
 
@@ -240,6 +241,8 @@ Literal parsing into ordered entries with key, value and line spans;
   - **Implemented:** `check --recursive`, `fmt --recursive`, repeatable
     `--exclude`, default ignored directories and symlink skipping.
 - Diagnostic rendering and CI annotations.
+  - **Implemented:** human line/column output and summaries, JSON v1 preserved,
+    GitHub Actions annotations, and secret-safe `--source` opt-in.
 - Multi-file diff/matrix.
 - Windows replacement hardening.
 - Typed/structured adapter output where the ecosystem supports it.

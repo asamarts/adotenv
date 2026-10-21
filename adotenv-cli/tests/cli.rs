@@ -408,3 +408,84 @@ fn recursive_discovery_does_not_follow_symlinks() {
     assert!(!json.contains("linked-dir"));
     assert!(!json.contains(".env.link"));
 }
+
+#[test]
+fn check_renders_human_json_and_github_formats() {
+    let dir = TempDir::new();
+    let bad = dir.file("bad,name.env", "A=1\nBAD KEY=secret\n");
+
+    let human = run(&["check", bad.to_str().unwrap()]);
+    assert_eq!(human.status.code(), Some(1));
+    let text = stdout(&human);
+    assert!(text.contains(":2:1: error[dotenv.invalid-key]:"));
+    assert!(text.contains("1 error, 0 warnings, 0 info in 1 file"));
+    assert!(!text.contains("BAD KEY"));
+    assert!(!text.contains("secret"));
+
+    let explicit = run(&["check", "--format", "human", bad.to_str().unwrap()]);
+    assert_eq!(stdout(&explicit), text);
+
+    let json = run(&["check", "--format=json", bad.to_str().unwrap()]);
+    assert_eq!(json.status.code(), Some(1));
+    assert!(stdout(&json).starts_with("{\"version\":1,\"files\":["));
+    assert!(stdout(&json).contains("\"code\":\"dotenv.invalid-key\""));
+
+    let github = run(&["check", "--format", "github", bad.to_str().unwrap()]);
+    assert_eq!(github.status.code(), Some(1));
+    let annotations = stdout(&github);
+    assert!(annotations.contains("::error file="));
+    assert!(annotations.contains("line=2,col=1,title=dotenv.invalid-key"));
+    assert!(annotations.contains("bad%2Cname.env"));
+    assert!(!annotations.contains("secret"));
+}
+
+#[test]
+fn check_source_is_an_explicit_human_only_opt_in() {
+    let dir = TempDir::new();
+    let bad = dir.file("bad.env", "A=1\nBAD KEY=secret\n");
+
+    let output = run(&["check", "--source", bad.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = stdout(&output);
+    assert!(text.contains("2 | BAD KEY=secret"));
+    assert!(text.contains("| ^^^^^^^"));
+    assert!(text.contains(":2:1: error[dotenv.invalid-key]:"));
+
+    for args in [
+        vec!["check", "--source", "--json", bad.to_str().unwrap()],
+        vec![
+            "check",
+            "--source",
+            "--format",
+            "github",
+            bad.to_str().unwrap(),
+        ],
+    ] {
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(stderr(&output).contains("--source requires human output"));
+    }
+
+    let output = run(&["check", "--format", "sarif", bad.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("--format expects human, json or github"));
+
+    let output = run(&[
+        "check",
+        "--json",
+        "--format",
+        "github",
+        bad.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("conflicting output formats"));
+}
+
+#[test]
+fn github_format_annotates_read_failures() {
+    let output = run(&["check", "--format", "github", "definitely-missing.env"]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = stdout(&output);
+    assert!(text.contains("::error file=definitely-missing.env,title=adotenv::"));
+    assert!(text.contains("definitely-missing.env"));
+}

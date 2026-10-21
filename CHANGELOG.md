@@ -10,6 +10,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - CLI recursive `.env` discovery and repeatable `--exclude` paths for `check`
   and `fmt`. Discovery skips `.git`, `target`, `node_modules` and symlinks.
+- `check --format human|json|github`, with `--json` retained as a JSON alias.
+  Human output adds columns and a summary; GitHub output emits workflow
+  annotations. `--source` adds source lines and carets only as an explicit
+  human-output opt-in because values may be secret.
 
 ## [0.8.0] - 2026-10-21
 

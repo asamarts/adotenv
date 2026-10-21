@@ -475,14 +475,15 @@ let loaded = load_cascade("/srv/my-app", "production")?;
 let config: Config = loaded.deserialize()?;
 ```
 
-## CLI (0.7, workspace companion)
+## CLI (0.8, workspace companion)
 
 The zero-dependency `adotenv-cli` workspace binary accepts a global
 `--dialect <portable|node|python|compose|docker>` option and currently provides:
 
 ```text
 get <file> <key>          print an effective literal value
-check [--json] [--recursive] [--exclude <path>] <file-or-dir>...
+check [--format human|json|github] [--json] [--source]
+      [--recursive] [--exclude <path>] <file-or-dir>...
                           print parse diagnostics
 fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <file-or-dir>...
                           format, check or write documents
@@ -494,9 +495,15 @@ run <directory> [mode] -- <program> [args...]
                           run a child with loaded values
 ```
 
-`check --json` emits a versioned `{"version":1,"files":[...]}` document with
-stable diagnostic codes, severities, exact spans and read errors, suitable for
-editor or CI integration.
+`check` defaults to human output with path, one-based line and column,
+severity, stable code, message and a summary. `--format json` (or the
+compatibility alias `--json`) emits a versioned
+`{"version":1,"files":[...]}` document with stable diagnostic codes,
+severities, exact spans and read errors, suitable for editor integration.
+`--format github` emits GitHub Actions workflow annotations instead. Human
+output deliberately omits source lines because `.env` values may be secrets;
+`--source` adds source lines and carets as an explicit opt-in and is only valid
+for human output.
 
 `check --recursive` and `fmt --recursive` discover `.env` and `.env.*` files
 below the supplied directories (or `.` when no path is given). Repeatable
@@ -512,7 +519,7 @@ files remains disabled. The CLI uses the library’s verified formatting, sortin
 loading and edit APIs. It is published as `adotenv-cli` 0.8.0; see
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md).
 
-## Integrations (0.7, workspace companions)
+## Integrations (0.8, workspace companions)
 
 `adotenv-config` exposes effective literal declarations as a `config` source;
 enable its `load` feature to accept a loaded environment. `config` applies its

@@ -14,7 +14,7 @@ use std::{
 
 use adotenv::{
     load::{load_cascade_with, LoadedEnvironment},
-    parse_strict_with, parse_with, AssignmentState, ComparedValue, Comparison, Dialect,
+    parse_strict_with, parse_with, AssignmentState, ComparedValue, Comparison, Diagnostic, Dialect,
     DifferenceKind, FormatOptions, Severity,
 };
 
@@ -89,7 +89,8 @@ const USAGE: &str = r#"adotenv-cli [--dialect <portable|node|python|compose|dock
 
 Commands:
   get <file> <key>             Print an effective literal value
-  check [--json] [--recursive] [--exclude <path>] <file-or-dir>...
+  check [--format human|json|github] [--json] [--source]
+        [--recursive] [--exclude <path>] <file-or-dir>...
                                 Report parse diagnostics
   fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <file-or-dir>...
                                 Format documents (optionally sorted)
@@ -102,6 +103,7 @@ Commands:
 
 File-reading commands accept '-' or '--stdin' for standard input. Recursive
 commands skip .git, target and node_modules and do not follow symlinks.
+--source may reveal secret values and is only valid for human output.
 run never mutates the parent environment. Command substitution from files is
 not enabled.
 "#;
@@ -242,18 +244,59 @@ fn expand_paths(
     Ok(found)
 }
 
-fn parse_discovery_args(
-    args: &[String],
-    allow_json: bool,
-) -> Result<(Vec<String>, bool, bool, Vec<PathBuf>), String> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CheckFormat {
+    Human,
+    Json,
+    Github,
+}
+
+struct CheckArgs {
+    paths: Vec<String>,
+    format: CheckFormat,
+    recursive: bool,
+    excludes: Vec<PathBuf>,
+    show_source: bool,
+}
+
+fn parse_check_format(value: &str) -> Result<CheckFormat, String> {
+    match value {
+        "human" => Ok(CheckFormat::Human),
+        "json" => Ok(CheckFormat::Json),
+        "github" => Ok(CheckFormat::Github),
+        _ => Err("--format expects human, json or github".to_string()),
+    }
+}
+
+fn set_check_format(current: &mut Option<CheckFormat>, next: CheckFormat) -> Result<(), String> {
+    if current.is_some_and(|format| format != next) {
+        return Err("conflicting output formats".to_string());
+    }
+    *current = Some(next);
+    Ok(())
+}
+
+fn parse_check_args(args: &[String]) -> Result<CheckArgs, String> {
     let mut paths = Vec::new();
-    let mut json = false;
+    let mut format = None;
     let mut recursive = false;
     let mut excludes = Vec::new();
+    let mut show_source = false;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
-            "--json" if allow_json => json = true,
+            "--json" => set_check_format(&mut format, CheckFormat::Json)?,
+            "--format" => {
+                index += 1;
+                if index >= args.len() {
+                    return Err("--format requires human, json or github".to_string());
+                }
+                set_check_format(&mut format, parse_check_format(&args[index])?)?;
+            }
+            argument if argument.starts_with("--format=") => {
+                let value = &argument["--format=".len()..];
+                set_check_format(&mut format, parse_check_format(value)?)?;
+            }
             "--recursive" | "-r" => recursive = true,
             "--exclude" => {
                 index += 1;
@@ -262,14 +305,25 @@ fn parse_discovery_args(
                 }
                 excludes.push(PathBuf::from(&args[index]));
             }
+            "--source" => show_source = true,
             argument => paths.push(argument.to_string()),
         }
         index += 1;
     }
+    let format = format.unwrap_or(CheckFormat::Human);
+    if show_source && format != CheckFormat::Human {
+        return Err("--source requires human output".to_string());
+    }
     if !recursive && !excludes.is_empty() {
         return Err("--exclude requires --recursive".to_string());
     }
-    Ok((paths, json, recursive, excludes))
+    Ok(CheckArgs {
+        paths,
+        format,
+        recursive,
+        excludes,
+        show_source,
+    })
 }
 
 struct FmtArgs {
@@ -320,7 +374,13 @@ fn parse_fmt_args(args: &[String]) -> Result<FmtArgs, String> {
 }
 
 fn check(args: &[String], dialect: Dialect) -> u8 {
-    let (raw_paths, json, recursive, excludes) = match parse_discovery_args(args, true) {
+    let CheckArgs {
+        paths: raw_paths,
+        format,
+        recursive,
+        excludes,
+        show_source,
+    } = match parse_check_args(args) {
         Ok(parsed) => parsed,
         Err(error) => {
             eprintln!("{error}");
@@ -329,7 +389,7 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
     };
     if raw_paths.is_empty() && !recursive {
         eprintln!(
-            "usage: adotenv-cli check [--json] [--recursive] [--exclude <path>] <file-or-dir>..."
+            "usage: adotenv-cli check [--format human|json|github] [--json] [--source] [--recursive] [--exclude <path>] <file-or-dir>..."
         );
         return 2;
     }
@@ -342,7 +402,7 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
     };
     if paths.is_empty() {
         eprintln!("no .env files found");
-        if json {
+        if format == CheckFormat::Json {
             println!("{{\"version\":1,\"files\":[]}}");
         }
         return 0;
@@ -353,74 +413,254 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
     }
     let mut failed = false;
     let mut files = Vec::new();
+    let mut errors = 0usize;
+    let mut warnings = 0usize;
+    let mut infos = 0usize;
+    let mut affected_files = 0usize;
     for path in &paths {
         let source = match read_text(path) {
             Ok(source) => source,
             Err(error) => {
                 failed = true;
-                if json {
-                    files.push(format!(
+                errors += 1;
+                affected_files += 1;
+                match format {
+                    CheckFormat::Json => files.push(format!(
                         "{{\"path\":{},\"ok\":false,\"error\":{},\"diagnostics\":[]}}",
                         json_string(path),
                         json_string(&error)
-                    ));
-                } else {
-                    eprintln!("{error}");
+                    )),
+                    CheckFormat::Human => eprintln!("{error}"),
+                    CheckFormat::Github => println!("{}", github_read_error(path, &error)),
                 }
                 continue;
             }
         };
         let (_, diagnostics) = parse_with(&source, dialect);
-        let has_errors = diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.severity() == Severity::Error);
-        if has_errors {
+        let mut file_has_error = false;
+        let mut rendered = Vec::new();
+        for diagnostic in &diagnostics {
+            match diagnostic.severity() {
+                Severity::Error => {
+                    errors += 1;
+                    file_has_error = true;
+                }
+                Severity::Warning => warnings += 1,
+                _ => infos += 1,
+            }
+            match format {
+                CheckFormat::Json => rendered.push(render_json_diagnostic(diagnostic)),
+                CheckFormat::Human => {
+                    println!("{}", render_human(path, &source, diagnostic, show_source));
+                }
+                CheckFormat::Github => {
+                    println!("{}", github_annotation(path, &source, diagnostic));
+                }
+            }
+        }
+        if file_has_error {
             failed = true;
         }
-        if json {
-            let rendered = diagnostics
-                .iter()
-                .map(|diagnostic| {
-                    let secondary = diagnostic.secondary_span().map_or_else(
-                        || "null".to_string(),
-                        |span| format!("{{\"start\":{},\"end\":{}}}", span.start, span.end),
-                    );
-                    let span = diagnostic.span();
-                    format!(
-                        "{{\"line\":{},\"severity\":{},\"code\":{},\"message\":{},\"span\":{{\"start\":{},\"end\":{}}},\"secondary_span\":{}}}",
-                        diagnostic.line(),
-                        json_string(severity_name(diagnostic.severity())),
-                        json_string(diagnostic.code().as_str()),
-                        json_string(diagnostic.message()),
-                        span.start,
-                        span.end,
-                        secondary
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(",");
+        if !diagnostics.is_empty() {
+            affected_files += 1;
+        }
+        if format == CheckFormat::Json {
             files.push(format!(
                 "{{\"path\":{},\"ok\":{},\"diagnostics\":[{}]}}",
                 json_string(path),
-                !has_errors,
-                rendered
+                !file_has_error,
+                rendered.join(",")
             ));
-        } else {
-            for diagnostic in diagnostics {
-                println!(
-                    "{path}:{}: {:?} {}: {}",
-                    diagnostic.line(),
-                    diagnostic.severity(),
-                    diagnostic.code().as_str(),
-                    diagnostic.message()
-                );
-            }
         }
     }
-    if json {
-        println!("{{\"version\":1,\"files\":[{}]}}", files.join(","));
+    match format {
+        CheckFormat::Json => println!("{{\"version\":1,\"files\":[{}]}}", files.join(",")),
+        CheckFormat::Human if affected_files > 0 => println!(
+            "{} error{}, {} warning{}, {} info in {} file{}",
+            errors,
+            if errors == 1 { "" } else { "s" },
+            warnings,
+            if warnings == 1 { "" } else { "s" },
+            infos,
+            affected_files,
+            if affected_files == 1 { "" } else { "s" }
+        ),
+        CheckFormat::Human | CheckFormat::Github => {}
     }
     u8::from(failed)
+}
+
+fn render_json_diagnostic(diagnostic: &Diagnostic) -> String {
+    let secondary = diagnostic.secondary_span().map_or_else(
+        || "null".to_string(),
+        |span| format!("{{\"start\":{},\"end\":{}}}", span.start, span.end),
+    );
+    let span = diagnostic.span();
+    format!(
+        "{{\"line\":{},\"severity\":{},\"code\":{},\"message\":{},\"span\":{{\"start\":{},\"end\":{}}},\"secondary_span\":{}}}",
+        diagnostic.line(),
+        json_string(severity_name(diagnostic.severity())),
+        json_string(diagnostic.code().as_str()),
+        json_string(diagnostic.message()),
+        span.start,
+        span.end,
+        secondary
+    )
+}
+
+fn render_human(path: &str, source: &str, diagnostic: &Diagnostic, show_source: bool) -> String {
+    let span = diagnostic.span();
+    let (line_start, line_end) = line_bounds(source, span.start);
+    let column = source_column(source, line_start, span.start);
+    let mut output = format!(
+        "{}:{}:{}: {}[{}]: {}",
+        path,
+        diagnostic.line(),
+        column,
+        severity_name(diagnostic.severity()),
+        diagnostic.code().as_str(),
+        diagnostic.message()
+    );
+    if show_source {
+        let line_text = expand_tabs(&source[line_start..line_end]);
+        let caret_start = floor_char_boundary(source, span.start.clamp(line_start, line_end));
+        let caret_end = floor_char_boundary(source, span.end.clamp(caret_start, line_end));
+        let padding = display_padding(&source[line_start..caret_start]);
+        let mut carets = display_carets(&source[caret_start..caret_end]);
+        if carets.is_empty() {
+            carets.push('^');
+        }
+        let width = diagnostic.line().to_string().len();
+        output.push_str(&format!(
+            "\n{:>width$} | {line_text}\n{:>width$} | {padding}{carets}",
+            diagnostic.line(),
+            "",
+            width = width
+        ));
+    }
+    output
+}
+
+fn floor_char_boundary(source: &str, offset: usize) -> usize {
+    let mut offset = offset.min(source.len());
+    while offset > 0 && !source.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    offset
+}
+
+fn line_bounds(source: &str, offset: usize) -> (usize, usize) {
+    let offset = floor_char_boundary(source, offset);
+    let line_start = source[..offset]
+        .char_indices()
+        .rev()
+        .find(|(_, character)| matches!(character, '\n' | '\r'))
+        .map_or(0, |(index, _)| index + 1);
+    let line_end = source[offset..]
+        .char_indices()
+        .find(|(_, character)| matches!(character, '\n' | '\r'))
+        .map_or(source.len(), |(index, _)| offset + index);
+    (line_start, line_end)
+}
+
+fn source_column(source: &str, line_start: usize, offset: usize) -> usize {
+    let offset = floor_char_boundary(source, offset.max(line_start).min(source.len()));
+    source[line_start..offset].chars().count() + 1
+}
+
+fn expand_tabs(value: &str) -> String {
+    let mut output = String::new();
+    for character in value.chars() {
+        if character == '\t' {
+            output.push_str("    ");
+        } else {
+            output.push(character);
+        }
+    }
+    output
+}
+
+fn display_padding(value: &str) -> String {
+    let mut output = String::new();
+    for character in value.chars() {
+        if character == '\t' {
+            output.push_str("    ");
+        } else {
+            output.push(' ');
+        }
+    }
+    output
+}
+
+fn display_carets(value: &str) -> String {
+    let mut output = String::new();
+    for character in value.chars() {
+        if character == '\t' {
+            output.push_str("^^^^");
+        } else {
+            output.push('^');
+        }
+    }
+    output
+}
+
+fn github_annotation(path: &str, source: &str, diagnostic: &Diagnostic) -> String {
+    let span = diagnostic.span();
+    let (line_start, _) = line_bounds(source, span.start);
+    let column = source_column(source, line_start, span.start);
+    format!(
+        "::{} file={},line={},col={},title={}::{}",
+        github_severity(diagnostic.severity()),
+        github_escape_property(path),
+        diagnostic.line(),
+        column,
+        github_escape_property(diagnostic.code().as_str()),
+        github_escape_data(diagnostic.message())
+    )
+}
+
+fn github_read_error(path: &str, message: &str) -> String {
+    format!(
+        "::error file={},title=adotenv::{}",
+        github_escape_property(path),
+        github_escape_data(message)
+    )
+}
+
+fn github_severity(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Error => "error",
+        Severity::Warning => "warning",
+        _ => "notice",
+    }
+}
+
+fn github_escape_property(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '%' => output.push_str("%25"),
+            '\r' => output.push_str("%0D"),
+            '\n' => output.push_str("%0A"),
+            ':' => output.push_str("%3A"),
+            ',' => output.push_str("%2C"),
+            character => output.push(character),
+        }
+    }
+    output
+}
+
+fn github_escape_data(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '%' => output.push_str("%25"),
+            '\r' => output.push_str("%0D"),
+            '\n' => output.push_str("%0A"),
+            character => output.push(character),
+        }
+    }
+    output
 }
 
 fn severity_name(severity: Severity) -> &'static str {
@@ -831,7 +1071,13 @@ fn fail(message: String) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::json_string;
+    use super::{github_escape_data, github_escape_property, json_string};
+
+    #[test]
+    fn github_workflow_values_are_escaped() {
+        assert_eq!(github_escape_property("a,b:c%\n"), "a%2Cb%3Ac%25%0A");
+        assert_eq!(github_escape_data("a,b:c%\r\n"), "a,b:c%25%0D%0A");
+    }
 
     #[test]
     fn json_strings_escape_controls_quotes_and_backslashes() {
