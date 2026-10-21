@@ -679,7 +679,10 @@ fn recursive_discovery_reads_non_utf8_env_paths() {
     dir.file_at(".env", "A = 1\n");
     let name = OsString::from_vec(b".env.\xff".to_vec());
     let non_utf8 = dir.path().join(name);
-    fs::write(&non_utf8, "B=2\n").unwrap();
+    if let Err(error) = fs::write(&non_utf8, "B=2\n") {
+        eprintln!("skipping non-UTF-8 filename test: {error}");
+        return;
+    }
 
     let output = run(&[
         "check",
