@@ -314,10 +314,10 @@ environment is mutated.
 cross-file overrides, in-file repeats and skipped declarations. Origins retain
 the original path, value span and one-based line. Bare values are not guessed;
 they are reported as skipped unless the dialect maps them to effective empty
-values. `LoadedEnvironment::resolve_decoded` applies an explicit whole-file
-decoded-text resolution policy and retains origins; context-aware source
-resolution remains `Document::resolve` because loading drops quote/escape
-context. See [loading.md](loading.md).
+values. `LoadedEnvironment::resolve_contextual` reconstructs winning raw tokens
+to preserve quote/escape/dialect context; `resolve_decoded` is an explicit
+decoded-text policy. Single-source context-aware resolution remains
+`Document::resolve`. See [loading.md](loading.md).
 
 The separate `adotenv-process` crate contains the only process-environment
 mutation path. It prevalidates all keys and values, exposes an unsafe `apply`,

@@ -846,7 +846,7 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - Added `LoadedEnvironment::deserialize` behind `load + serde`. It maps final
   merged values to a Serde type and uses the winning declaration origin line in
   conversion errors.
-- All-feature workspace: 240 core, 3 process, 17 CLI, 5 config and 5 Figment
+- All-feature workspace: 241 core, 3 process, 17 CLI, 5 config and 5 Figment
   tests; 24 doctests pass with six ignored. Alloc-only + serde is 223 tests and
   23 doctests (six ignored); no-default core is 216 tests and 22 doctests
   (six ignored).

@@ -405,18 +405,17 @@ dialect maps them to effective empty values.
 
 ### Resolve loaded values
 
-`LoadedEnvironment::resolve_decoded` applies explicit variable resolution to
-the final merged values. It is deliberately named and documented as a
-**decoded-value** policy: loaded environments no longer retain original quote,
-escape or source-line context, so values are treated as unquoted decoded text.
-Use `Document::resolve` when context-aware source resolution is required.
+`LoadedEnvironment::resolve_contextual` is the preferred merged-environment
+resolver. It reconstructs each winning declaration's raw key/value token and
+reparses it with the load dialect, preserving quote, escape and dialect context.
+`resolve_decoded` remains available for an explicit decoded-text policy.
 
 ```rust,ignore
 use adotenv::load::load_cascade;
 use adotenv::{ExpandOptions, ExpandScope};
 
 let loaded = load_cascade("/srv/my-app", "production")?;
-let resolved = loaded.resolve_decoded(
+let resolved = loaded.resolve_contextual(
     |name| std::env::var(name).ok(),
     &ExpandOptions {
         scope: ExpandScope::WholeFile,
@@ -426,7 +425,9 @@ let resolved = loaded.resolve_decoded(
 assert!(resolved.get("PORT").is_some());
 ```
 
-Only whole-file scope is accepted. Command substitutions remain literal.
+`resolve_decoded` is the explicit decoded-value policy: every final value is
+treated as unquoted decoded text. Command substitutions remain literal in both
+APIs.
 
 ## Apply to the process environment (0.7, opt-in)
 

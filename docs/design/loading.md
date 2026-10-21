@@ -80,15 +80,20 @@ cascade skips missing names.
 
 ## Resolution
 
-`LoadedEnvironment::resolve_decoded` resolves references in the final merged
-values. It is an explicit decoded-value policy: loading does not retain the
-original quote, escape or source-line context, so every loaded value is treated
-as unquoted decoded text. Whole-file scope is required; sequential scope returns
-a documented error. The returned `ResolvedEnvironment` retains the winning
-`LoadOrigin` for each key. Command substitutions remain literal.
+`LoadedEnvironment::resolve_contextual` reconstructs the winning raw key/value
+tokens in cascade order, reparses them with the load dialect and resolves the
+result. Quote, escape and dialect context therefore survive the merge. Errors
+retain the winning declaration's `LoadOrigin`, key and message. Both whole-file
+and sequential scope are supported; the reconstructed source order is cascade
+order.
 
-Use `Document::resolve` for context-aware resolution over retained source.
-See [expansion.md](expansion.md).
+`LoadedEnvironment::resolve_decoded` is the explicit decoded-value policy: every
+final value is treated as unquoted decoded text. It requires whole-file scope.
+Command substitutions remain literal in both APIs. The returned
+`ResolvedEnvironment` retains the winning `LoadOrigin` for each key.
+
+Use `Document::resolve` for context-aware resolution over a single retained
+source document. See [expansion.md](expansion.md).
 
 ## Process application
 

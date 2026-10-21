@@ -18,8 +18,8 @@ use std::{
 };
 
 use crate::{
-    encode_value, parse_strict, parse_with, Diagnostic, Dialect, ExpandOptions, ExpandScope,
-    ResolveError, Severity,
+    encode_value, parse_strict, parse_strict_with, parse_with, Diagnostic, Dialect, ExpandOptions,
+    ExpandScope, ResolveError, Severity,
 };
 
 /// A file, source span and one-based line identifying a loaded value.
@@ -92,6 +92,8 @@ pub struct LoadSkipped {
 pub struct LoadedEnvironment {
     values: BTreeMap<String, String>,
     origins: BTreeMap<String, LoadOrigin>,
+    raw_entries: BTreeMap<String, (usize, String, String)>,
+    dialect: Dialect,
     entries: Vec<LoadedEntry>,
     overrides: Vec<LoadOverride>,
     repeated: Vec<LoadRepeated>,
@@ -297,6 +299,53 @@ impl LoadedEnvironment {
             origins: self.origins.clone(),
         })
     }
+
+    /// Resolve references in final values using each winning declaration's
+    /// original literal context.
+    ///
+    /// The winning key/value tokens are reconstructed in cascade order and
+    /// parsed with the dialect used at load time. Quote, escape and bare-key
+    /// context therefore match the source that won the cascade. The synthetic
+    /// source has no original file offsets; errors retain the winning
+    /// declaration's [`LoadOrigin`], key and message.
+    ///
+    /// # Errors
+    /// Returns [`LoadedResolveError`] if the reconstructed source cannot be
+    /// parsed or resolution fails.
+    pub fn resolve_contextual<F>(
+        &self,
+        lookup: F,
+        options: &ExpandOptions,
+    ) -> Result<ResolvedEnvironment, LoadedResolveError>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        let mut entries: Vec<_> = self.raw_entries.iter().collect();
+        entries.sort_unstable_by_key(|(_, (order, _, _))| *order);
+        let mut source = String::new();
+        for (_, (_, raw_key, raw_value)) in entries {
+            source.push_str(raw_key);
+            source.push('=');
+            source.push_str(raw_value);
+            source.push('\n');
+        }
+        let document = parse_strict_with(&source, self.dialect).map_err(|error| {
+            LoadedResolveError::new(None, None, format!("cannot prepare resolution: {error}"))
+        })?;
+        let resolved = document.resolve(lookup, options).map_err(|error| {
+            let key = resolve_error_key(&error).to_string();
+            let origin = self.origin(&key).cloned();
+            LoadedResolveError::new(Some(key), origin, error.to_string())
+        })?;
+        let mut values = BTreeMap::new();
+        for entry in resolved.entries() {
+            values.insert(entry.key.clone(), entry.value.clone().unwrap_or_default());
+        }
+        Ok(ResolvedEnvironment {
+            values,
+            origins: self.origins.clone(),
+        })
+    }
 }
 
 fn resolve_error_key(error: &ResolveError) -> &str {
@@ -432,6 +481,8 @@ where
     let mut loaded = LoadedEnvironment {
         values: BTreeMap::new(),
         origins: BTreeMap::new(),
+        raw_entries: BTreeMap::new(),
+        dialect,
         entries: Vec::new(),
         overrides: Vec::new(),
         repeated: Vec::new(),
@@ -521,6 +572,12 @@ fn merge_document(loaded: &mut LoadedEnvironment, path: &Path, document: &crate:
             continue;
         };
         let entry_origin = origin(path, effective);
+        let order = loaded.entries.len();
+        let raw_key = document.source()[effective.tokens().key.clone()].to_string();
+        let raw_value = effective.raw_value().unwrap_or_default().to_string();
+        loaded
+            .raw_entries
+            .insert(key.clone(), (order, raw_key, raw_value));
         loaded.entries.push(LoadedEntry {
             key: key.clone(),
             value: value.clone(),

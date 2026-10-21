@@ -14,8 +14,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   when both `load` and `serde` are enabled, preserving origin lines in value
   conversion errors.
 - `LoadedEnvironment::resolve_decoded` resolves final decoded values under an
-  explicit whole-file, decoded-text policy and returns `ResolvedEnvironment`
-  with origins.
+  explicit decoded-text policy and returns `ResolvedEnvironment` with origins.
+- `LoadedEnvironment::resolve_contextual` reconstructs winning raw key/value
+  tokens so quote, escape and dialect context survive cascade resolution.
 - CLI commands that read source accept `-` or `--stdin` for standard input.
   Writes and `set` reject standard input; multiple stdin inputs are rejected.
 - `check --json` emits a versioned machine-readable diagnostic document with

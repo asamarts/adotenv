@@ -227,7 +227,7 @@ The post-0.7 strategy review proposes two candidate milestones before 1.0:
 - **0.8:** a resolved/typed environment façade, shared effective-value
   extraction, API-freeze decisions and initial CLI machine output.
   `Document::effective_entries`, `LoadedEnvironment::deserialize`,
-  `LoadedEnvironment::resolve_decoded`, CLI stdin and `check --json` are
+  `resolve_contextual`, `resolve_decoded`, CLI stdin and `check --json` are
   implemented in the unreleased tree.
 - **0.9:** recursive discovery, diagnostic rendering, multi-file diffing and
   Windows write hardening.

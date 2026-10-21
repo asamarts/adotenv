@@ -279,3 +279,20 @@ fn loaded_resolution_reports_scope_and_origin_failures() {
     assert_eq!(error.origin().unwrap().path, dir.path().join(".env"));
     assert_eq!(error.origin().unwrap().line, 1);
 }
+
+#[test]
+fn contextual_resolution_preserves_quote_and_escape_context() {
+    let dir = TempDir::new();
+    dir.write(".env", "A='${B}'\nB=value\nC=\"\\$B\"\nD=${B}\n");
+    let loaded = load_cascade(dir.path(), "").unwrap();
+    let options = ExpandOptions {
+        scope: ExpandScope::WholeFile,
+        ..ExpandOptions::portable()
+    };
+    let resolved = loaded.resolve_contextual(|_| None, &options).unwrap();
+    assert_eq!(resolved.get("A"), Some("${B}"));
+    assert_eq!(resolved.get("B"), Some("value"));
+    assert_eq!(resolved.get("C"), Some("$B"));
+    assert_eq!(resolved.get("D"), Some("value"));
+    assert_eq!(resolved.origin("D").unwrap().line, 4);
+}
