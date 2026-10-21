@@ -11,6 +11,7 @@ use crate::{AssignmentState, BareKeys, Dialect, Document, Duplicates, Entry, Ite
 
 /// A declaration as read by one dialect on a physical line.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PortabilityDeclaration {
     /// Literal key name, excluding any key quotes.
     pub key: String,
@@ -53,6 +54,7 @@ pub enum PortabilityPart {
 
 /// One dialect's reading of a differing physical line.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PortabilityReading {
     /// The exact configuration that produced this reading.
     pub dialect: Dialect,
@@ -62,6 +64,7 @@ pub struct PortabilityReading {
 
 /// One physical line whose meaning differs across the compared dialects.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PortabilityDifference {
     /// Exact original-source bytes of the line content, excluding its ending.
     pub span: Range<usize>,

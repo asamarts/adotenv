@@ -94,8 +94,11 @@ The core API is large and several configuration types have public fields:
 
 Decision: mark future-extensible option structs `#[non_exhaustive]` and provide
 `Default` plus `with_*` builders. `Dialect`, `FormatOptions`, `ExpandOptions` and
-`ReferenceRules` implement this policy in the unreleased 0.8 tree. External
-struct literals must migrate to builders or field mutation.
+`ReferenceRules` implement this policy in the unreleased 0.8 tree. A hybrid
+policy also marks library-produced report/result structs and entry tokens
+non-exhaustive, while keeping caller-built value records such as `TextEdit` and
+`Position` constructible. External option struct literals migrate to builders or
+field mutation.
 
 Run `cargo-semver-checks` before every release. Use forced patch semantics while
 pre-1.0 to catch accidental breakage, then review the intentional differences

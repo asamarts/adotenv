@@ -162,6 +162,7 @@ impl Default for ReferenceRules {
 
 /// A containing variable-operator or command form for a nested candidate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct ReferenceContainer {
     /// The containing form's kind.
     pub kind: ReferenceKind,
@@ -177,6 +178,7 @@ pub struct ReferenceContainer {
 
 /// A raw reference candidate in an entry's literal value.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Reference {
     /// Variable or command form.
     pub kind: ReferenceKind,

@@ -153,6 +153,7 @@ impl Default for ExpandOptions {
 
 /// Structured input passed to a command-substitution callback.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CommandContext<'a> {
     /// Command text exactly as written between `$(` and `)`.
     pub command: &'a str,
@@ -205,6 +206,7 @@ pub enum CommandOutcome {
 
 /// Provenance for one invoked command callback.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CommandCall {
     /// Whole `$(...)` reference span in the original source.
     pub reference: Range<usize>,
@@ -218,6 +220,7 @@ pub struct CommandCall {
 
 /// A resolution failure that retains command calls already made.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ResolveFailure {
     /// The structured resolution error.
     pub error: ResolveError,
@@ -252,6 +255,7 @@ pub enum ValueOrigin {
 
 /// One resolved value part.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ResolvedSegment {
     /// Exact text contributed by this part.
     pub value: String,
@@ -301,6 +305,7 @@ pub enum ResolvedSegmentKind {
 
 /// One entry's resolved value and provenance.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ResolvedEntry {
     /// Snapshot-local entry identity from the originating document.
     pub entry: usize,

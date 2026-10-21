@@ -76,6 +76,7 @@ pub enum ItemKind {
 
 /// Raw token ranges into a document's source; absent syntax is represented by `None`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct EntryTokens {
     /// Leading whitespace, as recognized by the selected dialect.
     pub indent: Range<usize>,

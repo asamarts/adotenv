@@ -856,8 +856,10 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   non-exhaustive with `with_*` builders; external adapter tests, benches and fuzz
   targets were migrated to the builder style.
 - A forced patch-semver check reports exactly one intentional failure:
-  `struct_marked_non_exhaustive` for those four option structs. The normal
-  0.7.1 -> 0.8.0 check reports no semver update required.
+  `struct_marked_non_exhaustive` for the option structs. The normal
+  0.7.1 -> 0.8.0 check reports no semver update required. Report/result structs
+  and `EntryTokens` follow the same hybrid policy; `TextEdit` and `Position`
+  remain caller-constructible.
 
 ## Local execution evidence (2026-10-15)
 

@@ -14,6 +14,7 @@ use crate::{AssignmentState, Document};
 
 /// The effective value side of one compared key.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ComparedValue {
     /// Whether the declaration is bare, empty or assigned a non-empty value.
     pub state: AssignmentState,
@@ -41,6 +42,7 @@ pub enum DifferenceKind {
 
 /// One changed key and its effective values on both sides.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ComparisonEntry {
     /// The declaration key.
     pub key: String,

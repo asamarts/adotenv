@@ -27,7 +27,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `Dialect`, `FormatOptions`, `ExpandOptions` and `ReferenceRules` are now
   `#[non_exhaustive]` and expose `with_*` builder methods. External struct
   literals must be replaced by a preset/default plus builders or field mutation.
-  This is a deliberate pre-1.0 API-freeze change.
+  This is a deliberate pre-1.0 API-freeze change. Library-produced report
+  structs and entry tokens are also non-exhaustive; caller-built value types
+  such as `TextEdit` and `Position` remain constructible with literals.
 
 ## [0.7.1] - 2026-10-20
 

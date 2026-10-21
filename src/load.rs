@@ -24,6 +24,7 @@ use crate::{
 
 /// A file, source span and one-based line identifying a loaded value.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct LoadOrigin {
     /// File path used for the load.
     pub path: PathBuf,
@@ -35,6 +36,7 @@ pub struct LoadOrigin {
 
 /// One effective declaration observed during a load.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LoadedEntry {
     /// Declaration key.
     pub key: String,
@@ -46,6 +48,7 @@ pub struct LoadedEntry {
 
 /// A later file overriding an earlier effective key.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LoadOverride {
     /// Overridden key.
     pub key: String,
@@ -57,6 +60,7 @@ pub struct LoadOverride {
 
 /// Duplicate declarations for one key within a single file.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LoadRepeated {
     /// Repeated key.
     pub key: String,
@@ -78,6 +82,7 @@ pub enum SkipReason {
 
 /// A declaration that was retained in the report but not loaded.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LoadSkipped {
     /// Key, if one was available.
     pub key: Option<String>,
