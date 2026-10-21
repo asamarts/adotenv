@@ -155,7 +155,7 @@ pub use format::{
 };
 pub use model::{
     AssignmentState, Document, EffectiveEntry, Entry, EntryTokens, Item, ItemKind, LineEnding,
-    Quote,
+    LookupIndex, Quote,
 };
 pub use parser::{
     parse, parse_owned, parse_owned_with, parse_strict, parse_strict_with, parse_with,

@@ -100,6 +100,8 @@ escapes, key syntax, bare declarations, quotes, raw values, duplicate lookup,
 BOMs, line breaks and other grammar policies. See [dialect contracts and
 upstream limitations](docs/design/dialects.md).
 
+For repeated lookups, build an explicit borrowed index once with
+`doc.lookup_index()` and call `index.get(key)` or `index.get_entry(key)`.
 `entries()` and `get_all()` retain declarations excluded from effective lookup.
 `participates_in_lookup()` distinguishes ignored bare declarations and Node's
 special `__proto__` property. `BareKeys::Empty` changes effective `get()` to an

@@ -846,9 +846,9 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - Added `LoadedEnvironment::deserialize` behind `load + serde`. It maps final
   merged values to a Serde type and uses the winning declaration origin line in
   conversion errors.
-- All-feature workspace: 241 core, 3 process, 17 CLI, 5 config and 5 Figment
-  tests; 25 doctests pass with six ignored. Alloc-only + serde is 223 tests and
-  24 doctests (six ignored); no-default core is 216 tests and 23 doctests
+- All-feature workspace: 242 core, 3 process, 17 CLI, 5 config and 5 Figment
+  tests; 26 doctests pass with six ignored. Alloc-only + serde is 224 tests and
+  25 doctests (six ignored); no-default core is 217 tests and 24 doctests
   (six ignored).
 - Clippy passes for `load,serde` and the workspace; warning-denied docs and the
   package/manifest checks remain green.

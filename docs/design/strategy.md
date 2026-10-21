@@ -128,8 +128,8 @@ large migration tool.
 
 Recommended direction:
 
-- Add an optional caller-owned lookup index (or a `Document::lookup_index`)
-  rather than putting hidden mutable caches inside `Document`.
+- `Document::lookup_index` now returns an explicit borrowed `LookupIndex`;
+  hidden mutable caches inside `Document` are intentionally avoided.
 - Establish benchmark baselines for parse, repeated lookup, format, sort,
   resolution and loading, with a documented machine and sample policy.
 - Add a regression budget in CI only after stable numbers exist; do not turn

@@ -3,8 +3,8 @@ use proptest::prelude::*;
 
 use crate::{
     encode_value, parse, parse_owned, parse_strict, parse_with, AssignmentState, BareKeys,
-    DiagnosticCode as Code, Dialect, Duplicates, EffectiveEntry, ItemKind, PositionError, Quote,
-    Severity,
+    DiagnosticCode as Code, Dialect, Duplicates, EffectiveEntry, ItemKind, LookupIndex,
+    PositionError, Quote, Severity,
 };
 
 #[test]
@@ -425,4 +425,30 @@ fn effective_entries_honor_duplicate_and_bare_policy() {
         .unwrap();
     assert_eq!(bare.entry().value(), None);
     assert_eq!(bare.entry().state(), AssignmentState::Bare);
+}
+
+#[test]
+fn lookup_index_honors_duplicate_and_bare_lookup_policy() {
+    let (document, _) = parse_with("A=first\nA=second\nBARE\nC=3\n", Dialect::PORTABLE);
+    let index: LookupIndex<'_> = document.lookup_index();
+    assert_eq!(index.len(), 3);
+    assert_eq!(index.get("A"), Some("second"));
+    assert_eq!(index.get_entry("A").unwrap().line(), 2);
+    assert_eq!(index.get("BARE"), None);
+    assert!(index.get_entry("BARE").is_some());
+    assert_eq!(index.get("C"), Some("3"));
+    assert_eq!(index.get("missing"), None);
+
+    let dialect = Dialect::PORTABLE
+        .with_duplicates(Duplicates::First)
+        .with_bare_keys(BareKeys::Empty);
+    let (document, _) = parse_with("A=first\nA=second\nBARE\n", dialect);
+    let index = document.lookup_index();
+    assert_eq!(index.len(), 2);
+    assert_eq!(index.get("A"), Some("first"));
+    assert_eq!(index.get("BARE"), Some(""));
+    assert_eq!(
+        index.get_entry("BARE").unwrap().state(),
+        AssignmentState::Bare
+    );
 }

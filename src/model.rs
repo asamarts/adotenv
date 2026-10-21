@@ -1,4 +1,9 @@
-use alloc::{borrow::Cow, collections::BTreeSet, string::String, vec::Vec};
+use alloc::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+    string::String,
+    vec::Vec,
+};
 use core::{fmt, ops::Range};
 
 use crate::{
@@ -262,6 +267,44 @@ impl Document<'_> {
         effective.into_iter().map(|(_, entry)| entry)
     }
 
+    /// Build an optional key lookup index using the dialect's duplicate policy.
+    ///
+    /// Index construction is explicit and allocates one map entry per
+    /// participating, nonempty key. The index borrows this document and returns
+    /// views with the same snapshot lifetime. It does not change lookup
+    /// semantics: bare declarations remain bare, and `BareKeys::Empty` remains
+    /// an effective empty value.
+    ///
+    /// ```
+    /// use adotenv::parse_strict;
+    ///
+    /// let document = parse_strict("PORT=8080\nHOST=localhost\n").unwrap();
+    /// let index = document.lookup_index();
+    /// assert_eq!(index.get("PORT"), Some("8080"));
+    /// assert_eq!(index.len(), 2);
+    /// ```
+    #[must_use]
+    pub fn lookup_index(&self) -> LookupIndex<'_> {
+        let mut winners = BTreeMap::new();
+        for (index, entry) in self.entries().enumerate() {
+            if !entry.participates_in_lookup() || entry.key().is_empty() {
+                continue;
+            }
+            match self.dialect.duplicates {
+                Duplicates::First => {
+                    winners.entry(entry.key()).or_insert(index);
+                }
+                Duplicates::Last => {
+                    winners.insert(entry.key(), index);
+                }
+            }
+        }
+        LookupIndex {
+            document: self,
+            winners,
+        }
+    }
+
     /// Select a unique declaration without guessing between duplicate occurrences.
     ///
     /// # Errors
@@ -349,6 +392,48 @@ pub struct Entry<'doc> {
     pub(crate) document: &'doc Document<'doc>,
     pub(crate) index: usize,
 }
+/// A borrowed lookup index over one document snapshot.
+///
+/// The index honors the document's duplicate policy and excludes
+/// nonparticipating or empty keys. It is built explicitly with
+/// [`Document::lookup_index`].
+#[derive(Debug, Clone)]
+pub struct LookupIndex<'doc> {
+    document: &'doc Document<'doc>,
+    winners: BTreeMap<&'doc str, usize>,
+}
+
+impl<'doc> LookupIndex<'doc> {
+    /// The winning declaration for a key, if it participates in lookup.
+    #[must_use]
+    pub fn get_entry(&self, key: &str) -> Option<Entry<'doc>> {
+        self.winners
+            .get(key)
+            .and_then(|index| self.document.entry(*index))
+    }
+    /// The effective literal value for a key, applying bare-key policy.
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<&'doc str> {
+        self.get_entry(key).and_then(|entry| {
+            entry.value().or_else(|| {
+                (entry.state() == AssignmentState::Bare
+                    && self.document.dialect().bare_keys == BareKeys::Empty)
+                    .then_some("")
+            })
+        })
+    }
+    /// Number of participating, nonempty keys in the index.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.winners.len()
+    }
+    /// Whether the index contains no keys.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.winners.is_empty()
+    }
+}
+
 /// One effective declaration and its effective literal value.
 ///
 /// This is the value-aware companion to [`Entry`]. It exists only for a

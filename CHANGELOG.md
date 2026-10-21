@@ -17,6 +17,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   explicit decoded-text policy and returns `ResolvedEnvironment` with origins.
 - `LoadedEnvironment::resolve_contextual` reconstructs winning raw key/value
   tokens so quote, escape and dialect context survive cascade resolution.
+- `Document::lookup_index` builds a borrowed `LookupIndex` for repeated lookups,
+  honoring duplicate selection and bare-key policy without mutating the document.
 - CLI commands that read source accept `-` or `--stdin` for standard input.
   Writes and `set` reject standard input; multiple stdin inputs are rejected.
 - `check --json` emits a versioned machine-readable diagnostic document with
