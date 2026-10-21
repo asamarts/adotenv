@@ -871,6 +871,17 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   follow the same hybrid policy; `TextEdit` and `Position` remain
   caller-constructible.
 
+### 0.9.0 release (2026-10-21)
+
+- Release run
+  [39692412414](https://github.com/asamarts/adotenv/actions/runs/39692412414)
+  passed the full quality gate and all publish jobs. All five 0.9.0 crates were
+  published keylessly through Trusted Publishing/OIDC.
+- crates.io returns HTTP 200 for all five 0.9.0 package versions and docs.rs
+  serves all five 0.9.0 documentation roots. GitHub Release v0.9.0 is Latest.
+- The normal 0.8.0 -> 0.9.0 semver check reports no update required; the core
+  API is unchanged by this tooling-focused release.
+
 ### 0.9.0 development slice (2026-10-21)
 
 - Added recursive `.env` discovery and repeatable excludes to `check` and
