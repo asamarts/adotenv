@@ -222,21 +222,27 @@ Literal parsing into ordered entries with key, value and line spans;
   intentionally retained as a fallback for future first-time crates. See
   [RELEASING.md](RELEASING.md).
 
-### After 0.7: candidate priorities
+### 0.8: Environment façade and API freeze (released 2026-10-21)
 
-The post-0.7 strategy review proposes two candidate milestones before 1.0:
+- `Document::effective_entries` and `EffectiveEntry`.
+- `LoadedEnvironment::deserialize`.
+- `LoadedEnvironment::resolve_contextual` and `resolve_decoded`.
+- `Document::lookup_index` and `LookupIndex`.
+- CLI stdin and `check --json`.
+- Non-exhaustive option/data/enum API-freeze policy with builders.
+- Local performance baseline; no CI performance threshold yet.
+- **Released:** 2026-10-21 after the complete quality gate.
 
-- **0.8:** a resolved/typed environment façade, shared effective-value
-  extraction, API-freeze decisions and initial CLI machine output.
-  `Document::effective_entries`, `LookupIndex`, `LoadedEnvironment::deserialize`,
-  `resolve_contextual`, `resolve_decoded`, CLI stdin and `check --json` are
-  released in 0.8.0. Option structs now follow the non-exhaustive + builder
-  API-freeze policy.
-- **0.9:** recursive discovery, diagnostic rendering, multi-file diffing and
-  Windows write hardening.
+### 0.9: Tooling surface (planned)
 
-These are proposals, not committed release dates. See
-[strategy.md](docs/design/strategy.md) for the full analysis.
+- Recursive discovery and excludes.
+- Diagnostic rendering and CI annotations.
+- Multi-file diff/matrix.
+- Windows replacement hardening.
+- Typed/structured adapter output where the ecosystem supports it.
+- `config` 0.15 evaluation if MSRV permits.
+
+See [strategy.md](docs/design/strategy.md) for the full analysis.
 
 ### 1.0: Stable API (future)
 

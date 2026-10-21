@@ -860,6 +860,11 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - `Dialect`, `FormatOptions`, `ExpandOptions` and `ReferenceRules` are
   non-exhaustive with `with_*` builders; external adapter tests, benches and fuzz
   targets were migrated to the builder style.
+- Release run
+  [39649753106](https://github.com/asamarts/adotenv/actions/runs/39649753106)
+  passed all quality and publish jobs. OIDC minted successfully and all five
+  0.8.0 crates published keylessly. crates.io returns HTTP 200, docs.rs serves
+  all five crates, and GitHub Release v0.8.0 is Latest.
 - A forced patch-semver check reports only the intentional non-exhaustive
   struct/enum changes. The normal 0.7.1 -> 0.8.0 check reports no semver update
   required. Report/result structs, `EntryTokens`, policy enums and `Multiline`
