@@ -1,7 +1,6 @@
 # Serde deserialization
 
-Status: opt-in `serde` deserialization is implemented in 0.6. The unreleased
-post-0.7.1 slice adds `LoadedEnvironment::deserialize` when `load` and `serde`
+Status: opt-in `serde` deserialization is implemented in 0.6. The 0.8.0 release adds `LoadedEnvironment::deserialize` when `load` and `serde`
 are both enabled. It is a literal mapping into Serde; it never expands
 references, reads files or inspects the process environment by itself.
 

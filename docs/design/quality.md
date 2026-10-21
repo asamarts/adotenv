@@ -839,7 +839,7 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - A downstream crates.io project installed `adotenv-cli` 0.7.1 and consumed all
   four companion crates through the `config`, Figment and process APIs.
 
-### 0.8.0 development slice (2026-10-21)
+### 0.8.0 release (2026-10-21)
 
 - Added `Document::effective_entries` and `EffectiveEntry`, the shared
   value-aware extraction now used by serde and both integration adapters.

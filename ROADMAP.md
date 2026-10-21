@@ -24,7 +24,7 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [strategy.md](docs/design/strategy.md) | Post-0.7 product/API/performance review and candidate priorities |
 | [RELEASING.md](RELEASING.md) | Tag release, first-publish bootstrap and Trusted Publishing |
 
-**Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0, 0.7.0 and 0.7.1 are
+**Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0, 0.7.0, 0.7.1 and 0.8.0 are
 published. 0.3 implements explicit dialect configuration, all five syntax
 presets, selected-dialect native verification, exact per-dialect encoding,
 applicable pinned-upstream comparison and cross-dialect portability reporting.
@@ -35,8 +35,9 @@ normalization and comment-aware dependency sorting. 0.6 implements file
 cascade loading, serde deserialization and a separate workspace process
 adapter. 0.7 publishes the workspace CLI, the process and tooling companions,
 and the `config`/Figment integration adapters. Trusted Publishing is configured
-for all five crates. 0.8 API work has started with
-`LoadedEnvironment::deserialize`. Execution evidence is in the quality notes.
+for all five crates. 0.8 adds effective-entry extraction, loaded deserialization,
+decoded/contextual loaded resolution, lookup indexing, CLI stdin/JSON output and
+the API-freeze policy. Execution evidence is in the quality notes.
 
 ## Goals
 
@@ -229,8 +230,8 @@ The post-0.7 strategy review proposes two candidate milestones before 1.0:
   extraction, API-freeze decisions and initial CLI machine output.
   `Document::effective_entries`, `LookupIndex`, `LoadedEnvironment::deserialize`,
   `resolve_contextual`, `resolve_decoded`, CLI stdin and `check --json` are
-  implemented in the unreleased tree. Option structs now follow the
-  non-exhaustive + builder API-freeze policy.
+  released in 0.8.0. Option structs now follow the non-exhaustive + builder
+  API-freeze policy.
 - **0.9:** recursive discovery, diagnostic rendering, multi-file diffing and
   Windows write hardening.
 

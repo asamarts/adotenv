@@ -1,7 +1,7 @@
 # Command-line interface
 
 Status: the zero-dependency `adotenv-cli` companion was published as 0.7.0 on
-2026-10-19 and 0.7.1 on 2026-10-20. `run` starts a child process with loaded
+2026-10-19, 0.7.1 on 2026-10-20 and 0.8.0 on 2026-10-21. `run` starts a child process with loaded
 values but does not mutate the parent environment.
 
 ## Commands

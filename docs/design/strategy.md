@@ -1,8 +1,8 @@
 # Strategy: from strong core to best-in-class tooling
 
-Status: post-0.7 review, updated after 0.7.1 on 2026-10-20. This document is
+Status: post-0.7 review, updated after 0.8.0 on 2026-10-21. This document is
 analysis and proposed direction, not additional shipped API. The current
-published release is 0.7.1; the tree is in 0.8.0 development.
+published release is 0.8.0. The next candidate milestone is 0.9.
 
 ## Positioning
 
@@ -74,12 +74,12 @@ Recommended direction:
   decoded-text policy is intentional.
 - Add `LoadedEnvironment::deserialize` behind `load + serde`, mapping final
   values to a Serde type with origins in errors. The first slice is implemented
-  in the unreleased tree.
+  in the 0.8.0 release.
 - Keep mutation separate: resolved environments should still be applied only
   through `adotenv-process` or consumed as a map.
 - Factor effective-value extraction into one core primitive so `load`, `serde`,
   `adotenv-config` and `adotenv-figment` cannot drift. `Document::effective_entries`
-  is implemented in the unreleased tree; serde and both adapters use it.
+  is implemented in the 0.8.0 release; serde and both adapters use it.
 - Consider a small builder-style `LoadOptions` instead of positional
   directory/mode arguments once the API-freeze review begins.
 
@@ -94,7 +94,7 @@ The core API is large and several configuration types have public fields:
 
 Decision: mark future-extensible option structs `#[non_exhaustive]` and provide
 `Default` plus `with_*` builders. `Dialect`, `FormatOptions`, `ExpandOptions` and
-`ReferenceRules` implement this policy in the unreleased 0.8 tree. A hybrid
+`ReferenceRules` implement this policy in the 0.8.0 release. A hybrid
 policy also marks library-produced report/result structs, entry tokens,
 dialect/format policy enums and `Multiline` non-exhaustive, while keeping
 caller-built value records such as `TextEdit` and `Position` constructible. External option struct literals migrate to builders or
@@ -186,15 +186,16 @@ schema the stable surface.
 ### 0.8: Environment façade and API freeze preparation
 
 - `LoadedEnvironment::resolve_contextual` and `resolve_decoded`; both implemented
-  in the unreleased tree.
+  in the 0.8.0 release.
 - `LoadedEnvironment::deserialize` behind `load + serde`; implemented in the
-  unreleased post-0.7.1 tree.
+  0.8.0 release.
 - Shared effective-value primitive used by core adapters; implemented in the
-  unreleased tree.
-- Public API inventory; decide `non_exhaustive`/builder policy for option types.
-- `Document::lookup_index` and the local 0.8 benchmark baseline.
+  0.8.0 release.
+- Public API inventory and non-exhaustive/builder policy; implemented.
+- `Document::lookup_index`; implemented. The local 0.8 benchmark baseline is
+  recorded in [performance.md](performance.md).
 - CLI `-`/`--stdin` input and `check --json` diagnostics; implemented in the
-  unreleased tree. Recursive discovery and multi-file diff remain.
+  0.8.0 release. Recursive discovery and multi-file diff remain.
 
 ### 0.9: Tooling surface
 
