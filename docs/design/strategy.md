@@ -1,9 +1,8 @@
 # Strategy: from strong core to best-in-class tooling
 
-Status: post-0.7 review, updated after 0.8.0 and during 0.9 development. This document is
+Status: post-0.7 review, updated after 0.9.0 on 2026-10-21. This document is
 analysis and proposed direction, not additional shipped API. The current
-published release is 0.8.0; 0.9 development has started with recursive
-discovery and excludes.
+published release is 0.9.0.
 
 ## Positioning
 
@@ -196,14 +195,14 @@ schema the stable surface.
 - `Document::lookup_index`; implemented. The local 0.8 benchmark baseline is
   recorded in [performance.md](performance.md).
 - CLI `-`/`--stdin` input and `check --json` diagnostics; implemented in the
-  0.8.0 release. Multi-file diff remains.
+  0.8.0 release. Multi-file diff and diagnostic renderers are in 0.9.
 
 ### 0.9: Tooling surface
 
-- Recursive discovery and excludes; implemented in development.
-- Multi-file diff/matrix; implemented in development.
-- Diagnostic renderer and CI annotations; implemented in development.
-- Windows replacement hardening; implemented in development.
+- Recursive discovery and excludes; implemented in 0.9.0.
+- Multi-file diff/matrix; implemented in 0.9.0.
+- Diagnostic renderer and CI annotations; implemented in 0.9.0.
+- Windows replacement hardening; implemented in 0.9.0.
 - Typed/structured adapter output where the ecosystem supports it; evaluated
   and documented without adapter coercion.
 - `config` 0.15 evaluation if MSRV permits; retained 0.14 after evaluation.

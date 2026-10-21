@@ -24,8 +24,8 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [strategy.md](docs/design/strategy.md) | Post-0.7 product/API/performance review and candidate priorities |
 | [RELEASING.md](RELEASING.md) | Tag release, first-publish bootstrap and Trusted Publishing |
 
-**Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0, 0.7.0, 0.7.1 and 0.8.0 are
-published. 0.3 implements explicit dialect configuration, all five syntax
+**Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0, 0.7.0, 0.7.1, 0.8.0 and
+0.9.0 are published. 0.3 implements explicit dialect configuration, all five syntax
 presets, selected-dialect native verification, exact per-dialect encoding,
 applicable pinned-upstream comparison and cross-dialect portability reporting.
 0.4 implements literal reference inspection, opt-in variable resolution,
@@ -37,10 +37,10 @@ adapter. 0.7 publishes the workspace CLI, the process and tooling companions,
 and the `config`/Figment integration adapters. Trusted Publishing is configured
 for all five crates. 0.8 adds effective-entry extraction, loaded deserialization,
 decoded/contextual loaded resolution, lookup indexing, CLI stdin/JSON output and
-the API-freeze policy. 0.9 development has added recursive discovery and
-excludes, diagnostic rendering and CI annotations, baseline-first multi-file
-diff/matrix output, Windows replacement hardening, and adapter typed-usage
-evaluation. Execution evidence is in the quality notes.
+the API-freeze policy. 0.9 adds recursive discovery and excludes, diagnostic
+rendering and CI annotations, baseline-first multi-file diff/matrix output,
+Windows replacement hardening, and adapter typed-usage evaluation. Execution
+evidence is in the quality notes.
 
 ## Goals
 
@@ -236,7 +236,7 @@ Literal parsing into ordered entries with key, value and line spans;
 - Local performance baseline; no CI performance threshold yet.
 - **Released:** 2026-10-21 after the complete quality gate.
 
-### 0.9: Tooling surface (in progress)
+### 0.9: Tooling surface (released 2026-10-21)
 
 - Recursive discovery and excludes.
   - **Implemented:** `check --recursive`, `fmt --recursive`, repeatable
@@ -257,6 +257,7 @@ Literal parsing into ordered entries with key, value and line spans;
 - `config` 0.15 evaluation if MSRV permits.
   - **Evaluated:** retained 0.14. 0.15.0 changes key-normalization behavior,
     and the current 0.15 line requires Rust 1.88/edition 2024.
+- **Released:** 2026-10-21 after the complete quality gate.
 
 See [strategy.md](docs/design/strategy.md) for the full analysis.
 
