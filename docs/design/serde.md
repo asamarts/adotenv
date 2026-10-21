@@ -10,7 +10,7 @@ references, reads files or inspects the process environment by itself.
 Enable the `serde` feature:
 
 ```toml
-adotenv = { version = "0.7", features = ["serde"] }
+adotenv = { version = "0.8", features = ["serde"] }
 ```
 
 ```rust

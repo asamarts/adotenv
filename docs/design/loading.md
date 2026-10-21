@@ -9,7 +9,7 @@ lossless document model.
 ## Feature and API
 
 ```toml
-adotenv = { version = "0.5", features = ["load"] }
+adotenv = { version = "0.8", features = ["load"] }
 ```
 
 - `load_cascade(directory, mode)` uses Portable syntax.

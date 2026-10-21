@@ -67,15 +67,11 @@ too easy to skip origin/merge diagnostics.
 
 Recommended direction:
 
-- `LoadedEnvironment::resolve_contextual` now reconstructs winning raw tokens
-  and resolves with original quote/escape/dialect context. `resolve_decoded`
-  remains the explicit decoded-value policy.
-  Whole-file scope is the natural merged-environment semantic; sequential scope
-  needs preserved source order or an explicit rejection.
-  The current `LoadedEnvironment` retains decoded values and origins but not the
-  original quote/escape context, so a lossless resolve façade must either retain
-  per-file parsed documents or explicitly define a decoded-value policy. Do not
-  silently reinterpret every loaded value as unquoted source.
+- `LoadedEnvironment::resolve_contextual` reconstructs winning raw tokens in
+  cascade order and resolves with original quote/escape/dialect context.
+  `resolve_decoded` remains the explicit decoded-value policy. Neither API
+  silently reinterprets quote context; choose contextual resolution unless the
+  decoded-text policy is intentional.
 - Add `LoadedEnvironment::deserialize` behind `load + serde`, mapping final
   values to a Serde type with origins in errors. The first slice is implemented
   in the unreleased tree.

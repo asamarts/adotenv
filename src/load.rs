@@ -150,8 +150,9 @@ impl LoadedEnvironment {
 
 /// A resolved decoded loaded environment.
 ///
-/// Values have been processed by [`LoadedEnvironment::resolve_decoded`]. Origins
-/// identify the winning declaration that supplied the original value.
+/// Values have been processed by [`LoadedEnvironment::resolve_contextual`] or
+/// [`LoadedEnvironment::resolve_decoded`]. Origins identify the winning
+/// declaration that supplied the original value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedEnvironment {
     values: BTreeMap<String, String>,
@@ -186,7 +187,7 @@ impl ResolvedEnvironment {
     }
 }
 
-/// Failure from [`LoadedEnvironment::resolve_decoded`].
+/// Failure from loaded-environment resolution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadedResolveError {
     key: Option<String>,
