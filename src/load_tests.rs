@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     load::{load_cascade, load_cascade_with, load_files, LoadError, SkipReason},
-    Dialect,
+    Dialect, ExpandOptions, ExpandScope, Unresolved,
 };
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -227,4 +227,55 @@ fn origin_spans_address_the_original_file() {
     let origin = loaded.origin("KEY").unwrap();
     assert_eq!(&source[origin.span.clone()], "value");
     assert_eq!(origin.line, 2);
+}
+
+#[test]
+fn loaded_resolution_uses_final_values_and_origins() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=base\n");
+    dir.write(".env.local", "B=${A}-suffix\n");
+    let loaded = load_cascade(dir.path(), "").unwrap();
+    let options = ExpandOptions {
+        scope: ExpandScope::WholeFile,
+        ..ExpandOptions::portable()
+    };
+    let resolved = loaded.resolve_decoded(|_| None, &options).unwrap();
+    assert_eq!(resolved.get("A"), Some("base"));
+    assert_eq!(resolved.get("B"), Some("base-suffix"));
+    assert_eq!(resolved.len(), 2);
+    assert_eq!(
+        resolved.origin("B").unwrap().path,
+        dir.path().join(".env.local")
+    );
+    assert_eq!(resolved.origin("B").unwrap().line, 1);
+
+    let resolved = loaded
+        .resolve_decoded(
+            |name| (name == "EXTERNAL").then(|| "outside".to_string()),
+            &options,
+        )
+        .unwrap();
+    assert_eq!(resolved.get("A"), Some("base"));
+}
+
+#[test]
+fn loaded_resolution_reports_scope_and_origin_failures() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=${MISSING}\n");
+    let loaded = load_cascade(dir.path(), "").unwrap();
+
+    let error = loaded
+        .resolve_decoded(|_| None, &ExpandOptions::portable())
+        .unwrap_err();
+    assert!(error.message().contains("whole-file"));
+
+    let options = ExpandOptions {
+        scope: ExpandScope::WholeFile,
+        unresolved: Unresolved::Error,
+        ..ExpandOptions::portable()
+    };
+    let error = loaded.resolve_decoded(|_| None, &options).unwrap_err();
+    assert_eq!(error.key(), Some("A"));
+    assert_eq!(error.origin().unwrap().path, dir.path().join(".env"));
+    assert_eq!(error.origin().unwrap().line, 1);
 }

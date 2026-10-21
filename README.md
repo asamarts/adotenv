@@ -403,6 +403,31 @@ ordered file list. Values remain literal; no expansion, environment lookup or
 command execution occurs. Bare declarations are skipped unless the selected
 dialect maps them to effective empty values.
 
+### Resolve loaded values
+
+`LoadedEnvironment::resolve_decoded` applies explicit variable resolution to
+the final merged values. It is deliberately named and documented as a
+**decoded-value** policy: loaded environments no longer retain original quote,
+escape or source-line context, so values are treated as unquoted decoded text.
+Use `Document::resolve` when context-aware source resolution is required.
+
+```rust,ignore
+use adotenv::load::load_cascade;
+use adotenv::{ExpandOptions, ExpandScope};
+
+let loaded = load_cascade("/srv/my-app", "production")?;
+let resolved = loaded.resolve_decoded(
+    |name| std::env::var(name).ok(),
+    &ExpandOptions {
+        scope: ExpandScope::WholeFile,
+        ..ExpandOptions::portable()
+    },
+)?;
+assert!(resolved.get("PORT").is_some());
+```
+
+Only whole-file scope is accepted. Command substitutions remain literal.
+
 ## Apply to the process environment (0.7, opt-in)
 
 The separate `adotenv-process` adapter applies a fully loaded environment

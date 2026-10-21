@@ -67,8 +67,9 @@ too easy to skip origin/merge diagnostics.
 
 Recommended direction:
 
-- Add `LoadedEnvironment::resolve` (or a `ResolvedEnvironment`) that applies
-  explicit `ExpandOptions` to the final merged values while retaining origins.
+- `LoadedEnvironment::resolve_decoded` now provides the explicit decoded-value
+  policy with whole-file scope and origins. A context-aware merged resolver
+  remains future work because loading does not retain quote/escape context.
   Whole-file scope is the natural merged-environment semantic; sequential scope
   needs preserved source order or an explicit rejection.
   The current `LoadedEnvironment` retains decoded values and origins but not the
@@ -192,7 +193,8 @@ schema the stable surface.
 
 ### 0.8: Environment façade and API freeze preparation
 
-- `LoadedEnvironment::resolve` with explicit options and origins.
+- `LoadedEnvironment::resolve_decoded` with explicit whole-file decoded
+  semantics; implemented in the unreleased tree.
 - `LoadedEnvironment::deserialize` behind `load + serde`; implemented in the
   unreleased post-0.7.1 tree.
 - Shared effective-value primitive used by core adapters; implemented in the

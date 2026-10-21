@@ -17,7 +17,10 @@ use std::{
     vec::Vec,
 };
 
-use crate::{parse_with, Diagnostic, Dialect, Severity};
+use crate::{
+    encode_value, parse_strict, parse_with, Diagnostic, Dialect, ExpandOptions, ExpandScope,
+    ResolveError, Severity,
+};
 
 /// A file, source span and one-based line identifying a loaded value.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -140,6 +143,170 @@ impl LoadedEnvironment {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.values.is_empty()
+    }
+}
+
+/// A resolved decoded loaded environment.
+///
+/// Values have been processed by [`LoadedEnvironment::resolve_decoded`]. Origins
+/// identify the winning declaration that supplied the original value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedEnvironment {
+    values: BTreeMap<String, String>,
+    origins: BTreeMap<String, LoadOrigin>,
+}
+
+impl ResolvedEnvironment {
+    /// Final resolved values.
+    #[must_use]
+    pub fn values(&self) -> &BTreeMap<String, String> {
+        &self.values
+    }
+    /// One resolved value.
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.values.get(key).map(String::as_str)
+    }
+    /// Origin of the winning declaration for one key.
+    #[must_use]
+    pub fn origin(&self, key: &str) -> Option<&LoadOrigin> {
+        self.origins.get(key)
+    }
+    /// Number of resolved values.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+    /// Whether no values remain.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+}
+
+/// Failure from [`LoadedEnvironment::resolve_decoded`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoadedResolveError {
+    key: Option<String>,
+    origin: Option<LoadOrigin>,
+    message: String,
+}
+
+impl LoadedResolveError {
+    fn new(key: Option<String>, origin: Option<LoadOrigin>, message: impl Into<String>) -> Self {
+        Self {
+            key,
+            origin,
+            message: message.into(),
+        }
+    }
+    /// Key being resolved when available.
+    #[must_use]
+    pub fn key(&self) -> Option<&str> {
+        self.key.as_deref()
+    }
+    /// Origin of the winning declaration when available.
+    #[must_use]
+    pub fn origin(&self) -> Option<&LoadOrigin> {
+        self.origin.as_ref()
+    }
+    /// Human-readable failure message.
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+impl fmt::Display for LoadedResolveError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(origin) = &self.origin {
+            write!(formatter, "{}:{}: ", origin.path.display(), origin.line)?;
+        }
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for LoadedResolveError {}
+
+impl LoadedEnvironment {
+    /// Resolve variable references in the final decoded values.
+    ///
+    /// This is the explicit **decoded-value** policy: loaded values are treated
+    /// as unquoted decoded text. Original quote, escape and source-line context
+    /// is not retained by [`LoadedEnvironment`]; use [`crate::Document::resolve`]
+    /// when context-aware resolution is required.
+    ///
+    /// Only [`ExpandScope::WholeFile`] is accepted. The synthetic resolution
+    /// order is lexicographic by key, but whole-file bindings do not depend on
+    /// order. Command substitutions remain literal unless the caller supplies a
+    /// context-aware document callback.
+    ///
+    /// # Errors
+    /// Returns [`LoadedResolveError`] for unsupported sequential scope, values
+    /// that cannot be encoded, or resolution failures. The error retains the
+    /// winning declaration origin when available.
+    pub fn resolve_decoded<F>(
+        &self,
+        lookup: F,
+        options: &ExpandOptions,
+    ) -> Result<ResolvedEnvironment, LoadedResolveError>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        if options.scope != ExpandScope::WholeFile {
+            return Err(LoadedResolveError::new(
+                None,
+                None,
+                "loaded environments require whole-file resolution scope",
+            ));
+        }
+        let mut source = String::new();
+        for (key, value) in &self.values {
+            let token = encode_value(value).ok_or_else(|| {
+                LoadedResolveError::new(
+                    Some(key.clone()),
+                    self.origin(key).cloned(),
+                    "value cannot be represented exactly",
+                )
+            })?;
+            source.push_str(key);
+            source.push('=');
+            source.push_str(&token);
+            source.push('\n');
+        }
+        let document = parse_strict(&source).map_err(|error| {
+            LoadedResolveError::new(None, None, format!("cannot prepare resolution: {error}"))
+        })?;
+        let mut options = *options;
+        // The synthetic document must treat decoded text as unquoted text. Any
+        // quoting introduced by the exact encoder must not change eligibility.
+        options.rules.single_quotes = true;
+        options.rules.backtick_quotes = true;
+        options.rules.escaped_dollar = true;
+        let resolved = document.resolve(lookup, &options).map_err(|error| {
+            let key = resolve_error_key(&error).to_string();
+            let origin = self.origin(&key).cloned();
+            LoadedResolveError::new(Some(key), origin, error.to_string())
+        })?;
+        let mut values = BTreeMap::new();
+        for entry in resolved.entries() {
+            values.insert(entry.key.clone(), entry.value.clone().unwrap_or_default());
+        }
+        Ok(ResolvedEnvironment {
+            values,
+            origins: self.origins.clone(),
+        })
+    }
+}
+
+fn resolve_error_key(error: &ResolveError) -> &str {
+    match error {
+        ResolveError::Unresolved { key, .. }
+        | ResolveError::Required { key, .. }
+        | ResolveError::Cycle { key, .. }
+        | ResolveError::DepthExceeded { key, .. }
+        | ResolveError::ValueTooLarge { key, .. }
+        | ResolveError::Command { key, .. } => key,
     }
 }
 

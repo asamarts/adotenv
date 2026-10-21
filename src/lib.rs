@@ -78,8 +78,10 @@
 //! The opt-in std-only `load` feature provides `load::load_cascade` and
 //! `load::load_files`. They strictly read and validate every participating file
 //! before returning `load::LoadedEnvironment`, which carries final values,
-//! origins, overrides, repeats and skipped declarations. Loading performs no
-//! expansion and does not mutate the process environment.
+//! origins, overrides, repeats and skipped declarations. `resolve_decoded`
+//! applies an explicit whole-file decoded-text resolution policy; context-aware
+//! source resolution remains [`Document::resolve`]. Loading performs no
+//! expansion or process-environment mutation by itself.
 //!
 //! The opt-in `serde` feature adds `Document::deserialize`, mapping effective
 //! literal declarations into a Serde type with line/key-aware conversion errors.

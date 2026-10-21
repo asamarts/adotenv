@@ -78,6 +78,18 @@ keys) and empty keys are reported with a `SkipReason`.
 Missing explicit files passed to `load_files` are I/O errors; only the standard
 cascade skips missing names.
 
+## Resolution
+
+`LoadedEnvironment::resolve_decoded` resolves references in the final merged
+values. It is an explicit decoded-value policy: loading does not retain the
+original quote, escape or source-line context, so every loaded value is treated
+as unquoted decoded text. Whole-file scope is required; sequential scope returns
+a documented error. The returned `ResolvedEnvironment` retains the winning
+`LoadOrigin` for each key. Command substitutions remain literal.
+
+Use `Document::resolve` for context-aware resolution over retained source.
+See [expansion.md](expansion.md).
+
 ## Process application
 
 The separate `adotenv-process` workspace crate depends on `adotenv` with `load`
