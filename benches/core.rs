@@ -52,6 +52,7 @@ fn core(c: &mut Criterion) {
         });
     }
     parsing.finish();
+    lookup(c, &fixtures);
 
     let values: Vec<_> = [("small", 32), ("typical", 4_096), ("large", 32_768)]
         .into_iter()
@@ -200,6 +201,32 @@ fn structure(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
         });
     }
     grouping.finish();
+}
+
+fn lookup(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
+    let mut lookup = c.benchmark_group("lookup_index");
+    for (name, _, source) in fixtures {
+        let document = parse_strict(source).expect("benchmark fixture is valid Portable syntax");
+        let index = document.lookup_index();
+        let keys: Vec<String> = document
+            .entries()
+            .take(64)
+            .map(|entry| entry.key().to_string())
+            .collect();
+        lookup.bench_function(BenchmarkId::new("build", name), |b| {
+            b.iter(|| black_box(document.lookup_index()));
+        });
+        lookup.bench_function(BenchmarkId::new("get", name), |b| {
+            b.iter(|| {
+                let mut found = 0usize;
+                for key in &keys {
+                    found += usize::from(index.get(black_box(key)).is_some());
+                }
+                black_box(found)
+            });
+        });
+    }
+    lookup.finish();
 }
 
 fn formatting(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {

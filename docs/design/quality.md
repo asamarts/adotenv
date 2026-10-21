@@ -839,27 +839,30 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - A downstream crates.io project installed `adotenv-cli` 0.7.1 and consumed all
   four companion crates through the `config`, Figment and process APIs.
 
-### 0.8.0 development slice (2026-10-20)
+### 0.8.0 development slice (2026-10-21)
 
-- Added `Document::effective_entries`, the shared value-aware extraction now
-  used by serde and both integration adapters.
-- Added `LoadedEnvironment::deserialize` behind `load + serde`. It maps final
-  merged values to a Serde type and uses the winning declaration origin line in
-  conversion errors.
+- Added `Document::effective_entries` and `EffectiveEntry`, the shared
+  value-aware extraction now used by serde and both integration adapters.
+- Added `LoadedEnvironment::deserialize` behind `load + serde`.
+- Added `LoadedEnvironment::resolve_contextual` and `resolve_decoded` with
+  origin-aware `ResolvedEnvironment` results.
+- Added `Document::lookup_index` and `LookupIndex` for explicit repeated lookups.
+- Added CLI `-`/`--stdin` source input and `check --json` versioned diagnostics.
 - All-feature workspace: 242 core, 3 process, 17 CLI, 5 config and 5 Figment
   tests; 26 doctests pass with six ignored. Alloc-only + serde is 224 tests and
   25 doctests (six ignored); no-default core is 217 tests and 24 doctests
   (six ignored).
 - Clippy passes for `load,serde` and the workspace; warning-denied docs and the
-  package/manifest checks remain green.
+  package/manifest checks remain green. All 66 Criterion smoke workloads pass,
+  including index construction and repeated indexed lookups.
 - `Dialect`, `FormatOptions`, `ExpandOptions` and `ReferenceRules` are
   non-exhaustive with `with_*` builders; external adapter tests, benches and fuzz
   targets were migrated to the builder style.
 - A forced patch-semver check reports only the intentional non-exhaustive
   struct/enum changes. The normal 0.7.1 -> 0.8.0 check reports no semver update
-  required.
-  Report/result structs, `EntryTokens`, policy enums and `Multiline` follow the
-  same hybrid policy; `TextEdit` and `Position` remain caller-constructible.
+  required. Report/result structs, `EntryTokens`, policy enums and `Multiline`
+  follow the same hybrid policy; `TextEdit` and `Position` remain
+  caller-constructible.
 
 ## Local execution evidence (2026-10-15)
 
