@@ -765,7 +765,7 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   adapters (default and `load`), CLI, process and core configurations.
   Warning-denied workspace rustdoc passes.
 - All 60 Criterion smoke workloads pass.
-- The root package verifies at 62 files (about 0.80 MiB). Companion packages
+- The root package verifies at 63 files (about 0.85 MiB). Companion packages
   fully verify once the core version exists on crates.io; before that, CI
   verifies their manifests and file lists with `cargo package --list`. Packages
   contain seven files for the CLI and six for process, config and Figment. The
@@ -854,7 +854,9 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   (six ignored).
 - Clippy passes for `load,serde` and the workspace; warning-denied docs and the
   package/manifest checks remain green. All 66 Criterion smoke workloads pass,
-  including index construction and repeated indexed lookups.
+  including index construction and repeated indexed lookups. The controlled
+  local 0.8 baseline and its no-CI-threshold policy are recorded in
+  [performance.md](performance.md).
 - `Dialect`, `FormatOptions`, `ExpandOptions` and `ReferenceRules` are
   non-exhaustive with `with_*` builders; external adapter tests, benches and fuzz
   targets were migrated to the builder style.

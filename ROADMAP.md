@@ -20,6 +20,7 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [cli.md](docs/design/cli.md) | Zero-dependency workspace command-line tools |
 | [integrations.md](docs/design/integrations.md) | `config` and `figment` companion adapters |
 | [quality.md](docs/design/quality.md) | Testing, fuzzing, conformance, benchmarks, MSRV and semver policy |
+| [performance.md](docs/design/performance.md) | Local 0.8 benchmark methodology and baseline |
 | [strategy.md](docs/design/strategy.md) | Post-0.7 product/API/performance review and candidate priorities |
 | [RELEASING.md](RELEASING.md) | Tag release, first-publish bootstrap and Trusted Publishing |
 

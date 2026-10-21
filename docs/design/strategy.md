@@ -107,19 +107,13 @@ against the changelog. The current release gate is documented in
 
 ### 3. Performance and scale
 
-A provisional local sample run on the 65,536-entry fixtures (10 samples, 2-second
-measurement window; not a controlled baseline) measured roughly:
-
-- parse: ~136 ms
-- portability across four presets: ~1.4 s
-- sort: ~246 ms
-- format: ~131 ms
-- resolve: ~213 ms
-
-These are usable for batch tooling, but they show why lookup indexing,
-incremental workflows and stable regression budgets matter for an editor/LSP.
-Do not treat these numbers as release thresholds; the benchmark policy in
-[quality.md](quality.md#performance) governs comparison.
+The 0.8 local baseline is recorded in
+[performance.md](performance.md): for 65,536 entries, parse is ~92.8 ms,
+portability ~843 ms, sort ~436 ms, format normalize ~187 ms and resolve
+~161 ms. Lookup-index build is ~38.4 ms; 64 indexed lookups take ~8.1 µs.
+These are usable for batch tooling, but they show why incremental workflows and
+controlled regression budgets matter for an editor/LSP. There is deliberately no
+CI performance threshold yet; shared-runner noise would create false failures.
 
 The parser is linear and allocation-conscious, but the public surface lacks a
 lookup index. Repeated `Document::get` calls scan entries. That is fine for
@@ -198,7 +192,7 @@ schema the stable surface.
 - Shared effective-value primitive used by core adapters; implemented in the
   unreleased tree.
 - Public API inventory; decide `non_exhaustive`/builder policy for option types.
-- Optional lookup index prototype and benchmark baseline.
+- `Document::lookup_index` and the local 0.8 benchmark baseline.
 - CLI `-`/`--stdin` input and `check --json` diagnostics; implemented in the
   unreleased tree. Recursive discovery and multi-file diff remain.
 

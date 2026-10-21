@@ -721,7 +721,8 @@ resolution, structure/formatting/sorting and native edits including large
 set/set-rename batches. Public synthetic seeds feed parser, edit, encoding,
 resolution and format fuzz targets; scheduled CI runs bounded campaigns.
 Reproduction commands and evidence policy are in
-[quality.md](docs/design/quality.md). Harness availability is not a claim
+[quality.md](docs/design/quality.md); the current local baseline is in
+[performance.md](docs/design/performance.md). Harness availability is not a claim
 that any particular benchmark or fuzz duration has passed.
 
 The public [upstream conformance corpus](conformance/manifest.json) records
