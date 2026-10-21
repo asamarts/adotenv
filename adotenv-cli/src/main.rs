@@ -154,7 +154,9 @@ fn is_excluded(base: &Path, path: &Path, excludes: &[PathBuf]) -> bool {
         } else if exclude.is_absolute() {
             path.starts_with(exclude)
         } else {
-            relative == exclude || relative.starts_with(exclude)
+            let exclude = exclude.strip_prefix(".").unwrap_or(exclude);
+            !exclude.as_os_str().is_empty()
+                && (relative == exclude || relative.starts_with(exclude))
         }
     })
 }
@@ -201,42 +203,38 @@ fn expand_paths(
     paths: &[String],
     recursive: bool,
     excludes: &[PathBuf],
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<PathBuf>, String> {
     if !recursive {
-        return Ok(paths.to_vec());
+        return Ok(paths.iter().map(PathBuf::from).collect());
     }
-    let roots = if paths.is_empty() {
-        vec![".".to_string()]
+    let roots: Vec<PathBuf> = if paths.is_empty() {
+        vec![PathBuf::from(".")]
     } else {
-        paths.to_vec()
+        paths.iter().map(PathBuf::from).collect()
     };
     let mut found = Vec::new();
-    for root in roots {
-        if is_stdin(&root) {
-            found.push(PathBuf::from(root));
+    for root_path in roots {
+        if is_stdin_path(&root_path) {
+            found.push(root_path);
             continue;
         }
-        let root_path = Path::new(&root);
+        let root = root_path.display().to_string();
         let metadata =
-            fs::symlink_metadata(root_path).map_err(|error| format!("{root}: {error}"))?;
+            fs::symlink_metadata(&root_path).map_err(|error| format!("{root}: {error}"))?;
         if metadata.file_type().is_symlink() {
             return Err(format!("{root}: refusing to follow symbolic links"));
         }
         if metadata.is_file() {
             let base = root_path.parent().unwrap_or_else(|| Path::new("."));
-            if !is_excluded(base, root_path, excludes) {
-                found.push(root_path.to_path_buf());
+            if !is_excluded(base, &root_path, excludes) {
+                found.push(root_path);
             }
         } else if metadata.is_dir() {
-            walk_env_files(root_path, root_path, excludes, &mut found)?;
+            walk_env_files(&root_path, &root_path, excludes, &mut found)?;
         } else {
             return Err(format!("{root}: not a regular file or directory"));
         }
     }
-    let mut found: Vec<String> = found
-        .into_iter()
-        .map(|path| path.to_string_lossy().into_owned())
-        .collect();
     found.sort();
     found.dedup();
     Ok(found)
@@ -405,7 +403,7 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
         }
         return 0;
     }
-    if paths.iter().filter(|path| is_stdin(path)).count() > 1 {
+    if paths.iter().filter(|path| is_stdin_path(path)).count() > 1 {
         eprintln!("standard input may be used at most once");
         return 2;
     }
@@ -416,6 +414,7 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
     let mut infos = 0usize;
     let mut affected_files = 0usize;
     for path in &paths {
+        let path_label = path.to_string_lossy();
         let source = match read_text(path) {
             Ok(source) => source,
             Err(error) => {
@@ -425,11 +424,13 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
                 match format {
                     CheckFormat::Json => files.push(format!(
                         "{{\"path\":{},\"ok\":false,\"error\":{},\"diagnostics\":[]}}",
-                        json_string(path),
+                        json_string(&path_label),
                         json_string(&error)
                     )),
                     CheckFormat::Human => eprintln!("{error}"),
-                    CheckFormat::Github => println!("{}", github_read_error(path, &error)),
+                    CheckFormat::Github => {
+                        println!("{}", github_read_error(&path_label, &error));
+                    }
                 }
                 continue;
             }
@@ -449,10 +450,13 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
             match format {
                 CheckFormat::Json => rendered.push(render_json_diagnostic(diagnostic)),
                 CheckFormat::Human => {
-                    println!("{}", render_human(path, &source, diagnostic, show_source));
+                    println!(
+                        "{}",
+                        render_human(&path_label, &source, diagnostic, show_source)
+                    );
                 }
                 CheckFormat::Github => {
-                    println!("{}", github_annotation(path, &source, diagnostic));
+                    println!("{}", github_annotation(&path_label, &source, diagnostic));
                 }
             }
         }
@@ -465,7 +469,7 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
         if format == CheckFormat::Json {
             files.push(format!(
                 "{{\"path\":{},\"ok\":{},\"diagnostics\":[{}]}}",
-                json_string(path),
+                json_string(&path_label),
                 !file_has_error,
                 rendered.join(",")
             ));
@@ -727,11 +731,11 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
         eprintln!("--write and --check are mutually exclusive");
         return 2;
     }
-    if paths.iter().filter(|path| is_stdin(path)).count() > 1 {
+    if paths.iter().filter(|path| is_stdin_path(path)).count() > 1 {
         eprintln!("standard input may be used at most once");
         return 2;
     }
-    if write && paths.iter().any(|path| is_stdin(path)) {
+    if write && paths.iter().any(|path| is_stdin_path(path)) {
         eprintln!("--write cannot write standard input");
         return 2;
     }
@@ -750,7 +754,7 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
             .iter()
             .any(|diagnostic| diagnostic.severity() == Severity::Error);
         for diagnostic in diagnostics {
-            eprintln!("{path}: {diagnostic}");
+            eprintln!("{}: {diagnostic}", path.display());
         }
         let formatting_source;
         let formatting_doc;
@@ -758,7 +762,7 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
             let sorted = match doc.sort() {
                 Ok(sorted) => sorted,
                 Err(error) => {
-                    fail(format!("{path}: {error}"));
+                    fail(format!("{}: {error}", path.display()));
                     failed = true;
                     continue;
                 }
@@ -767,7 +771,7 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
             formatting_doc = match parse_strict_with(&formatting_source, dialect) {
                 Ok(doc) => doc,
                 Err(error) => {
-                    fail(format!("{path}: {error}"));
+                    fail(format!("{}: {error}", path.display()));
                     failed = true;
                     continue;
                 }
@@ -779,23 +783,23 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
         let formatted = match doc_ref.format(&FormatOptions::normalize_groups()) {
             Ok(formatted) => formatted,
             Err(error) => {
-                fail(format!("{path}: {error}"));
+                fail(format!("{}: {error}", path.display()));
                 failed = true;
                 continue;
             }
         };
         if check {
             if formatted.as_str() != source {
-                println!("{path}: would reformat");
+                println!("{}: would reformat", path.display());
                 failed = true;
             }
         } else if write {
-            if let Err(error) = write_atomic(Path::new(path), formatted.as_str()) {
-                fail(format!("{path}: {error}"));
+            if let Err(error) = write_atomic(path, formatted.as_str()) {
+                fail(format!("{}: {error}", path.display()));
                 failed = true;
             }
         } else if paths.len() > 1 {
-            println!("==> {path} <==");
+            println!("==> {} <==", path.display());
             print!("{}", formatted.as_str());
         } else {
             print!("{}", formatted.as_str());
@@ -1403,20 +1407,25 @@ fn remove_backup(path: &Path) -> io::Result<()> {
 }
 
 fn is_stdin(path: &str) -> bool {
-    path == "-" || path == "--stdin"
+    is_stdin_path(Path::new(path))
 }
 
-fn read_text(path: &str) -> Result<String, String> {
-    let bytes = if is_stdin(path) {
+fn is_stdin_path(path: &Path) -> bool {
+    path == Path::new("-") || path == Path::new("--stdin")
+}
+
+fn read_text<P: AsRef<Path>>(path: P) -> Result<String, String> {
+    let path = path.as_ref();
+    let bytes = if is_stdin_path(path) {
         let mut bytes = Vec::new();
         io::stdin()
             .read_to_end(&mut bytes)
             .map_err(|error| format!("-: {error}"))?;
         bytes
     } else {
-        fs::read(Path::new(path)).map_err(|error| format!("{path}: {error}"))?
+        fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?
     };
-    String::from_utf8(bytes).map_err(|_| format!("{path}: invalid UTF-8"))
+    String::from_utf8(bytes).map_err(|_| format!("{}: invalid UTF-8", path.display()))
 }
 
 fn fail(message: String) -> u8 {
@@ -1453,6 +1462,34 @@ mod tests {
         replace_with_backup(&target, &temporary).unwrap();
         assert_eq!(fs::read_to_string(&target).unwrap(), "new");
         assert!(!temporary.exists());
+        let leftovers: Vec<_> = fs::read_dir(&directory).unwrap().collect();
+        assert_eq!(leftovers.len(), 1);
+        fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn backup_swap_restores_target_when_install_fails() {
+        use super::replace_with_backup;
+        use std::{
+            fs,
+            path::PathBuf,
+            process,
+            sync::atomic::{AtomicUsize, Ordering},
+        };
+
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let directory = PathBuf::from(std::env::temp_dir()).join(format!(
+            "adotenv-write-failure-{}-{}",
+            process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let target = directory.join("target.env");
+        let missing_temporary = directory.join("missing.env");
+        fs::write(&target, "old").unwrap();
+        assert!(replace_with_backup(&target, &missing_temporary).is_err());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "old");
         let leftovers: Vec<_> = fs::read_dir(&directory).unwrap().collect();
         assert_eq!(leftovers.len(), 1);
         fs::remove_dir_all(&directory).unwrap();

@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Recursive discovery now reads `.env` files whose filesystem names are not
+  valid UTF-8 instead of converting the path lossily before opening it. Human
+  and JSON output still display such paths lossily.
+- `--exclude ./path` now normalizes the leading `./` and matches the intended
+  relative path.
+
+### Tests
+
+- Added coverage for default current-directory discovery, multiple roots,
+  empty recursive results, leading-`./` excludes, non-UTF-8 discovery paths,
+  tab-expanded source carets, GitHub warning/notice annotations, two-file and
+  export-aware matrices, diff bare/empty JSON states, and Windows backup-swap
+  failure restoration.
+
 ## [0.9.0] - 2026-10-21
 
 ### Added

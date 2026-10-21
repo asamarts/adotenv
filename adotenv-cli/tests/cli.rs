@@ -53,6 +53,14 @@ fn run(args: &[&str]) -> Output {
         .unwrap()
 }
 
+fn run_in(directory: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_adotenv-cli"))
+        .current_dir(directory)
+        .args(args)
+        .output()
+        .unwrap()
+}
+
 fn run_with_stdin(args: &[&str], input: &str) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_adotenv-cli"))
         .args(args)
@@ -350,8 +358,8 @@ fn recursive_discovery_applies_env_names_ignores_and_excludes() {
     let json = stdout(&output);
     assert!(json.contains(".env.production"));
     assert!(json.contains(".env.bad"));
-    assert!(!json.contains(".git/.env"));
-    assert!(!json.contains("target/.env"));
+    assert!(!json.contains(".git"));
+    assert!(!json.contains("target"));
     assert!(!json.contains("not-env"));
     assert!(!json.contains(".envrc"));
 
@@ -367,7 +375,7 @@ fn recursive_discovery_applies_env_names_ignores_and_excludes() {
     let json = stdout(&output);
     assert!(json.contains(".env"));
     assert!(json.contains(".env.local"));
-    assert!(!json.contains("sub/"));
+    assert!(!json.contains(".env.bad"));
 
     let output = run(&["check", "--exclude", "sub", dir.path().to_str().unwrap()]);
     assert_eq!(output.status.code(), Some(2));
@@ -606,4 +614,165 @@ fn writes_replace_existing_files_without_leftovers() {
         .collect();
     entries.sort();
     assert_eq!(entries, vec!["app.env"]);
+}
+
+#[test]
+fn recursive_defaults_to_current_directory_and_normalizes_dot_excludes() {
+    let dir = TempDir::new();
+    dir.file_at(".env", "A = 1\n");
+    dir.file_at("sub/.env.bad", "BAD KEY=secret\n");
+
+    let output = run_in(dir.path(), &["check", "--json", "--recursive"]);
+    assert_eq!(output.status.code(), Some(1));
+    let json = stdout(&output);
+    assert!(json.contains(".env"));
+    assert!(json.contains(".env.bad"));
+
+    let output = run_in(
+        dir.path(),
+        &["check", "--json", "--recursive", "--exclude", "./sub"],
+    );
+    assert!(output.status.success());
+    let json = stdout(&output);
+    assert!(json.contains(".env"));
+    assert!(!json.contains(".env.bad"));
+}
+
+#[test]
+fn recursive_multiple_roots_are_sorted_and_deduplicated() {
+    let first = TempDir::new();
+    let second = TempDir::new();
+    first.file_at(".env", "A = 1\n");
+    second.file_at(".env", "B = 2\n");
+
+    let output = run(&[
+        "check",
+        "--json",
+        "--recursive",
+        first.path().to_str().unwrap(),
+        second.path().to_str().unwrap(),
+        first.path().to_str().unwrap(),
+    ]);
+    assert!(output.status.success());
+    let json = stdout(&output);
+    assert_eq!(json.matches("\"ok\":true").count(), 2);
+}
+
+#[test]
+fn recursive_empty_search_reports_and_succeeds() {
+    let dir = TempDir::new();
+    fs::create_dir(dir.path().join("empty")).unwrap();
+    let empty = dir.path().join("empty");
+    let output = run(&["check", "--json", "--recursive", empty.to_str().unwrap()]);
+    assert!(output.status.success());
+    assert_eq!(stdout(&output), "{\"version\":1,\"files\":[]}\n");
+    assert!(stderr(&output).contains("no .env files found"));
+}
+
+#[cfg(unix)]
+#[test]
+fn recursive_discovery_reads_non_utf8_env_paths() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let dir = TempDir::new();
+    dir.file_at(".env", "A = 1\n");
+    let name = OsString::from_vec(b".env.\xff".to_vec());
+    let non_utf8 = dir.path().join(name);
+    fs::write(&non_utf8, "B=2\n").unwrap();
+
+    let output = run(&[
+        "check",
+        "--json",
+        "--recursive",
+        dir.path().to_str().unwrap(),
+    ]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let json = stdout(&output);
+    assert_eq!(json.matches("\"ok\":true").count(), 2);
+
+    let output = run(&[
+        "fmt",
+        "--recursive",
+        "--write",
+        dir.path().to_str().unwrap(),
+    ]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(fs::read_to_string(non_utf8).unwrap(), "B = 2\n");
+}
+
+#[test]
+fn check_source_displays_tab_expanded_carets() {
+    let dir = TempDir::new();
+    let file = dir.file("tabs.env", "\tA=1\n\tA=2\n");
+
+    let output = run(&["check", "--source", file.to_str().unwrap()]);
+    assert!(output.status.success());
+    let text = stdout(&output);
+    assert!(text.contains(":2:2: warning[dotenv.duplicate-key]:"));
+    assert!(text.contains("2 |     A=2"));
+    assert!(text.contains("  |     ^"));
+
+    let output = run(&["check", "--format", "github", file.to_str().unwrap()]);
+    assert!(output.status.success());
+    let text = stdout(&output);
+    assert!(text.contains("::warning"));
+    assert!(text.contains("line=2,col=2,title=dotenv.duplicate-key"));
+}
+
+#[test]
+fn check_github_uses_notice_for_info_diagnostics() {
+    let dir = TempDir::new();
+    let file = dir.file("bom.env", "\u{feff}A=1\n");
+    let output = run(&["check", "--format=github", file.to_str().unwrap()]);
+    assert!(output.status.success());
+    assert!(stdout(&output).contains("::notice"));
+    assert!(stdout(&output).contains("title=dotenv.bom"));
+
+    let output = run(&["check", "--format=json", file.to_str().unwrap()]);
+    assert!(output.status.success());
+    assert!(stdout(&output).contains("\"version\":1"));
+}
+
+#[test]
+fn diff_matrix_handles_two_files_and_export_differences() {
+    let dir = TempDir::new();
+    let left = dir.file("left.env", "export A=1\n");
+    let right = dir.file("right.env", "A=1\n");
+
+    let output = run(&[
+        "diff",
+        "--format",
+        "matrix",
+        left.to_str().unwrap(),
+        right.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = stdout(&output);
+    assert!(text.contains("key"));
+    assert!(text.contains("export 1"));
+    assert!(text.contains("| 1"));
+
+    let output = run(&["diff", left.to_str().unwrap(), right.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stdout(&output).contains("~ A: 1 (export) -> 1"));
+}
+
+#[test]
+fn diff_json_reports_bare_and_empty_states() {
+    let dir = TempDir::new();
+    let base = dir.file("base.env", "A\nB=\nC=1\n");
+    let candidate = dir.file("candidate.env", "A=1\nB\nC=1\n");
+    let output = run(&[
+        "diff",
+        "--format",
+        "json",
+        base.to_str().unwrap(),
+        candidate.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    let json = stdout(&output);
+    assert!(json.contains("\"state\":\"bare\""));
+    assert!(json.contains("\"state\":\"empty\""));
+    assert!(json.contains("\"kind\":\"state\""));
 }

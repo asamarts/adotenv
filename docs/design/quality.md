@@ -882,6 +882,21 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - The normal 0.8.0 -> 0.9.0 semver check reports no update required; the core
   API is unchanged by this tooling-focused release.
 
+### Post-0.9.0 audit slice (2026-10-21)
+
+- Fixed recursive discovery to keep discovered paths as `PathBuf` values until
+  display, so non-UTF-8 `.env` filenames are opened correctly. Text and JSON
+  rendering remain explicitly lossy for such paths.
+- Fixed relative excludes with a leading `./` so `--exclude ./sub` matches
+  `sub` under each discovery root.
+- Added regression coverage for default current-directory discovery, multiple
+  roots, empty recursive results, leading-`./` excludes, non-UTF-8 discovery,
+  tab-expanded human carets, GitHub warning/notice severities, two-file and
+  export-aware matrices, diff bare/empty states, and Windows backup-swap
+  failure restoration.
+- All-feature workspace: 242 core, 3 process, 34 CLI, 6 config and 6 Figment
+  tests; 26 doctests pass with six ignored.
+
 ### 0.9.0 development slice (2026-10-21)
 
 - Added recursive `.env` discovery and repeatable excludes to `check` and

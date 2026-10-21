@@ -78,11 +78,13 @@ statements.
 
 `check --recursive` and `fmt --recursive` walk supplied directories, or `.` if
 none are supplied, and select files named `.env` or `.env.*`. Repeatable
-`--exclude <path>` values are interpreted relative to each discovery root;
-absolute excludes match when the discovery roots are absolute. The defaults
-skip `.git`, `target` and `node_modules`, and symbolic links are never
-followed. Explicit files are included regardless of name. Multiple roots are
-sorted and deduplicated.
+`--exclude <path>` values are interpreted relative to each discovery root, with
+a leading `./` normalized; absolute excludes match when the discovery roots are
+absolute. The defaults skip `.git`, `target` and `node_modules` while walking;
+an explicitly supplied root is honored even if it has one of those names.
+Symbolic links are never followed. Explicit files are included regardless of
+name. Multiple roots are sorted and deduplicated. Paths that are not valid
+UTF-8 are read correctly, but text and JSON rendering displays them lossily.
 If a recursive search finds nothing, the command reports that on stderr and
 exits successfully.
 
@@ -91,9 +93,10 @@ exits successfully.
 The first file is the baseline; every following file is compared with it using
 `Document::compare`. With exactly two files, the existing output is unchanged:
 `-` for baseline-only, `+` for candidate-only and `~` for state/value/export
-changes. With three or more files, each candidate gets a `baseline -> candidate`
-heading, and identical candidates print `(no differences)`. The command exits 1
-if any candidate differs from the baseline.
+changes. Exported values are annotated with `(export)` in human output. With
+three or more files, each candidate gets a `baseline -> candidate` heading, and
+identical candidates print `(no differences)`. The command exits 1 if any
+candidate differs from the baseline.
 
 `--format matrix` prints a table with keys as rows and the baseline plus every
 candidate as columns. Missing keys show `<unset>`, bare declarations show
