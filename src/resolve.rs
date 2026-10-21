@@ -52,6 +52,7 @@ pub enum Unresolved {
 
 /// Explicit resolution policy and resource limits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct ExpandOptions {
     /// Quote, escape and operator eligibility rules.
     pub rules: ReferenceRules,
@@ -67,6 +68,44 @@ pub struct ExpandOptions {
     pub max_value_bytes: usize,
 }
 
+impl ExpandOptions {
+    /// Use the given reference eligibility rules.
+    #[must_use]
+    pub const fn with_rules(mut self, value: ReferenceRules) -> Self {
+        self.rules = value;
+        self
+    }
+    /// Use the given resolution scope.
+    #[must_use]
+    pub const fn with_scope(mut self, value: ExpandScope) -> Self {
+        self.scope = value;
+        self
+    }
+    /// Use the given lookup precedence.
+    #[must_use]
+    pub const fn with_lookup_order(mut self, value: LookupOrder) -> Self {
+        self.lookup_order = value;
+        self
+    }
+    /// Use the given unresolved-reference policy.
+    #[must_use]
+    pub const fn with_unresolved(mut self, value: Unresolved) -> Self {
+        self.unresolved = value;
+        self
+    }
+    /// Set the maximum nesting depth.
+    #[must_use]
+    pub const fn with_max_depth(mut self, value: usize) -> Self {
+        self.max_depth = value;
+        self
+    }
+    /// Set the maximum resolved value size.
+    #[must_use]
+    pub const fn with_max_value_bytes(mut self, value: usize) -> Self {
+        self.max_value_bytes = value;
+        self
+    }
+}
 impl ExpandOptions {
     /// Portable-style basic variables with file-first sequential bindings.
     #[must_use]

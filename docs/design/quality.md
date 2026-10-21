@@ -847,11 +847,17 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   merged values to a Serde type and uses the winning declaration origin line in
   conversion errors.
 - All-feature workspace: 241 core, 3 process, 17 CLI, 5 config and 5 Figment
-  tests; 24 doctests pass with six ignored. Alloc-only + serde is 223 tests and
-  23 doctests (six ignored); no-default core is 216 tests and 22 doctests
+  tests; 25 doctests pass with six ignored. Alloc-only + serde is 223 tests and
+  24 doctests (six ignored); no-default core is 216 tests and 23 doctests
   (six ignored).
 - Clippy passes for `load,serde` and the workspace; warning-denied docs and the
   package/manifest checks remain green.
+- `Dialect`, `FormatOptions`, `ExpandOptions` and `ReferenceRules` are
+  non-exhaustive with `with_*` builders; external adapter tests, benches and fuzz
+  targets were migrated to the builder style.
+- A forced patch-semver check reports exactly one intentional failure:
+  `struct_marked_non_exhaustive` for those four option structs. The normal
+  0.7.1 -> 0.8.0 check reports no semver update required.
 
 ## Local execution evidence (2026-10-15)
 

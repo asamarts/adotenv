@@ -89,10 +89,7 @@ assert_eq!(raw.get("A"), Some("a#b"));
 assert_eq!(raw.get("B"), Some("`two words`"));
 assert_eq!(raw.source(), source);
 
-let custom = Dialect {
-    inline_comments: InlineComments::None,
-    ..Dialect::NODE_DOTENV
-};
+let custom = Dialect::NODE_DOTENV.with_inline_comments(InlineComments::None);
 assert_eq!(parse_with(source, custom).0.get("A"), Some("a#b"));
 ```
 
@@ -196,10 +193,7 @@ assert_eq!(resolved.entries()[1].value.as_deref(), Some("base/api"));
 let caller = doc
     .resolve(
         |key| (key == "BASE").then(|| "external".to_string()),
-        &ExpandOptions {
-            lookup_order: adotenv::LookupOrder::CallerFirst,
-            ..ExpandOptions::portable()
-        },
+        &ExpandOptions::portable().with_lookup_order(adotenv::LookupOrder::CallerFirst),
     )
     .unwrap();
 assert_eq!(caller.entries()[1].value.as_deref(), Some("external/api"));
@@ -417,10 +411,7 @@ use adotenv::{ExpandOptions, ExpandScope};
 let loaded = load_cascade("/srv/my-app", "production")?;
 let resolved = loaded.resolve_contextual(
     |name| std::env::var(name).ok(),
-    &ExpandOptions {
-        scope: ExpandScope::WholeFile,
-        ..ExpandOptions::portable()
-    },
+    &ExpandOptions::portable().with_scope(ExpandScope::WholeFile),
 )?;
 assert!(resolved.get("PORT").is_some());
 ```
@@ -670,6 +661,22 @@ spans, including escapes.
 feature are opt-in; commands remain literal unless a callback is supplied and
 the selected rules enable them. The `exec` feature is disabled by default and
 is the only process-spawning path.
+
+## Migrating from 0.7
+
+`Dialect`, `FormatOptions`, `ExpandOptions` and `ReferenceRules` are
+`#[non_exhaustive]` in 0.8. External struct literals no longer compile. Start
+from a preset or `Default` and use builders or mutate public fields:
+
+```rust
+use adotenv::{BareKeys, Dialect, ExpandOptions, ExpandScope};
+
+let dialect = Dialect::NODE_DOTENV.with_bare_keys(BareKeys::Ignore);
+let options = ExpandOptions::portable().with_scope(ExpandScope::WholeFile);
+```
+
+This preserves the ability to add policy fields after 1.0 without another
+breaking change.
 
 ## Migrating from 0.2
 

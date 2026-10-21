@@ -37,7 +37,7 @@ original source and returns a new document and diagnostics. Snapshot-local IDs
 belong only to one interpretation.
 
 Start from a preset with a struct update, for example
-`Dialect { inline_comments: InlineComments::None, ..Dialect::NODE_DOTENV }`.
+`Dialect::NODE_DOTENV.with_inline_comments(InlineComments::None)`.
 Typed policies control recognition, decoding and effective lookup:
 
 | Policy | Available choices |

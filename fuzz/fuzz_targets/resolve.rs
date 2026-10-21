@@ -66,14 +66,12 @@ fuzz_target!(|bytes: &[u8]| {
         for scope in [ExpandScope::Sequential, ExpandScope::WholeFile] {
             for lookup_order in [LookupOrder::FileFirst, LookupOrder::CallerFirst] {
                 for unresolved in [Unresolved::Keep, Unresolved::Error] {
-                    let options = ExpandOptions {
-                        scope,
-                        lookup_order,
-                        unresolved,
-                        max_depth: 8,
-                        max_value_bytes: 1024,
-                        ..base
-                    };
+                    let options = base
+                        .with_scope(scope)
+                        .with_lookup_order(lookup_order)
+                        .with_unresolved(unresolved)
+                        .with_max_depth(8)
+                        .with_max_value_bytes(1024);
                     let Ok(resolved) = document.resolve(lookup, &options) else {
                         continue;
                     };
@@ -97,12 +95,10 @@ fuzz_target!(|bytes: &[u8]| {
     }
 
     for scope in [ExpandScope::Sequential, ExpandScope::WholeFile] {
-        let options = ExpandOptions {
-            scope,
-            max_depth: 8,
-            max_value_bytes: 1024,
-            ..ExpandOptions::dotenv_expand()
-        };
+        let options = ExpandOptions::dotenv_expand()
+            .with_scope(scope)
+            .with_max_depth(8)
+            .with_max_value_bytes(1024);
         let callback = |context: CommandContext<'_>| {
             assert_eq!(context.source, Some("fuzz-source"));
             assert!(source.get(context.reference.clone()).is_some());

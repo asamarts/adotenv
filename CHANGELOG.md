@@ -22,6 +22,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `check --json` emits a versioned machine-readable diagnostic document with
   paths, severity, stable codes, messages and exact spans.
 
+### Changed
+
+- `Dialect`, `FormatOptions`, `ExpandOptions` and `ReferenceRules` are now
+  `#[non_exhaustive]` and expose `with_*` builder methods. External struct
+  literals must be replaced by a preset/default plus builders or field mutation.
+  This is a deliberate pre-1.0 API-freeze change.
+
 ## [0.7.1] - 2026-10-20
 
 ### Added

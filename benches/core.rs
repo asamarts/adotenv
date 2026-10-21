@@ -206,10 +206,7 @@ fn formatting(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
     let mut formatting = c.benchmark_group("format");
     let options = FormatOptions::normalize();
     let groups = FormatOptions::normalize_groups();
-    let quotes = FormatOptions {
-        quote_style: QuoteStyle::Double,
-        ..FormatOptions::normalize()
-    };
+    let quotes = FormatOptions::normalize().with_quote_style(QuoteStyle::Double);
     for (name, _, source) in fixtures {
         let document = parse_strict(source).expect("benchmark fixture is valid Portable syntax");
         formatting.throughput(Throughput::Bytes(source.len() as u64));

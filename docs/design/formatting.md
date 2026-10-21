@@ -162,13 +162,11 @@ use adotenv::{parse_strict, EqualsSpacing, FinalNewline, FormatOptions};
 
 let doc = parse_strict("A=1\nB =  2\n").unwrap();
 let formatted = doc
-    .format(&FormatOptions {
-        equals_spacing: EqualsSpacing::Spaces,
-        trim_trailing_whitespace: false,
-        blank_lines: adotenv::BlankLines::Preserve,
-        quote_style: adotenv::QuoteStyle::Preserve,
-        final_newline: FinalNewline::Preserve,
-    })
+    .format(
+        &FormatOptions::default()
+            .with_equals_spacing(EqualsSpacing::Spaces)
+            .with_trim_trailing_whitespace(false),
+    )
     .unwrap();
 assert_eq!(formatted.as_str(), "A = 1\nB = 2\n");
 ```

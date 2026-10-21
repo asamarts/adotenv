@@ -60,6 +60,7 @@ pub enum QuoteStyle {
 
 /// Formatting policy for trivia-only changes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct FormatOptions {
     /// Spacing around assignment separators.
     pub equals_spacing: EqualsSpacing,
@@ -88,6 +89,38 @@ impl Default for FormatOptions {
     }
 }
 
+impl FormatOptions {
+    /// Use the given assignment-spacing policy.
+    #[must_use]
+    pub const fn with_equals_spacing(mut self, value: EqualsSpacing) -> Self {
+        self.equals_spacing = value;
+        self
+    }
+    /// Enable or disable trailing horizontal whitespace trimming.
+    #[must_use]
+    pub const fn with_trim_trailing_whitespace(mut self, value: bool) -> Self {
+        self.trim_trailing_whitespace = value;
+        self
+    }
+    /// Use the given blank-line policy.
+    #[must_use]
+    pub const fn with_blank_lines(mut self, value: BlankLines) -> Self {
+        self.blank_lines = value;
+        self
+    }
+    /// Use the given preferred quote style.
+    #[must_use]
+    pub const fn with_quote_style(mut self, value: QuoteStyle) -> Self {
+        self.quote_style = value;
+        self
+    }
+    /// Use the given final-newline policy.
+    #[must_use]
+    pub const fn with_final_newline(mut self, value: FinalNewline) -> Self {
+        self.final_newline = value;
+        self
+    }
+}
 impl FormatOptions {
     /// Normalize spacing, trim trailing whitespace and ensure a final LF.
     #[must_use]
@@ -191,10 +224,7 @@ impl Document<'_> {
     ///
     /// let doc = parse_strict("A=1\nB =  2\n").unwrap();
     /// let formatted = doc
-    ///     .format(&FormatOptions {
-    ///         equals_spacing: EqualsSpacing::Spaces,
-    ///         ..FormatOptions::default()
-    ///     })
+    ///     .format(&FormatOptions::default().with_equals_spacing(EqualsSpacing::Spaces))
     ///     .unwrap();
     /// assert_eq!(formatted.as_str(), "A = 1\nB = 2\n");
     /// ```

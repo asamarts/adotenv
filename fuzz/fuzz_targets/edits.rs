@@ -475,13 +475,11 @@ fuzz_target!(|bytes: &[u8]| {
         if operation % 5 == 4 {
             check_comment_restore(source, selector, dialect);
         }
-        let custom = Dialect {
-            quoted_tail: adotenv::QuotedTail::Ignore,
-            inline_comments: adotenv::InlineComments::AnyHash,
-            quoted_comments: false,
-            raw_values: false,
-            ..dialect
-        };
+        let custom = dialect
+            .with_quoted_tail(adotenv::QuotedTail::Ignore)
+            .with_inline_comments(adotenv::InlineComments::AnyHash)
+            .with_quoted_comments(false)
+            .with_raw_values(false);
         check_selected(source, value, operation, selector, custom);
     }
     let (document, _) = parse(source);

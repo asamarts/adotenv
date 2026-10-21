@@ -263,39 +263,21 @@ fuzz_target!(|bytes: &[u8]| {
     let options = [
         FormatOptions::normalize(),
         FormatOptions::normalize_groups(),
-        FormatOptions {
-            quote_style: QuoteStyle::Double,
-            ..FormatOptions::normalize()
-        },
-        FormatOptions {
-            quote_style: QuoteStyle::Single,
-            ..FormatOptions::normalize()
-        },
-        FormatOptions {
-            quote_style: QuoteStyle::Unquoted,
-            ..FormatOptions::normalize()
-        },
-        FormatOptions {
-            equals_spacing: EqualsSpacing::Spaces,
-            trim_trailing_whitespace: false,
-            blank_lines: BlankLines::Preserve,
-            quote_style: QuoteStyle::Preserve,
-            final_newline: FinalNewline::Preserve,
-        },
-        FormatOptions {
-            equals_spacing: EqualsSpacing::None,
-            trim_trailing_whitespace: true,
-            blank_lines: BlankLines::Preserve,
-            quote_style: QuoteStyle::Preserve,
-            final_newline: FinalNewline::Ensure,
-        },
-        FormatOptions {
-            equals_spacing: EqualsSpacing::Spaces,
-            trim_trailing_whitespace: true,
-            blank_lines: BlankLines::Collapse,
-            quote_style: QuoteStyle::Preserve,
-            final_newline: FinalNewline::Remove,
-        },
+        FormatOptions::normalize().with_quote_style(QuoteStyle::Double),
+        FormatOptions::normalize().with_quote_style(QuoteStyle::Single),
+        FormatOptions::normalize().with_quote_style(QuoteStyle::Unquoted),
+        FormatOptions::default()
+            .with_equals_spacing(EqualsSpacing::Spaces)
+            .with_trim_trailing_whitespace(false),
+        FormatOptions::default()
+            .with_equals_spacing(EqualsSpacing::None)
+            .with_trim_trailing_whitespace(true)
+            .with_final_newline(FinalNewline::Ensure),
+        FormatOptions::default()
+            .with_equals_spacing(EqualsSpacing::Spaces)
+            .with_trim_trailing_whitespace(true)
+            .with_blank_lines(BlankLines::Collapse)
+            .with_final_newline(FinalNewline::Remove),
     ];
     for dialect in [
         Dialect::PORTABLE,

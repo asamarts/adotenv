@@ -73,6 +73,7 @@ impl OperatorSet {
 // These are independent policy switches, not states.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct ReferenceRules {
     /// Variable forms and operators considered eligible.
     pub operators: OperatorSet,
@@ -86,6 +87,38 @@ pub struct ReferenceRules {
     pub backtick_quotes: bool,
 }
 
+impl ReferenceRules {
+    /// Use the given variable/operator eligibility set.
+    #[must_use]
+    pub const fn with_operators(mut self, value: OperatorSet) -> Self {
+        self.operators = value;
+        self
+    }
+    /// Enable or disable references inside single quotes.
+    #[must_use]
+    pub const fn with_single_quotes(mut self, value: bool) -> Self {
+        self.single_quotes = value;
+        self
+    }
+    /// Enable or disable escaped-dollar candidates.
+    #[must_use]
+    pub const fn with_escaped_dollar(mut self, value: bool) -> Self {
+        self.escaped_dollar = value;
+        self
+    }
+    /// Enable or disable command candidates.
+    #[must_use]
+    pub const fn with_commands(mut self, value: bool) -> Self {
+        self.commands = value;
+        self
+    }
+    /// Enable or disable references inside backticks.
+    #[must_use]
+    pub const fn with_backtick_quotes(mut self, value: bool) -> Self {
+        self.backtick_quotes = value;
+        self
+    }
+}
 impl ReferenceRules {
     /// No references are eligible.
     pub const NONE: Self = Self {

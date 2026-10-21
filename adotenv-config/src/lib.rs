@@ -127,10 +127,7 @@ mod tests {
             Some("line\nbreak")
         );
 
-        let first = Dialect {
-            duplicates: Duplicates::First,
-            ..Dialect::PORTABLE
-        };
+        let first = Dialect::PORTABLE.with_duplicates(Duplicates::First);
         let (document, _) = parse_with("A='first'\nA=second\n", first);
         let source = AdotenvSource::from_document(&document);
         assert_eq!(source.values().get("A").map(String::as_str), Some("first"));
@@ -138,19 +135,13 @@ mod tests {
 
     #[test]
     fn document_source_honors_bare_and_nonparticipating_rules() {
-        let empty = Dialect {
-            bare_keys: BareKeys::Empty,
-            ..Dialect::PORTABLE
-        };
+        let empty = Dialect::PORTABLE.with_bare_keys(BareKeys::Empty);
         let (document, _) = parse_with("A=first\nA\nB\n", empty);
         let source = AdotenvSource::from_document(&document);
         assert_eq!(source.values().get("A").map(String::as_str), Some(""));
         assert_eq!(source.values().get("B").map(String::as_str), Some(""));
 
-        let ignore = Dialect {
-            bare_keys: BareKeys::Ignore,
-            ..Dialect::PORTABLE
-        };
+        let ignore = Dialect::PORTABLE.with_bare_keys(BareKeys::Ignore);
         let (document, _) = parse_with("A=first\nA\nB\n", ignore);
         let source = AdotenvSource::from_document(&document);
         assert_eq!(source.values().get("A").map(String::as_str), Some("first"));

@@ -235,6 +235,7 @@ pub enum MalformedLines {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 // These orthogonal syntax switches are independently overrideable, not states.
 #[allow(clippy::struct_excessive_bools)]
+#[non_exhaustive]
 pub struct Dialect {
     /// Statement grammar.
     pub syntax: Syntax,
@@ -372,6 +373,146 @@ impl Dialect {
         line_byte_limit: Some(65_535),
         ..Self::PORTABLE
     };
+}
+impl Dialect {
+    /// Use the given statement grammar.
+    #[must_use]
+    pub const fn with_syntax(mut self, syntax: Syntax) -> Self {
+        self.syntax = syntax;
+        self
+    }
+    /// Use the given unquoted inline-comment policy.
+    #[must_use]
+    pub const fn with_inline_comments(mut self, value: InlineComments) -> Self {
+        self.inline_comments = value;
+        self
+    }
+    /// Use the given double-quoted escape set.
+    #[must_use]
+    pub const fn with_double_escapes(mut self, value: DoubleEscapes) -> Self {
+        self.double_escapes = value;
+        self
+    }
+    /// Use the given unknown-escape policy.
+    #[must_use]
+    pub const fn with_unknown_escapes(mut self, value: UnknownEscapes) -> Self {
+        self.unknown_escapes = value;
+        self
+    }
+    /// Use the given single-quoted escape policy.
+    #[must_use]
+    pub const fn with_single_escapes(mut self, value: SingleEscapes) -> Self {
+        self.single_escapes = value;
+        self
+    }
+    /// Enable or disable backtick-quoted values.
+    #[must_use]
+    pub const fn with_backticks(mut self, value: bool) -> Self {
+        self.backticks = value;
+        self
+    }
+    /// Use the given colon-separator policy.
+    #[must_use]
+    pub const fn with_colon(mut self, value: ColonSeparator) -> Self {
+        self.colon = value;
+        self
+    }
+    /// Use the given unquoted key syntax.
+    #[must_use]
+    pub const fn with_keys(mut self, value: KeySyntax) -> Self {
+        self.keys = value;
+        self
+    }
+    /// Use the given bare-key policy.
+    #[must_use]
+    pub const fn with_bare_keys(mut self, value: BareKeys) -> Self {
+        self.bare_keys = value;
+        self
+    }
+    /// Enable or disable raw value retention.
+    #[must_use]
+    pub const fn with_raw_values(mut self, value: bool) -> Self {
+        self.raw_values = value;
+        self
+    }
+    /// Use the given physical line-break policy.
+    #[must_use]
+    pub const fn with_line_breaks(mut self, value: LineBreaks) -> Self {
+        self.line_breaks = value;
+        self
+    }
+    /// Use the given byte-order-mark policy.
+    #[must_use]
+    pub const fn with_bom(mut self, value: BomPolicy) -> Self {
+        self.bom = value;
+        self
+    }
+    /// Use the given duplicate lookup policy.
+    #[must_use]
+    pub const fn with_duplicates(mut self, value: Duplicates) -> Self {
+        self.duplicates = value;
+        self
+    }
+    /// Use the given quoted-tail policy.
+    #[must_use]
+    pub const fn with_quoted_tail(mut self, value: QuotedTail) -> Self {
+        self.quoted_tail = value;
+        self
+    }
+    /// Use the given multiline quote permissions.
+    #[must_use]
+    pub const fn with_multiline(mut self, value: Multiline) -> Self {
+        self.multiline = value;
+        self
+    }
+    /// Use the given whitespace classification.
+    #[must_use]
+    pub const fn with_whitespace(mut self, value: Whitespace) -> Self {
+        self.whitespace = value;
+        self
+    }
+    /// Enable or disable the export prefix.
+    #[must_use]
+    pub const fn with_export(mut self, value: bool) -> Self {
+        self.export = value;
+        self
+    }
+    /// Enable or disable quoted key tokens.
+    #[must_use]
+    pub const fn with_quoted_keys(mut self, value: bool) -> Self {
+        self.quoted_keys = value;
+        self
+    }
+    /// Enable or disable comments after closing quotes.
+    #[must_use]
+    pub const fn with_quoted_comments(mut self, value: bool) -> Self {
+        self.quoted_comments = value;
+        self
+    }
+    /// Enable or disable decoded newline normalization.
+    #[must_use]
+    pub const fn with_normalize_newlines(mut self, value: bool) -> Self {
+        self.normalize_newlines = value;
+        self
+    }
+    /// Use the given malformed-line policy.
+    #[must_use]
+    pub const fn with_malformed_lines(mut self, value: MalformedLines) -> Self {
+        self.malformed_lines = value;
+        self
+    }
+    /// Enable or disable Node object-key exclusions.
+    #[must_use]
+    pub const fn with_node_object_keys(mut self, value: bool) -> Self {
+        self.node_object_keys = value;
+        self
+    }
+    /// Set the optional per-line byte limit.
+    #[must_use]
+    pub const fn with_line_byte_limit(mut self, value: Option<usize>) -> Self {
+        self.line_byte_limit = value;
+        self
+    }
 }
 impl Default for Dialect {
     fn default() -> Self {

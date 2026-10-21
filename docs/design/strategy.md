@@ -92,11 +92,10 @@ The core API is large and several configuration types have public fields:
   are intended to grow.
 - Adding a public field to a non-`non_exhaustive` struct is a breaking change.
 
-Before 1.0, decide the policy deliberately:
-
-- mark future-extensible option structs `#[non_exhaustive]` and provide
-  `Default` plus `with_*` builders; or
-- accept that adding fields is a minor-version event and state that explicitly.
+Decision: mark future-extensible option structs `#[non_exhaustive]` and provide
+`Default` plus `with_*` builders. `Dialect`, `FormatOptions`, `ExpandOptions` and
+`ReferenceRules` implement this policy in the unreleased 0.8 tree. External
+struct literals must migrate to builders or field mutation.
 
 Run `cargo-semver-checks` before every release. Use forced patch semantics while
 pre-1.0 to catch accidental breakage, then review the intentional differences
