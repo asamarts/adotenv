@@ -881,7 +881,11 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   JSON schema is unchanged.
 - Added baseline-first multi-file `diff` with unchanged two-file human output,
   a matrix table and versioned JSON output.
-- All-feature workspace: 242 core, 3 process, 25 CLI, 5 config and 5 Figment
+- Hardened Windows replacement with a same-directory temporary file, a direct
+  replace attempt and a backup-swap fallback. It restores the old file on
+  failure and cleans up on success, but the fallback is explicitly not
+  crash-atomic.
+- All-feature workspace: 242 core, 3 process, 26 CLI, 5 config and 5 Figment
   tests; 26 doctests pass with six ignored. Alloc-only + serde is 224 tests and
   25 doctests (six ignored); no-default core is 217 tests and 24 doctests
   (six ignored).
@@ -889,8 +893,8 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   The CLI tests cover env-name filtering, default ignored directories,
   excludes, short flags, symlink non-following, recursive check/fmt behavior,
   human/JSON/GitHub rendering, workflow escaping, columns, summaries, the
-  source opt-in boundary, baseline-first multi-file diff, matrix output and
-  diff JSON.
+  source opt-in boundary, baseline-first multi-file diff, matrix output,
+  diff JSON and replacement-file cleanup.
 
 ## Local execution evidence (2026-10-15)
 

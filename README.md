@@ -520,8 +520,11 @@ File-reading commands accept `-` or `--stdin` for standard input. `run` loads
 the cascade and starts a child with those values added to its environment; the
 parent environment is never mutated. Child environment keys
 and values are validated before execution. `fmt --check` reports required
-changes without writing; `--write` uses an atomic same-directory rename on Unix. Command substitution from
-files remains disabled. The CLI uses the library’s verified formatting, sorting,
+changes without writing. On Unix, `--write` uses an atomic same-directory rename.
+On Windows it writes a same-directory temporary file and attempts a direct
+replace; if that fails, it moves the old file to a backup, installs the new file
+and restores the backup on failure. This fallback is not crash-atomic. Command
+substitution from files remains disabled. The CLI uses the library’s verified formatting, sorting,
 loading and edit APIs. It is published as `adotenv-cli` 0.8.0; see
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md).
 

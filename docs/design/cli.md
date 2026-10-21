@@ -65,7 +65,11 @@ Reads, repairs invalid syntax as the parser permits, formats with
 `FormatOptions::normalize_groups`, and optionally sorts each blank-line group
 with `Document::sort`. `--check` reports files that would change and exits 1
 without writing. `--write` replaces files in place using a same-directory
-temporary file and rename on Unix; other platforms fall back to direct writes.
+temporary file. Unix commits with an atomic rename. On Windows it first attempts
+a direct replace; if that fails, it moves the existing target to a backup, moves
+the temporary file into place and removes the backup, restoring the backup on
+failure. This fallback is not crash-atomic and may leave a backup after abrupt
+termination.
 Otherwise output is printed. Multiple files are labeled. Invalid syntax is
 reported and the command exits 1, though the formatter still preserves invalid
 statements.
@@ -141,7 +145,9 @@ lookup policy and native edit verification for every command, including
 ## Deliberate limits
 
 - Command substitution from loaded files is not enabled.
-- The CLI is published as `adotenv-cli` 0.7.1; see
+- The CLI is published as `adotenv-cli` 0.8.0; see
   [RELEASING.md](../../RELEASING.md).
 - The companion `config` and `figment` adapters live in separate workspace crates.
-- Windows writes fall back to direct replacement; Unix uses atomic rename.
+- Unix writes use atomic rename. Windows attempts a direct replace and falls
+  back to a best-effort backup swap without unsafe platform APIs; the fallback
+  is not crash-atomic.

@@ -586,3 +586,24 @@ fn diff_json_is_versioned_and_reports_each_candidate() {
     let output = run(&["diff", base.to_str().unwrap()]);
     assert_eq!(output.status.code(), Some(2));
 }
+
+#[test]
+fn writes_replace_existing_files_without_leftovers() {
+    let dir = TempDir::new();
+    let file = dir.file("app.env", "A=1\n");
+
+    let output = run(&["set", file.to_str().unwrap(), "A", "2"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(fs::read_to_string(&file).unwrap(), "A=2\n");
+
+    let output = run(&["fmt", "--write", "--sort", file.to_str().unwrap()]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(fs::read_to_string(&file).unwrap(), "A = 2\n");
+
+    let mut entries: Vec<String> = fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    entries.sort();
+    assert_eq!(entries, vec!["app.env"]);
+}

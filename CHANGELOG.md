@@ -16,6 +16,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   human-output opt-in because values may be secret.
 - Baseline-first multi-file `diff` with `--format human|matrix|json`; the first
   file is the baseline, and `--json` remains an alias for JSON output.
+- Windows replacement hardening: writes use a same-directory temporary file,
+  attempt a direct replace, and fall back to a backup swap that restores the old
+  file on failure and cleans up on success. The fallback remains best-effort
+  rather than crash-atomic.
 
 ## [0.8.0] - 2026-10-21
 

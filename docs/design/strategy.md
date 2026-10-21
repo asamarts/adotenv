@@ -203,7 +203,7 @@ schema the stable surface.
 - Recursive discovery and excludes; implemented in development.
 - Multi-file diff/matrix; implemented in development.
 - Diagnostic renderer and CI annotations; implemented in development.
-- Windows replacement hardening.
+- Windows replacement hardening; implemented in development.
 - Typed/structured adapter output where the ecosystem supports it.
 - `config` 0.15 evaluation if MSRV permits.
 

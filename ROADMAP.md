@@ -247,6 +247,8 @@ Literal parsing into ordered entries with key, value and line spans;
   - **Implemented:** baseline-first multi-file comparison, matrix table, JSON
     output and unchanged two-file human output.
 - Windows replacement hardening.
+  - **Implemented:** same-directory temporary file, direct-replace attempt and
+    backup-swap fallback with failure restoration; no unsafe or new dependencies.
 - Typed/structured adapter output where the ecosystem supports it.
 - `config` 0.15 evaluation if MSRV permits.
 

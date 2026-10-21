@@ -3,14 +3,10 @@
 use std::{
     collections::BTreeSet,
     env, fs,
-    io::{self, Read},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     process::{Command, ExitCode},
-};
-#[cfg(unix)]
-use std::{
-    io::Write,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 use adotenv::{
@@ -1242,61 +1238,26 @@ fn describe(value: Option<&ComparedValue>) -> String {
     }
 }
 
+static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
+
 fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
+    if fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_dir()) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "path is a directory",
+        ));
+    }
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let name = path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
+    let temporary = create_temporary(parent, name, contents)?;
+    if let Err(error) = copy_permissions(path, &temporary) {
+        let _ = fs::remove_file(&temporary);
+        return Err(error);
+    }
     #[cfg(unix)]
     {
-        static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
-        let parent = path.parent().unwrap_or_else(|| Path::new("."));
-        let name = path
-            .file_name()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
-        let mut temporary: Option<PathBuf> = None;
-        for _ in 0..16 {
-            let candidate = parent.join(format!(
-                ".{}.adotenv-{}-{}",
-                name.to_string_lossy(),
-                std::process::id(),
-                NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
-            ));
-            match fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&candidate)
-            {
-                Ok(mut file) => {
-                    if let Err(error) = file
-                        .write_all(contents.as_bytes())
-                        .and_then(|()| file.sync_all())
-                    {
-                        let _ = fs::remove_file(&candidate);
-                        return Err(error);
-                    }
-                    temporary = Some(candidate);
-                    break;
-                }
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(error),
-            }
-        }
-        let Some(temporary) = temporary else {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "could not create a temporary file",
-            ));
-        };
-        match fs::metadata(path) {
-            Ok(metadata) => {
-                if let Err(error) = fs::set_permissions(&temporary, metadata.permissions()) {
-                    let _ = fs::remove_file(&temporary);
-                    return Err(error);
-                }
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => {
-                let _ = fs::remove_file(&temporary);
-                return Err(error);
-            }
-        }
         if let Err(error) = fs::rename(&temporary, path) {
             let _ = fs::remove_file(&temporary);
             return Err(error);
@@ -1305,8 +1266,140 @@ fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
     }
     #[cfg(not(unix))]
     {
-        fs::write(path, contents)
+        match fs::rename(&temporary, path) {
+            Ok(()) => Ok(()),
+            Err(replace_error) => match replace_with_backup(path, &temporary) {
+                Ok(()) => Ok(()),
+                Err(backup_error) => Err(io::Error::new(
+                    replace_error.kind(),
+                    format!(
+                        "direct replacement failed: {replace_error}; backup swap failed: {backup_error}"
+                    ),
+                )),
+            },
+        }
     }
+}
+
+fn create_temporary(parent: &Path, name: &std::ffi::OsStr, contents: &str) -> io::Result<PathBuf> {
+    for _ in 0..16 {
+        let candidate = parent.join(format!(
+            ".{}.adotenv-{}-{}",
+            name.to_string_lossy(),
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(mut file) => {
+                if let Err(error) = file
+                    .write_all(contents.as_bytes())
+                    .and_then(|()| file.sync_all())
+                {
+                    let _ = fs::remove_file(&candidate);
+                    return Err(error);
+                }
+                return Ok(candidate);
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "could not create a temporary file",
+    ))
+}
+
+fn copy_permissions(path: &Path, temporary: &Path) -> io::Result<()> {
+    match fs::metadata(path) {
+        Ok(metadata) => fs::set_permissions(temporary, metadata.permissions()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(not(unix))]
+fn replace_with_backup(path: &Path, temporary: &Path) -> io::Result<()> {
+    let backup = match backup_existing(path) {
+        Ok(backup) => backup,
+        Err(error) => {
+            let _ = fs::remove_file(temporary);
+            return Err(error);
+        }
+    };
+    match fs::rename(temporary, path) {
+        Ok(()) => {
+            if let Some(backup) = backup {
+                if let Err(error) = remove_backup(&backup) {
+                    return Err(io::Error::new(
+                        error.kind(),
+                        format!(
+                            "replacement succeeded but backup {} could not be removed: {error}",
+                            backup.display()
+                        ),
+                    ));
+                }
+            }
+            Ok(())
+        }
+        Err(error) => {
+            let _ = fs::remove_file(temporary);
+            if let Some(backup) = backup {
+                if let Err(restore_error) = fs::rename(&backup, path) {
+                    return Err(io::Error::new(
+                        error.kind(),
+                        format!(
+                            "replacement failed: {error}; restoring backup {} failed: {restore_error}",
+                            backup.display()
+                        ),
+                    ));
+                }
+            }
+            Err(error)
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn backup_existing(path: &Path) -> io::Result<Option<PathBuf>> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let name = path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
+    for _ in 0..16 {
+        let candidate = parent.join(format!(
+            ".{}.adotenv-backup-{}-{}",
+            name.to_string_lossy(),
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        match fs::rename(path, &candidate) {
+            Ok(()) => return Ok(Some(candidate)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "could not create a backup file",
+    ))
+}
+
+#[cfg(not(unix))]
+fn remove_backup(path: &Path) -> io::Result<()> {
+    if let Ok(metadata) = fs::metadata(path) {
+        let mut permissions = metadata.permissions();
+        if permissions.readonly() {
+            permissions.set_readonly(false);
+            let _ = fs::set_permissions(path, permissions);
+        }
+    }
+    fs::remove_file(path)
 }
 
 fn is_stdin(path: &str) -> bool {
@@ -1334,6 +1427,36 @@ fn fail(message: String) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::{github_escape_data, github_escape_property, json_string};
+
+    #[cfg(not(unix))]
+    #[test]
+    fn backup_swap_replaces_and_cleans_up() {
+        use super::replace_with_backup;
+        use std::{
+            fs,
+            path::PathBuf,
+            process,
+            sync::atomic::{AtomicUsize, Ordering},
+        };
+
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let directory = PathBuf::from(std::env::temp_dir()).join(format!(
+            "adotenv-write-{}-{}",
+            process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let target = directory.join("target.env");
+        let temporary = directory.join("temporary.env");
+        fs::write(&target, "old").unwrap();
+        fs::write(&temporary, "new").unwrap();
+        replace_with_backup(&target, &temporary).unwrap();
+        assert_eq!(fs::read_to_string(&target).unwrap(), "new");
+        assert!(!temporary.exists());
+        let leftovers: Vec<_> = fs::read_dir(&directory).unwrap().collect();
+        assert_eq!(leftovers.len(), 1);
+        fs::remove_dir_all(&directory).unwrap();
+    }
 
     #[test]
     fn github_workflow_values_are_escaped() {
