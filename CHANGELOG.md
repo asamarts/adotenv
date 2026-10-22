@@ -8,10 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Performance
 
-- Reduced retained parser memory by shrinking geometric-growth slack in the
-  document item and entry vectors; the 65,536-entry fixture retains 28.3 MB
-  instead of 36.2 MB. Recorded an ecosystem comparison and ranked optimization
-  backlog in [performance.md](docs/design/performance.md).
+- Reduced retained parser memory with geometric-slack shrinking and a compact
+  internal metadata layout (boxed diagnostics/decoded maps, sentinel entry
+  indices). The 65,536-entry fixture retains 23.6 MB instead of 36.2 MB; peak
+  falls from 40.4 MB to 32.0 MB. Recorded an ecosystem comparison and ranked
+  optimization backlog in [performance.md](docs/design/performance.md).
 
 ### Fixed
 

@@ -1,11 +1,11 @@
-use alloc::{borrow::Cow, string::String, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, string::String, vec::Vec};
 use core::ops::Range;
 
 use crate::dialect::{
     BareKeys, BomPolicy, ColonSeparator, Dialect, InlineComments, KeySyntax, LineBreaks,
     MalformedLines, QuotedTail, SingleEscapes, Syntax, Whitespace,
 };
-use crate::model::{EntryData, ItemData};
+use crate::model::{EntryData, ItemData, NO_ENTRY};
 use crate::{
     AssignmentState, Diagnostic, DiagnosticCode, Document, EntryTokens, ItemKind, LineEnding,
     Quote, Severity,
@@ -173,7 +173,7 @@ pub fn parse_strict_with(source: &str, dialect: Dialect) -> Result<Document<'_>,
         .iter()
         .filter_map(|item| item.invalid.as_ref())
         .find(|diagnostic| diagnostic.severity() == Severity::Error)
-        .cloned();
+        .map(|diagnostic| diagnostic.as_ref().clone());
     match error {
         Some(error) => Err(error),
         None => Ok(document),
@@ -389,7 +389,7 @@ impl<const D: bool> Parser<'_, D> {
             kind,
             span,
             ending,
-            entry: None,
+            entry: NO_ENTRY,
             comment,
             invalid: None,
         });
@@ -447,9 +447,9 @@ impl<const D: bool> Parser<'_, D> {
             },
             span: start..physical.end,
             ending: physical.ending,
-            entry: None,
+            entry: NO_ENTRY,
             comment: None,
-            invalid: Some(diagnostic),
+            invalid: Some(Box::new(diagnostic)),
         });
         physical.end
     }
@@ -1011,16 +1011,16 @@ impl<const D: bool> Parser<'_, D> {
             state,
             key_quoted,
             participates,
-            decoded,
-            map,
+            decoded: decoded.map(String::into_boxed_str),
+            map: (!map.is_empty()).then(|| map.into_boxed_slice()),
         });
         self.document.items.push(ItemData {
             kind: ItemKind::Entry,
             span: start..last.end,
             ending: last.ending,
-            entry: Some(index),
+            entry: index,
             comment: None,
-            invalid,
+            invalid: invalid.map(Box::from),
         });
         last.end
     }

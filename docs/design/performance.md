@@ -104,8 +104,8 @@ collection.
 
 | Implementation | 128 entries | 65,536 entries |
 |---|---:|---:|
-| adotenv parse | 494k instr | 275M instr |
-| adotenv parse + map | 667k | 381M |
+| adotenv parse | 471k instr | 272M instr |
+| adotenv parse + map | 634k | 377M |
 | dotenvy iterator + Vec | 669k | 373M |
 | dotenv-compat parse | 555k | 307M |
 | dotenv-ng input-only load | 719k | 406M |
@@ -121,19 +121,22 @@ the cheapest of this set, while map collection brings it close to dotenvy.
 
 | Implementation | Live after parse | Peak |
 |---|---:|---:|
-| adotenv parse (after shrink) | 28.3 MB | 40.4 MB |
-| adotenv parse + map | 4.6 MB | 40.4 MB |
+| adotenv parse (after compacting) | 23.6 MB | 32.0 MB |
+| adotenv parse + map | 4.6 MB | 32.0 MB |
 | dotenvy iterator + Vec | 5.0 MB | 15.7 MB |
 | dotenv-compat map | 9.5 MB | 18.6 MB |
 | dotenv-ng map | 7.9 MB | 20.4 MB |
 | dotenv-parser map | 7.1 MB | 50.1 MB |
 
-Before the retained-capacity fix, adotenv parse retained 36.2 MB. The document
-layout is dominated by `EntryData` (312 bytes), `ItemData` (120 bytes) and the
-public `EntryTokens` (240 bytes); 65,536 entries account for 28.3 MB of metadata
-plus the borrowed 1.8 MB source. The map-comparison row shows that converting to
-values drops live memory to the same range as dotenvy, but peak memory still
-includes the document until it is dropped.
+Before the retained-capacity fix, adotenv parse retained 36.2 MB; shrinking
+geometric-growth slack reduced that to 28.3 MB. Boxing rare diagnostics and
+decoding maps and using a sentinel entry index then reduced it to 23.6 MB. The
+layout is now `EntryData` 296 bytes, `ItemData` 64 bytes and the public
+`EntryTokens` 240 bytes; 65,536 entries account for 23.6 MB of metadata plus the
+borrowed 1.8 MB source. `EntryTokens` is now the dominant remaining cost and
+cannot be compacted without a public field-type change. The map-comparison row
+shows that converting to values drops live memory to the same range as dotenvy,
+but peak memory still includes the document until it is dropped.
 
 ### Lightweight footprint
 
@@ -151,14 +154,14 @@ includes the document until it is dropped.
 
 Ranked by expected impact and risk:
 
-1. **Retained parser slack (implemented).** `parse` shrinks `items` and
-   `entries` before returning, removing the extra geometric-growth block:
-   36.2 MB to 28.3 MB retained; parse+map peak falls from 43.4 MB to 40.4 MB.
-   Parse-only peak remains 40.4 MB. Callgrind shows no measurable instruction
-   increase.
-2. **Compact internal item metadata.** Box diagnostics (`Option<Box<Diagnostic>>`),
-   use sentinels for `ItemData::entry`, and compact comment spans. This can save
-   several MB per 65k entries without changing the public API; medium risk.
+1. **Retained parser slack and compact metadata (implemented).** `parse` shrinks
+   `items` and `entries` before returning, boxes rare diagnostics, uses a sentinel
+   entry index and boxes decoded/mapping storage. Retained memory falls from
+   36.2 MB to 23.6 MB; parse+map peak falls from 43.4 MB to 32.0 MB. Callgrind
+   shows no measurable instruction increase from the shrink step.
+2. **Further internal metadata.** Compact comment spans and shrink the remaining
+   `ItemData` padding; `EntryTokens` remains 240 bytes and would require a public
+   field-type change, so defer that to a major version or a separate compact mode.
 3. **Values-only parsing/loading.** The biggest application-memory win is a
    mode that retains keys/values without the full item/token model. A compact
    loader or `LoadedEnvironment::into_values` would make app use comparable to

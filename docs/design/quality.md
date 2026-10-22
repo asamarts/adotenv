@@ -955,10 +955,10 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 ### Post-0.9.3 performance audit (2026-10-22)
 
 - Audited parser memory and ecosystem performance. The 65,536-entry fixture
-  retained 36.2 MB before the fix and 28.3 MB after shrinking vector slack;
-  parse-only peak remains 40.4 MB, while parse+map peak falls from 43.4 MB to
-  40.4 MB. Instruction-count comparisons and memory methodology are recorded in
-  [performance.md](performance.md).
+  retained 36.2 MB before the fix and 23.6 MB after shrinking vector slack and
+  compacting internal metadata; parse-only peak falls from 40.4 MB to 32.0 MB,
+  and parse+map peak from 43.4 MB to 32.0 MB. Instruction-count comparisons and
+  memory methodology are recorded in [performance.md](performance.md).
 - Prototyped a sorted-vector `LookupIndex`: large-index build improved from
   21.5 ms to 8.9 ms and memory was lower, but batched gets regressed from
   7.1 µs to 16.9 µs for 64 keys. It was not adopted because repeated gets are

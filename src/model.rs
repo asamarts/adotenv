@@ -1,7 +1,7 @@
 use alloc::{
     borrow::Cow,
+    boxed::Box,
     collections::{BTreeMap, BTreeSet},
-    string::String,
     vec::Vec,
 };
 use core::{fmt, ops::Range};
@@ -115,6 +115,8 @@ pub(crate) struct DecodeSegment {
     pub raw: Range<usize>,
 }
 
+pub(crate) const NO_ENTRY: usize = usize::MAX;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EntryData {
     pub item: usize,
@@ -124,8 +126,8 @@ pub(crate) struct EntryData {
     pub state: AssignmentState,
     pub key_quoted: bool,
     pub participates: bool,
-    pub decoded: Option<String>,
-    pub map: Vec<DecodeSegment>,
+    pub decoded: Option<Box<str>>,
+    pub map: Option<Box<[DecodeSegment]>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,9 +135,9 @@ pub(crate) struct ItemData {
     pub kind: ItemKind,
     pub span: Range<usize>,
     pub ending: LineEnding,
-    pub entry: Option<usize>,
+    pub entry: usize,
     pub comment: Option<Range<usize>>,
-    pub invalid: Option<Diagnostic>,
+    pub invalid: Option<Box<Diagnostic>>,
 }
 
 /// A lossless document interpreted under one explicit literal syntax configuration.
@@ -595,13 +597,12 @@ impl<'doc> Entry<'doc> {
             .body
             .as_ref()
             .ok_or(PositionError::OutOfBounds)?;
-        let count = data
-            .map
-            .partition_point(|segment| segment.decoded.start <= offset);
+        let segments = data.map.as_deref().unwrap_or(&[]);
+        let count = segments.partition_point(|segment| segment.decoded.start <= offset);
         let Some(index) = count.checked_sub(1) else {
             return Ok(body.start + offset);
         };
-        let segment = &data.map[index];
+        let segment = &segments[index];
         if offset == segment.decoded.start {
             return Ok(segment.raw.start);
         }
@@ -666,7 +667,8 @@ impl<'doc> Item<'doc> {
     /// Declaration view when this is an entry item.
     #[must_use]
     pub fn entry(self) -> Option<Entry<'doc>> {
-        self.data().entry.map(|index| Entry {
+        let index = self.data().entry;
+        (index != NO_ENTRY).then_some(Entry {
             document: self.document,
             index,
         })
@@ -682,7 +684,7 @@ impl<'doc> Item<'doc> {
     /// The primary syntax or policy diagnostic retained on this item, if any.
     #[must_use]
     pub fn diagnostic(self) -> Option<&'doc Diagnostic> {
-        self.data().invalid.as_ref()
+        self.data().invalid.as_deref()
     }
     /// Stable primary diagnostic identity, convenient for source-preserving checks.
     #[must_use]

@@ -69,12 +69,15 @@ fn run_with_stdin(args: &[&str], input: &str) -> Output {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(input.as_bytes())
-        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    if let Err(error) = stdin.write_all(input.as_bytes()) {
+        assert_eq!(
+            error.kind(),
+            std::io::ErrorKind::BrokenPipe,
+            "unexpected stdin write error: {error}"
+        );
+    }
+    drop(stdin);
     child.wait_with_output().unwrap()
 }
 
