@@ -882,6 +882,17 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - The normal 0.8.0 -> 0.9.0 semver check reports no update required; the core
   API is unchanged by this tooling-focused release.
 
+### 0.9.1 release (2026-10-21)
+
+- Release run
+  [39707271205](https://github.com/asamarts/adotenv/actions/runs/39707271205)
+  passed the full quality gate and all publish jobs. All five 0.9.1 crates were
+  published keylessly through Trusted Publishing/OIDC.
+- crates.io returns HTTP 200 for all five 0.9.1 package versions and docs.rs
+  serves all five documentation roots. GitHub Release v0.9.1 is Latest.
+- The forced patch-semver check against 0.9.0 reports no update required; the
+  core API is unchanged.
+
 ### 0.9.1 development slice (2026-10-21)
 
 - Fixed recursive discovery to keep discovered paths as `PathBuf` values until
