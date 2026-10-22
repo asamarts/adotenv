@@ -12,7 +12,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   older migration links and an adoption checklist.
 - Added [1.0-readiness.md](docs/design/1.0-readiness.md) with explicit evidence
   status for API freeze, fuzz, conformance, performance, contracts and the
-  still-pending external-user requirement.
+  still-pending external-user requirement, including the four-week fuzz bar and
+  external-adopter definition.
 
 ## [0.9.2] - 2026-10-22
 

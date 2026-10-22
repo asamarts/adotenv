@@ -107,6 +107,10 @@ features.
 - [ ] Run `cargo test` and `cargo semver-checks` against your own public API if
   you wrap adotenv types.
 - [ ] Report migration problems as issues with a minimal input and version.
+- [ ] If you adopt adotenv externally, consider sharing the version/features used
+  and one integration or migration finding; private confirmation is sufficient.
+  The 1.0 external-user criterion is defined in
+  [the readiness checklist](docs/design/1.0-readiness.md#external-user-definition).
 
 ## Known boundaries
 

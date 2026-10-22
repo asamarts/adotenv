@@ -272,13 +272,16 @@ The core API is frozen and follows semver. The live evidence checklist is
 - Fuzzing clean for a sustained period, and the conformance corpus passing
   for every preset. A weekly/manual workflow runs bounded 300-second jobs for all
   five fuzz targets. A ten-minute-per-target campaign completed on 2026-10-22
-  with 1,449,814 executions and no crashes; weekly evidence must continue
-  accruing toward 1.0.
+  with 1,449,814 executions and no crashes. Four consecutive scheduled weekly
+  runs for all five targets are required before 1.0; weekly evidence must
+  continue accruing.
 - A manual performance budget is recorded in [performance.md](docs/design/performance.md):
   compare an idle-host run against the controlled baseline, repeat the 1.5x–2x
   range, and block above 2x until explained. CI remains benchmark smoke only.
 - Complete API documentation with examples for each common task.
-- At least one user outside this project.
+- At least one external project using a published adotenv crate, with
+  maintainer confirmation, version/features used and an integration or migration
+  note; public attribution is optional.
 
 ### Later
 

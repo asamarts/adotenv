@@ -180,8 +180,9 @@ campaign, but it remains bounded evidence rather than a multi-week sustained
 cleanliness claim. The updated explicit-GNU-target workflow was manually
 dispatched as run
 [39731568403](https://github.com/asamarts/adotenv/actions/runs/39731568403);
-all five targets passed their 300-second jobs. The weekly workflow continues
-to accumulate the sustained evidence.
+all five targets passed their 300-second jobs. The 1.0 sustained bar is four
+consecutive scheduled weekly runs for all five targets after the last
+fuzz-relevant change; manual dispatches do not count toward that period.
 
 ## Performance
 
@@ -944,7 +945,8 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - Added [MIGRATION.md](../../MIGRATION.md) and
   [1.0-readiness.md](1.0-readiness.md). The checklist separately tracks
   completed API, conformance, performance and contract evidence from the still
-  pending multi-week fuzz accumulation and external-user requirement.
+  pending four-week scheduled-fuzz accumulation and external-project
+  requirement. Both acceptance bars are defined in the checklist.
 
 ### 0.9.2 release (2026-10-22)
 
