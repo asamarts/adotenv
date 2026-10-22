@@ -939,6 +939,18 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - Completed a ten-minute-per-target fuzz campaign with 1,449,814 executions and
   no crashes; the weekly bounded workflow remains the sustained evidence path.
 
+### Post-0.9.1 contract slice (2026-10-22)
+
+- Froze the `check --json` and `diff --format json` version-1 wire formats with
+  exact-output tests, including `--json` alias equivalence. Froze the GitHub
+  warning annotation shape and the exit-code contract, and documented the
+  compatibility rules, ordering guarantees and the boundary between stable
+  machine output and human/matrix output.
+- All-feature workspace: 242 core, 3 process, 38 CLI, 6 config and 6 Figment
+  tests; 30 doctests pass with six ignored. Alloc-only + serde is 224 tests and
+  29 doctests (six ignored); no-default core is 217 tests and 28 doctests
+  (six ignored).
+
 ### 0.9.0 development slice (2026-10-21)
 
 - Added recursive `.env` discovery and repeatable excludes to `check` and

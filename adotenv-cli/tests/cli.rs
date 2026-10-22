@@ -779,3 +779,96 @@ fn diff_json_reports_bare_and_empty_states() {
     assert!(json.contains("\"state\":\"empty\""));
     assert!(json.contains("\"kind\":\"state\""));
 }
+
+#[test]
+fn check_json_wire_format_is_frozen() {
+    let dir = TempDir::new();
+    dir.file_at("good.env", "A = 1\n");
+    dir.file_at("bad.env", "BAD KEY=value\n");
+
+    let output = run_in(dir.path(), &["check", "--json", "good.env"]);
+    assert!(output.status.success());
+    assert_eq!(
+        stdout(&output),
+        "{\"version\":1,\"files\":[{\"path\":\"good.env\",\"ok\":true,\"diagnostics\":[]}]}\n"
+    );
+
+    let output = run_in(dir.path(), &["check", "--json", "bad.env"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        stdout(&output),
+        "{\"version\":1,\"files\":[{\"path\":\"bad.env\",\"ok\":false,\"diagnostics\":[{\"line\":1,\"severity\":\"error\",\"code\":\"dotenv.invalid-key\",\"message\":\"key does not match the selected dialect\",\"span\":{\"start\":0,\"end\":7},\"secondary_span\":null}]}]}\n"
+    );
+
+    let alias = run_in(dir.path(), &["check", "--format=json", "bad.env"]);
+    assert_eq!(stdout(&alias), stdout(&output));
+    assert_eq!(alias.status.code(), Some(1));
+}
+
+#[test]
+fn github_annotation_wire_format_is_frozen() {
+    let dir = TempDir::new();
+    dir.file_at("warn.env", "A=1\nA=2\n");
+    let output = run_in(dir.path(), &["check", "--format", "github", "warn.env"]);
+    assert!(output.status.success());
+    assert_eq!(
+        stdout(&output),
+        "::warning file=warn.env,line=2,col=1,title=dotenv.duplicate-key::duplicate key; lookup follows the selected dialect policy\n"
+    );
+}
+
+#[test]
+fn diff_json_wire_format_is_frozen() {
+    let dir = TempDir::new();
+    dir.file_at("base.env", "A=1\nB=2\n");
+    dir.file_at("candidate.env", "A=2\nC=3\n");
+    let output = run_in(
+        dir.path(),
+        &["diff", "--format", "json", "base.env", "candidate.env"],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        stdout(&output),
+        "{\"version\":1,\"baseline\":\"base.env\",\"files\":[{\"path\":\"candidate.env\",\"ok\":true,\"differences\":[{\"key\":\"A\",\"kind\":\"value\",\"left\":{\"state\":\"value\",\"value\":\"1\",\"exported\":false},\"right\":{\"state\":\"value\",\"value\":\"2\",\"exported\":false}},{\"key\":\"B\",\"kind\":\"only-left\",\"left\":{\"state\":\"value\",\"value\":\"2\",\"exported\":false},\"right\":null},{\"key\":\"C\",\"kind\":\"only-right\",\"left\":null,\"right\":{\"state\":\"value\",\"value\":\"3\",\"exported\":false}}]}]}\n"
+    );
+
+    let alias = run_in(dir.path(), &["diff", "--json", "base.env", "candidate.env"]);
+    assert_eq!(stdout(&alias), stdout(&output));
+    assert_eq!(alias.status.code(), Some(1));
+}
+
+#[test]
+fn exit_code_contract_is_frozen() {
+    let dir = TempDir::new();
+    dir.file_at("good.env", "A = 1\n");
+    dir.file_at("bad.env", "BAD KEY=value\n");
+    dir.file_at("base.env", "A=1\n");
+
+    assert!(run_in(dir.path(), &["check", "good.env"]).status.success());
+    assert_eq!(
+        run_in(dir.path(), &["check", "bad.env"]).status.code(),
+        Some(1)
+    );
+    assert_eq!(
+        run_in(dir.path(), &["check", "missing.env"]).status.code(),
+        Some(1)
+    );
+    assert_eq!(
+        run_in(dir.path(), &["check", "--format", "nope", "good.env"])
+            .status
+            .code(),
+        Some(2)
+    );
+    assert_eq!(
+        run_in(dir.path(), &["diff", "base.env", "missing.env"],)
+            .status
+            .code(),
+        Some(2)
+    );
+    assert_eq!(
+        run_in(dir.path(), &["diff", "base.env", "bad.env"])
+            .status
+            .code(),
+        Some(2)
+    );
+}

@@ -541,7 +541,9 @@ severities, exact spans and read errors, suitable for editor integration.
 `--format github` emits GitHub Actions workflow annotations instead. Human
 output deliberately omits source lines because `.env` values may be secrets;
 `--source` adds source lines and carets as an explicit opt-in and is only valid
-for human output.
+for human output. The versioned JSON formats and GitHub annotation fields are
+the stable machine contracts; human text and the matrix table are not. See
+[the CLI contracts](docs/design/cli.md#machine-output-compatibility).
 
 `check --recursive` and `fmt --recursive` discover `.env` and `.env.*` files
 below the supplied directories (or `.` when no path is given). Repeatable

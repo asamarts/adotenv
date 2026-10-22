@@ -138,6 +138,42 @@ process environment is not changed. The child exit code is returned; spawn
 errors return 2. Keys and values are checked for empty/NUL/`=` conditions before
 spawning. Command substitution from `.env` files is not enabled.
 
+## Machine-output compatibility
+
+The JSON formats are the stable machine contracts. Both currently use
+`"version":1`:
+
+- `check --json` (and `check --format json`) emits a top-level `version` and
+  `files` array. File entries contain `path`, `ok`, and either `diagnostics` or
+  `error`. Diagnostics contain `line`, `severity`, `code`, `message`, `span`
+  and `secondary_span`.
+- `diff --format json` (and `diff --json`) emits `version`, `baseline` and a
+  `files` array. Candidate entries contain `path`, `ok` and `differences`;
+  differences contain `key`, `kind`, `left` and `right`; values contain
+  `state`, `value` and `exported`.
+- Diagnostic `code` strings, difference `kind` strings, assignment `state`
+  strings, severity strings and exit-code meanings are part of the contract.
+  Spans are zero-based byte offsets into the original UTF-8 source; `line` is
+  one-based. Paths are rendered lossily when they are not valid UTF-8.
+- Within a version, fields may be added, but existing fields are not renamed,
+  removed, retyped or given different semantics. Consumers must ignore unknown
+  JSON fields. Breaking changes require a new schema version and a changelog
+  entry.
+- Check file order is deterministic (discovered paths are sorted); diff
+  candidates follow argument order; diagnostics remain source-ordered.
+  Consumers should use field names rather than rely on JSON object key order.
+- GitHub Actions output is a second machine contract: `::error`, `::warning`
+  or `::notice`, with `file`, `line`, `col` and `title` properties and the
+  escaped message. Human-readable output and the matrix table are diagnostic
+  conveniences, not stable machine formats.
+- Exit codes: `0` success/no differences; `1` check error diagnostics or check
+  read failures, or diff candidate differences; `2` usage, configuration or
+  discovery failure, or diff read/strict-parse failure. A recursive search that
+  finds no files reports that on stderr and exits `0`.
+- `--json` remains an alias for `--format json`; `--format` values are
+  `human`, `json` and `github` for `check`, and `human`, `matrix` and `json` for
+  `diff`.
+
 ## Dialects
 
 The global `--dialect` option accepts `portable` (default), `node`, `python`,
