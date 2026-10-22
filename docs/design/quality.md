@@ -940,6 +940,18 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - Completed a ten-minute-per-target fuzz campaign with 1,449,814 executions and
   no crashes; the weekly bounded workflow remains the sustained evidence path.
 
+### 0.9.4 release (2026-10-22)
+
+- Release run
+  [39846156775](https://github.com/asamarts/adotenv/actions/runs/39846156775)
+  passed the full quality gate and all publish jobs. All five 0.9.4 crates were
+  published keylessly through Trusted Publishing/OIDC.
+- crates.io returns HTTP 200 for all five 0.9.4 package versions and docs.rs
+  serves all five documentation roots. GitHub Release v0.9.4 is Latest.
+- The forced patch-semver check against 0.9.3 reports no update required; this
+  release adds the retained-memory reduction, package-content fix and ecosystem
+  performance audit.
+
 ### Post-0.9.3 performance audit (2026-10-22)
 
 - Audited parser memory and ecosystem performance. The 65,536-entry fixture
