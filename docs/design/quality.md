@@ -951,6 +951,15 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   29 doctests (six ignored); no-default core is 217 tests and 28 doctests
   (six ignored).
 
+### Post-0.9.1 performance slice (2026-10-22)
+
+- Recorded a manual 1.0 performance budget in
+  [performance.md](performance.md). A fresh local run was discarded rather than
+  recorded because the shared 24-thread host had a load average near 96; the
+  controlled 0.8 baseline remains the reference until an idle-host re-record.
+- The policy keeps CI benchmark smoke only, requires idle-host comparisons,
+  repeats the 1.5x–2x range and blocks above 2x until explained.
+
 ### 0.9.0 development slice (2026-10-21)
 
 - Added recursive `.env` discovery and repeatable excludes to `check` and

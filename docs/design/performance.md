@@ -1,7 +1,8 @@
 # Performance baseline
 
-Status: local 0.8 development baseline recorded 2026-10-21. This is evidence,
-not a CI performance gate.
+Status: local 0.8 development baseline recorded 2026-10-21; manual 1.0
+performance budget recorded 2026-10-22. This is release evidence, not a
+shared-runner CI gate.
 
 ## Method
 
@@ -47,6 +48,32 @@ small documents and zero-allocation one-off calls.
   benchmark methodology changes, and note the new host/toolchain explicitly.
 - Memory measurements remain a separate follow-up; the context resolver now
   retains raw winning tokens in `LoadedEnvironment`, which should be included.
+
+## Manual 1.0 budget
+
+The core implementation is unchanged since the 0.8 baseline, so the recorded
+midpoints remain the reference. A 2026-10-22 attempt to refresh them was
+discarded: the 24-thread host had a load average near 96, and several
+representative workloads were several times slower. No noisy numbers were
+recorded as a new baseline.
+
+The manual release budget is:
+
+- Re-run the documented benchmark command on an otherwise idle host with the
+  same fixture generator, compiler, target and measurement settings.
+- Compare representative small, typical and 65,536-entry midpoints against the
+  recorded baseline. A result up to `1.5x` is accepted as normal local
+  variance; `1.5x` to `2x` requires a repeat run and an explanation; above `2x`
+  blocks the release until the regression is fixed or explicitly accepted.
+- Prefer comparing ratios and the full Criterion interval over single point
+  estimates. Do not compare runs from different hosts or load conditions.
+- Update this file and the baseline together when the fixture generator,
+  compiler major version, target, or methodology changes.
+- Keep CI to benchmark smoke execution. Shared-runner timing is not used as a
+  pass/fail threshold; a dedicated runner can replace this policy later.
+
+The release checklist records the host, toolchain, load, command, baseline
+name, representative midpoints and any accepted deviation.
 
 ## Interpretation
 

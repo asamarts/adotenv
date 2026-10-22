@@ -271,6 +271,9 @@ The core API is frozen and follows semver. Criteria:
   five fuzz targets. A ten-minute-per-target campaign completed on 2026-10-22
   with 1,449,814 executions and no crashes; weekly evidence must continue
   accruing toward 1.0.
+- A manual performance budget is recorded in [performance.md](docs/design/performance.md):
+  compare an idle-host run against the controlled baseline, repeat the 1.5x–2x
+  range, and block above 2x until explained. CI remains benchmark smoke only.
 - Complete API documentation with examples for each common task.
 - At least one user outside this project.
 

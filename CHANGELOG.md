@@ -16,6 +16,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Documented machine-output compatibility rules, exit codes and the distinction
   between stable JSON/GitHub contracts and human-readable output.
+- Recorded the manual 1.0 performance budget: idle-host comparison against the
+  controlled baseline, repeat the 1.5x–2x range, and block above 2x until
+  explained. CI remains benchmark smoke only.
 
 ## [0.9.1] - 2026-10-22
 
