@@ -24,8 +24,8 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [strategy.md](docs/design/strategy.md) | Post-0.7 product/API/performance review and candidate priorities |
 | [RELEASING.md](RELEASING.md) | Tag release, first-publish bootstrap and Trusted Publishing |
 
-**Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0, 0.7.0, 0.7.1, 0.8.0 and
-0.9.0 are published. 0.3 implements explicit dialect configuration, all five syntax
+**Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0, 0.7.0, 0.7.1, 0.8.0,
+0.9.0 and 0.9.1 are published. 0.3 implements explicit dialect configuration, all five syntax
 presets, selected-dialect native verification, exact per-dialect encoding,
 applicable pinned-upstream comparison and cross-dialect portability reporting.
 0.4 implements literal reference inspection, opt-in variable resolution,

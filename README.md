@@ -439,7 +439,7 @@ let loaded = load_cascade("/srv/my-app", "production")?;
 unsafe { apply(&loaded)? };
 ```
 
-The adapter is published as `adotenv-process` 0.9.0. See
+The adapter is published as `adotenv-process` 0.9.1. See
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md) for
 the one-time crates.io bootstrap.
 
@@ -525,7 +525,7 @@ On Windows it writes a same-directory temporary file and attempts a direct
 replace; if that fails, it moves the old file to a backup, installs the new file
 and restores the backup on failure. This fallback is not crash-atomic. Command
 substitution from files remains disabled. The CLI uses the library’s verified formatting, sorting,
-loading and edit APIs. It is published as `adotenv-cli` 0.9.0; see
+loading and edit APIs. It is published as `adotenv-cli` 0.9.1; see
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md).
 
 ## Integrations (0.9, workspace companions)
@@ -549,7 +549,7 @@ let config = config::Config::builder()
 
 `config` can deserialize typed structures using its own scalar coercion.
 Figment values remain strings: deserialize string fields and convert explicitly.
-Both adapters are published as 0.9.0 companion crates; see
+Both adapters are published as 0.9.1 companion crates; see
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md).
 
 ## Portable syntax (unchanged default)

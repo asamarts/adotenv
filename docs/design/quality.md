@@ -882,7 +882,7 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - The normal 0.8.0 -> 0.9.0 semver check reports no update required; the core
   API is unchanged by this tooling-focused release.
 
-### Post-0.9.0 audit slice (2026-10-21)
+### 0.9.1 development slice (2026-10-21)
 
 - Fixed recursive discovery to keep discovered paths as `PathBuf` values until
   display, so non-UTF-8 `.env` filenames are opened correctly. Text and JSON
