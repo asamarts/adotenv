@@ -140,9 +140,10 @@ includes the document until it is dropped.
 - Core normal dependencies: none; `std` default, `alloc`-only `no_std` available.
 - CLI normal dependencies: only `adotenv`; release binary is about 1.1 MB
   (896 KiB text, 23 KiB data), dynamically linked only to libc/libgcc.
-- Root package: 65 files, about 0.9 MB compressed after including the new
-  documentation. The larger size relative to dotenvy/dotenv is documentation,
-  benchmarks and tests, not runtime dependencies.
+- Root package: 65 files, about 0.9 MiB uncompressed / 0.23 MiB compressed
+  after including the new documentation. The larger size relative to
+  dotenvy/dotenv is documentation, benchmarks and tests, not runtime
+  dependencies.
 - `dotenv-parser` pulls in pest/stacker/cc (and a proc-macro build);
   `dotenv-compat` pulls in AES-GCM, URL/ICU and platform dependencies.
 
