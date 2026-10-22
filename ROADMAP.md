@@ -23,6 +23,8 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [performance.md](docs/design/performance.md) | Local 0.8 benchmark methodology and baseline |
 | [strategy.md](docs/design/strategy.md) | Post-0.7 product/API/performance review and candidate priorities |
 | [RELEASING.md](RELEASING.md) | Tag release, first-publish bootstrap and Trusted Publishing |
+| [1.0-readiness.md](docs/design/1.0-readiness.md) | Evidence checklist for the 1.0 milestone |
+| [MIGRATION.md](MIGRATION.md) | User-facing migration and adoption guidance |
 
 **Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0, 0.7.0, 0.7.1, 0.8.0,
 0.9.0, 0.9.1 and 0.9.2 are published. 0.3 implements explicit dialect configuration, all five syntax
@@ -263,7 +265,8 @@ See [strategy.md](docs/design/strategy.md) for the full analysis.
 
 ### 1.0: Stable API (future)
 
-The core API is frozen and follows semver. Criteria:
+The core API is frozen and follows semver. The live evidence checklist is
+[1.0-readiness.md](docs/design/1.0-readiness.md). Criteria:
 
 - Every item through 0.9 shipped.
 - Fuzzing clean for a sustained period, and the conformance corpus passing

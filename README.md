@@ -811,6 +811,12 @@ or loading. See the dialect section for the exact token span rules.
 7. Update the toolchain to Rust **1.81**. The default `std` feature is optional:
    `adotenv = { version = "0.2", default-features = false }` uses `alloc` only.
 
+## Migrating and adopting
+
+See [MIGRATION.md](MIGRATION.md) for the 0.9-to-1.0 compatibility path, older
+migration links and an adoption checklist. The live 1.0 evidence status is in
+[1.0-readiness.md](docs/design/1.0-readiness.md).
+
 ## Quality evidence
 
 Criterion workloads cover small, typical and multi-megabyte parsing, exact

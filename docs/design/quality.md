@@ -939,6 +939,13 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - Completed a ten-minute-per-target fuzz campaign with 1,449,814 executions and
   no crashes; the weekly bounded workflow remains the sustained evidence path.
 
+### Post-0.9.2 readiness documentation (2026-10-22)
+
+- Added [MIGRATION.md](../../MIGRATION.md) and
+  [1.0-readiness.md](1.0-readiness.md). The checklist separately tracks
+  completed API, conformance, performance and contract evidence from the still
+  pending multi-week fuzz accumulation and external-user requirement.
+
 ### 0.9.2 release (2026-10-22)
 
 - Release run

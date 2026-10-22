@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Documentation
+
+- Added [MIGRATION.md](MIGRATION.md) with the 0.9-to-1.0 compatibility path,
+  older migration links and an adoption checklist.
+- Added [1.0-readiness.md](docs/design/1.0-readiness.md) with explicit evidence
+  status for API freeze, fuzz, conformance, performance, contracts and the
+  still-pending external-user requirement.
+
 ## [0.9.2] - 2026-10-22
 
 ### Tests
