@@ -11,7 +11,7 @@ resolver = "2"
 
 [package]
 name = "adotenv"
-version = "0.9.3"
+version = "0.9.4"
 edition = "2021"
 rust-version = "1.81"
 description = "A tooling-grade .env parser: literal values (no variable expansion), exact byte spans, and edits that leave the rest of the file untouched."

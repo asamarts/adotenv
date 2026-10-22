@@ -1,6 +1,6 @@
 [package]
 name = "adotenv-cli"
-version = "0.9.3"
+version = "0.9.4"
 edition = "2021"
 rust-version = "1.81"
 description = "Command-line tools for reading, checking, formatting and comparing dotenv files."
@@ -12,7 +12,7 @@ keywords = ["dotenv", "cli", "formatter", "linter", "env"]
 categories = ["command-line-utilities", "development-tools", "config"]
 
 [dependencies]
-adotenv = { path = "..", version = "0.9.3", features = ["load"] }
+adotenv = { path = "..", version = "0.9.4", features = ["load"] }
 
 [lints.rust]
 unsafe_code = "forbid"
