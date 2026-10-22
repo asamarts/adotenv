@@ -75,6 +75,104 @@ The manual release budget is:
 The release checklist records the host, toolchain, load, command, baseline
 name, representative midpoints and any accepted deviation.
 
+## Ecosystem comparison (2026-10-22)
+
+This is a local, not apples-to-apples comparison. `adotenv::parse` returns a
+lossless document with token spans and edit/diagnostic support; the other
+libraries return a key/value map or load directly into the process environment.
+The closest `adotenv` comparison is `parse` followed by `effective_entries()`
+collection.
+
+### Method
+
+- Linux x86_64, AMD Ryzen 9 3900X; shared host with load average around 43–53,
+  so wall-clock times were noisy. Instruction counts are reproducible and are
+  the primary CPU comparison below.
+- Release builds. Fixture: 128 or 65,536 compatible `KEY=value`, quoted,
+  exported and single-line comment entries (1.8 MB for the large case).
+- Instruction counts include startup and fixture generation; the separately
+  measured fixture baseline (465,574 instructions for 100 small iterations;
+  59,801,078 for the large run) was subtracted from each parser total.
+- Memory was measured with a counting global allocator in the same release
+  binary. Live is after the returned value is retained; peak includes temporary
+  parser allocations. Source text was allocated before counters were reset.
+- Versions: `dotenvy` 0.15.7, `dotenv-compat` 0.4.0, `dotenv-ng-core` 1.0.0,
+  `dotenv-parser` 0.1.3. `dotenv` 0.15.0 has no pure reader-iterator API and was
+  excluded rather than comparing file I/O/process mutation.
+
+### CPU work
+
+| Implementation | 128 entries | 65,536 entries |
+|---|---:|---:|
+| adotenv parse | 494k instr | 275M instr |
+| adotenv parse + map | 667k | 381M |
+| dotenvy iterator + Vec | 669k | 373M |
+| dotenv-compat parse | 555k | 307M |
+| dotenv-ng input-only load | 719k | 406M |
+| dotenv-parser map | 2.52M | 1,488M |
+
+On the least-contended samples, the 65,536-entry wall times were approximately
+51–55 ms for adotenv parse, 61–80 ms for dotenv-compat, 86–110 ms for dotenvy,
+140–178 ms for dotenv-ng and 225–233 ms for dotenv-parser. The shared host made
+wall-clock comparisons unreliable; instruction counts show adotenv's parser is
+the cheapest of this set, while map collection brings it close to dotenvy.
+
+### Memory
+
+| Implementation | Live after parse | Peak |
+|---|---:|---:|
+| adotenv parse (after shrink) | 28.3 MB | 40.4 MB |
+| adotenv parse + map | 4.6 MB | 40.4 MB |
+| dotenvy iterator + Vec | 5.0 MB | 15.7 MB |
+| dotenv-compat map | 9.5 MB | 18.6 MB |
+| dotenv-ng map | 7.9 MB | 20.4 MB |
+| dotenv-parser map | 7.1 MB | 50.1 MB |
+
+Before the retained-capacity fix, adotenv parse retained 36.2 MB. The document
+layout is dominated by `EntryData` (312 bytes), `ItemData` (120 bytes) and the
+public `EntryTokens` (240 bytes); 65,536 entries account for 28.3 MB of metadata
+plus the borrowed 1.8 MB source. The map-comparison row shows that converting to
+values drops live memory to the same range as dotenvy, but peak memory still
+includes the document until it is dropped.
+
+### Lightweight footprint
+
+- Core normal dependencies: none; `std` default, `alloc`-only `no_std` available.
+- CLI normal dependencies: only `adotenv`; release binary is about 1.1 MB
+  (896 KiB text, 23 KiB data), dynamically linked only to libc/libgcc.
+- Root package: 65 files, about 0.9 MB compressed after including the new
+  documentation. The larger size relative to dotenvy/dotenv is documentation,
+  benchmarks and tests, not runtime dependencies.
+- `dotenv-parser` pulls in pest/stacker/cc (and a proc-macro build);
+  `dotenv-compat` pulls in AES-GCM, URL/ICU and platform dependencies.
+
+## Performance follow-ups
+
+Ranked by expected impact and risk:
+
+1. **Retained parser slack (implemented).** `parse` shrinks `items` and
+   `entries` before returning, removing the extra geometric-growth block:
+   36.2 MB to 28.3 MB retained; parse+map peak falls from 43.4 MB to 40.4 MB.
+   Parse-only peak remains 40.4 MB. Callgrind shows no measurable instruction
+   increase.
+2. **Compact internal item metadata.** Box diagnostics (`Option<Box<Diagnostic>>`),
+   use sentinels for `ItemData::entry`, and compact comment spans. This can save
+   several MB per 65k entries without changing the public API; medium risk.
+3. **Values-only parsing/loading.** The biggest application-memory win is a
+   mode that retains keys/values without the full item/token model. A compact
+   loader or `LoadedEnvironment::into_values` would make app use comparable to
+   dotenvy while preserving the tooling API for editors/linters.
+4. **LoadedEnvironment residency.** `LoadedEnvironment` currently keeps values,
+   origins and raw winning tokens; an app-only constructor should avoid retaining
+   raw data unless `resolve_contextual` is requested.
+5. **LookupIndex representation.** A sorted `Vec<(&str, usize)>` prototype made
+   large-index construction about 2.4x faster and reduced memory, but made a
+   64-key lookup batch about 2.4x slower. It was not adopted because the index
+   exists specifically for repeated gets; revisit with a hybrid/lazy cache.
+6. **Streaming multi-file diff.** Human/JSON diff currently reads and parses all
+   candidates before emitting output; process candidates incrementally for
+   non-matrix modes to lower peak memory on large file sets.
+
 ## Interpretation
 
 - Parsing is linear and fast for typical files; the 65,536-entry fixture is a

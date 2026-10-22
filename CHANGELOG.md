@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Performance
+
+- Reduced retained parser memory by shrinking geometric-growth slack in the
+  document item and entry vectors; the 65,536-entry fixture retains 28.3 MB
+  instead of 36.2 MB. Recorded an ecosystem comparison and ranked optimization
+  backlog in [performance.md](docs/design/performance.md).
+
+### Fixed
+
+- Include `MIGRATION.md` in the published core package and verify required
+  packaged documentation in CI.
+
 ## [0.9.3] - 2026-10-22
 
 ### Documentation

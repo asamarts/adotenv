@@ -122,6 +122,10 @@ fn parse_impl<const D: bool>(source: &str, dialect: Dialect) -> (Document<'_>, V
     } else {
         parser.diagnostics
     };
+    // Release geometric-growth slack before the tooling model is retained.
+    // The 65,536-entry fixture otherwise keeps one full extra item block.
+    parser.document.items.shrink_to_fit();
+    parser.document.entries.shrink_to_fit();
     (parser.document, diagnostics)
 }
 

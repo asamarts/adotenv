@@ -940,6 +940,24 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - Completed a ten-minute-per-target fuzz campaign with 1,449,814 executions and
   no crashes; the weekly bounded workflow remains the sustained evidence path.
 
+### Post-0.9.3 performance audit (2026-10-22)
+
+- Audited parser memory and ecosystem performance. The 65,536-entry fixture
+  retained 36.2 MB before the fix and 28.3 MB after shrinking vector slack;
+  parse-only peak remains 40.4 MB, while parse+map peak falls from 43.4 MB to
+  40.4 MB. Instruction-count comparisons and memory methodology are recorded in
+  [performance.md](performance.md).
+- Prototyped a sorted-vector `LookupIndex`: large-index build improved from
+  21.5 ms to 8.9 ms and memory was lower, but batched gets regressed from
+  7.1 µs to 16.9 µs for 64 keys. It was not adopted because repeated gets are
+  the index's purpose; the hybrid/lazy-cache option is in the backlog.
+- Added a CI check that `MIGRATION.md` and `docs/design/1.0-readiness.md` are in
+  the core package after discovering the migration guide was excluded from the
+  0.9.3 tarball.
+- All-feature workspace: 242 core, 3 process, 38 CLI, 6 config and 6 Figment
+  tests; 30 doctests pass with six ignored. Callgrind comparison and local
+  benchmark numbers are exploratory and are not a new CI threshold.
+
 ### 0.9.3 release (2026-10-22)
 
 - Release run

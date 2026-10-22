@@ -285,6 +285,11 @@ The core API is frozen and follows semver. The live evidence checklist is
 
 ### Later
 
+- A values-only/compact application loading mode for lower memory residency.
+- Lazy `LoadedEnvironment` raw-token retention when contextual resolution is
+  not requested.
+- Hybrid or lazy lookup-index representation if repeated-get benchmarks justify it.
+- Streaming non-matrix multi-file diff for large file sets.
 - Semantic tokens and language-server support for editors.
 - A WebAssembly playground.
 - More dialect presets as users ask for them.

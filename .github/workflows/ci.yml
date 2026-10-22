@@ -113,6 +113,11 @@ jobs:
         with:
           toolchain: stable
       - run: cargo package -p adotenv --locked
+      - name: verify packaged documentation
+        run: |
+          files="$(cargo package -p adotenv --locked --list)"
+          grep -qx 'MIGRATION.md' <<<"$files"
+          grep -qx 'docs/design/1.0-readiness.md' <<<"$files"
       - name: package companion crates
         run: |
           version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "adotenv"))')"

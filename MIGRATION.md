@@ -120,6 +120,9 @@ features.
 - `config` support uses `config` 0.14; 0.15 changes key normalization and the
   current 0.15 line requires newer Rust/edition support.
 - Windows writes use a best-effort backup swap and are not crash-atomic.
+- The lossless `Document` retains token/item metadata and is intentionally
+  heavier than map-only loaders; a values-only application path is a planned
+  optimization, not a 1.0 API guarantee.
 - There is no language server or semantic-token integration yet.
 - The external-user and sustained-fuzz criteria for 1.0 are tracked separately;
   this guide does not claim they are complete.
