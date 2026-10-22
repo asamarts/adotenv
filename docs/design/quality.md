@@ -177,7 +177,11 @@ sanitizer failure was observed. Peak RSS is the maximum reported by libFuzzer.
 
 Total: 1,449,814 executions. This is longer than the weekly five-minute CI
 campaign, but it remains bounded evidence rather than a multi-week sustained
-cleanliness claim. The weekly workflow continues to accumulate the latter.
+cleanliness claim. The updated explicit-GNU-target workflow was manually
+dispatched as run
+[39731568403](https://github.com/asamarts/adotenv/actions/runs/39731568403);
+all five targets passed their 300-second jobs. The weekly workflow continues
+to accumulate the sustained evidence.
 
 ## Performance
 
