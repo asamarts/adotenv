@@ -117,6 +117,35 @@ empty string without changing a bare entry's `value() == None` or syntax state.
 Malformed syntax ignored by a preset remains an `ItemKind::Ignored` item with
 an `IgnoredStatement` warning; explicit forbidden-policy violations stay errors.
 
+### Effective values and raw tokens
+
+`effective_entries()` yields only winning declarations that participate in
+lookup, while `get_all()` and `unique()` expose duplicate occurrences and
+ambiguity. Raw tokens remain addressable through `EntryTokens` and the entry
+span helpers:
+
+```rust
+let doc = adotenv::parse_strict("A=1\nA=2\nB\n").unwrap();
+assert_eq!(doc.get_all("A").count(), 2);
+assert!(doc.unique("A").is_err());
+let winners: Vec<_> = doc
+    .effective_entries()
+    .map(|entry| (entry.key(), entry.value()))
+    .collect();
+assert_eq!(winners, [("A", "2")]);
+
+let source = "export A=\"two words\" # note\n";
+let doc = adotenv::parse_strict(source).unwrap();
+let entry = doc.unique("A").unwrap();
+assert!(entry.exported());
+assert_eq!(&source[entry.key_span()], "A");
+assert_eq!(entry.raw_value(), Some("\"two words\""));
+assert_eq!(entry.value(), Some("two words"));
+assert_eq!(entry.inline_comment(), Some("# note"));
+assert!(entry.tokens().export.is_some());
+assert_eq!(entry.decoded_span_to_raw(0..3).unwrap(), 10..13);
+```
+
 For 0.2 consumers, Portable parsing and the existing entry/edit APIs keep their
 defaults. Code constructing `EntryTokens` must supply the new `quoted_tail`
 field (`None` when absent). Under quoted-key presets, `EntryTokens::key` covers
@@ -626,6 +655,10 @@ assert_eq!(
     doc.set_export("B", true).unwrap().as_str(),
     "A=1\nexport B=2\n"
 );
+
+let commented = parse_strict("# A=1\n").unwrap();
+let comment = commented.items().next().unwrap();
+assert_eq!(commented.uncomment(comment.id()).unwrap().as_str(), "A=1\n");
 ```
 Insertion supports end, after a unique key, after an explicit entry, and sorted
 position (before the first original entry whose key is greater). All anchors

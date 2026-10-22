@@ -931,10 +931,11 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   export-aware matrices, diff bare/empty states, and Windows backup-swap
   failure restoration.
 - All-feature workspace: 242 core, 3 process, 34 CLI, 6 config and 6 Figment
-  tests; 29 doctests pass with six ignored. Alloc-only + serde is 224 tests and
-  28 doctests (six ignored); no-default core is 217 tests and 27 doctests
-  (six ignored). README examples now cover lookup indexing, common edit
-  operations and checked editor positions.
+  tests; 30 doctests pass with six ignored. Alloc-only + serde is 224 tests and
+  29 doctests (six ignored); no-default core is 217 tests and 28 doctests
+  (six ignored). README examples now cover lookup indexing, effective values,
+  raw tokens and decoded spans, common edit operations including uncomment,
+  and checked editor positions.
 - Completed a ten-minute-per-target fuzz campaign with 1,449,814 executions and
   no crashes; the weekly bounded workflow remains the sustained evidence path.
 
