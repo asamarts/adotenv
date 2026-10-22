@@ -1,6 +1,6 @@
 # Migrating and adopting adotenv
 
-Status: current published release **0.9.2**; target compatibility release **1.0**.
+Status: current published release **0.9.3**; target compatibility release **1.0**.
 The core API has been frozen since 0.8 and no core breaking changes are planned
 for 1.0. This guide is the user-facing path; the evidence checklist for the 1.0
 milestone lives in [docs/design/1.0-readiness.md](docs/design/1.0-readiness.md).
@@ -9,7 +9,7 @@ milestone lives in [docs/design/1.0-readiness.md](docs/design/1.0-readiness.md).
 
 ```toml
 [dependencies]
-adotenv = "0.9.2"
+adotenv = "0.9.3"
 ```
 
 The default feature set is `std`. Disable default features for `alloc`-only
@@ -65,6 +65,7 @@ Common next steps:
 | 0.9 | Recursive discovery, diagnostic formats, multi-file diff, Windows writes |
 | 0.9.1 | Non-UTF-8 discovery and `./` exclude fixes |
 | 0.9.2 | Published API examples, frozen CLI/JSON contracts, performance budget |
+| 0.9.3 | Migration/adoption guide and 1.0 readiness checklist |
 | 1.0 | Compatibility target; no planned core API break |
 
 ## Migrating from 0.9.x to 1.0
