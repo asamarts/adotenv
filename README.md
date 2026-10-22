@@ -101,7 +101,15 @@ BOMs, line breaks and other grammar policies. See [dialect contracts and
 upstream limitations](docs/design/dialects.md).
 
 For repeated lookups, build an explicit borrowed index once with
-`doc.lookup_index()` and call `index.get(key)` or `index.get_entry(key)`.
+`doc.lookup_index()` and call `index.get(key)` or `index.get_entry(key)`:
+
+```rust
+let doc = adotenv::parse_strict("A=1\nA=2\nB=3\n").unwrap();
+let index = doc.lookup_index();
+assert_eq!(index.get("A"), Some("2"));
+assert_eq!(index.len(), 2);
+```
+
 `entries()` and `get_all()` retain declarations excluded from effective lookup.
 `participates_in_lookup()` distinguishes ignored bare declarations and Node's
 special `__proto__` property. `BareKeys::Empty` changes effective `get()` to an
@@ -605,7 +613,20 @@ assert!(!verified.edits().is_empty());
 ```
 
 `Document::set`, `remove`, `rename`, `insert`, `comment`, `uncomment` and
-`set_export` produce `VerifiedEdits`, as does `Document::edit(&[Edit])`.
+`set_export` produce `VerifiedEdits`, as does `Document::edit(&[Edit])`:
+
+```rust
+use adotenv::parse_strict;
+
+let doc = parse_strict("A=1\nB=2\n").unwrap();
+assert_eq!(doc.remove("A").unwrap().as_str(), "B=2\n");
+assert_eq!(doc.rename("B", "C").unwrap().as_str(), "A=1\nC=2\n");
+assert_eq!(doc.comment("A").unwrap().as_str(), "# A=1\nB=2\n");
+assert_eq!(
+    doc.set_export("B", true).unwrap().as_str(),
+    "A=1\nexport B=2\n"
+);
+```
 Insertion supports end, after a unique key, after an explicit entry, and sorted
 position (before the first original entry whose key is greater). All anchors
 refer to the original snapshot. Comments are separate items: removal never
@@ -662,6 +683,25 @@ return `Result<String, EditError>`, but now use the recovering parser and native
 verified producer. They are not a 0.1 grammar compatibility layer.
 
 ## Editor positions
+
+```rust
+use adotenv::{parse_strict, ColumnEncoding, Position};
+
+let doc = parse_strict("A=é\n").unwrap();
+let index = doc.line_index();
+let position = index.to_position(2, ColumnEncoding::Scalar).unwrap();
+assert_eq!(position, Position { line: 0, column: 2 });
+assert_eq!(
+    position.one_based().unwrap(),
+    Position { line: 1, column: 3 }
+);
+assert_eq!(
+    index
+        .to_offset(Position { line: 0, column: 2 }, ColumnEncoding::Scalar)
+        .unwrap(),
+    2
+);
+```
 
 `doc.line_index()` constructs an explicit index. `to_position(offset, encoding)`
 and `to_offset(Position { line, column }, encoding)` are checked conversions;

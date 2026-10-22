@@ -147,17 +147,37 @@ Run from the repository root after installing nightly and cargo-fuzz:
 ```sh
 rustup toolchain install nightly
 cargo install cargo-fuzz --version 0.13.2 --locked
-cargo +nightly fuzz run parser -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
-cargo +nightly fuzz run edits -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
-cargo +nightly fuzz run encoding -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
-cargo +nightly fuzz run resolve -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
-cargo +nightly fuzz run format -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
+cargo +nightly fuzz run --target x86_64-unknown-linux-gnu parser -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
+cargo +nightly fuzz run --target x86_64-unknown-linux-gnu edits -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
+cargo +nightly fuzz run --target x86_64-unknown-linux-gnu encoding -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
+cargo +nightly fuzz run --target x86_64-unknown-linux-gnu resolve -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
+cargo +nightly fuzz run --target x86_64-unknown-linux-gnu format -- -max_total_time=300 -timeout=10 -rss_limit_mb=2048 -max_len=65536
 ```
 
 For an individual crash, use `cargo +nightly fuzz run <target> <reproducer>`.
 Record the toolchain, runner version, target, limits, elapsed duration and
 outcome when reporting an actual run. Do not label a bounded smoke campaign
 as sustained fuzz coverage.
+
+### 2026-10-22 longer campaign
+
+A local ten-minute-per-target campaign ran on Linux x86_64 with nightly rustc
+1.100.0 (`67eda617e`, 2026-09-10), cargo-fuzz 0.13.2, explicit
+`--target x86_64-unknown-linux-gnu`, `-max_total_time=600 -timeout=10
+-rss_limit_mb=2048 -max_len=65536`. All five targets exited 0; no crash or
+sanitizer failure was observed. Peak RSS is the maximum reported by libFuzzer.
+
+| Target | Executions | Engine seconds | Peak RSS (MiB) |
+| --- | ---: | ---: | ---: |
+| Parser | 302,729 | 601 | 529 |
+| Native edits | 330,492 | 601 | 532 |
+| Encoding | 301,552 | 601 | 501 |
+| Resolve | 416,616 | 601 | 491 |
+| Format | 98,425 | 601 | 544 |
+
+Total: 1,449,814 executions. This is longer than the weekly five-minute CI
+campaign, but it remains bounded evidence rather than a multi-week sustained
+cleanliness claim. The weekly workflow continues to accumulate the latter.
 
 ## Performance
 
@@ -302,8 +322,9 @@ temporary mutation corpora, `-runs=100000 -max_len=65536 -rss_limit_mb=2048
 | Native edits, after final separator fixes | 100,000 | 32 | 478 |
 
 The initial host-default musl build failed before fuzz execution because its
-C++/sanitizer setup was unavailable; the explicit GNU target above is the actual
-successful campaign. These are bounded smoke campaigns, not sustained fuzz
+C++/sanitizer setup was unavailable. The runbook and scheduled workflow now
+pass the GNU target explicitly so local and CI commands do not depend on host
+defaults; the explicit GNU target is the actual successful campaign. These are bounded smoke campaigns, not sustained fuzz
 coverage. No measured multi-dialect performance baseline is claimed.
 
 ### Delivered-dialect adversarial audit
@@ -882,7 +903,7 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - The normal 0.8.0 -> 0.9.0 semver check reports no update required; the core
   API is unchanged by this tooling-focused release.
 
-### 0.9.1 release (2026-10-21)
+### 0.9.1 release (2026-10-22)
 
 - Release run
   [39707271205](https://github.com/asamarts/adotenv/actions/runs/39707271205)
@@ -893,7 +914,7 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - The forced patch-semver check against 0.9.0 reports no update required; the
   core API is unchanged.
 
-### 0.9.1 development slice (2026-10-21)
+### 0.9.1 development slice (2026-10-22)
 
 - Fixed recursive discovery to keep discovered paths as `PathBuf` values until
   display, so non-UTF-8 `.env` filenames are opened correctly. Text and JSON
@@ -906,7 +927,12 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   export-aware matrices, diff bare/empty states, and Windows backup-swap
   failure restoration.
 - All-feature workspace: 242 core, 3 process, 34 CLI, 6 config and 6 Figment
-  tests; 26 doctests pass with six ignored.
+  tests; 29 doctests pass with six ignored. Alloc-only + serde is 224 tests and
+  28 doctests (six ignored); no-default core is 217 tests and 27 doctests
+  (six ignored). README examples now cover lookup indexing, common edit
+  operations and checked editor positions.
+- Completed a ten-minute-per-target fuzz campaign with 1,449,814 executions and
+  no crashes; the weekly bounded workflow remains the sustained evidence path.
 
 ### 0.9.0 development slice (2026-10-21)
 
@@ -937,7 +963,8 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   human/JSON/GitHub rendering, workflow escaping, columns, summaries, the
   source opt-in boundary, baseline-first multi-file diff, matrix output,
   diff JSON, replacement-file cleanup, config typed coercion and Figment's
-  explicit-conversion boundary.
+  explicit-conversion boundary. The runbook now passes the GNU fuzz target
+  explicitly, matching the scheduled workflow and avoiding host musl defaults.
 
 ## Local execution evidence (2026-10-15)
 

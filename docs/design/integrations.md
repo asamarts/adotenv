@@ -1,8 +1,8 @@
 # Ecosystem integrations
 
 Status: the `config` and `figment` companion adapters were published as 0.7.0 on
-2026-10-19, 0.7.1 on 2026-10-20, 0.8.0 and 0.9.0 on 2026-10-21, and 0.9.1
-on the same day. Trusted Publishing is configured for both crates.
+2026-10-19, 0.7.1 on 2026-10-20, 0.8.0 and 0.9.0 on 2026-10-21, and 0.9.1 on
+2026-10-22. Trusted Publishing is configured for both crates.
 
 Both adapters consume effective literal values from either a `Document` or,
 with their optional `load` feature, a `LoadedEnvironment`. They never expand

@@ -2,3 +2,6 @@
 /artifacts/
 /coverage/
 /Cargo.lock
+
+# Mutated corpus files are local; only reviewed seeds are tracked.
+/corpus/*/
