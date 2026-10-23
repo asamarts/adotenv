@@ -1,6 +1,14 @@
-use alloc::{borrow::Cow, boxed::Box, string::String, vec::Vec};
+use alloc::{
+    borrow::Cow,
+    boxed::Box,
+    collections::{BTreeMap, BTreeSet},
+    string::{String, ToString},
+    vec::Vec,
+};
 use core::ops::Range;
 
+#[cfg(feature = "load")]
+use crate::dialect::Duplicates;
 use crate::dialect::{
     BareKeys, BomPolicy, ColonSeparator, Dialect, InlineComments, KeySyntax, LineBreaks,
     MalformedLines, QuotedTail, SingleEscapes, Syntax, Whitespace,
@@ -31,89 +39,8 @@ pub fn parse_with(source: &str, dialect: Dialect) -> (Document<'_>, Vec<Diagnost
 }
 
 fn parse_impl<const D: bool>(source: &str, dialect: Dialect) -> (Document<'_>, Vec<Diagnostic>) {
-    let initial_bom = source.starts_with('\u{feff}');
-    // Scanner limits count original bytes, including a BOM that would otherwise
-    // be stripped. Resource rejection precedes BOM interpretation on that line.
-    let rejected_bom_line = if initial_bom {
-        let first = physical_line(source, 0, dialect.line_breaks);
-        let bytes = first.end
-            - usize::from(source.as_bytes().get(first.end.wrapping_sub(1)) == Some(&b'\n'));
-        dialect
-            .line_byte_limit
-            .filter(|limit| bytes > *limit)
-            .map(|_| first)
-    } else {
-        None
-    };
-    let bom = initial_bom && dialect.bom == BomPolicy::Strip && rejected_bom_line.is_none();
-    let mut parser = Parser::<D> {
-        source,
-        document: Document {
-            source: Cow::Borrowed(source),
-            items: Vec::new(),
-            entries: Vec::new(),
-            bom,
-            dialect,
-        },
-        diagnostics: Vec::new(),
-        keys: KeyIndex::default(),
-        first_key: None,
-        failed_quotes: [None; 3],
-        line: 1,
-    };
-    let mut at = if bom { 3 } else { 0 };
-    if D && bom {
-        parser
-            .diagnostics
-            .push(Diagnostic::new(DiagnosticCode::ByteOrderMark, 0..3, 1));
-    }
-    if let Some(first) = rejected_bom_line {
-        parser.invalid(
-            0,
-            first,
-            DiagnosticCode::LineTooLong,
-            0..first.content_end,
-            1,
-        );
-        parser.line += line_breaks(&source[..first.end]);
-        at = first.end;
-    } else if initial_bom && dialect.bom == BomPolicy::Error {
-        parser.invalid(
-            0,
-            PhysicalLine {
-                content_end: 3,
-                end: 3,
-                ending: LineEnding::None,
-            },
-            DiagnosticCode::ForbiddenByteOrderMark,
-            0..3,
-            1,
-        );
-        at = 3;
-    }
-    while at < source.len() {
-        let first = parser.physical(at);
-        let end = if parser.over_limit(at, first) {
-            parser.invalid(
-                at,
-                first,
-                DiagnosticCode::LineTooLong,
-                at..first.content_end,
-                parser.line,
-            )
-        } else {
-            match dialect.syntax {
-                Syntax::Portable => parser.statement(at, first),
-                Syntax::Node => node::statement(&mut parser, at, first),
-                Syntax::Python => python::statement(&mut parser, at, first),
-                Syntax::Compose => compose::statement(&mut parser, at, first),
-                Syntax::Docker => docker::statement(&mut parser, at, first),
-            }
-        };
-        debug_assert!(end > at && end <= source.len());
-        parser.line += line_breaks(&source[at..end]);
-        at = end;
-    }
+    let mut parser = Parser::<D>::new(source, dialect, None);
+    parser.run();
     let diagnostics = if D
         && dialect.syntax == Syntax::Portable
         && dialect.line_breaks == LineBreaks::Universal
@@ -127,6 +54,27 @@ fn parse_impl<const D: bool>(source: &str, dialect: Dialect) -> (Document<'_>, V
     parser.document.items.shrink_to_fit();
     parser.document.entries.shrink_to_fit();
     (parser.document, diagnostics)
+}
+
+/// Parse only the effective literal values.
+///
+/// This shares the complete statement grammar and error handling with
+/// [`parse_with`] but avoids retaining item and entry metadata. It is used by
+/// the values-only loaders to keep peak memory close to the final map size.
+#[cfg(feature = "load")]
+pub(crate) fn parse_projected_values(
+    source: &str,
+    dialect: Dialect,
+) -> Result<BTreeMap<String, String>, Diagnostic> {
+    let mut parser = Parser::<false>::new(source, dialect, Some(Projection::new(dialect)));
+    parser.run();
+    let projection = parser
+        .projection
+        .expect("projected parser has projection state");
+    match projection.error {
+        Some(error) => Err(error),
+        None => Ok(projection.values),
+    }
 }
 
 /// Consume owned UTF-8 source without copying the source bytes.
@@ -319,6 +267,166 @@ struct Parser<'src, const D: bool> {
     first_key: Option<usize>,
     failed_quotes: [Option<usize>; 3],
     line: usize,
+    projection: Option<Projection>,
+}
+
+struct Projection {
+    values: BTreeMap<String, String>,
+    seen: Option<BTreeSet<String>>,
+    error: Option<Diagnostic>,
+}
+
+impl Projection {
+    #[cfg(feature = "load")]
+    fn new(dialect: Dialect) -> Self {
+        Self {
+            values: BTreeMap::new(),
+            seen: (dialect.duplicates == Duplicates::First).then(BTreeSet::new),
+            error: None,
+        }
+    }
+
+    fn record(&mut self, key: &str, value: Option<String>) {
+        if let Some(seen) = &mut self.seen {
+            if seen.insert(key.to_string()) {
+                if let Some(value) = value {
+                    self.values.insert(key.to_string(), value);
+                }
+            }
+        } else if let Some(value) = value {
+            self.values.insert(key.to_string(), value);
+        } else {
+            self.values.remove(key);
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ProjectedEntry<'a> {
+    source: &'a str,
+    dialect: Dialect,
+    key: &'a str,
+    participates: bool,
+    invalid: Option<&'a Diagnostic>,
+    tokens: &'a EntryTokens,
+}
+
+fn project_entry(
+    projection: &mut Projection,
+    input: ProjectedEntry<'_>,
+    decoded: &mut Option<String>,
+) {
+    if let Some(error) = input.invalid {
+        if error.severity() == Severity::Error && projection.error.is_none() {
+            projection.error = Some(error.clone());
+        }
+    }
+    if input.participates && !input.key.is_empty() {
+        let value = match &input.tokens.body {
+            Some(body) => Some(
+                decoded
+                    .take()
+                    .unwrap_or_else(|| input.source[body.clone()].to_string()),
+            ),
+            None if input.dialect.bare_keys == BareKeys::Empty => Some(String::new()),
+            None => None,
+        };
+        projection.record(input.key, value);
+    }
+}
+
+impl<'src, const D: bool> Parser<'src, D> {
+    fn new(source: &'src str, dialect: Dialect, projection: Option<Projection>) -> Self {
+        Self {
+            source,
+            document: Document {
+                source: Cow::Borrowed(source),
+                items: Vec::new(),
+                entries: Vec::new(),
+                bom: false,
+                dialect,
+            },
+            diagnostics: Vec::new(),
+            keys: KeyIndex::default(),
+            first_key: None,
+            failed_quotes: [None; 3],
+            line: 1,
+            projection,
+        }
+    }
+
+    fn run(&mut self) {
+        let source = self.source;
+        let dialect = self.dialect();
+        let initial_bom = source.starts_with('\u{feff}');
+        // Scanner limits count original bytes, including a BOM that would otherwise
+        // be stripped. Resource rejection precedes BOM interpretation on that line.
+        let rejected_bom_line = if initial_bom {
+            let first = physical_line(source, 0, dialect.line_breaks);
+            let bytes = first.end
+                - usize::from(source.as_bytes().get(first.end.wrapping_sub(1)) == Some(&b'\n'));
+            dialect
+                .line_byte_limit
+                .filter(|limit| bytes > *limit)
+                .map(|_| first)
+        } else {
+            None
+        };
+        let bom = initial_bom && dialect.bom == BomPolicy::Strip && rejected_bom_line.is_none();
+        self.document.bom = bom;
+        let mut at = if bom { 3 } else { 0 };
+        if D && bom {
+            self.diagnostics
+                .push(Diagnostic::new(DiagnosticCode::ByteOrderMark, 0..3, 1));
+        }
+        if let Some(first) = rejected_bom_line {
+            self.invalid(
+                0,
+                first,
+                DiagnosticCode::LineTooLong,
+                0..first.content_end,
+                1,
+            );
+            self.line += line_breaks(&source[..first.end]);
+            at = first.end;
+        } else if initial_bom && dialect.bom == BomPolicy::Error {
+            self.invalid(
+                0,
+                PhysicalLine {
+                    content_end: 3,
+                    end: 3,
+                    ending: LineEnding::None,
+                },
+                DiagnosticCode::ForbiddenByteOrderMark,
+                0..3,
+                1,
+            );
+            at = 3;
+        }
+        while at < source.len() {
+            let first = self.physical(at);
+            let end = if self.over_limit(at, first) {
+                self.invalid(
+                    at,
+                    first,
+                    DiagnosticCode::LineTooLong,
+                    at..first.content_end,
+                    self.line,
+                )
+            } else {
+                match dialect.syntax {
+                    Syntax::Portable => self.statement(at, first),
+                    Syntax::Node => node::statement(self, at, first),
+                    Syntax::Python => python::statement(self, at, first),
+                    Syntax::Compose => compose::statement(self, at, first),
+                    Syntax::Docker => docker::statement(self, at, first),
+                }
+            };
+            debug_assert!(end > at && end <= source.len());
+            self.line += line_breaks(&source[at..end]);
+            at = end;
+        }
+    }
 }
 
 impl<const D: bool> Parser<'_, D> {
@@ -385,6 +493,9 @@ impl<const D: bool> Parser<'_, D> {
                 diagnostic.line,
             );
         }
+        if self.projection.is_some() {
+            return end;
+        }
         self.document.items.push(ItemData {
             kind,
             span,
@@ -436,6 +547,12 @@ impl<const D: bool> Parser<'_, D> {
             span,
             line,
         );
+        if let Some(projection) = &mut self.projection {
+            if diagnostic.severity() == Severity::Error && projection.error.is_none() {
+                projection.error = Some(diagnostic);
+            }
+            return physical.end;
+        }
         if D {
             self.diagnostics.push(diagnostic.clone());
         }
@@ -922,6 +1039,22 @@ impl<const D: bool> Parser<'_, D> {
         }
     }
 
+    fn entry_limit(&mut self, start: usize, last: PhysicalLine) -> Option<usize> {
+        let (diagnostic, recovery) = self.limit_error(start, last.end)?;
+        let last = if recovery.end > last.end {
+            recovery
+        } else {
+            last
+        };
+        Some(self.invalid(
+            start,
+            last,
+            DiagnosticCode::LineTooLong,
+            diagnostic.span,
+            diagnostic.line,
+        ))
+    }
+
     // Return the actual consumed boundary, including a rejected original line.
     fn entry(
         &mut self,
@@ -930,19 +1063,8 @@ impl<const D: bool> Parser<'_, D> {
         tokens: EntryTokens,
         quote: Quote,
     ) -> usize {
-        if let Some((diagnostic, recovery)) = self.limit_error(start, last.end) {
-            let last = if recovery.end > last.end {
-                recovery
-            } else {
-                last
-            };
-            return self.invalid(
-                start,
-                last,
-                DiagnosticCode::LineTooLong,
-                diagnostic.span,
-                diagnostic.line,
-            );
+        if let Some(end) = self.entry_limit(start, last) {
+            return end;
         }
         let dialect = self.dialect();
         let index = self.document.entries.len();
@@ -971,7 +1093,7 @@ impl<const D: bool> Parser<'_, D> {
             self.duplicate_key(key, key_span.clone(), index, line);
         }
         let mut invalid = None;
-        let (state, decoded, map) = match &tokens.body {
+        let (state, mut decoded, map) = match &tokens.body {
             None => {
                 if dialect.bare_keys == BareKeys::Error {
                     let diagnostic =
@@ -1002,6 +1124,21 @@ impl<const D: bool> Parser<'_, D> {
                 )
             }
         };
+        if let Some(projection) = self.projection.as_mut() {
+            project_entry(
+                projection,
+                ProjectedEntry {
+                    source,
+                    dialect,
+                    key,
+                    participates,
+                    invalid: invalid.as_ref(),
+                    tokens: &tokens,
+                },
+                &mut decoded,
+            );
+            return last.end;
+        }
         let item = self.document.items.len();
         self.document.entries.push(EntryData {
             item,

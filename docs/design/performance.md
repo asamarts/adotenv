@@ -163,14 +163,15 @@ fixture (one file, measured 2026-10-23):
 | `LoadOptions::with_raw_tokens(false)` | 68.3 MB | 41.3 MB |
 | `LoadOptions::with_reports(false)` | 67.7 MB | 42.2 MB |
 | both raw tokens and reports disabled | 51.7 MB | 26.9 MB |
-| `load_values` | 38.8 MB | 13.6 MB |
+| `load_values` | 13.6 MB | 13.6 MB |
 
 The full-loader merge now reads each document once for reports instead of
 scanning the whole document for every key. The previous per-key scans made the
 65,536-entry case effectively quadratic; the single-pass merge removes that
-cost. The peak still includes one lossless document while each file is parsed,
-and report retention uses a temporary occurrence map. A future parser
-projection could lower the values-only peak further.
+cost. The full loader still keeps one lossless document while each file is
+parsed and uses a temporary occurrence map for reports. Values-only loading now
+uses the shared parser's projection mode, so it retains neither the document
+nor report metadata; its peak is close to the final map size.
 
 ## Performance follow-ups
 
@@ -184,10 +185,10 @@ Ranked by expected impact and risk:
 2. **Further internal metadata.** Compact comment spans and shrink the remaining
    `ItemData` padding; `EntryTokens` remains 240 bytes and would require a public
    field-type change, so defer that to a major version or a separate compact mode.
-3. **Values-only loading (implemented).** `load_values` and
-   `load_cascade_values` retain only final strings; `LoadedEnvironment::into_values`
-   can also drop reports after a full load. Peak still includes one lossless
-   document per file.
+3. **Values-only loading and projection (implemented).** `load_values` and
+   `load_cascade_values` run the shared parser with a projection output, retaining
+   only final strings. Peak/retained memory for the 65,536-entry fixture is 13.6
+   MB; the full loader remains the path that retains the lossless document.
 4. **LoadedEnvironment residency (implemented).** `LoadOptions` can drop raw
    winning tokens or report vectors while retaining values and origins. The
    default remains full retention for compatibility; values-only loading remains

@@ -27,7 +27,7 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [MIGRATION.md](MIGRATION.md) | User-facing migration and adoption guidance |
 
 **Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0, 0.7.0, 0.7.1, 0.8.0,
-0.9.0, 0.9.1, 0.9.2, 0.9.3, 0.9.4, 0.9.5, 0.9.6 and 0.9.7 are published. 0.3 implements explicit dialect configuration, all five syntax
+0.9.0, 0.9.1, 0.9.2, 0.9.3, 0.9.4, 0.9.5, 0.9.6, 0.9.7 and 0.9.8 are published. 0.3 implements explicit dialect configuration, all five syntax
 presets, selected-dialect native verification, exact per-dialect encoding,
 applicable pinned-upstream comparison and cross-dialect portability reporting.
 0.4 implements literal reference inspection, opt-in variable resolution,
@@ -275,6 +275,17 @@ See [strategy.md](docs/design/strategy.md) for the full analysis.
   the full default loader to 38.8 MB / 13.6 MB for values-only loading.
 - **Released:** 2026-10-23 after the complete quality gate.
 
+### 0.9.8: Values projection (released 2026-10-23)
+
+- **Implemented:** values-only loading runs the shared parser in projection
+  mode, retaining only effective strings instead of a lossless document. The
+  65,536-entry fixture falls from 38.8 MB peak / 13.6 MB retained RSS to 13.6
+  MB / 13.6 MB with unchanged grammar, dialect, duplicate, bare-key and error
+  semantics.
+- **Validated:** differential property tests compare projected values and first
+  error codes against the full parser across all presets and duplicate policies.
+- **Released:** 2026-10-23 after the complete quality gate.
+
 ### 1.0: Stable API (future)
 
 The core API is frozen and follows semver. The live evidence checklist is
@@ -298,7 +309,6 @@ The core API is frozen and follows semver. The live evidence checklist is
 ### Later
 
 - Hybrid or lazy lookup-index representation if repeated-get benchmarks justify it.
-- A true values projection parser to lower the peak for values-only loading.
 - Streaming non-matrix multi-file diff for large file sets.
 - Semantic tokens and language-server support for editors.
 - A WebAssembly playground.

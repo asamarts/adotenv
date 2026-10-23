@@ -9,7 +9,7 @@ lossless document model.
 ## Feature and API
 
 ```toml
-adotenv = { version = "0.9.7", features = ["load"] }
+adotenv = { version = "0.9.8", features = ["load"] }
 ```
 
 - `load_cascade(directory, mode)` uses Portable syntax.
@@ -93,10 +93,12 @@ key.
 ## Values-only loading
 
 Application configuration often needs only the final effective strings. The
-values-only path uses the same file reads, strict UTF-8 decoding, parser,
-dialect, duplicate policy and later-file override rules as the full loader, but
-retains only `LoadedValues` (a sorted key/value map). It does not expose origins,
-raw winning tokens, overrides, repeats or skipped declarations.
+values-only path uses the same file reads, strict UTF-8 decoding, statement
+grammar, dialect, duplicate policy, error handling and later-file override rules
+as the full loader. It runs the shared parser in projection mode, retaining only
+`LoadedValues` (a sorted key/value map) instead of a lossless document. It does
+not expose origins, raw winning tokens, overrides, repeats or skipped
+declarations.
 
 ```rust
 use adotenv::{load::load_cascade_values, Dialect};
@@ -108,10 +110,10 @@ assert_eq!(values.get("PORT"), Some("8080"));
 
 Use `LoadedEnvironment` when provenance or `resolve_contextual` is required.
 For a 65,536-entry file, the local memory profile recorded in
-[performance.md](performance.md) ranges from about 38.8 MB peak / 13.6 MB
-retained for values-only loading to 83.3 MB / 56.6 MB for the full default
-loader. Disabling raw tokens, reports or both moves the full loader toward the
-compact measurements while keeping origins.
+[performance.md](performance.md) is about 13.6 MB peak and retained RSS for
+values-only loading, versus 83.3 MB / 56.6 MB for the full default loader.
+Disabling raw tokens, reports or both moves the full loader toward the compact
+measurements while keeping origins.
 
 ## Errors
 

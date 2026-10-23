@@ -940,6 +940,27 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - Completed a ten-minute-per-target fuzz campaign with 1,449,814 executions and
   no crashes; the weekly bounded workflow remains the sustained evidence path.
 
+### 0.9.8 development slice (2026-10-23)
+
+- Values-only loading now runs the shared parser in projection mode. It retains
+  only effective values, not a lossless document, while preserving grammar,
+  dialect, duplicate, bare-key and error semantics. The 65,536-entry fixture
+  falls from 38.8 MB peak / 13.6 MB retained RSS to 13.6 MB / 13.6 MB.
+- Added a differential property test comparing projected values and first-error
+  codes against the full parser across all five presets, duplicate First/Last,
+  bare Preserve/Empty/Ignore, quoted keys and arbitrary UTF-8 input. Explicit
+  cascade, dialect, BOM, line-limit, unknown-escape and trailing-bare regressions
+  were added to the load suite.
+- Validation: workspace 316 tests passed with 7 ignored; load 265, load+serde
+  275 and alloc-only 245, each with 7 ignored; config and Figment load tests pass
+  6 each. fmt, Clippy and warning-denied docs pass under Rust 1.95 and 1.99.
+  MSRV 1.81, alloc-only `thumbv7em-none-eabi`, package verification, bench smoke,
+  pinned conformance (409 applicable observations, 798 field comparisons),
+  Windows library/binary cross-checks and the forced patch-semver check against
+  0.9.7 (229 checks pass, 31 skip) are green.
+- Full-loader memory remains 83.3 MB peak / 56.6 MB retained; the retention
+  options from 0.9.7 are unchanged.
+
 ### 0.9.7 development slice (2026-10-23)
 
 - Added `LoadOptions`, `load_cascade_with_options`, `load_files_with_options`

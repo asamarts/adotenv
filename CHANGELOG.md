@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.8] - 2026-10-23
+
+### Performance
+
+- Values-only loading now uses a projection mode in the shared parser. It
+  applies the same grammar, dialect, duplicate, bare-key and error semantics
+  while retaining only the final value map. The 65,536-entry fixture drops from
+  38.8 MB peak / 13.6 MB retained RSS to 13.6 MB / 13.6 MB.
+- Added differential property tests comparing projected values and first-error
+  codes against the full parser across all five presets and duplicate/bare-key
+  policies, plus explicit cascade, dialect and invalid-source regressions.
+
 ## [0.9.7] - 2026-10-23
 
 ### Added

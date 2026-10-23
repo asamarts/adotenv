@@ -325,6 +325,12 @@ fn compact_values_match_full_load_but_drop_provenance() {
     assert_eq!(compact.len(), 4);
     assert!(!compact.is_empty());
 
+    dir.write(".env.local", "A\n");
+    let full = load_cascade(dir.path(), "production").unwrap();
+    let compact = load_cascade_values(dir.path(), "production").unwrap();
+    assert_eq!(compact.values(), full.values());
+    assert_eq!(compact.get("A"), Some("last"));
+
     let map = compact.into_values();
     assert_eq!(map.get("D").map(String::as_str), Some("mode-local"));
     let from_full = full.into_values();
@@ -361,6 +367,99 @@ fn compact_values_use_the_same_dialect_and_error_rules() {
     dir.write(".env", "A=cascade\n");
     let values = load_cascade_values_with(dir.path(), "", Dialect::PORTABLE).unwrap();
     assert_eq!(values.get("A"), Some("cascade"));
+}
+
+#[test]
+fn projected_values_match_full_loader_across_dialects() {
+    let dir = TempDir::new();
+    let cases = [
+        (
+            "portable",
+            Dialect::PORTABLE,
+            "A=1\nA=2\nB\nEMPTY=\nQ=\"a\\n\"\nM='one\ntwo'\n",
+        ),
+        (
+            "first",
+            Dialect::PORTABLE.with_duplicates(crate::Duplicates::First),
+            "A\nA=2\nB=1\nB\nC=3\nC=4\n",
+        ),
+        (
+            "bare-empty",
+            Dialect::PORTABLE.with_bare_keys(crate::BareKeys::Empty),
+            "A\nA=2\nB=1\nB\n",
+        ),
+        (
+            "bare-ignore",
+            Dialect::PORTABLE.with_bare_keys(crate::BareKeys::Ignore),
+            "A\nA=2\n",
+        ),
+        (
+            "quoted-key",
+            Dialect::PORTABLE.with_quoted_keys(true),
+            "'A'=one\n'A'=two\n",
+        ),
+        (
+            "node",
+            Dialect::NODE_DOTENV,
+            "A=1\nB=${A}\n__proto__=x\nC=\"line\\nnext\"\n",
+        ),
+        ("python", Dialect::PYTHON_DOTENV, "A=1\nB='x'\n"),
+        ("compose", Dialect::COMPOSE, "A=1\nB=\"x\"\n"),
+        ("docker", Dialect::DOCKER_RAW, "A=one two \n"),
+    ];
+
+    for (name, dialect, source) in cases {
+        let path = dir.path().join(format!("{name}.env"));
+        fs::write(&path, source).unwrap();
+        let full = load_files([&path], dialect).unwrap();
+        let compact = load_values([&path], dialect).unwrap();
+        assert_eq!(compact.values(), full.values(), "case {name}");
+    }
+}
+
+#[test]
+fn projected_values_reject_the_same_invalid_sources() {
+    let dir = TempDir::new();
+    let cases = [
+        ("bad-key", Dialect::PORTABLE, "A=1\nBAD KEY=2\n"),
+        ("unterminated", Dialect::PORTABLE, "A=\"unterminated\n"),
+        (
+            "unknown-escape",
+            Dialect::PORTABLE.with_unknown_escapes(crate::UnknownEscapes::Error),
+            "A=\"\\q\"\n",
+        ),
+        (
+            "forbidden-bare",
+            Dialect::PORTABLE.with_bare_keys(crate::BareKeys::Error),
+            "A\n",
+        ),
+        (
+            "line-limit",
+            Dialect::PORTABLE.with_line_byte_limit(Some(2)),
+            "LONG=value\n",
+        ),
+        (
+            "bom-error",
+            Dialect::PORTABLE.with_bom(crate::BomPolicy::Error),
+            "\u{feff}A=1\n",
+        ),
+    ];
+
+    for (name, dialect, source) in cases {
+        let path = dir.path().join(format!("{name}.env"));
+        fs::write(&path, source).unwrap();
+        assert!(
+            matches!(load_files([&path], dialect), Err(LoadError::Invalid { .. })),
+            "full loader accepted {name}"
+        );
+        assert!(
+            matches!(
+                load_values([&path], dialect),
+                Err(LoadError::Invalid { .. })
+            ),
+            "projected loader accepted {name}"
+        );
+    }
 }
 
 #[test]

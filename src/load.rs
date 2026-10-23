@@ -632,7 +632,9 @@ where
 ///
 /// This is the compact application-loading path. It applies the same strict
 /// read/validate and override semantics as [`load_cascade`], then drops
-/// origins, raw winning tokens and reports. Missing cascade files are skipped.
+/// origins, raw winning tokens and reports. The shared parser projects only
+/// effective values, so no lossless document is retained. Missing cascade files
+/// are skipped.
 ///
 /// # Errors
 /// Returns [`LoadError`] for invalid mode names, I/O errors, invalid UTF-8 or
@@ -670,7 +672,9 @@ pub fn load_cascade_values_with<P: AsRef<Path>>(
 /// values.
 ///
 /// Every listed file must exist, and later files override earlier files by
-/// key. Use [`load_cascade_values`] for optional standard filenames.
+/// key. The shared parser projects only effective values, so no lossless
+/// document is retained. Use [`load_cascade_values`] for optional standard
+/// filenames.
 ///
 /// # Errors
 /// Returns [`LoadError`] for I/O errors, invalid UTF-8 or syntax/policy errors.
@@ -691,7 +695,7 @@ where
     I: IntoIterator<Item = P>,
     P: AsRef<Path>,
 {
-    let mut values = BTreeMap::new();
+    let mut values: Option<BTreeMap<String, String>> = None;
     for path in paths {
         let path = path.as_ref();
         let bytes = match fs::read(path) {
@@ -707,21 +711,24 @@ where
         let text = String::from_utf8(bytes).map_err(|_| LoadError::InvalidUtf8 {
             path: path.to_path_buf(),
         })?;
-        let (document, diagnostics) = parse_with(&text, dialect);
-        if let Some(diagnostic) = diagnostics
-            .into_iter()
-            .find(|diagnostic| diagnostic.severity() == Severity::Error)
-        {
-            return Err(LoadError::Invalid {
-                path: path.to_path_buf(),
-                diagnostic,
-            });
-        }
-        for entry in document.effective_entries() {
-            values.insert(entry.key().to_string(), entry.value().to_string());
+        let projected = match crate::parser::parse_projected_values(&text, dialect) {
+            Ok(values) => values,
+            Err(diagnostic) => {
+                return Err(LoadError::Invalid {
+                    path: path.to_path_buf(),
+                    diagnostic,
+                });
+            }
+        };
+        if let Some(values) = &mut values {
+            values.extend(projected);
+        } else {
+            values = Some(projected);
         }
     }
-    Ok(LoadedValues { values })
+    Ok(LoadedValues {
+        values: values.unwrap_or_default(),
+    })
 }
 
 fn valid_mode(mode: &str) -> bool {

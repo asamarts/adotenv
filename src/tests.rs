@@ -1,6 +1,10 @@
+#[cfg(feature = "load")]
+use alloc::collections::BTreeMap;
 use alloc::{format, string::String, vec::Vec};
 use proptest::prelude::*;
 
+#[cfg(feature = "load")]
+use crate::parser::parse_projected_values;
 use crate::{
     encode_value, parse, parse_owned, parse_strict, parse_with, AssignmentState, BareKeys,
     DiagnosticCode as Code, Dialect, Duplicates, EffectiveEntry, ItemKind, LookupIndex,
@@ -391,6 +395,52 @@ proptest! {
             let (doc, diagnostics) = parse(&text);
             prop_assert!(!diagnostics.iter().any(|d| d.severity() == Severity::Error));
             prop_assert_eq!(doc.get("VALUE"), Some(value.as_str()));
+        }
+    }
+}
+
+#[cfg(feature = "load")]
+proptest! {
+    #[test]
+    fn projected_values_match_effective_entries(
+        source in prop::collection::vec(
+            prop_oneof![
+                Just('A'), Just('B'), Just('='), Just('"'), Just('\''), Just('\\'),
+                Just('\n'), Just('\r'), Just(' '), Just('#'), Just('$'), any::<char>()
+            ],
+            0..300,
+        ),
+        dialect in prop::sample::select(vec![
+            Dialect::PORTABLE,
+            Dialect::PORTABLE.with_duplicates(Duplicates::First),
+            Dialect::PORTABLE.with_bare_keys(BareKeys::Empty),
+            Dialect::PORTABLE.with_bare_keys(BareKeys::Ignore),
+            Dialect::PORTABLE.with_quoted_keys(true),
+            Dialect::NODE_DOTENV,
+            Dialect::PYTHON_DOTENV,
+            Dialect::COMPOSE,
+            Dialect::DOCKER_RAW,
+        ]),
+    ) {
+        let text: String = source.into_iter().collect();
+        let (document, _) = parse_with(&text, dialect);
+        let expected: BTreeMap<String, String> = document
+            .effective_entries()
+            .map(|entry| (entry.key().to_string(), entry.value().to_string()))
+            .collect();
+        let first_error = document
+            .items()
+            .filter_map(crate::Item::diagnostic)
+            .find(|diagnostic| diagnostic.severity() == Severity::Error)
+            .map(crate::Diagnostic::code);
+        match parse_projected_values(&text, dialect) {
+            Ok(values) => {
+                prop_assert_eq!(first_error, None);
+                prop_assert_eq!(values, expected);
+            }
+            Err(error) => {
+                prop_assert_eq!(Some(error.code()), first_error);
+            }
         }
     }
 }
