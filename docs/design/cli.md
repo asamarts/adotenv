@@ -1,7 +1,7 @@
 # Command-line interface
 
 Status: the zero-dependency `adotenv-cli` companion was published as 0.7.0 on
-2026-10-19, 0.7.1 on 2026-10-20, 0.8.0 and 0.9.0 on 2026-10-21, and 0.9.1, 0.9.2, 0.9.3 and 0.9.4 on
+2026-10-19, 0.7.1 on 2026-10-20, 0.8.0 and 0.9.0 on 2026-10-21, and 0.9.1, 0.9.2, 0.9.3, 0.9.4 and 0.9.5 on
 2026-10-22. `run` starts a child process with loaded values but does not mutate
 the parent environment.
 
@@ -184,7 +184,7 @@ lookup policy and native edit verification for every command, including
 ## Deliberate limits
 
 - Command substitution from loaded files is not enabled.
-- The CLI is published as `adotenv-cli` 0.9.4; see
+- The CLI is published as `adotenv-cli` 0.9.5; see
   [RELEASING.md](../../RELEASING.md).
 - The companion `config` and `figment` adapters live in separate workspace crates.
 - Unix writes use atomic rename. Windows attempts a direct replace and falls
