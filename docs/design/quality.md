@@ -953,8 +953,8 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   entry ordering and option-specific empty reports.
 - `cargo fmt` and warning-denied Clippy pass for the workspace, adapter, exec,
   load, serde, load+serde, alloc-only and conformance configurations; warning-
-  denied all-feature documentation builds. The all-feature workspace test run
-  passed 313 tests with 7 ignored; load passed 262, load+serde 272, and alloc-
+  denied all-feature documentation builds. The workspace test run passed 313
+  tests with 7 ignored; load passed 262, load+serde 272, and alloc-
   only 245, each with 7 ignored. Config and Figment load tests passed 6 each.
 - MSRV 1.81 builds pass for core, exec, load, serde, load+serde, alloc-only,
   both adapters and both adapter load configurations. Alloc-only
