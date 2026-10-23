@@ -376,10 +376,10 @@ fn full_loader_options_drop_raw_tokens_or_reports() {
     assert_eq!(loaded.get("A"), Some("last"));
     assert_eq!(loaded.get("B"), Some("local"));
     assert!(!loaded.retains_raw_tokens());
-    assert!(loaded.entries().is_empty());
-    assert!(loaded.overrides().is_empty());
-    assert!(loaded.repeated().is_empty());
-    assert!(loaded.skipped().is_empty());
+    assert_eq!(loaded.entries(), []);
+    assert_eq!(loaded.overrides(), []);
+    assert_eq!(loaded.repeated(), []);
+    assert_eq!(loaded.skipped(), []);
     assert!(loaded.origin("A").is_some());
     assert!(loaded
         .resolve_contextual(|_| None, &ExpandOptions::portable())
@@ -397,7 +397,7 @@ fn full_loader_options_drop_raw_tokens_or_reports() {
     let no_reports = LoadOptions::new(Dialect::PORTABLE).with_reports(false);
     let loaded = load_cascade_with_options(dir.path(), "", no_reports).unwrap();
     assert!(loaded.retains_raw_tokens());
-    assert!(loaded.entries().is_empty());
+    assert_eq!(loaded.entries(), []);
     let options = ExpandOptions {
         scope: ExpandScope::WholeFile,
         ..ExpandOptions::portable()
@@ -407,7 +407,7 @@ fn full_loader_options_drop_raw_tokens_or_reports() {
     let no_raw = LoadOptions::new(Dialect::PORTABLE).with_raw_tokens(false);
     let loaded = load_cascade_with_options(dir.path(), "", no_raw).unwrap();
     assert!(!loaded.retains_raw_tokens());
-    assert!(!loaded.entries().is_empty());
+    assert_ne!(loaded.entries(), []);
     assert!(loaded.origin("A").is_some());
     assert!(loaded
         .resolve_contextual(|_| None, &ExpandOptions::portable())
