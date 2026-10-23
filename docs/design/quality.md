@@ -972,6 +972,11 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   0.9.7 (229 checks pass, 31 skip) are green.
 - Full-loader memory remains 83.3 MB peak / 56.6 MB retained; the retention
   options from 0.9.7 are unchanged.
+- The parser refactor is fuzz-relevant. A fresh manual 60-second-per-target
+  campaign after this change completed 250,705 executions across parser, edits,
+  encoding, resolve and format with no crashes. This revalidates the build but
+  does not count toward the four scheduled weekly runs required by the 1.0
+  evidence bar.
 
 ### 0.9.7 development slice (2026-10-23)
 

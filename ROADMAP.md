@@ -294,9 +294,10 @@ The core API is frozen and follows semver. The live evidence checklist is
 - Every item through 0.9 shipped.
 - Fuzzing clean for a sustained period, and the conformance corpus passing
   for every preset. A weekly/manual workflow runs bounded 300-second jobs for all
-  five fuzz targets. A ten-minute-per-target campaign completed on 2026-10-22
-  with 1,449,814 executions and no crashes. Four consecutive scheduled weekly
-  runs for all five targets are required before 1.0; weekly evidence must
+  five fuzz targets. The 0.9.8 projection-parser refactor reset the evidence
+  clock; a fresh manual 60-second-per-target campaign completed 250,705
+  executions with no crashes. Four consecutive scheduled weekly runs for all
+  five targets are required after the 2026-10-23 change; weekly evidence must
   continue accruing.
 - A manual performance budget is recorded in [performance.md](docs/design/performance.md):
   compare an idle-host run against the controlled baseline, repeat the 1.5x–2x
