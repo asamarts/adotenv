@@ -1,8 +1,8 @@
 # Strategy: from strong core to best-in-class tooling
 
-Status: post-0.7 review, updated after 0.9.8 on 2026-10-23. This document is
+Status: post-0.7 review, updated after 0.9.9 on 2026-10-23. This document is
 analysis and proposed direction, not additional shipped API. The current
-published release is 0.9.8.
+published release is 0.9.9.
 
 ## Positioning
 

@@ -965,6 +965,19 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - No new parser fuzz target was added for lookup indexing; the index is pure
   data-structure code and is covered by differential and fallback tests.
 
+### 0.9.9 release (2026-10-23)
+
+- Release run
+  [39997344911](https://github.com/asamarts/adotenv/actions/runs/39997344911)
+  passed the full quality gate and all publish jobs. All five 0.9.9 crates were
+  published keylessly through Trusted Publishing/OIDC.
+- crates.io returns HTTP 200 for all five 0.9.9 package versions. docs.rs serves
+  the four library roots; the `adotenv-cli` crate page is available.
+- GitHub Release v0.9.9 is Latest.
+- The forced patch-semver check against 0.9.8 reports no breaking API change;
+  this release changes only private index representation and adds regression
+  coverage.
+
 ### 0.9.8 release (2026-10-23)
 
 - Release run
