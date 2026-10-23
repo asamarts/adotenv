@@ -963,7 +963,7 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   values-only path. All-feature workspace: 244 core, 3 process, 38 CLI, 6
   config and 6 Figment tests; 30 doctests pass with six ignored.
 
-### 0.9.5 release (2026-10-22)
+### 0.9.5 release (2026-10-23)
 
 - Release run
   [39889882157](https://github.com/asamarts/adotenv/actions/runs/39889882157)

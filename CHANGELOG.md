@@ -19,7 +19,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Values-only loading reduces the 65,536-entry fixture from 81.3 MB peak /
   60.5 MB retained RSS to 38.8 MB peak / 13.5 MB retained.
 
-## [0.9.5] - 2026-10-22
+## [0.9.5] - 2026-10-23
 
 ### Performance
 

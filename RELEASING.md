@@ -38,6 +38,11 @@ for a pre-1.0 minor bump. Intentional API changes must be reviewed against the
 changelog; accidental breakage should not be released just because semver allows
 it before 1.0.
 
+When bumping workspace versions, update package manifests and path dependency
+requirements explicitly. Do not blanket-replace every version string in
+`Cargo.lock`: third-party dependencies can share the old version number (for
+example `version_check`), and rewriting them corrupts resolution.
+
 ## One-time bootstrap for new crates
 
 crates.io does not support a trusted publisher for a crate that does not exist
