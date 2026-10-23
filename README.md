@@ -111,8 +111,10 @@ assert_eq!(index.len(), 2);
 ```
 
 `entries()` and `get_all()` retain declarations excluded from effective lookup.
-`participates_in_lookup()` distinguishes ignored bare declarations and Node's
-special `__proto__` property. `BareKeys::Empty` changes effective `get()` to an
+The index uses a compact open-addressed table with a bounded fallback for
+collision-heavy inputs. Empty keys remain directly addressable but are excluded
+from the index. `participates_in_lookup()` distinguishes ignored bare
+declarations and Node's special `__proto__` property. `BareKeys::Empty` changes effective `get()` to an
 empty string without changing a bare entry's `value() == None` or syntax state.
 Malformed syntax ignored by a preset remains an `ItemKind::Ignored` item with
 an `IgnoredStatement` warning; explicit forbidden-policy violations stay errors.
@@ -499,7 +501,7 @@ let loaded = load_cascade("/srv/my-app", "production")?;
 unsafe { apply(&loaded)? };
 ```
 
-The adapter is published as `adotenv-process` 0.9.8. See
+The adapter is published as `adotenv-process` 0.9.9. See
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md) for
 the one-time crates.io bootstrap.
 
@@ -587,7 +589,7 @@ On Windows it writes a same-directory temporary file and attempts a direct
 replace; if that fails, it moves the old file to a backup, installs the new file
 and restores the backup on failure. This fallback is not crash-atomic. Command
 substitution from files remains disabled. The CLI uses the library’s verified formatting, sorting,
-loading and edit APIs. It is published as `adotenv-cli` 0.9.8; see
+loading and edit APIs. It is published as `adotenv-cli` 0.9.9; see
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md).
 
 ## Integrations (0.9, workspace companions)
@@ -611,7 +613,7 @@ let config = config::Config::builder()
 
 `config` can deserialize typed structures using its own scalar coercion.
 Figment values remain strings: deserialize string fields and convert explicitly.
-Both adapters are published as 0.9.8 companion crates; see
+Both adapters are published as 0.9.9 companion crates; see
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md).
 
 ## Portable syntax (unchanged default)

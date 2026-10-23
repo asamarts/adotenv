@@ -27,7 +27,7 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [MIGRATION.md](MIGRATION.md) | User-facing migration and adoption guidance |
 
 **Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0, 0.7.0, 0.7.1, 0.8.0,
-0.9.0, 0.9.1, 0.9.2, 0.9.3, 0.9.4, 0.9.5, 0.9.6, 0.9.7 and 0.9.8 are published. 0.3 implements explicit dialect configuration, all five syntax
+0.9.0, 0.9.1, 0.9.2, 0.9.3, 0.9.4, 0.9.5, 0.9.6, 0.9.7, 0.9.8 and 0.9.9 are published. 0.3 implements explicit dialect configuration, all five syntax
 presets, selected-dialect native verification, exact per-dialect encoding,
 applicable pinned-upstream comparison and cross-dialect portability reporting.
 0.4 implements literal reference inspection, opt-in variable resolution,
@@ -286,6 +286,17 @@ See [strategy.md](docs/design/strategy.md) for the full analysis.
   error codes against the full parser across all presets and duplicate policies.
 - **Released:** 2026-10-23 after the complete quality gate.
 
+### 0.9.9: Compact lookup index (released 2026-10-23)
+
+- **Implemented:** replaced the `LookupIndex` `BTreeMap` with a compact
+  open-addressed table and a bounded-probe fallback to the ordered map. The
+  65,536-entry build falls from 38.4 ms to 15.6 ms and a 64-key lookup batch
+  from 8.14 µs to 1.62 µs, with slightly lower retained RSS.
+- **Preserved:** Compose's EOF empty-key declaration remains directly
+  addressable through `Document::get`/`get_entry`, while `LookupIndex` excludes
+  empty keys by contract.
+- **Released:** 2026-10-23 after the complete quality gate.
+
 ### 1.0: Stable API (future)
 
 The core API is frozen and follows semver. The live evidence checklist is
@@ -309,7 +320,6 @@ The core API is frozen and follows semver. The live evidence checklist is
 
 ### Later
 
-- Hybrid or lazy lookup-index representation if repeated-get benchmarks justify it.
 - Streaming non-matrix multi-file diff for large file sets.
 - Semantic tokens and language-server support for editors.
 - A WebAssembly playground.

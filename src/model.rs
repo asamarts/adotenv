@@ -210,6 +210,9 @@ impl Document<'_> {
         self.entries().filter(move |entry| entry.key() == key)
     }
     /// The winning participating declaration according to the dialect's policy.
+    ///
+    /// Empty keys remain representable for dialects such as Compose; they are
+    /// intentionally excluded from [`LookupIndex`] and effective-entry lookup.
     #[must_use]
     pub fn get_entry(&self, key: &str) -> Option<Entry<'_>> {
         let mut entries = self
@@ -224,6 +227,8 @@ impl Document<'_> {
     ///
     /// `BareKeys::Empty` returns `Some("")` for a winning bare declaration,
     /// while that declaration's [`Entry::value`] and syntax state remain bare.
+    /// A dialect-specific empty key remains directly addressable here but is
+    /// excluded from [`LookupIndex`] and effective-entry iteration.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&str> {
         self.get_entry(key).and_then(|entry| {
@@ -239,7 +244,8 @@ impl Document<'_> {
     /// Duplicate selection follows the dialect. Nonparticipating and empty-key
     /// declarations are omitted. A bare declaration contributes an empty value
     /// only under `BareKeys::Empty`; otherwise that key is omitted, matching
-    /// [`Document::get`]. The returned entries borrow this document.
+    /// [`Document::get`] for nonempty keys. The returned entries borrow this
+    /// document.
     #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn effective_entries(&self) -> impl Iterator<Item = EffectiveEntry<'_>> {
         let mut seen = BTreeSet::new();
@@ -271,11 +277,13 @@ impl Document<'_> {
 
     /// Build an optional key lookup index using the dialect's duplicate policy.
     ///
-    /// Index construction is explicit and allocates one map entry per
-    /// participating, nonempty key. The index borrows this document and returns
-    /// views with the same snapshot lifetime. It does not change lookup
-    /// semantics: bare declarations remain bare, and `BareKeys::Empty` remains
-    /// an effective empty value.
+    /// Index construction is explicit and stores one winner per participating,
+    /// nonempty key in a compact open-addressed table. If probing exceeds a
+    /// bounded budget, construction falls back to an ordered map so adversarial
+    /// collision sets cannot force unbounded lookup work. The index borrows this
+    /// document and returns views with the same snapshot lifetime. It does not
+    /// change lookup semantics: bare declarations remain bare, and
+    /// `BareKeys::Empty` remains an effective empty value.
     ///
     /// ```
     /// use adotenv::parse_strict;
@@ -287,23 +295,17 @@ impl Document<'_> {
     /// ```
     #[must_use]
     pub fn lookup_index(&self) -> LookupIndex<'_> {
-        let mut winners = BTreeMap::new();
-        for (index, entry) in self.entries().enumerate() {
-            if !entry.participates_in_lookup() || entry.key().is_empty() {
-                continue;
-            }
-            match self.dialect.duplicates {
-                Duplicates::First => {
-                    winners.entry(entry.key()).or_insert(index);
-                }
-                Duplicates::Last => {
-                    winners.insert(entry.key(), index);
-                }
-            }
-        }
         LookupIndex {
             document: self,
-            winners,
+            winners: Winners::build(self, self.dialect.duplicates),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn lookup_index_with_probe_limit(&self, probe_limit: usize) -> LookupIndex<'_> {
+        LookupIndex {
+            document: self,
+            winners: Winners::build_with_limit(self, self.dialect.duplicates, probe_limit),
         }
     }
 
@@ -398,11 +400,165 @@ pub struct Entry<'doc> {
 ///
 /// The index honors the document's duplicate policy and excludes
 /// nonparticipating or empty keys. It is built explicitly with
-/// [`Document::lookup_index`].
+/// [`Document::lookup_index`] and uses a compact open-addressed table, with a
+/// bounded-probe fallback to a tree for pathological key sets.
 #[derive(Debug, Clone)]
 pub struct LookupIndex<'doc> {
     document: &'doc Document<'doc>,
-    winners: BTreeMap<&'doc str, usize>,
+    winners: Winners<'doc>,
+}
+
+#[derive(Debug, Clone)]
+enum Winners<'doc> {
+    Hash(HashWinners<'doc>),
+    Tree(BTreeMap<&'doc str, usize>),
+}
+
+impl<'doc> Winners<'doc> {
+    fn build(document: &'doc Document<'doc>, policy: Duplicates) -> Self {
+        let entries = document.entries().len();
+        let probe_limit = entries.saturating_mul(4).max(64);
+        Self::build_with_limit(document, policy, probe_limit)
+    }
+
+    fn build_with_limit(
+        document: &'doc Document<'doc>,
+        policy: Duplicates,
+        probe_limit: usize,
+    ) -> Self {
+        if probe_limit == 0 {
+            return Self::Tree(tree_winners(document, policy));
+        }
+        HashWinners::build(document, policy, probe_limit)
+            .map_or_else(|| Self::Tree(tree_winners(document, policy)), Self::Hash)
+    }
+
+    fn get(&self, key: &str) -> Option<usize> {
+        match self {
+            Self::Hash(winners) => winners.get(key),
+            Self::Tree(winners) => winners.get(key).copied(),
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Self::Hash(winners) => winners.len,
+            Self::Tree(winners) => winners.len(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HashSlot<'doc> {
+    key: &'doc str,
+    index: usize,
+}
+
+#[derive(Debug, Clone)]
+struct HashWinners<'doc> {
+    slots: Vec<Option<HashSlot<'doc>>>,
+    len: usize,
+}
+
+impl<'doc> HashWinners<'doc> {
+    fn build(
+        document: &'doc Document<'doc>,
+        policy: Duplicates,
+        probe_limit: usize,
+    ) -> Option<Self> {
+        let entries = document.entries().len();
+        let capacity = entries
+            .saturating_mul(2)
+            .max(8)
+            .checked_next_power_of_two()?;
+        let mask = capacity - 1;
+        let mut slots = alloc::vec![None; capacity];
+        let mut len = 0;
+        let mut probes = 0;
+        for entry in document.entries() {
+            if !entry.participates_in_lookup() || entry.key().is_empty() {
+                continue;
+            }
+            let key = entry.key();
+            let mut at = hash_key(key) & mask;
+            loop {
+                match slots[at] {
+                    None => {
+                        slots[at] = Some(HashSlot {
+                            key,
+                            index: entry.id(),
+                        });
+                        len += 1;
+                        break;
+                    }
+                    Some(slot) if slot.key == key => {
+                        if policy == Duplicates::Last {
+                            slots[at] = Some(HashSlot {
+                                key,
+                                index: entry.id(),
+                            });
+                        }
+                        break;
+                    }
+                    Some(_) => {
+                        probes += 1;
+                        if probes > probe_limit {
+                            return None;
+                        }
+                        at = (at + 1) & mask;
+                    }
+                }
+            }
+        }
+        Some(Self { slots, len })
+    }
+
+    fn get(&self, key: &str) -> Option<usize> {
+        let mask = self.slots.len() - 1;
+        let mut at = hash_key(key) & mask;
+        loop {
+            match self.slots[at] {
+                None => return None,
+                Some(slot) if slot.key == key => return Some(slot.index),
+                Some(_) => at = (at + 1) & mask,
+            }
+        }
+    }
+}
+
+fn tree_winners<'doc>(
+    document: &'doc Document<'doc>,
+    policy: Duplicates,
+) -> BTreeMap<&'doc str, usize> {
+    let mut winners = BTreeMap::new();
+    for (index, entry) in document.entries().enumerate() {
+        if !entry.participates_in_lookup() || entry.key().is_empty() {
+            continue;
+        }
+        match policy {
+            Duplicates::First => {
+                winners.entry(entry.key()).or_insert(index);
+            }
+            Duplicates::Last => {
+                winners.insert(entry.key(), index);
+            }
+        }
+    }
+    winners
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn hash_key(key: &str) -> usize {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in key.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash as usize
 }
 
 impl<'doc> LookupIndex<'doc> {
@@ -411,7 +567,7 @@ impl<'doc> LookupIndex<'doc> {
     pub fn get_entry(&self, key: &str) -> Option<Entry<'doc>> {
         self.winners
             .get(key)
-            .and_then(|index| self.document.entry(*index))
+            .and_then(|index| self.document.entry(index))
     }
     /// The effective literal value for a key, applying bare-key policy.
     #[must_use]

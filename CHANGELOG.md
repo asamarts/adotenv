@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.9] - 2026-10-23
+
+### Performance
+
+- Reworked `LookupIndex` from a `BTreeMap` to a compact open-addressed table
+  with bounded-probe fallback to the ordered map. For the 65,536-entry fixture,
+  large-index construction falls from 38.4 ms to 15.6 ms and a 64-key lookup
+  batch falls from 8.14 µs to 1.62 µs; retained RSS is about 30.9 MB versus
+  31.5 MB.
+- Added a differential property test that compares index lookups and winner
+  identities against `Document::get`/`get_entry` across all presets and
+  duplicate/bare policies. Added a forced tree-fallback test.
+
 ## [0.9.8] - 2026-10-23
 
 ### Performance

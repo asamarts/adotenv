@@ -940,6 +940,31 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - Completed a ten-minute-per-target fuzz campaign with 1,449,814 executions and
   no crashes; the weekly bounded workflow remains the sustained evidence path.
 
+### 0.9.9 development slice (2026-10-23)
+
+- Replaced the `LookupIndex` `BTreeMap` with a compact open-addressed table and
+  a bounded-probe fallback to the ordered map for pathological collisions.
+  Large-index construction falls from 38.4 ms to 15.6 ms and a 64-key lookup
+  batch from 8.14 µs to 1.62 µs; retained index RSS is about 30.9 MB versus
+  31.5 MB for the 65,536-entry fixture.
+- Preserved Compose's EOF empty-key behavior after conformance validation:
+  empty keys remain directly addressable but stay excluded from `LookupIndex`
+  and effective-entry iteration.
+- Added a differential property test that compares index lookups and winning
+  entry identities against direct document lookup across all presets and
+  duplicate/bare policies. Added a forced tree-fallback regression test and an
+  explicit Compose empty-key/index regression test.
+- Validation: workspace 319 tests passed with 7 ignored; load 268, load+serde
+  278 and alloc-only 248, each with 7 ignored; config and Figment load tests pass
+  6 each. fmt, Clippy and warning-denied docs pass under Rust 1.95 and 1.99.
+  MSRV 1.81, alloc-only `thumbv7em-none-eabi`, package verification, bench smoke,
+  pinned conformance (409 applicable observations, 798 field comparisons),
+  Windows library/binary cross-checks and the forced patch-semver check against
+  0.9.8 (229 checks pass, 31 skip) are green. The parser is unchanged in this
+  increment, so the 0.9.8 fuzz campaign remains the latest parser evidence.
+- No new parser fuzz target was added for lookup indexing; the index is pure
+  data-structure code and is covered by differential and fallback tests.
+
 ### 0.9.8 release (2026-10-23)
 
 - Release run

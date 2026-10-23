@@ -1,6 +1,6 @@
 #[cfg(feature = "load")]
 use alloc::collections::BTreeMap;
-use alloc::{format, string::String, vec::Vec};
+use alloc::{format, string::String, vec, vec::Vec};
 use proptest::prelude::*;
 
 #[cfg(feature = "load")]
@@ -399,6 +399,47 @@ proptest! {
     }
 }
 
+proptest! {
+    #[test]
+    fn lookup_index_matches_document_get(
+        source in prop::collection::vec(
+            prop_oneof![
+                Just('A'), Just('B'), Just('='), Just('"'), Just('\''), Just('\\'),
+                Just('\n'), Just('\r'), Just(' '), Just('#'), Just('$'), any::<char>()
+            ],
+            0..300,
+        ),
+        dialect in prop::sample::select(alloc::vec![
+            Dialect::PORTABLE,
+            Dialect::PORTABLE.with_duplicates(Duplicates::First),
+            Dialect::PORTABLE.with_bare_keys(BareKeys::Empty),
+            Dialect::PORTABLE.with_bare_keys(BareKeys::Ignore),
+            Dialect::PORTABLE.with_quoted_keys(true),
+            Dialect::NODE_DOTENV,
+            Dialect::PYTHON_DOTENV,
+            Dialect::COMPOSE,
+            Dialect::DOCKER_RAW,
+        ]),
+    ) {
+        let text: String = source.into_iter().collect();
+        let (document, _) = parse_with(&text, dialect);
+        let index = document.lookup_index();
+        let keys: Vec<&str> = document
+            .entries()
+            .map(crate::Entry::key)
+            .filter(|key| !key.is_empty())
+            .chain(["missing"])
+            .collect();
+        for key in keys {
+            prop_assert_eq!(index.get(key), document.get(key));
+            prop_assert_eq!(
+                index.get_entry(key).map(crate::Entry::id),
+                document.get_entry(key).map(crate::Entry::id),
+            );
+        }
+    }
+}
+
 #[cfg(feature = "load")]
 proptest! {
     #[test]
@@ -410,7 +451,7 @@ proptest! {
             ],
             0..300,
         ),
-        dialect in prop::sample::select(vec![
+        dialect in prop::sample::select(alloc::vec![
             Dialect::PORTABLE,
             Dialect::PORTABLE.with_duplicates(Duplicates::First),
             Dialect::PORTABLE.with_bare_keys(BareKeys::Empty),
@@ -475,6 +516,35 @@ fn effective_entries_honor_duplicate_and_bare_policy() {
         .unwrap();
     assert_eq!(bare.entry().value(), None);
     assert_eq!(bare.entry().state(), AssignmentState::Bare);
+}
+
+#[test]
+fn compose_empty_keys_remain_directly_addressable_but_are_not_indexed() {
+    let (document, _) = parse_with("AA", Dialect::COMPOSE);
+    assert!(document.entries().any(|entry| entry.key().is_empty()));
+    assert_eq!(document.get(""), Some("AA"));
+    assert!(document.get_entry("").is_some());
+    assert_eq!(document.lookup_index().get(""), None);
+    assert!(document
+        .effective_entries()
+        .all(|entry| !entry.key().is_empty()));
+}
+
+#[test]
+fn lookup_index_tree_fallback_preserves_lookup_semantics() {
+    let (document, _) = parse_with("A=first\nA=second\nB\nC=3\n", Dialect::PORTABLE);
+    let index = document.lookup_index_with_probe_limit(0);
+    assert_eq!(index.len(), 3);
+    assert_eq!(index.get("A"), Some("second"));
+    assert_eq!(index.get("B"), None);
+    assert_eq!(index.get("C"), Some("3"));
+    assert_eq!(index.get("missing"), None);
+
+    let dialect = Dialect::PORTABLE.with_duplicates(Duplicates::First);
+    let (document, _) = parse_with("A=first\nA=second\nBARE\n", dialect);
+    let index = document.lookup_index_with_probe_limit(0);
+    assert_eq!(index.get("A"), Some("first"));
+    assert_eq!(index.get("BARE"), None);
 }
 
 #[test]

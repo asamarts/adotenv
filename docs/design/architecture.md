@@ -107,8 +107,9 @@ local to this exact snapshot. Views are borrowed from the document.
 `effective_entries()` applies duplicate and bare-key policy once and yields
 `EffectiveEntry` values with the winning declaration and effective string; serde
 and the integration adapters share this primitive. `lookup_index()` builds an
-explicit borrowed `LookupIndex` for repeated key lookups; the index stores only
-winner entry IDs and does not mutate or cache inside `Document`.
+explicit borrowed `LookupIndex` for repeated key lookups; it stores winner entry
+IDs in a compact open-addressed table and falls back to an ordered map on
+pathological probing. It does not mutate or cache inside `Document`.
 
 Duplicates remain ordered. Effective lookup filters `participates_in_lookup()`
 and selects first or last by configuration; ignored bare keys do not erase an

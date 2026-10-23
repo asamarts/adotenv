@@ -22,8 +22,8 @@ shared-runner CI gate.
 | Workload | 8 entries | 128 entries | 65,536 entries |
 |---|---:|---:|---:|
 | parse | 6.07 µs | 87.4 µs | 92.8 ms |
-| lookup index build | 320 ns | 10.2 µs | 38.4 ms |
-| indexed get, 64 keys | 246 ns | 5.69 µs | 8.14 µs |
+| lookup index build | 125 ns | 2.81 µs | 15.6 ms |
+| indexed get, 64 keys | 194 ns | 1.69 µs | 1.62 µs |
 | portability (4 presets) | 46.2 µs | 822 µs | 843 ms |
 | references | 513 ns | 8.91 µs | 5.20 ms |
 | resolve | 6.79 µs | 133 µs | 161 ms |
@@ -32,10 +32,11 @@ shared-runner CI gate.
 | native set | 8.57 µs | 91.4 µs | 80.3 ms |
 | native batch | 7.12 µs | 75.6 µs | 106.6 ms |
 
-The 65,536-entry index lookup row measures 64 lookups per iteration, so the
-effective per-lookup cost is on the order of hundreds of nanoseconds. The
-existing `Document::get` path scans entries and is intentionally retained for
-small documents and zero-allocation one-off calls.
+The lookup-index rows were refreshed on 2026-10-23 after the 0.9.9 open-addressed
+representation; the remaining rows retain the 0.8 baseline. The 65,536-entry
+index lookup row measures 64 lookups per iteration. The existing
+`Document::get` path scans entries and is intentionally retained for small
+documents and zero-allocation one-off calls.
 
 ## Policy
 
@@ -196,10 +197,11 @@ Ranked by expected impact and risk:
 5. **Full-loader report merge (implemented).** Replace per-key document scans
    with one occurrence pass while preserving duplicate, bare, empty-key and
    override reporting.
-6. **LookupIndex representation.** A sorted `Vec<(&str, usize)>` prototype made
-   large-index construction about 2.4x faster and reduced memory, but made a
-   64-key lookup batch about 2.4x slower. It was not adopted because the index
-   exists specifically for repeated gets; revisit with a hybrid/lazy cache.
+6. **LookupIndex representation (implemented).** Replaced the `BTreeMap` with a
+   compact open-addressed table. For 65,536 entries, build falls from 38.4 ms
+   to 15.6 ms and a 64-key batch falls from 8.14 µs to 1.62 µs; retained RSS is
+   about 30.9 MB versus 31.5 MB. Bounded probing falls back to the ordered map
+   for collision-heavy inputs.
 7. **Streaming multi-file diff.** Human/JSON diff currently reads and parses all
    candidates before emitting output; process candidates incrementally for
    non-matrix modes to lower peak memory on large file sets.
