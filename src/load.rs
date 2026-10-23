@@ -153,6 +153,54 @@ impl LoadedEnvironment {
     }
 }
 
+/// A compact values-only result of loading one or more files.
+///
+/// This drops origins, raw winning tokens, skipped/repeated reports and
+/// cross-file override reports. Use [`LoadedEnvironment`] when that provenance
+/// or contextual resolution is required.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LoadedValues {
+    values: BTreeMap<String, String>,
+}
+
+impl LoadedValues {
+    /// Final effective literal values.
+    #[must_use]
+    pub fn values(&self) -> &BTreeMap<String, String> {
+        &self.values
+    }
+    /// Final value for one key.
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.values.get(key).map(String::as_str)
+    }
+    /// Number of effective values.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+    /// Whether no effective values were loaded.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+    /// Consume the result and return its map.
+    #[must_use]
+    pub fn into_values(self) -> BTreeMap<String, String> {
+        self.values
+    }
+}
+
+impl LoadedEnvironment {
+    /// Drop provenance and reports, retaining only final effective values.
+    #[must_use]
+    pub fn into_values(self) -> LoadedValues {
+        LoadedValues {
+            values: self.values,
+        }
+    }
+}
+
 /// A resolved decoded loaded environment.
 ///
 /// Values have been processed by [`LoadedEnvironment::resolve_contextual`] or
@@ -469,6 +517,102 @@ where
     P: AsRef<Path>,
 {
     load_paths(paths, dialect, false)
+}
+
+/// Load the standard cascade while retaining only final effective values.
+///
+/// This is the compact application-loading path. It applies the same strict
+/// read/validate and override semantics as [`load_cascade`], then drops
+/// origins, raw winning tokens and reports. Missing cascade files are skipped.
+///
+/// # Errors
+/// Returns [`LoadError`] for invalid mode names, I/O errors, invalid UTF-8 or
+/// syntax/policy errors.
+pub fn load_cascade_values<P: AsRef<Path>>(
+    directory: P,
+    mode: &str,
+) -> Result<LoadedValues, LoadError> {
+    load_cascade_values_with(directory, mode, Dialect::PORTABLE)
+}
+
+/// Load the standard cascade with an explicit dialect, retaining only values.
+///
+/// # Errors
+/// Returns [`LoadError`] for invalid mode names, I/O errors, invalid UTF-8 or
+/// syntax/policy errors.
+pub fn load_cascade_values_with<P: AsRef<Path>>(
+    directory: P,
+    mode: &str,
+    dialect: Dialect,
+) -> Result<LoadedValues, LoadError> {
+    if !valid_mode(mode) {
+        return Err(LoadError::InvalidMode);
+    }
+    let directory = directory.as_ref();
+    let mut paths = vec![directory.join(".env"), directory.join(".env.local")];
+    if !mode.is_empty() {
+        paths.push(directory.join(format!(".env.{mode}")));
+        paths.push(directory.join(format!(".env.{mode}.local")));
+    }
+    load_value_paths(paths, dialect, true)
+}
+
+/// Load an explicit ordered file list while retaining only final effective
+/// values.
+///
+/// Every listed file must exist, and later files override earlier files by
+/// key. Use [`load_cascade_values`] for optional standard filenames.
+///
+/// # Errors
+/// Returns [`LoadError`] for I/O errors, invalid UTF-8 or syntax/policy errors.
+pub fn load_values<I, P>(paths: I, dialect: Dialect) -> Result<LoadedValues, LoadError>
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    load_value_paths(paths, dialect, false)
+}
+
+fn load_value_paths<I, P>(
+    paths: I,
+    dialect: Dialect,
+    skip_missing: bool,
+) -> Result<LoadedValues, LoadError>
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    let mut values = BTreeMap::new();
+    for path in paths {
+        let path = path.as_ref();
+        let bytes = match fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if skip_missing && error.kind() == io::ErrorKind::NotFound => continue,
+            Err(source) => {
+                return Err(LoadError::Io {
+                    path: path.to_path_buf(),
+                    source,
+                });
+            }
+        };
+        let text = String::from_utf8(bytes).map_err(|_| LoadError::InvalidUtf8 {
+            path: path.to_path_buf(),
+        })?;
+        let (document, diagnostics) = parse_with(&text, dialect);
+        if let Some(diagnostic) = diagnostics
+            .into_iter()
+            .find(|diagnostic| diagnostic.severity() == Severity::Error)
+        {
+            return Err(LoadError::Invalid {
+                path: path.to_path_buf(),
+                diagnostic,
+            });
+        }
+        for entry in document.effective_entries() {
+            values.insert(entry.key().to_string(), entry.value().to_string());
+        }
+    }
+    Ok(LoadedValues { values })
 }
 
 fn valid_mode(mode: &str) -> bool {

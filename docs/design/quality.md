@@ -940,6 +940,18 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - Completed a ten-minute-per-target fuzz campaign with 1,449,814 executions and
   no crashes; the weekly bounded workflow remains the sustained evidence path.
 
+### Post-0.9.5 values-only loading (2026-10-23)
+
+- Added `LoadedValues`, `load_cascade_values`, `load_cascade_values_with`,
+  `load_values` and `LoadedEnvironment::into_values`. The compact path keeps
+  strict file/dialect/duplicate/override semantics but drops origins, raw tokens
+  and reports.
+- Measured 65,536-entry loading at 81.3 MB peak / 60.5 MB retained RSS for the
+  full loader versus 38.8 MB / 13.5 MB for values-only loading.
+- Added cascade, explicit-file, dialect, bare-key and error-parity tests for the
+  values-only path. All-feature workspace: 244 core, 3 process, 38 CLI, 6
+  config and 6 Figment tests; 30 doctests pass with six ignored.
+
 ### 0.9.5 release (2026-10-22)
 
 - Release run

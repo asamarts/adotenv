@@ -4,15 +4,42 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.6] - 2026-10-23
+
+### Added
+
+- `load_cascade_values`, `load_cascade_values_with`, `load_values` and
+  `LoadedValues` for values-only application loading, plus
+  `LoadedEnvironment::into_values`. The compact path keeps strict read, dialect,
+  duplicate and override semantics while dropping origins, raw tokens and
+  reports.
+
+### Performance
+
+- Values-only loading reduces the 65,536-entry fixture from 81.3 MB peak /
+  60.5 MB retained RSS to 38.8 MB peak / 13.5 MB retained.
+
+## [0.9.5] - 2026-10-22
+
+### Performance
+
+- Compact internal document metadata: boxed rare diagnostics, sentinel entry
+  indices, boxed decoded/mapping storage and geometric-slack shrinking. The
+  65,536-entry fixture retains 23.6 MB instead of 36.2 MB; peak falls from
+  40.4 MB to 32.0 MB.
+
+### Fixed
+
+- Fixed a flaky stdin test helper that could leave the child pipe open.
+
 ## [0.9.4] - 2026-10-22
 
 ### Performance
 
-- Reduced retained parser memory with geometric-slack shrinking and a compact
-  internal metadata layout (boxed diagnostics/decoded maps, sentinel entry
-  indices). The 65,536-entry fixture retains 23.6 MB instead of 36.2 MB; peak
-  falls from 40.4 MB to 32.0 MB. Recorded an ecosystem comparison and ranked
-  optimization backlog in [performance.md](docs/design/performance.md).
+- Reduced retained parser memory by shrinking geometric-growth slack in the
+  document item and entry vectors; the 65,536-entry fixture retains 28.3 MB
+  instead of 36.2 MB. Recorded an ecosystem comparison and ranked optimization
+  backlog in [performance.md](docs/design/performance.md).
 
 ### Fixed
 

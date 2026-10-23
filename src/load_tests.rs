@@ -5,7 +5,10 @@ use std::{
 };
 
 use crate::{
-    load::{load_cascade, load_cascade_with, load_files, LoadError, SkipReason},
+    load::{
+        load_cascade, load_cascade_values, load_cascade_values_with, load_cascade_with, load_files,
+        load_values, LoadError, SkipReason,
+    },
     Dialect, ExpandOptions, ExpandScope, Unresolved,
 };
 
@@ -295,4 +298,58 @@ fn contextual_resolution_preserves_quote_and_escape_context() {
     assert_eq!(resolved.get("C"), Some("$B"));
     assert_eq!(resolved.get("D"), Some("value"));
     assert_eq!(resolved.origin("D").unwrap().line, 4);
+}
+
+#[test]
+fn compact_values_match_full_load_but_drop_provenance() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=base\nA=last\nB\nC=one\n");
+    dir.write(".env.local", "B=local\nC=two\n");
+    dir.write(".env.production", "D=mode\n");
+    dir.write(".env.production.local", "D=mode-local\n");
+
+    let full = load_cascade(dir.path(), "production").unwrap();
+    let compact = load_cascade_values(dir.path(), "production").unwrap();
+    assert_eq!(compact.values(), full.values());
+    assert_eq!(compact.get("A"), Some("last"));
+    assert_eq!(compact.get("B"), Some("local"));
+    assert_eq!(compact.len(), 4);
+    assert!(!compact.is_empty());
+
+    let map = compact.into_values();
+    assert_eq!(map.get("D").map(String::as_str), Some("mode-local"));
+    let from_full = full.into_values();
+    assert_eq!(from_full.values(), &map);
+}
+
+#[test]
+fn compact_values_use_the_same_dialect_and_error_rules() {
+    let dir = TempDir::new();
+    let explicit = dir.path().join("explicit.env");
+    fs::write(&explicit, "A=first\nA=last\nB\nC='literal $HOME'\n").unwrap();
+
+    let empty = Dialect::PORTABLE.with_bare_keys(crate::BareKeys::Empty);
+    let values = load_values([&explicit], empty).unwrap();
+    assert_eq!(values.get("A"), Some("last"));
+    assert_eq!(values.get("B"), Some(""));
+    assert_eq!(values.get("C"), Some("literal $HOME"));
+
+    let ignored = Dialect::PORTABLE.with_bare_keys(crate::BareKeys::Ignore);
+    let values = load_values([&explicit], ignored).unwrap();
+    assert_eq!(values.get("A"), Some("last"));
+    assert!(!values.values().contains_key("B"));
+
+    assert!(matches!(
+        load_values([dir.path().join("missing.env")], Dialect::PORTABLE),
+        Err(LoadError::Io { .. })
+    ));
+    dir.write("bad.env", "BAD KEY=value\n");
+    assert!(matches!(
+        load_values([dir.path().join("bad.env")], Dialect::PORTABLE),
+        Err(LoadError::Invalid { .. })
+    ));
+
+    dir.write(".env", "A=cascade\n");
+    let values = load_cascade_values_with(dir.path(), "", Dialect::PORTABLE).unwrap();
+    assert_eq!(values.get("A"), Some("cascade"));
 }

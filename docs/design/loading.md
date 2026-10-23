@@ -9,13 +9,18 @@ lossless document model.
 ## Feature and API
 
 ```toml
-adotenv = { version = "0.8", features = ["load"] }
+adotenv = { version = "0.9.6", features = ["load"] }
 ```
 
 - `load_cascade(directory, mode)` uses Portable syntax.
 - `load_cascade_with(directory, mode, dialect)` selects a dialect.
 - `load_files(paths, dialect)` loads an explicit ordered list; every listed file
   must exist.
+- `load_cascade_values` / `load_cascade_values_with` and `load_values` are the
+  compact application path: they retain only final key/value strings, not
+  origins, raw tokens or reports.
+- `LoadedEnvironment::into_values` drops provenance and reports from an already
+  loaded environment.
 
 The standard cascade order is:
 
@@ -65,6 +70,27 @@ are still reported even when the duplicate policy selects one winner.
 Bare declarations are skipped rather than guessed as empty, except when the selected dialect’s `BareKeys::Empty` policy makes them effective empty values. Nonparticipating
 declarations (for example Node’s `__proto__` object property or ignored bare
 keys) and empty keys are reported with a `SkipReason`.
+
+## Values-only loading
+
+Application configuration often needs only the final effective strings. The
+values-only path uses the same file reads, strict UTF-8 decoding, parser,
+dialect, duplicate policy and later-file override rules as the full loader, but
+retains only `LoadedValues` (a sorted key/value map). It does not expose origins,
+raw winning tokens, overrides, repeats or skipped declarations.
+
+```rust
+use adotenv::{load::load_cascade_values, Dialect};
+
+let values = load_cascade_values("/srv/my-app", "production")?;
+assert_eq!(values.get("PORT"), Some("8080"));
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Use `LoadedEnvironment` when provenance or `resolve_contextual` is required.
+For a 65,536-entry file, the local memory profile recorded in
+[performance.md](performance.md) is about 38.8 MB peak / 13.5 MB retained for
+values-only loading versus 81.3 MB / 60.5 MB for the full loader.
 
 ## Errors
 

@@ -150,6 +150,21 @@ but peak memory still includes the document until it is dropped.
 - `dotenv-parser` pulls in pest/stacker/cc (and a proc-macro build);
   `dotenv-compat` pulls in AES-GCM, URL/ICU and platform dependencies.
 
+### Values-only loading (0.9.x)
+
+`load_values` / `load_cascade_values` use the same strict reading and parsing
+semantics as the full loader, then retain only the final `BTreeMap<String,
+String>`. For the 65,536-entry fixture:
+
+| Loader | Peak RSS | Retained RSS |
+|---|---:|---:|
+| full `load_files` | 81.3 MB | 60.5 MB |
+| `load_values` | 38.8 MB | 13.5 MB |
+
+This is the recommended application-loading path when origins, raw tokens and
+contextual resolution are not needed. Peak still includes one lossless document
+while each file is parsed; a future parser projection could lower that further.
+
 ## Performance follow-ups
 
 Ranked by expected impact and risk:
@@ -162,13 +177,13 @@ Ranked by expected impact and risk:
 2. **Further internal metadata.** Compact comment spans and shrink the remaining
    `ItemData` padding; `EntryTokens` remains 240 bytes and would require a public
    field-type change, so defer that to a major version or a separate compact mode.
-3. **Values-only parsing/loading.** The biggest application-memory win is a
-   mode that retains keys/values without the full item/token model. A compact
-   loader or `LoadedEnvironment::into_values` would make app use comparable to
-   dotenvy while preserving the tooling API for editors/linters.
-4. **LoadedEnvironment residency.** `LoadedEnvironment` currently keeps values,
-   origins and raw winning tokens; an app-only constructor should avoid retaining
-   raw data unless `resolve_contextual` is requested.
+3. **Values-only loading (implemented).** `load_values` and
+   `load_cascade_values` retain only final strings; `LoadedEnvironment::into_values`
+   can also drop reports after a full load. Peak still includes one lossless
+   document per file.
+4. **LoadedEnvironment residency.** A fully loaded environment still keeps values,
+   origins and raw winning tokens; a lazy raw-token policy would help callers that
+   use the rich loader but never request contextual resolution.
 5. **LookupIndex representation.** A sorted `Vec<(&str, usize)>` prototype made
    large-index construction about 2.4x faster and reduced memory, but made a
    64-key lookup batch about 2.4x slower. It was not adopted because the index
