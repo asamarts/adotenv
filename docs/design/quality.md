@@ -940,6 +940,17 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - Completed a ten-minute-per-target fuzz campaign with 1,449,814 executions and
   no crashes; the weekly bounded workflow remains the sustained evidence path.
 
+### 0.9.6 release (2026-10-23)
+
+- Release run
+  [39894080644](https://github.com/asamarts/adotenv/actions/runs/39894080644)
+  passed the full quality gate and all publish jobs. All five 0.9.6 crates were
+  published keylessly through Trusted Publishing/OIDC.
+- crates.io returns HTTP 200 for all five 0.9.6 package versions and docs.rs
+  serves all five documentation roots. GitHub Release v0.9.6 is Latest.
+- The forced patch-semver check against 0.9.5 reports no breaking API change;
+  this release adds the values-only loading API.
+
 ### Post-0.9.5 values-only loading (2026-10-23)
 
 - Added `LoadedValues`, `load_cascade_values`, `load_cascade_values_with`,
