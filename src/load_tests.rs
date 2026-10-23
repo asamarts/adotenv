@@ -6,8 +6,9 @@ use std::{
 
 use crate::{
     load::{
-        load_cascade, load_cascade_values, load_cascade_values_with, load_cascade_with, load_files,
-        load_values, LoadError, SkipReason,
+        load_cascade, load_cascade_values, load_cascade_values_with, load_cascade_with,
+        load_cascade_with_options, load_files, load_files_with_options, load_values, LoadError,
+        LoadOptions, SkipReason,
     },
     Dialect, ExpandOptions, ExpandScope, Unresolved,
 };
@@ -162,6 +163,14 @@ fn duplicate_and_bare_declarations_are_reported() {
     let loaded = load_cascade(dir.path(), "").unwrap();
     assert_eq!(loaded.get("A"), Some("2"));
     assert_eq!(loaded.get("X"), Some("3"));
+    assert_eq!(
+        loaded
+            .entries()
+            .iter()
+            .map(|entry| entry.key.as_str())
+            .collect::<Vec<_>>(),
+        ["A", "X"]
+    );
     assert_eq!(loaded.repeated().len(), 1);
     assert_eq!(loaded.repeated()[0].key, "A");
     assert_eq!(loaded.repeated()[0].origins.len(), 2);
@@ -352,4 +361,78 @@ fn compact_values_use_the_same_dialect_and_error_rules() {
     dir.write(".env", "A=cascade\n");
     let values = load_cascade_values_with(dir.path(), "", Dialect::PORTABLE).unwrap();
     assert_eq!(values.get("A"), Some("cascade"));
+}
+
+#[test]
+fn full_loader_options_drop_raw_tokens_or_reports() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=base\nA=last\nB\nC=one\n");
+    dir.write(".env.local", "B=local\nC=two\n");
+
+    let compact = LoadOptions::new(Dialect::PORTABLE)
+        .with_raw_tokens(false)
+        .with_reports(false);
+    let loaded = load_cascade_with_options(dir.path(), "", compact).unwrap();
+    assert_eq!(loaded.get("A"), Some("last"));
+    assert_eq!(loaded.get("B"), Some("local"));
+    assert!(!loaded.retains_raw_tokens());
+    assert!(loaded.entries().is_empty());
+    assert!(loaded.overrides().is_empty());
+    assert!(loaded.repeated().is_empty());
+    assert!(loaded.skipped().is_empty());
+    assert!(loaded.origin("A").is_some());
+    assert!(loaded
+        .resolve_contextual(|_| None, &ExpandOptions::portable())
+        .is_err());
+    assert!(loaded
+        .resolve_decoded(
+            |_| None,
+            &ExpandOptions {
+                scope: ExpandScope::WholeFile,
+                ..ExpandOptions::portable()
+            },
+        )
+        .is_ok());
+
+    let no_reports = LoadOptions::new(Dialect::PORTABLE).with_reports(false);
+    let loaded = load_cascade_with_options(dir.path(), "", no_reports).unwrap();
+    assert!(loaded.retains_raw_tokens());
+    assert!(loaded.entries().is_empty());
+    let options = ExpandOptions {
+        scope: ExpandScope::WholeFile,
+        ..ExpandOptions::portable()
+    };
+    assert!(loaded.resolve_contextual(|_| None, &options).is_ok());
+
+    let no_raw = LoadOptions::new(Dialect::PORTABLE).with_raw_tokens(false);
+    let loaded = load_cascade_with_options(dir.path(), "", no_raw).unwrap();
+    assert!(!loaded.retains_raw_tokens());
+    assert!(!loaded.entries().is_empty());
+    assert!(loaded.origin("A").is_some());
+    assert!(loaded
+        .resolve_contextual(|_| None, &ExpandOptions::portable())
+        .is_err());
+    assert!(loaded
+        .resolve_decoded(
+            |_| None,
+            &ExpandOptions {
+                scope: ExpandScope::WholeFile,
+                ..ExpandOptions::portable()
+            },
+        )
+        .is_ok());
+
+    assert!(matches!(
+        load_cascade_with_options(dir.path(), "bad/mode", compact),
+        Err(LoadError::InvalidMode)
+    ));
+
+    let explicit = dir.path().join("explicit.env");
+    fs::write(&explicit, "Z=explicit\n").unwrap();
+    let loaded = load_files_with_options(
+        [&explicit],
+        LoadOptions::new(Dialect::PORTABLE).with_raw_tokens(false),
+    )
+    .unwrap();
+    assert_eq!(loaded.get("Z"), Some("explicit"));
 }

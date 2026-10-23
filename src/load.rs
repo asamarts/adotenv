@@ -9,7 +9,7 @@
 //! effective key.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, HashMap},
     fmt, fs, io,
     ops::Range,
     path::{Path, PathBuf},
@@ -103,6 +103,65 @@ pub struct LoadedEnvironment {
     overrides: Vec<LoadOverride>,
     repeated: Vec<LoadRepeated>,
     skipped: Vec<LoadSkipped>,
+    raw_tokens: bool,
+}
+
+/// Retention policy for the full loader.
+///
+/// The default retains every report and the raw winning tokens required by
+/// [`LoadedEnvironment::resolve_contextual`]. Applications that only need
+/// values, or that never need contextual resolution, can opt out of the
+/// corresponding allocations. Origins are always retained by this loader; use
+/// [`crate::load::load_values`] when no origins are needed at all. Disabling
+/// reports leaves [`LoadedEnvironment::entries`], [`LoadedEnvironment::overrides`],
+/// [`LoadedEnvironment::repeated`] and [`LoadedEnvironment::skipped`] empty.
+/// Disabling raw tokens makes [`LoadedEnvironment::resolve_contextual`] return an
+/// error; decoded-value resolution remains available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct LoadOptions {
+    /// Dialect used to parse every file.
+    pub dialect: Dialect,
+    /// Retain raw winning key/value tokens for contextual resolution.
+    pub retain_raw_tokens: bool,
+    /// Retain loaded-entry, override, repeat and skipped reports.
+    pub retain_reports: bool,
+}
+
+impl Default for LoadOptions {
+    fn default() -> Self {
+        Self::new(Dialect::PORTABLE)
+    }
+}
+
+impl LoadOptions {
+    /// Full retention using the selected dialect.
+    #[must_use]
+    pub const fn new(dialect: Dialect) -> Self {
+        Self {
+            dialect,
+            retain_raw_tokens: true,
+            retain_reports: true,
+        }
+    }
+    /// Select a different dialect.
+    #[must_use]
+    pub const fn with_dialect(mut self, dialect: Dialect) -> Self {
+        self.dialect = dialect;
+        self
+    }
+    /// Control retention of raw winning tokens.
+    #[must_use]
+    pub const fn with_raw_tokens(mut self, retain: bool) -> Self {
+        self.retain_raw_tokens = retain;
+        self
+    }
+    /// Control retention of report vectors.
+    #[must_use]
+    pub const fn with_reports(mut self, retain: bool) -> Self {
+        self.retain_reports = retain;
+        self
+    }
 }
 
 impl LoadedEnvironment {
@@ -110,6 +169,11 @@ impl LoadedEnvironment {
     #[must_use]
     pub fn values(&self) -> &BTreeMap<String, String> {
         &self.values
+    }
+    /// Whether raw winning tokens were retained for contextual resolution.
+    #[must_use]
+    pub const fn retains_raw_tokens(&self) -> bool {
+        self.raw_tokens
     }
     /// Final value for one key.
     #[must_use]
@@ -122,21 +186,29 @@ impl LoadedEnvironment {
         self.origins.get(key)
     }
     /// Every loaded declaration, including later-overridden entries.
+    ///
+    /// Empty when loaded with [`LoadOptions::with_reports`] set to `false`.
     #[must_use]
     pub fn entries(&self) -> &[LoadedEntry] {
         &self.entries
     }
     /// Cross-file overrides in load order.
+    ///
+    /// Empty when loaded with [`LoadOptions::with_reports`] set to `false`.
     #[must_use]
     pub fn overrides(&self) -> &[LoadOverride] {
         &self.overrides
     }
     /// Duplicate declarations within individual files.
+    ///
+    /// Empty when loaded with [`LoadOptions::with_reports`] set to `false`.
     #[must_use]
     pub fn repeated(&self) -> &[LoadRepeated] {
         &self.repeated
     }
     /// Declarations that were inspected but not loaded.
+    ///
+    /// Empty when loaded with [`LoadOptions::with_reports`] set to `false`.
     #[must_use]
     pub fn skipped(&self) -> &[LoadSkipped] {
         &self.skipped
@@ -361,11 +433,13 @@ impl LoadedEnvironment {
     /// parsed with the dialect used at load time. Quote, escape and bare-key
     /// context therefore match the source that won the cascade. The synthetic
     /// source has no original file offsets; errors retain the winning
-    /// declaration's [`LoadOrigin`], key and message.
+    /// declaration's [`LoadOrigin`], key and message. It returns an error when
+    /// the environment was loaded with raw-token retention disabled; use
+    /// [`Self::resolve_decoded`] in that case.
     ///
     /// # Errors
-    /// Returns [`LoadedResolveError`] if the reconstructed source cannot be
-    /// parsed or resolution fails.
+    /// Returns [`LoadedResolveError`] if raw tokens were not retained, if the
+    /// reconstructed source cannot be parsed, or if resolution fails.
     pub fn resolve_contextual<F>(
         &self,
         lookup: F,
@@ -374,6 +448,13 @@ impl LoadedEnvironment {
     where
         F: Fn(&str) -> Option<String>,
     {
+        if !self.raw_tokens {
+            return Err(LoadedResolveError::new(
+                None,
+                None,
+                "raw token context was not retained; load with raw tokens or use resolve_decoded",
+            ));
+        }
         let mut entries: Vec<_> = self.raw_entries.iter().collect();
         entries.sort_unstable_by_key(|(_, (order, _, _))| *order);
         let mut source = String::new();
@@ -491,6 +572,19 @@ pub fn load_cascade_with<P: AsRef<Path>>(
     mode: &str,
     dialect: Dialect,
 ) -> Result<LoadedEnvironment, LoadError> {
+    load_cascade_with_options(directory, mode, LoadOptions::new(dialect))
+}
+
+/// Load the standard cascade with explicit retention options.
+///
+/// # Errors
+/// Returns [`LoadError`] for invalid mode names, I/O errors, invalid UTF-8 or
+/// syntax/policy errors.
+pub fn load_cascade_with_options<P: AsRef<Path>>(
+    directory: P,
+    mode: &str,
+    options: LoadOptions,
+) -> Result<LoadedEnvironment, LoadError> {
     if !valid_mode(mode) {
         return Err(LoadError::InvalidMode);
     }
@@ -500,7 +594,7 @@ pub fn load_cascade_with<P: AsRef<Path>>(
         paths.push(directory.join(format!(".env.{mode}")));
         paths.push(directory.join(format!(".env.{mode}.local")));
     }
-    load_paths(paths, dialect, true)
+    load_paths(paths, options, true)
 }
 
 /// Load an explicit ordered list of files, with later files overriding earlier
@@ -516,7 +610,22 @@ where
     I: IntoIterator<Item = P>,
     P: AsRef<Path>,
 {
-    load_paths(paths, dialect, false)
+    load_files_with_options(paths, LoadOptions::new(dialect))
+}
+
+/// Load an explicit ordered file list with explicit retention options.
+///
+/// # Errors
+/// Returns [`LoadError`] for I/O errors, invalid UTF-8 or syntax/policy errors.
+pub fn load_files_with_options<I, P>(
+    paths: I,
+    options: LoadOptions,
+) -> Result<LoadedEnvironment, LoadError>
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    load_paths(paths, options, false)
 }
 
 /// Load the standard cascade while retaining only final effective values.
@@ -621,7 +730,7 @@ fn valid_mode(mode: &str) -> bool {
 
 fn load_paths<I, P>(
     paths: I,
-    dialect: Dialect,
+    options: LoadOptions,
     skip_missing: bool,
 ) -> Result<LoadedEnvironment, LoadError>
 where
@@ -632,12 +741,14 @@ where
         values: BTreeMap::new(),
         origins: BTreeMap::new(),
         raw_entries: BTreeMap::new(),
-        dialect,
+        dialect: options.dialect,
         entries: Vec::new(),
         overrides: Vec::new(),
         repeated: Vec::new(),
         skipped: Vec::new(),
+        raw_tokens: options.retain_raw_tokens,
     };
+    let mut next_order = 0;
     for path in paths {
         let path = path.as_ref();
         let bytes = match fs::read(path) {
@@ -653,7 +764,7 @@ where
         let text = String::from_utf8(bytes).map_err(|_| LoadError::InvalidUtf8 {
             path: path.to_path_buf(),
         })?;
-        let (document, diagnostics) = parse_with(&text, dialect);
+        let (document, diagnostics) = parse_with(&text, options.dialect);
         if let Some(diagnostic) = diagnostics
             .into_iter()
             .find(|diagnostic| diagnostic.severity() == Severity::Error)
@@ -663,85 +774,184 @@ where
                 diagnostic,
             });
         }
-        merge_document(&mut loaded, path, &document);
+        merge_document(&mut loaded, path, &document, options, &mut next_order);
     }
     Ok(loaded)
 }
 
-fn merge_document(loaded: &mut LoadedEnvironment, path: &Path, document: &crate::Document<'_>) {
-    let mut seen = BTreeSet::new();
+struct MergeState<'a> {
+    loaded: &'a mut LoadedEnvironment,
+    path: &'a Path,
+    options: LoadOptions,
+    next_order: usize,
+}
+
+fn merge_document(
+    loaded: &mut LoadedEnvironment,
+    path: &Path,
+    document: &crate::Document<'_>,
+    options: LoadOptions,
+    next_order: &mut usize,
+) {
+    let mut state = MergeState {
+        loaded,
+        path,
+        options,
+        next_order: *next_order,
+    };
+    if options.retain_reports {
+        merge_reported(&mut state, document);
+    } else {
+        merge_effective_entries(&mut state, document);
+    }
+    *next_order = state.next_order;
+}
+
+fn merge_effective_entries(state: &mut MergeState<'_>, document: &crate::Document<'_>) {
+    for effective in document.effective_entries() {
+        merge_effective(
+            state,
+            document,
+            effective.key().to_string(),
+            effective.value().to_string(),
+            effective.entry(),
+        );
+    }
+}
+
+fn merge_reported(state: &mut MergeState<'_>, document: &crate::Document<'_>) {
+    let mut first: HashMap<&str, crate::Entry<'_>> = HashMap::new();
+    let mut duplicates: HashMap<&str, Vec<crate::Entry<'_>>> = HashMap::new();
+    let mut keys = Vec::new();
     for entry in document.entries() {
-        let key = entry.key().to_string();
-        if key.is_empty() {
-            loaded.skipped.push(LoadSkipped {
+        let key = entry.key();
+        if let Some(previous) = first.get(key).copied() {
+            duplicates
+                .entry(key)
+                .or_insert_with(|| vec![previous])
+                .push(entry);
+        } else {
+            keys.push(key);
+            first.insert(key, entry);
+        }
+    }
+
+    for key in keys {
+        let all: &[crate::Entry<'_>] = if let Some(all) = duplicates.get(key) {
+            all
+        } else {
+            std::slice::from_ref(
+                first
+                    .get(key)
+                    .expect("every key in the occurrence order map has an entry"),
+            )
+        };
+        merge_reported_key(state, document, key, all);
+    }
+}
+
+fn merge_reported_key(
+    state: &mut MergeState<'_>,
+    document: &crate::Document<'_>,
+    key: &str,
+    all: &[crate::Entry<'_>],
+) {
+    if key.is_empty() {
+        for entry in all {
+            state.loaded.skipped.push(LoadSkipped {
                 key: None,
-                origin: origin(path, entry),
+                origin: origin(state.path, *entry),
                 reason: SkipReason::EmptyKey,
             });
-            continue;
         }
-        if !seen.insert(key.clone()) {
-            continue;
+        return;
+    }
+    let mut first_participating = None;
+    let mut last_participating = None;
+    let mut participating_count = 0;
+    for entry in all {
+        if entry.participates_in_lookup() {
+            if first_participating.is_none() {
+                first_participating = Some(*entry);
+            }
+            last_participating = Some(*entry);
+            participating_count += 1;
         }
-        let occurrences: Vec<_> = document.get_all(&key).collect();
-        if occurrences.len() > 1 {
-            loaded.repeated.push(LoadRepeated {
-                key: key.clone(),
-                origins: occurrences
-                    .iter()
-                    .map(|entry| origin(path, *entry))
-                    .collect(),
-            });
-        }
-        let Some(effective) = document.get_entry(&key) else {
-            loaded.skipped.push(LoadSkipped {
-                key: Some(key),
-                origin: origin(path, entry),
-                reason: SkipReason::NonParticipating,
-            });
-            continue;
-        };
-        if !effective.participates_in_lookup() {
-            loaded.skipped.push(LoadSkipped {
-                key: Some(key),
-                origin: origin(path, effective),
-                reason: SkipReason::NonParticipating,
-            });
-            continue;
-        }
-        let value = if let Some(value) = effective.value() {
-            value.to_string()
-        } else if document.dialect().bare_keys == crate::BareKeys::Empty {
-            String::new()
-        } else {
-            loaded.skipped.push(LoadSkipped {
-                key: Some(key),
-                origin: origin(path, effective),
-                reason: SkipReason::Bare,
-            });
-            continue;
-        };
-        let entry_origin = origin(path, effective);
-        let order = loaded.entries.len();
-        let raw_key = document.source()[effective.tokens().key.clone()].to_string();
-        let raw_value = effective.raw_value().unwrap_or_default().to_string();
-        loaded
-            .raw_entries
-            .insert(key.clone(), (order, raw_key, raw_value));
-        loaded.entries.push(LoadedEntry {
+    }
+    if participating_count > 1 {
+        state.loaded.repeated.push(LoadRepeated {
+            key: key.to_string(),
+            origins: all
+                .iter()
+                .filter(|entry| entry.participates_in_lookup())
+                .map(|entry| origin(state.path, *entry))
+                .collect(),
+        });
+    }
+    let effective = match document.dialect().duplicates {
+        crate::Duplicates::First => first_participating,
+        crate::Duplicates::Last => last_participating,
+    };
+    let Some(effective) = effective else {
+        state.loaded.skipped.push(LoadSkipped {
+            key: Some(key.to_string()),
+            origin: origin(state.path, all[0]),
+            reason: SkipReason::NonParticipating,
+        });
+        return;
+    };
+    let value = if let Some(value) = effective.value() {
+        value.to_string()
+    } else if document.dialect().bare_keys == crate::BareKeys::Empty {
+        String::new()
+    } else {
+        state.loaded.skipped.push(LoadSkipped {
+            key: Some(key.to_string()),
+            origin: origin(state.path, effective),
+            reason: SkipReason::Bare,
+        });
+        return;
+    };
+    merge_effective(state, document, key.to_string(), value, effective);
+}
+
+fn merge_effective(
+    state: &mut MergeState<'_>,
+    document: &crate::Document<'_>,
+    key: String,
+    value: String,
+    effective: crate::Entry<'_>,
+) {
+    let entry_origin = origin(state.path, effective);
+    let order = state.next_order;
+    state.next_order += 1;
+    if state.options.retain_raw_tokens {
+        let raw_key = &document.source()[effective.tokens().key.clone()];
+        let raw_value = effective.raw_value().unwrap_or_default();
+        state.loaded.raw_entries.insert(
+            key.clone(),
+            (order, raw_key.to_string(), raw_value.to_string()),
+        );
+    }
+    let previous = state
+        .loaded
+        .origins
+        .insert(key.clone(), entry_origin.clone());
+    if state.options.retain_reports {
+        state.loaded.entries.push(LoadedEntry {
             key: key.clone(),
             value: value.clone(),
             origin: entry_origin.clone(),
         });
-        if let Some(previous) = loaded.origins.insert(key.clone(), entry_origin.clone()) {
-            loaded.overrides.push(LoadOverride {
+        if let Some(previous) = previous {
+            state.loaded.overrides.push(LoadOverride {
                 key: key.clone(),
                 previous,
                 replacement: entry_origin,
             });
         }
-        loaded.values.insert(key, value);
     }
+    state.loaded.values.insert(key, value);
 }
 
 fn origin(path: &Path, entry: crate::Entry<'_>) -> LoadOrigin {

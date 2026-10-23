@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.7] - 2026-10-23
+
+### Added
+
+- `LoadOptions`, `load_cascade_with_options` and `load_files_with_options` for
+  full-loader retention control. Values and origins are always retained; raw
+  winning tokens and report vectors can be dropped independently.
+- `LoadedEnvironment::retains_raw_tokens` reports whether contextual resolution
+  is available. `resolve_contextual` returns a clear error when raw tokens were
+  dropped; `resolve_decoded` remains available.
+
+### Performance
+
+- Replaced per-key `Document::get_entry`/`get_all` scans in the full-loader merge
+  with a single occurrence pass, removing effectively quadratic behavior on
+  large files. Retaining raw tokens and reports now uses 83.3 MB peak / 56.6 MB
+  retained RSS for the 65,536-entry fixture; disabling both falls to 51.7 MB /
+  26.9 MB, and values-only loading remains 38.8 MB / 13.6 MB.
+
 ## [0.9.6] - 2026-10-23
 
 ### Added

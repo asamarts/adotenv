@@ -1,6 +1,6 @@
 # Migrating and adopting adotenv
 
-Status: current published release **0.9.6**; target compatibility release **1.0**.
+Status: current published release **0.9.7**; target compatibility release **1.0**.
 The core API has been frozen since 0.8 and no core breaking changes are planned
 for 1.0. This guide is the user-facing path; the evidence checklist for the 1.0
 milestone lives in [docs/design/1.0-readiness.md](docs/design/1.0-readiness.md).
@@ -9,7 +9,7 @@ milestone lives in [docs/design/1.0-readiness.md](docs/design/1.0-readiness.md).
 
 ```toml
 [dependencies]
-adotenv = "0.9.6"
+adotenv = "0.9.7"
 ```
 
 The default feature set is `std`. Disable default features for `alloc`-only
@@ -69,6 +69,7 @@ Common next steps:
 | 0.9.4 | Retained-memory reduction, packaged-doc fix, performance comparison |
 | 0.9.5 | Compact document metadata and test-harness fix |
 | 0.9.6 | Values-only compact loading API |
+| 0.9.7 | Full-loader retention options and linear merge |
 | 1.0 | Compatibility target; no planned core API break |
 
 ## Migrating from 0.9.x to 1.0
@@ -125,7 +126,8 @@ features.
 - Windows writes use a best-effort backup swap and are not crash-atomic.
 - The lossless `Document` retains token/item metadata and is intentionally
   heavier than map-only loaders; `load_cascade_values`/`load_values` provide a
-  compact application path when provenance is not needed.
+  compact application path when provenance is not needed. The full loader can
+  also use `LoadOptions` to drop raw tokens or reports while keeping origins.
 - There is no language server or semantic-token integration yet.
 - The external-user and sustained-fuzz criteria for 1.0 are tracked separately;
   this guide does not claim they are complete.

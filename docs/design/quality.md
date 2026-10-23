@@ -940,6 +940,35 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - Completed a ten-minute-per-target fuzz campaign with 1,449,814 executions and
   no crashes; the weekly bounded workflow remains the sustained evidence path.
 
+### 0.9.7 development slice (2026-10-23)
+
+- Added `LoadOptions`, `load_cascade_with_options`, `load_files_with_options`
+  and `LoadedEnvironment::retains_raw_tokens`. The full loader always retains
+  values and origins and can independently drop raw winning tokens and report
+  vectors; `resolve_contextual` reports a clear error when raw context is
+  absent, while `resolve_decoded` remains available.
+- Replaced per-key `Document::get_entry`/`get_all` scans in the full-loader merge
+  with a single occurrence pass. Duplicate, bare, empty-key, nonparticipating
+  and cross-file override reports retain their existing behavior; tests include
+  entry ordering and option-specific empty reports.
+- `cargo fmt` and warning-denied Clippy pass for the workspace, adapter, exec,
+  load, serde, load+serde, alloc-only and conformance configurations; warning-
+  denied all-feature documentation builds. The all-feature workspace test run
+  passed 313 tests with 7 ignored; load passed 262, load+serde 272, and alloc-
+  only 245, each with 7 ignored. Config and Figment load tests passed 6 each.
+- MSRV 1.81 builds pass for core, exec, load, serde, load+serde, alloc-only,
+  both adapters and both adapter load configurations. Alloc-only
+  `thumbv7em-none-eabi` builds and tests pass. Package verification includes
+  `MIGRATION.md` and `docs/design/1.0-readiness.md` (65 files); bench smoke,
+  pinned conformance (409 applicable observations, 798 field comparisons) and
+  the forced patch-semver check against 0.9.6 (229 checks pass, 31 skip) are
+  green. Windows library and CLI/process bin cross-checks pass; the local
+  all-target cross-check cannot build Criterion's `alloca` without an MSVC
+  `lib.exe`, which is a host toolchain limitation.
+- Measured 65,536-entry memory: full default 83.3 MB peak / 56.6 MB retained;
+  raw tokens disabled 68.3 MB / 41.3 MB; reports disabled 67.7 MB / 42.2 MB;
+  both disabled 51.7 MB / 26.9 MB; values-only 38.8 MB / 13.6 MB.
+
 ### 0.9.6 release (2026-10-23)
 
 - Release run

@@ -1,6 +1,6 @@
 [package]
 name = "adotenv-config"
-version = "0.9.6"
+version = "0.9.7"
 edition = "2021"
 rust-version = "1.81"
 description = "config crate source adapter for adotenv documents."
@@ -19,7 +19,7 @@ load = ["adotenv/load"]
 all-features = true
 
 [dependencies]
-adotenv = { path = "..", version = "0.9.6" }
+adotenv = { path = "..", version = "0.9.7" }
 config = { version = "0.14", default-features = false }
 
 [dev-dependencies]

@@ -438,6 +438,26 @@ ordered file list. Values remain literal; no expansion, environment lookup or
 command execution occurs. Bare declarations are skipped unless the selected
 dialect maps them to effective empty values.
 
+The full loader retains values, origins, raw winning tokens and all reports by
+default. When an application does not need contextual resolution or reports,
+use `load_cascade_with_options` or `load_files_with_options` with `LoadOptions`:
+
+```rust,ignore
+use adotenv::load::{load_cascade_with_options, LoadOptions};
+
+let options = LoadOptions::new(adotenv::Dialect::PORTABLE)
+    .with_raw_tokens(false)
+    .with_reports(false);
+let loaded = load_cascade_with_options("/srv/my-app", "production", options)?;
+assert_eq!(loaded.get("PORT"), Some("8080"));
+assert!(!loaded.retains_raw_tokens());
+```
+
+Origins remain available, while `entries()`, `overrides()`, `repeated()` and
+`skipped()` are empty when reports are disabled. Dropping raw tokens makes
+`resolve_contextual` return an error; `resolve_decoded` still works. Use
+`load_cascade_values` or `load_values` when origins are not needed either.
+
 ### Resolve loaded values
 
 `LoadedEnvironment::resolve_contextual` is the preferred merged-environment
@@ -478,7 +498,7 @@ let loaded = load_cascade("/srv/my-app", "production")?;
 unsafe { apply(&loaded)? };
 ```
 
-The adapter is published as `adotenv-process` 0.9.6. See
+The adapter is published as `adotenv-process` 0.9.7. See
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md) for
 the one-time crates.io bootstrap.
 
@@ -566,7 +586,7 @@ On Windows it writes a same-directory temporary file and attempts a direct
 replace; if that fails, it moves the old file to a backup, installs the new file
 and restores the backup on failure. This fallback is not crash-atomic. Command
 substitution from files remains disabled. The CLI uses the library’s verified formatting, sorting,
-loading and edit APIs. It is published as `adotenv-cli` 0.9.6; see
+loading and edit APIs. It is published as `adotenv-cli` 0.9.7; see
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md).
 
 ## Integrations (0.9, workspace companions)
@@ -590,7 +610,7 @@ let config = config::Config::builder()
 
 `config` can deserialize typed structures using its own scalar coercion.
 Figment values remain strings: deserialize string fields and convert explicitly.
-Both adapters are published as 0.9.6 companion crates; see
+Both adapters are published as 0.9.7 companion crates; see
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md).
 
 ## Portable syntax (unchanged default)

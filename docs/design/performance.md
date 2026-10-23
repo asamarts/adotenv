@@ -150,20 +150,27 @@ but peak memory still includes the document until it is dropped.
 - `dotenv-parser` pulls in pest/stacker/cc (and a proc-macro build);
   `dotenv-compat` pulls in AES-GCM, URL/ICU and platform dependencies.
 
-### Values-only loading (0.9.x)
+### Loader retention (0.9.7)
 
-`load_values` / `load_cascade_values` use the same strict reading and parsing
-semantics as the full loader, then retain only the final `BTreeMap<String,
-String>`. For the 65,536-entry fixture:
+`LoadOptions` lets the full loader keep origins while dropping raw winning
+tokens, reports, or both. `load_values` / `load_cascade_values` remain the
+lowest-memory path because they also drop origins. For the 65,536-entry
+fixture (one file, measured 2026-10-23):
 
 | Loader | Peak RSS | Retained RSS |
 |---|---:|---:|
-| full `load_files` | 81.3 MB | 60.5 MB |
-| `load_values` | 38.8 MB | 13.5 MB |
+| full `load_files` (default) | 83.3 MB | 56.6 MB |
+| `LoadOptions::with_raw_tokens(false)` | 68.3 MB | 41.3 MB |
+| `LoadOptions::with_reports(false)` | 67.7 MB | 42.2 MB |
+| both raw tokens and reports disabled | 51.7 MB | 26.9 MB |
+| `load_values` | 38.8 MB | 13.6 MB |
 
-This is the recommended application-loading path when origins, raw tokens and
-contextual resolution are not needed. Peak still includes one lossless document
-while each file is parsed; a future parser projection could lower that further.
+The full-loader merge now reads each document once for reports instead of
+scanning the whole document for every key. The previous per-key scans made the
+65,536-entry case effectively quadratic; the single-pass merge removes that
+cost. The peak still includes one lossless document while each file is parsed,
+and report retention uses a temporary occurrence map. A future parser
+projection could lower the values-only peak further.
 
 ## Performance follow-ups
 
@@ -181,14 +188,18 @@ Ranked by expected impact and risk:
    `load_cascade_values` retain only final strings; `LoadedEnvironment::into_values`
    can also drop reports after a full load. Peak still includes one lossless
    document per file.
-4. **LoadedEnvironment residency.** A fully loaded environment still keeps values,
-   origins and raw winning tokens; a lazy raw-token policy would help callers that
-   use the rich loader but never request contextual resolution.
-5. **LookupIndex representation.** A sorted `Vec<(&str, usize)>` prototype made
+4. **LoadedEnvironment residency (implemented).** `LoadOptions` can drop raw
+   winning tokens or report vectors while retaining values and origins. The
+   default remains full retention for compatibility; values-only loading remains
+   the lowest-memory option.
+5. **Full-loader report merge (implemented).** Replace per-key document scans
+   with one occurrence pass while preserving duplicate, bare, empty-key and
+   override reporting.
+6. **LookupIndex representation.** A sorted `Vec<(&str, usize)>` prototype made
    large-index construction about 2.4x faster and reduced memory, but made a
    64-key lookup batch about 2.4x slower. It was not adopted because the index
    exists specifically for repeated gets; revisit with a hybrid/lazy cache.
-6. **Streaming multi-file diff.** Human/JSON diff currently reads and parses all
+7. **Streaming multi-file diff.** Human/JSON diff currently reads and parses all
    candidates before emitting output; process candidates incrementally for
    non-matrix modes to lower peak memory on large file sets.
 

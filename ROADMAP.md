@@ -263,6 +263,18 @@ Literal parsing into ordered entries with key, value and line spans;
 
 See [strategy.md](docs/design/strategy.md) for the full analysis.
 
+### 0.9.7: Loader retention (released 2026-10-23)
+
+- **Implemented:** `LoadOptions`, `load_cascade_with_options` and
+  `load_files_with_options`; the full loader can retain values and origins while
+  dropping raw winning tokens, reports, or both. `resolve_contextual` reports an
+  error when raw tokens were dropped; `resolve_decoded` remains available.
+- **Performance:** replaced per-key document scans in the full-loader merge with
+  a single occurrence pass, removing effectively quadratic behavior on large
+  files. The 65,536-entry fixture ranges from 83.3 MB peak / 56.6 MB retained for
+  the full default loader to 38.8 MB / 13.6 MB for values-only loading.
+- **Released:** 2026-10-23 after the complete quality gate.
+
 ### 1.0: Stable API (future)
 
 The core API is frozen and follows semver. The live evidence checklist is
@@ -285,9 +297,8 @@ The core API is frozen and follows semver. The live evidence checklist is
 
 ### Later
 
-- Lazy `LoadedEnvironment` raw-token retention when contextual resolution is
-  not requested.
 - Hybrid or lazy lookup-index representation if repeated-get benchmarks justify it.
+- A true values projection parser to lower the peak for values-only loading.
 - Streaming non-matrix multi-file diff for large file sets.
 - Semantic tokens and language-server support for editors.
 - A WebAssembly playground.

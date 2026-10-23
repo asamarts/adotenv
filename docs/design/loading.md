@@ -9,13 +9,16 @@ lossless document model.
 ## Feature and API
 
 ```toml
-adotenv = { version = "0.9.6", features = ["load"] }
+adotenv = { version = "0.9.7", features = ["load"] }
 ```
 
 - `load_cascade(directory, mode)` uses Portable syntax.
 - `load_cascade_with(directory, mode, dialect)` selects a dialect.
 - `load_files(paths, dialect)` loads an explicit ordered list; every listed file
   must exist.
+- `load_cascade_with_options(directory, mode, options)` and
+  `load_files_with_options(paths, options)` use `LoadOptions` to choose raw
+  token and report retention; the default remains full retention.
 - `load_cascade_values` / `load_cascade_values_with` and `load_values` are the
   compact application path: they retain only final key/value strings, not
   origins, raw tokens or reports.
@@ -71,6 +74,22 @@ Bare declarations are skipped rather than guessed as empty, except when the sele
 declarations (for example Node’s `__proto__` object property or ignored bare
 keys) and empty keys are reported with a `SkipReason`.
 
+## Retention options
+
+`LoadOptions::new(dialect)` preserves the full-loader default: values, origins,
+raw winning tokens for `resolve_contextual`, and all reports. Builders can
+disable either allocation independently:
+
+- `with_raw_tokens(false)` drops raw key/value tokens. Values, origins and
+  reports remain; `resolve_contextual` returns an error and `resolve_decoded`
+  remains available.
+- `with_reports(false)` drops `entries()`, `overrides()`, `repeated()` and
+  `skipped()` while retaining values, origins and (unless disabled) raw tokens.
+
+The linear merge pass reads each source document once. Report retention uses a
+temporary per-key occurrence map and does not scan the whole document for every
+key.
+
 ## Values-only loading
 
 Application configuration often needs only the final effective strings. The
@@ -89,8 +108,10 @@ assert_eq!(values.get("PORT"), Some("8080"));
 
 Use `LoadedEnvironment` when provenance or `resolve_contextual` is required.
 For a 65,536-entry file, the local memory profile recorded in
-[performance.md](performance.md) is about 38.8 MB peak / 13.5 MB retained for
-values-only loading versus 81.3 MB / 60.5 MB for the full loader.
+[performance.md](performance.md) ranges from about 38.8 MB peak / 13.6 MB
+retained for values-only loading to 83.3 MB / 56.6 MB for the full default
+loader. Disabling raw tokens, reports or both moves the full loader toward the
+compact measurements while keeping origins.
 
 ## Errors
 
@@ -111,7 +132,8 @@ tokens in cascade order, reparses them with the load dialect and resolves the
 result. Quote, escape and dialect context therefore survive the merge. Errors
 retain the winning declaration's `LoadOrigin`, key and message. Both whole-file
 and sequential scope are supported; the reconstructed source order is cascade
-order.
+order. The method requires raw-token retention; use `resolve_decoded` when the
+environment was loaded with raw tokens disabled.
 
 `LoadedEnvironment::resolve_decoded` is the explicit decoded-value policy: every
 final value is treated as unquoted decoded text. It requires whole-file scope.
