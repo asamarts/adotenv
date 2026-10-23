@@ -27,7 +27,7 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [MIGRATION.md](MIGRATION.md) | User-facing migration and adoption guidance |
 
 **Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0, 0.7.0, 0.7.1, 0.8.0,
-0.9.0, 0.9.1, 0.9.2, 0.9.3, 0.9.4, 0.9.5 and 0.9.6 are published. 0.3 implements explicit dialect configuration, all five syntax
+0.9.0, 0.9.1, 0.9.2, 0.9.3, 0.9.4, 0.9.5, 0.9.6 and 0.9.7 are published. 0.3 implements explicit dialect configuration, all five syntax
 presets, selected-dialect native verification, exact per-dialect encoding,
 applicable pinned-upstream comparison and cross-dialect portability reporting.
 0.4 implements literal reference inspection, opt-in variable resolution,

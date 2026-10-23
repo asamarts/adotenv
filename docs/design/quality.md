@@ -969,6 +969,18 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   raw tokens disabled 68.3 MB / 41.3 MB; reports disabled 67.7 MB / 42.2 MB;
   both disabled 51.7 MB / 26.9 MB; values-only 38.8 MB / 13.6 MB.
 
+### 0.9.7 release (2026-10-23)
+
+- Release run
+  [39905020347](https://github.com/asamarts/adotenv/actions/runs/39905020347)
+  passed the full quality gate and all publish jobs. All five 0.9.7 crates were
+  published keylessly through Trusted Publishing/OIDC.
+- crates.io returns HTTP 200 for all five 0.9.7 package versions. docs.rs serves
+  the four library roots; `adotenv-cli` is a binary crate whose docs URL
+  redirects to its successful crate page. GitHub Release v0.9.7 is Latest.
+- The forced patch-semver check against 0.9.6 reports no breaking API change;
+  this release adds optional full-loader retention and a linear report merge.
+
 ### 0.9.6 release (2026-10-23)
 
 - Release run

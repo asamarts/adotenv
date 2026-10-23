@@ -11,7 +11,7 @@ workspace packages in dependency order:
 
 The 0.7.0 bootstrap is complete: all five crates are published and their
 Trusted Publishing configurations point at this repository, `release.yml`, and
-no environment. The 0.7.1, 0.8.0, 0.9.0, 0.9.1, 0.9.2, 0.9.3, 0.9.4, 0.9.5 and 0.9.6 releases were then published keylessly
+no environment. The 0.7.1, 0.8.0, 0.9.0, 0.9.1, 0.9.2, 0.9.3, 0.9.4, 0.9.5, 0.9.6 and 0.9.7 releases were then published keylessly
 through those trusted publishers. The temporary token was retained intentionally as a
 fallback for future first-time crates.
 
