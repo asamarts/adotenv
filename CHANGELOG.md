@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.18] - 2026-10-24
+
+### Performance
+
+- Overridden report values now use a sparse index map instead of an
+  `Option<String>` slot on every compact entry record. The 65,536-entry full
+  loader falls from 65.5 MB peak / 38.6 MB retained RSS to 63.6 MB / 37.1 MB;
+  with raw tokens disabled it falls to 53.4 MB / 26.3 MB.
+
 ## [0.9.17] - 2026-10-24
 
 ### Performance

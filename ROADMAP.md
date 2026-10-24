@@ -27,7 +27,7 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [MIGRATION.md](MIGRATION.md) | User-facing migration and adoption guidance |
 
 **Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0, 0.7.0, 0.7.1, 0.8.0,
-0.9.0, 0.9.1, 0.9.2, 0.9.3, 0.9.4, 0.9.5, 0.9.6, 0.9.7, 0.9.8, 0.9.9, 0.9.10, 0.9.11, 0.9.12, 0.9.13, 0.9.14, 0.9.15, 0.9.16 and 0.9.17 are published. 0.3 implements explicit dialect configuration, all five syntax
+0.9.0, 0.9.1, 0.9.2, 0.9.3, 0.9.4, 0.9.5, 0.9.6, 0.9.7, 0.9.8, 0.9.9, 0.9.10, 0.9.11, 0.9.12, 0.9.13, 0.9.14, 0.9.15, 0.9.16, 0.9.17 and 0.9.18 are published. 0.3 implements explicit dialect configuration, all five syntax
 presets, selected-dialect native verification, exact per-dialect encoding,
 applicable pinned-upstream comparison and cross-dialect portability reporting.
 0.4 implements literal reference inspection, opt-in variable resolution,
@@ -362,6 +362,14 @@ See [strategy.md](docs/design/strategy.md) for the full analysis.
   for public origin/entry APIs. The 65,536-entry full loader falls from
   69.8 MB / 42.7 MB peak/retained to 65.5 MB / 38.6 MB; with raw tokens disabled
   it falls to 54.7 MB / 27.9 MB.
+- **Released:** 2026-10-24 after the complete quality gate.
+
+### 0.9.18: Sparse overridden values (released 2026-10-24)
+
+- **Implemented:** overridden report values use a sparse index map instead of an
+  `Option<String>` slot per compact record. The 65,536-entry full loader falls
+  from 65.5 MB / 38.6 MB peak/retained to 63.6 MB / 37.1 MB; with raw tokens
+  disabled it falls to 53.4 MB / 26.3 MB.
 - **Released:** 2026-10-24 after the complete quality gate.
 
 ### 1.0: Stable API (future)

@@ -104,7 +104,6 @@ struct CompactOrigin {
 struct CompactEntry {
     key: String,
     origin: CompactOrigin,
-    value: Option<String>,
 }
 
 /// Fully validated result of a file load.
@@ -117,6 +116,7 @@ pub struct LoadedEnvironment {
     files: Vec<PathBuf>,
     dialect: Dialect,
     entry_records: Vec<CompactEntry>,
+    overridden_values: BTreeMap<usize, String>,
     entries_cache: OnceLock<Vec<LoadedEntry>>,
     overrides: Vec<LoadOverride>,
     repeated: Vec<LoadRepeated>,
@@ -134,6 +134,7 @@ impl PartialEq for LoadedEnvironment {
             && self.files == other.files
             && self.dialect == other.dialect
             && self.entry_records == other.entry_records
+            && self.overridden_values == other.overridden_values
             && self.overrides == other.overrides
             && self.repeated == other.repeated
             && self.skipped == other.skipped
@@ -276,11 +277,13 @@ impl LoadedEnvironment {
         self.entries_cache.get_or_init(|| {
             self.entry_records
                 .iter()
-                .map(|entry| LoadedEntry {
+                .enumerate()
+                .map(|(index, entry)| LoadedEntry {
                     key: entry.key.clone(),
-                    value: entry
-                        .value
-                        .clone()
+                    value: self
+                        .overridden_values
+                        .get(&index)
+                        .cloned()
                         .or_else(|| self.values.get(&entry.key).cloned())
                         .unwrap_or_default(),
                     origin: self.load_origin(&entry.origin),
@@ -848,6 +851,7 @@ where
         files: Vec::new(),
         dialect: options.dialect,
         entry_records: Vec::new(),
+        overridden_values: BTreeMap::new(),
         entries_cache: OnceLock::new(),
         overrides: Vec::new(),
         repeated: Vec::new(),
@@ -1094,12 +1098,11 @@ fn merge_effective(
         state.loaded.entry_records.push(CompactEntry {
             key: key.clone(),
             origin: compact_origin.clone(),
-            value: None,
         });
         if let (Some(previous), true) = (previous, state.options.retain_origins) {
             let previous_origin = state.loaded.entry_records[previous].origin.clone();
             if let Some(value) = previous_value {
-                state.loaded.entry_records[previous].value = Some(value);
+                state.loaded.overridden_values.insert(previous, value);
             }
             state.loaded.overrides.push(LoadOverride {
                 key: key.clone(),

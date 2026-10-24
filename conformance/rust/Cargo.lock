@@ -4,7 +4,7 @@ version = 3
 
 [[package]]
 name = "adotenv"
-version = "0.9.17"
+version = "0.9.18"
 
 [[package]]
 name = "adotenv-conformance"

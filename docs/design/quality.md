@@ -1076,6 +1076,21 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   and lookup-index code are unchanged; the 0.9.8 parser fuzz campaign remains the
   latest parser evidence.
 
+### 0.9.18 development slice (2026-10-24)
+
+- Overridden report values now use a sparse index map instead of an
+  `Option<String>` slot on every compact record. The 65,536-entry full loader
+  falls from 65.5 MB / 38.6 MB peak/retained to 63.6 MB / 37.1 MB; with raw
+  tokens disabled it falls to 53.4 MB / 26.3 MB.
+- Validation: workspace 323 tests passed with 7 ignored; load 271, load+serde
+  281 and alloc-only 249, each with 7 ignored; config and Figment load tests pass
+  6 each. fmt, Clippy and warning-denied docs pass under Rust 1.95 and 1.99.
+  MSRV 1.81, alloc-only `thumbv7em-none-eabi`, package verification, bench smoke,
+  pinned conformance, Windows library/binary cross-checks and the forced
+  patch-semver check against 0.9.17 (229 checks pass, 31 skip) are green. Parser
+  and lookup-index code are unchanged; the 0.9.8 parser fuzz campaign remains the
+  latest parser evidence.
+
 ### 0.9.17 release (2026-10-24)
 
 - Release run
