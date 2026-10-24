@@ -164,15 +164,20 @@ fixture (one file, measured 2026-10-23):
 | `LoadOptions::with_raw_tokens(false)` | 68.3 MB | 41.3 MB |
 | `LoadOptions::with_reports(false)` | 67.7 MB | 42.2 MB |
 | both raw tokens and reports disabled | 51.7 MB | 26.9 MB |
+| origins and reports disabled | 54.3 MB | 28.9 MB |
+| origins, reports and raw tokens disabled | 39.0 MB | 13.6 MB |
 | `load_values` | 13.6 MB | 13.6 MB |
 
 The full-loader merge now reads each document once for reports instead of
 scanning the whole document for every key. The previous per-key scans made the
 65,536-entry case effectively quadratic; the single-pass merge removes that
 cost. The full loader still keeps one lossless document while each file is
-parsed and uses a temporary occurrence map for reports. Values-only loading now
-uses the shared parser's projection mode, so it retains neither the document
-nor report metadata; its peak is close to the final map size.
+parsed and uses a temporary occurrence map for reports. A new
+`LoadOptions::with_origins(false)` policy omits the final origin map and
+override reports; combined with `with_reports(false)` it retains only values
+plus any requested raw tokens. Values-only loading uses the shared parser's
+projection mode, so it retains neither the document nor report metadata; its
+peak is close to the final map size.
 
 ### Streaming and indexed diff (0.9.10/0.9.11)
 
@@ -209,9 +214,9 @@ Ranked by expected impact and risk:
    only final strings. Peak/retained memory for the 65,536-entry fixture is 13.6
    MB; the full loader remains the path that retains the lossless document.
 4. **LoadedEnvironment residency (implemented).** `LoadOptions` can drop raw
-   winning tokens or report vectors while retaining values and origins. The
-   default remains full retention for compatibility; values-only loading remains
-   the lowest-memory option.
+   winning tokens, report vectors and/or the final origin map. The default
+   remains full retention for compatibility; values-only loading remains the
+   lowest-memory option.
 5. **Full-loader report merge (implemented).** Replace per-key document scans
    with one occurrence pass while preserving duplicate, bare, empty-key and
    override reporting.

@@ -457,9 +457,10 @@ assert!(!loaded.retains_raw_tokens());
 ```
 
 Origins remain available, while `entries()`, `overrides()`, `repeated()` and
-`skipped()` are empty when reports are disabled. Dropping raw tokens makes
-`resolve_contextual` return an error; `resolve_decoded` still works. Use
-`load_cascade_values` or `load_values` when origins are not needed either.
+`skipped()` are empty when reports are disabled. Add `.with_origins(false)` to
+drop the final origin map and override reports as well. Dropping raw tokens
+makes `resolve_contextual` return an error; `resolve_decoded` still works. Use
+`load_cascade_values` or `load_values` when no provenance is needed at all.
 
 ### Resolve loaded values
 
@@ -501,7 +502,7 @@ let loaded = load_cascade("/srv/my-app", "production")?;
 unsafe { apply(&loaded)? };
 ```
 
-The adapter is published as `adotenv-process` 0.9.12. See
+The adapter is published as `adotenv-process` 0.9.13. See
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md) for
 the one-time crates.io bootstrap.
 
@@ -589,7 +590,7 @@ On Windows it writes a same-directory temporary file and attempts a direct
 replace; if that fails, it moves the old file to a backup, installs the new file
 and restores the backup on failure. This fallback is not crash-atomic. Command
 substitution from files remains disabled. The CLI uses the library’s verified formatting, sorting,
-loading and edit APIs. It is published as `adotenv-cli` 0.9.12; see
+loading and edit APIs. It is published as `adotenv-cli` 0.9.13; see
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md).
 
 ## Integrations (0.9, workspace companions)
@@ -613,7 +614,7 @@ let config = config::Config::builder()
 
 `config` can deserialize typed structures using its own scalar coercion.
 Figment values remain strings: deserialize string fields and convert explicitly.
-Both adapters are published as 0.9.12 companion crates; see
+Both adapters are published as 0.9.13 companion crates; see
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md).
 
 ## Portable syntax (unchanged default)

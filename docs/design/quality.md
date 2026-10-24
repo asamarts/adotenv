@@ -998,6 +998,22 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   parser and lookup-index representation are unchanged; the 0.9.8 parser fuzz
   campaign remains the latest parser evidence.
 
+### 0.9.13 development slice (2026-10-24)
+
+- Added `LoadOptions::with_origins(false)` to omit the final origin map and
+  override reports. Remaining reports still carry their own origins.
+- Measured the 65,536-entry full loader at 54.3 MB peak / 28.9 MB retained with
+  raw tokens but no origins/reports; also disabling raw tokens reaches 39.0 MB /
+  13.6 MB.
+- Validation: workspace 322 tests passed with 7 ignored; load 270, load+serde
+  280 and alloc-only 249, each with 7 ignored; config and Figment load tests pass
+  6 each. fmt, Clippy and warning-denied docs pass under Rust 1.95 and 1.99.
+  MSRV 1.81, alloc-only `thumbv7em-none-eabi`, package verification, bench smoke,
+  pinned conformance, Windows library/binary cross-checks and the forced
+  patch-semver check against 0.9.12 (229 checks pass, 31 skip) are green. Parser
+  and lookup-index code are unchanged; the 0.9.8 parser fuzz campaign remains
+  the latest parser evidence.
+
 ### 0.9.12 release (2026-10-24)
 
 - Release run

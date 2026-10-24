@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.13] - 2026-10-24
+
+### Added
+
+- `LoadOptions::with_origins(false)` omits the final origin map and cross-file
+  override reports. Remaining reports carry their own origins; combine with
+  `with_reports(false)` for the lowest full-loader residency.
+
+### Performance
+
+- With raw tokens retained, disabling origins and reports lowers the
+  65,536-entry full loader from 83.3 MB peak / 56.6 MB retained RSS to 54.3 MB /
+  28.9 MB. Also disabling raw tokens reaches 39.0 MB / 13.6 MB.
+
 ## [0.9.12] - 2026-10-24
 
 ### Performance

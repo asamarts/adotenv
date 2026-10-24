@@ -111,12 +111,14 @@ pub struct LoadedEnvironment {
 /// The default retains every report and the raw winning tokens required by
 /// [`LoadedEnvironment::resolve_contextual`]. Applications that only need
 /// values, or that never need contextual resolution, can opt out of the
-/// corresponding allocations. Origins are always retained by this loader; use
-/// [`crate::load::load_values`] when no origins are needed at all. Disabling
-/// reports leaves [`LoadedEnvironment::entries`], [`LoadedEnvironment::overrides`],
+/// corresponding allocations. Disabling reports leaves
+/// [`LoadedEnvironment::entries`], [`LoadedEnvironment::overrides`],
 /// [`LoadedEnvironment::repeated`] and [`LoadedEnvironment::skipped`] empty.
-/// Disabling raw tokens makes [`LoadedEnvironment::resolve_contextual`] return an
-/// error; decoded-value resolution remains available.
+/// Disabling origins omits the final [`LoadedEnvironment::origin`] map and
+/// override reports; reports that remain enabled still carry their own origins.
+/// Disabling raw tokens makes [`LoadedEnvironment::resolve_contextual`] return
+/// an error; decoded-value resolution remains available. Use
+/// [`crate::load::load_values`] when no origins or reports are needed at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct LoadOptions {
@@ -126,6 +128,8 @@ pub struct LoadOptions {
     pub retain_raw_tokens: bool,
     /// Retain loaded-entry, override, repeat and skipped reports.
     pub retain_reports: bool,
+    /// Retain the final origin map and cross-file override reports.
+    pub retain_origins: bool,
 }
 
 impl Default for LoadOptions {
@@ -142,6 +146,7 @@ impl LoadOptions {
             dialect,
             retain_raw_tokens: true,
             retain_reports: true,
+            retain_origins: true,
         }
     }
     /// Select a different dialect.
@@ -160,6 +165,12 @@ impl LoadOptions {
     #[must_use]
     pub const fn with_reports(mut self, retain: bool) -> Self {
         self.retain_reports = retain;
+        self
+    }
+    /// Control retention of the final origin map and override reports.
+    #[must_use]
+    pub const fn with_origins(mut self, retain: bool) -> Self {
+        self.retain_origins = retain;
         self
     }
 }
@@ -181,6 +192,9 @@ impl LoadedEnvironment {
         self.values.get(key).map(String::as_str)
     }
     /// Final origin for one effective key.
+    ///
+    /// Returns `None` when loaded with [`LoadOptions::with_origins`] set to
+    /// `false`.
     #[must_use]
     pub fn origin(&self, key: &str) -> Option<&LoadOrigin> {
         self.origins.get(key)
@@ -940,22 +954,28 @@ fn merge_effective(
             (order, raw_key.to_string(), raw_value.to_string()),
         );
     }
-    let previous = state
-        .loaded
-        .origins
-        .insert(key.clone(), entry_origin.clone());
+    let previous = if state.options.retain_origins {
+        state
+            .loaded
+            .origins
+            .insert(key.clone(), entry_origin.clone())
+    } else {
+        None
+    };
     if state.options.retain_reports {
         state.loaded.entries.push(LoadedEntry {
             key: key.clone(),
             value: value.clone(),
             origin: entry_origin.clone(),
         });
-        if let Some(previous) = previous {
-            state.loaded.overrides.push(LoadOverride {
-                key: key.clone(),
-                previous,
-                replacement: entry_origin,
-            });
+        if state.options.retain_origins {
+            if let Some(previous) = previous {
+                state.loaded.overrides.push(LoadOverride {
+                    key: key.clone(),
+                    previous,
+                    replacement: entry_origin,
+                });
+            }
         }
     }
     state.loaded.values.insert(key, value);

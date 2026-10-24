@@ -463,6 +463,31 @@ fn projected_values_reject_the_same_invalid_sources() {
 }
 
 #[test]
+fn full_loader_can_drop_the_origin_map() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=base\n");
+    dir.write(".env.local", "A=local\nB=two\n");
+
+    let options = LoadOptions::new(Dialect::PORTABLE).with_origins(false);
+    let loaded = load_cascade_with_options(dir.path(), "", options).unwrap();
+    assert_eq!(loaded.get("A"), Some("local"));
+    assert_eq!(loaded.get("B"), Some("two"));
+    assert!(loaded.origin("A").is_none());
+    assert!(loaded.origin("B").is_none());
+    assert_eq!(loaded.overrides(), []);
+    assert!(!loaded.entries().is_empty());
+
+    let options = LoadOptions::new(Dialect::PORTABLE)
+        .with_origins(false)
+        .with_reports(false);
+    let loaded = load_cascade_with_options(dir.path(), "", options).unwrap();
+    assert_eq!(loaded.get("A"), Some("local"));
+    assert_eq!(loaded.entries(), []);
+    assert!(loaded.origin("A").is_none());
+    assert!(loaded.retains_raw_tokens());
+}
+
+#[test]
 fn full_loader_options_drop_raw_tokens_or_reports() {
     let dir = TempDir::new();
     dir.write(".env", "A=base\nA=last\nB\nC=one\n");
