@@ -1061,6 +1061,18 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   and lookup-index code are unchanged; the 0.9.8 parser fuzz campaign remains the
   latest parser evidence.
 
+### 0.9.16 release (2026-10-24)
+
+- Release run
+  [40119950570](https://github.com/asamarts/adotenv/actions/runs/40119950570)
+  passed the full quality gate and all publish jobs. All five 0.9.16 crates were
+  published keylessly through Trusted Publishing/OIDC.
+- crates.io returns HTTP 200 for all five 0.9.16 package versions. docs.rs serves
+  the four library roots; the `adotenv-cli` crate page is available.
+- GitHub Release v0.9.16 is Latest.
+- The forced patch-semver check against 0.9.15 reports no breaking API change;
+  this release materializes report entries lazily.
+
 ### 0.9.15 release (2026-10-24)
 
 - Release run
