@@ -475,7 +475,7 @@ fn full_loader_can_drop_the_origin_map() {
     assert!(loaded.origin("A").is_none());
     assert!(loaded.origin("B").is_none());
     assert_eq!(loaded.overrides(), []);
-    assert!(!loaded.entries().is_empty());
+    assert_ne!(loaded.entries(), []);
 
     let options = LoadOptions::new(Dialect::PORTABLE)
         .with_origins(false)
