@@ -1061,6 +1061,21 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   and lookup-index code are unchanged; the 0.9.8 parser fuzz campaign remains the
   latest parser evidence.
 
+### 0.9.17 development slice (2026-10-24)
+
+- Compact report entries now reference a shared file table instead of cloning a
+  path per entry; full origins materialize only for the public APIs. The
+  65,536-entry full loader falls from 69.8 MB / 42.7 MB peak/retained to 65.5 MB
+  / 38.6 MB; with raw tokens disabled it falls to 54.7 MB / 27.9 MB.
+- Validation: workspace 323 tests passed with 7 ignored; load 271, load+serde
+  281 and alloc-only 249, each with 7 ignored; config and Figment load tests pass
+  6 each. fmt, Clippy and warning-denied docs pass under Rust 1.95 and 1.99.
+  MSRV 1.81, alloc-only `thumbv7em-none-eabi`, package verification, bench smoke,
+  pinned conformance, Windows library/binary cross-checks and the forced
+  patch-semver check against 0.9.16 (229 checks pass, 31 skip) are green. Parser
+  and lookup-index code are unchanged; the 0.9.8 parser fuzz campaign remains the
+  latest parser evidence.
+
 ### 0.9.16 release (2026-10-24)
 
 - Release run

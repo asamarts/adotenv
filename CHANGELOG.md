@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.17] - 2026-10-24
+
+### Performance
+
+- Compact report entries now reference a shared file table instead of cloning a
+  path for every entry; full `LoadOrigin` values are materialized only for the
+  public origin/entry APIs. The 65,536-entry full loader falls from 69.8 MB
+  peak / 42.7 MB retained RSS to 65.5 MB / 38.6 MB; with raw tokens disabled it
+  falls to 54.7 MB / 27.9 MB.
+
 ## [0.9.16] - 2026-10-24
 
 ### Performance

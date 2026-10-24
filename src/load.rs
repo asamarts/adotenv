@@ -94,9 +94,16 @@ pub struct LoadSkipped {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct CompactOrigin {
+    file: usize,
+    span: Range<usize>,
+    line: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct CompactEntry {
     key: String,
-    origin: LoadOrigin,
+    origin: CompactOrigin,
     value: Option<String>,
 }
 
@@ -107,6 +114,7 @@ pub struct LoadedEnvironment {
     origins: BTreeMap<String, LoadOrigin>,
     raw_entries: BTreeMap<String, (usize, Range<usize>, Range<usize>)>,
     raw_source: String,
+    files: Vec<PathBuf>,
     dialect: Dialect,
     entry_records: Vec<CompactEntry>,
     entries_cache: OnceLock<Vec<LoadedEntry>>,
@@ -115,7 +123,7 @@ pub struct LoadedEnvironment {
     skipped: Vec<LoadSkipped>,
     raw_tokens: bool,
     origins_in_entries: bool,
-    origin_index: OnceLock<BTreeMap<String, usize>>,
+    origins_cache: OnceLock<BTreeMap<String, LoadOrigin>>,
 }
 
 impl PartialEq for LoadedEnvironment {
@@ -123,6 +131,7 @@ impl PartialEq for LoadedEnvironment {
         self.values == other.values
             && self.origins == other.origins
             && self.raw_entries == other.raw_entries
+            && self.files == other.files
             && self.dialect == other.dialect
             && self.entry_records == other.entry_records
             && self.overrides == other.overrides
@@ -228,26 +237,30 @@ impl LoadedEnvironment {
     #[must_use]
     pub fn origin(&self, key: &str) -> Option<&LoadOrigin> {
         if self.origins_in_entries {
-            let index = self.origin_index.get_or_init(|| {
-                self.entry_records
-                    .iter()
-                    .enumerate()
-                    .map(|(index, entry)| (entry.key.clone(), index))
-                    .collect()
-            });
-            index
+            self.origins_cache
+                .get_or_init(|| {
+                    self.entry_records
+                        .iter()
+                        .map(|entry| (entry.key.clone(), self.load_origin(&entry.origin)))
+                        .collect()
+                })
                 .get(key)
-                .and_then(|index| self.entry_records.get(*index))
-                .map(|entry| &entry.origin)
         } else {
             self.origins.get(key)
+        }
+    }
+    fn load_origin(&self, origin: &CompactOrigin) -> LoadOrigin {
+        LoadOrigin {
+            path: self.files[origin.file].clone(),
+            span: origin.span.clone(),
+            line: origin.line,
         }
     }
     fn origins_map(&self) -> BTreeMap<String, LoadOrigin> {
         if self.origins_in_entries {
             self.entry_records
                 .iter()
-                .map(|entry| (entry.key.clone(), entry.origin.clone()))
+                .map(|entry| (entry.key.clone(), self.load_origin(&entry.origin)))
                 .collect()
         } else {
             self.origins.clone()
@@ -270,7 +283,7 @@ impl LoadedEnvironment {
                         .clone()
                         .or_else(|| self.values.get(&entry.key).cloned())
                         .unwrap_or_default(),
-                    origin: entry.origin.clone(),
+                    origin: self.load_origin(&entry.origin),
                 })
                 .collect()
         })
@@ -832,6 +845,7 @@ where
         origins: BTreeMap::new(),
         raw_entries: BTreeMap::new(),
         raw_source: String::new(),
+        files: Vec::new(),
         dialect: options.dialect,
         entry_records: Vec::new(),
         entries_cache: OnceLock::new(),
@@ -840,10 +854,12 @@ where
         skipped: Vec::new(),
         raw_tokens: options.retain_raw_tokens,
         origins_in_entries: options.retain_reports && options.retain_origins,
-        origin_index: OnceLock::new(),
+        origins_cache: OnceLock::new(),
     };
-    let mut previous_origins = BTreeMap::new();
-    let mut previous_index = BTreeMap::new();
+    let mut scratch = MergeScratch {
+        previous_origins: BTreeMap::new(),
+        previous_index: BTreeMap::new(),
+    };
     let mut next_order = 0;
     for path in paths {
         let path = path.as_ref();
@@ -870,26 +886,39 @@ where
                 diagnostic,
             });
         }
+        let file_index = if options.retain_reports {
+            let index = loaded.files.len();
+            loaded.files.push(path.to_path_buf());
+            index
+        } else {
+            0
+        };
         merge_document(
             &mut loaded,
             path,
+            file_index,
             &document,
             options,
-            &mut previous_origins,
-            &mut previous_index,
+            &mut scratch,
             &mut next_order,
         );
     }
     if !loaded.origins_in_entries && options.retain_origins {
-        loaded.origins = previous_origins;
+        loaded.origins = scratch.previous_origins;
     }
     loaded.raw_source.shrink_to_fit();
     Ok(loaded)
 }
 
+struct MergeScratch {
+    previous_origins: BTreeMap<String, LoadOrigin>,
+    previous_index: BTreeMap<String, usize>,
+}
+
 struct MergeState<'a> {
     loaded: &'a mut LoadedEnvironment,
     path: &'a Path,
+    file_index: usize,
     options: LoadOptions,
     previous_origins: &'a mut BTreeMap<String, LoadOrigin>,
     previous_index: &'a mut BTreeMap<String, usize>,
@@ -899,18 +928,19 @@ struct MergeState<'a> {
 fn merge_document(
     loaded: &mut LoadedEnvironment,
     path: &Path,
+    file_index: usize,
     document: &crate::Document<'_>,
     options: LoadOptions,
-    previous_origins: &mut BTreeMap<String, LoadOrigin>,
-    previous_index: &mut BTreeMap<String, usize>,
+    scratch: &mut MergeScratch,
     next_order: &mut usize,
 ) {
     let mut state = MergeState {
         loaded,
         path,
+        file_index,
         options,
-        previous_origins,
-        previous_index,
+        previous_origins: &mut scratch.previous_origins,
+        previous_index: &mut scratch.previous_index,
         next_order: *next_order,
     };
     if options.retain_reports {
@@ -1036,7 +1066,7 @@ fn merge_effective(
     value: String,
     effective: crate::Entry<'_>,
 ) {
-    let entry_origin = origin(state.path, effective);
+    let compact_origin = compact_origin(state.file_index, effective);
     let order = state.next_order;
     state.next_order += 1;
     if state.options.retain_raw_tokens {
@@ -1063,7 +1093,7 @@ fn merge_effective(
         let previous_value = state.loaded.values.get(&key).cloned();
         state.loaded.entry_records.push(CompactEntry {
             key: key.clone(),
-            origin: entry_origin.clone(),
+            origin: compact_origin.clone(),
             value: None,
         });
         if let (Some(previous), true) = (previous, state.options.retain_origins) {
@@ -1073,14 +1103,24 @@ fn merge_effective(
             }
             state.loaded.overrides.push(LoadOverride {
                 key: key.clone(),
-                previous: previous_origin,
-                replacement: entry_origin,
+                previous: state.loaded.load_origin(&previous_origin),
+                replacement: state.loaded.load_origin(&compact_origin),
             });
         }
     } else if state.options.retain_origins {
-        state.previous_origins.insert(key.clone(), entry_origin);
+        state
+            .previous_origins
+            .insert(key.clone(), origin(state.path, effective));
     }
     state.loaded.values.insert(key, value);
+}
+
+fn compact_origin(file: usize, entry: crate::Entry<'_>) -> CompactOrigin {
+    CompactOrigin {
+        file,
+        span: entry.value_span().unwrap_or_else(|| entry.key_span()),
+        line: entry.line(),
+    }
 }
 
 fn origin(path: &Path, entry: crate::Entry<'_>) -> LoadOrigin {

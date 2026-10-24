@@ -160,12 +160,12 @@ fixture (one file, measured 2026-10-23):
 
 | Loader | Peak RSS | Retained RSS |
 |---|---:|---:|
-| full `load_files` (default) | 69.8 MB | 42.7 MB |
-| `LoadOptions::with_raw_tokens(false)` | 59.1 MB | 31.9 MB |
-| `LoadOptions::with_reports(false)` | 63.0 MB | 37.7 MB |
-| both raw tokens and reports disabled | 52.5 MB | 27.0 MB |
-| origins and reports disabled | 49.5 MB | 24.3 MB |
-| origins, reports and raw tokens disabled | 38.8 MB | 13.6 MB |
+| full `load_files` (default) | 65.5 MB | 38.6 MB |
+| `LoadOptions::with_raw_tokens(false)` | 54.7 MB | 27.9 MB |
+| `LoadOptions::with_reports(false)` | 63.1 MB | 37.7 MB |
+| both raw tokens and reports disabled | 52.4 MB | 26.9 MB |
+| origins and reports disabled | 49.7 MB | 24.4 MB |
+| origins, reports and raw tokens disabled | 39.0 MB | 13.6 MB |
 | `load_values` | 13.6 MB | 13.6 MB |
 
 The full-loader merge now reads each document once for reports instead of
@@ -181,7 +181,9 @@ Winning raw tokens are stored in one contiguous source buffer with ranges
 instead of two owned strings plus map overhead per key. Report entries are
 stored compactly and materialized lazily on the first `entries()` call, so
 applications that only use values, origins or contextual resolution do not pay
-for a second copy of every final value.
+for a second copy of every final value. Compact entries reference a shared file
+table instead of cloning a path for every entry; full `LoadOrigin` values are
+materialized only for the public origin/entry APIs.
 Values-only loading uses the shared parser's projection mode, so it retains
 neither the document nor report metadata; its peak is close to the final map
 size.
