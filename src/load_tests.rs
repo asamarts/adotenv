@@ -78,6 +78,24 @@ fn cascade_order_origins_and_overrides_are_explicit() {
 }
 
 #[test]
+fn lazy_entries_preserve_overridden_values_and_origins() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=base\n");
+    dir.write(".env.local", "A=local\n");
+
+    let loaded = load_cascade(dir.path(), "").unwrap();
+    assert_eq!(loaded.get("A"), Some("local"));
+    let entries = loaded.entries();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].key, "A");
+    assert_eq!(entries[0].value, "base");
+    assert_eq!(entries[1].key, "A");
+    assert_eq!(entries[1].value, "local");
+    assert_eq!(entries[0].origin.path, dir.path().join(".env"));
+    assert_eq!(entries[1].origin.path, dir.path().join(".env.local"));
+}
+
+#[test]
 fn missing_cascade_files_are_skipped() {
     let dir = TempDir::new();
     dir.write(".env", "A=1\n");

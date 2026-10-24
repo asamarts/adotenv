@@ -93,6 +93,13 @@ pub struct LoadSkipped {
     pub reason: SkipReason,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CompactEntry {
+    key: String,
+    origin: LoadOrigin,
+    value: Option<String>,
+}
+
 /// Fully validated result of a file load.
 #[derive(Debug, Clone)]
 pub struct LoadedEnvironment {
@@ -101,7 +108,8 @@ pub struct LoadedEnvironment {
     raw_entries: BTreeMap<String, (usize, Range<usize>, Range<usize>)>,
     raw_source: String,
     dialect: Dialect,
-    entries: Vec<LoadedEntry>,
+    entry_records: Vec<CompactEntry>,
+    entries_cache: OnceLock<Vec<LoadedEntry>>,
     overrides: Vec<LoadOverride>,
     repeated: Vec<LoadRepeated>,
     skipped: Vec<LoadSkipped>,
@@ -116,7 +124,7 @@ impl PartialEq for LoadedEnvironment {
             && self.origins == other.origins
             && self.raw_entries == other.raw_entries
             && self.dialect == other.dialect
-            && self.entries == other.entries
+            && self.entry_records == other.entry_records
             && self.overrides == other.overrides
             && self.repeated == other.repeated
             && self.skipped == other.skipped
@@ -221,7 +229,7 @@ impl LoadedEnvironment {
     pub fn origin(&self, key: &str) -> Option<&LoadOrigin> {
         if self.origins_in_entries {
             let index = self.origin_index.get_or_init(|| {
-                self.entries
+                self.entry_records
                     .iter()
                     .enumerate()
                     .map(|(index, entry)| (entry.key.clone(), index))
@@ -229,7 +237,7 @@ impl LoadedEnvironment {
             });
             index
                 .get(key)
-                .and_then(|index| self.entries.get(*index))
+                .and_then(|index| self.entry_records.get(*index))
                 .map(|entry| &entry.origin)
         } else {
             self.origins.get(key)
@@ -237,7 +245,7 @@ impl LoadedEnvironment {
     }
     fn origins_map(&self) -> BTreeMap<String, LoadOrigin> {
         if self.origins_in_entries {
-            self.entries
+            self.entry_records
                 .iter()
                 .map(|entry| (entry.key.clone(), entry.origin.clone()))
                 .collect()
@@ -249,9 +257,23 @@ impl LoadedEnvironment {
     /// Every loaded declaration, including later-overridden entries.
     ///
     /// Empty when loaded with [`LoadOptions::with_reports`] set to `false`.
+    /// The owned report is materialized lazily on the first call.
     #[must_use]
     pub fn entries(&self) -> &[LoadedEntry] {
-        &self.entries
+        self.entries_cache.get_or_init(|| {
+            self.entry_records
+                .iter()
+                .map(|entry| LoadedEntry {
+                    key: entry.key.clone(),
+                    value: entry
+                        .value
+                        .clone()
+                        .or_else(|| self.values.get(&entry.key).cloned())
+                        .unwrap_or_default(),
+                    origin: entry.origin.clone(),
+                })
+                .collect()
+        })
     }
     /// Cross-file overrides in load order.
     ///
@@ -811,7 +833,8 @@ where
         raw_entries: BTreeMap::new(),
         raw_source: String::new(),
         dialect: options.dialect,
-        entries: Vec::new(),
+        entry_records: Vec::new(),
+        entries_cache: OnceLock::new(),
         overrides: Vec::new(),
         repeated: Vec::new(),
         skipped: Vec::new(),
@@ -1031,22 +1054,26 @@ fn merge_effective(
             .insert(key.clone(), (order, key_range, value_range));
     }
     if state.options.retain_reports {
-        let entry_index = state.loaded.entries.len();
+        let entry_index = state.loaded.entry_records.len();
         let previous = if state.options.retain_origins {
             state.previous_index.insert(key.clone(), entry_index)
         } else {
             None
         };
-        state.loaded.entries.push(LoadedEntry {
+        let previous_value = state.loaded.values.get(&key).cloned();
+        state.loaded.entry_records.push(CompactEntry {
             key: key.clone(),
-            value: value.clone(),
             origin: entry_origin.clone(),
+            value: None,
         });
         if let (Some(previous), true) = (previous, state.options.retain_origins) {
-            let previous = state.loaded.entries[previous].origin.clone();
+            let previous_origin = state.loaded.entry_records[previous].origin.clone();
+            if let Some(value) = previous_value {
+                state.loaded.entry_records[previous].value = Some(value);
+            }
             state.loaded.overrides.push(LoadOverride {
                 key: key.clone(),
-                previous,
+                previous: previous_origin,
                 replacement: entry_origin,
             });
         }

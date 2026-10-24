@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.16] - 2026-10-24
+
+### Performance
+
+- Report entries are stored compactly and materialized lazily on the first
+  `entries()` call. Final values are no longer duplicated eagerly, while
+  overridden-entry values remain available. The 65,536-entry full loader falls
+  from 71.8 MB peak / 44.7 MB retained RSS to 69.8 MB / 42.7 MB; with raw tokens
+  disabled it falls to 59.1 MB / 31.9 MB.
+- Added coverage for lazy materialization of overridden values and origins.
+
 ## [0.9.15] - 2026-10-24
 
 ### Performance
