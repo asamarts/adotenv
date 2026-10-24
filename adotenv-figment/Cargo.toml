@@ -1,6 +1,6 @@
 [package]
 name = "adotenv-figment"
-version = "0.9.9"
+version = "0.9.10"
 edition = "2021"
 rust-version = "1.81"
 description = "Figment provider for adotenv documents."
@@ -19,7 +19,7 @@ load = ["adotenv/load"]
 all-features = true
 
 [dependencies]
-adotenv = { path = "..", version = "0.9.9" }
+adotenv = { path = "..", version = "0.9.10" }
 figment = { version = "0.10", default-features = false }
 
 [dev-dependencies]

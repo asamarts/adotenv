@@ -965,6 +965,23 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - No new parser fuzz target was added for lookup indexing; the index is pure
   data-structure code and is covered by differential and fallback tests.
 
+### 0.9.10 development slice (2026-10-23)
+
+- Human and JSON diff now parse the baseline once and candidates incrementally,
+  buffering output until every candidate validates. Matrix diff keeps the
+  complete document set. On three identical 65,536-entry files, peak RSS falls
+  from 95.6 MB to 67.4 MB with byte-identical output.
+- Added regression tests for late read and strict-parse failures in both human
+  and JSON non-matrix modes, asserting empty stdout and exit code 2.
+- Validation: workspace 320 tests passed with 7 ignored; load 268, load+serde
+  278 and alloc-only 248, each with 7 ignored; config and Figment load tests pass
+  6 each. fmt, Clippy and warning-denied docs pass under Rust 1.95 and 1.99.
+  MSRV 1.81, alloc-only `thumbv7em-none-eabi`, package verification, bench smoke,
+  pinned conformance, Windows library/binary cross-checks and the forced
+  patch-semver check against 0.9.9 (229 checks pass, 31 skip) are green. The
+  parser and lookup index are unchanged in this increment; the 0.9.8 parser
+  fuzz campaign remains the latest parser evidence.
+
 ### 0.9.9 release (2026-10-23)
 
 - Release run

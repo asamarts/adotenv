@@ -543,6 +543,43 @@ fn diff_compares_multiple_files_against_a_baseline_and_renders_a_matrix() {
 }
 
 #[test]
+fn diff_does_not_emit_partial_output_when_a_later_candidate_fails() {
+    let dir = TempDir::new();
+    let base = dir.file("base.env", "A=1\n");
+    let changed = dir.file("changed.env", "A=2\n");
+    let bad = dir.file("bad.env", "BAD KEY=value\n");
+
+    let output = run(&[
+        "diff",
+        base.to_str().unwrap(),
+        changed.to_str().unwrap(),
+        bad.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(stdout(&output), "");
+    assert!(stderr(&output).contains("bad.env"));
+
+    let output = run(&[
+        "diff",
+        "--format=json",
+        base.to_str().unwrap(),
+        changed.to_str().unwrap(),
+        bad.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(stdout(&output), "");
+
+    let output = run(&[
+        "diff",
+        base.to_str().unwrap(),
+        changed.to_str().unwrap(),
+        dir.path().join("missing.env").to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(stdout(&output), "");
+}
+
+#[test]
 fn diff_json_is_versioned_and_reports_each_candidate() {
     let dir = TempDir::new();
     let base = dir.file("base.env", "A=1\n");

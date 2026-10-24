@@ -9,6 +9,8 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use std::fmt::Write as _;
+
 use adotenv::{
     load::{load_cascade_with, LoadedEnvironment},
     parse_strict_with, parse_with, AssignmentState, ComparedValue, Comparison, Diagnostic, Dialect,
@@ -886,6 +888,12 @@ fn diff(args: &[String], dialect: Dialect) -> u8 {
         eprintln!("standard input may be used at most once");
         return 2;
     }
+    if format != DiffFormat::Matrix {
+        return diff_streaming(&paths, format, dialect);
+    }
+
+    // The matrix needs every candidate at once. Read and validate all inputs
+    // before selecting any document, preserving the all-or-nothing contract.
     let mut sources = Vec::with_capacity(paths.len());
     for path in &paths {
         match read_text(path) {
@@ -900,54 +908,77 @@ fn diff(args: &[String], dialect: Dialect) -> u8 {
             Err(error) => return fail(format!("{path}: {error}")),
         }
     }
-    let differs = match format {
-        DiffFormat::Human => diff_human(&paths, &docs),
-        DiffFormat::Matrix => diff_matrix(&paths, &docs),
-        DiffFormat::Json => diff_json(&paths, &docs),
+    u8::from(diff_matrix(&paths, &docs))
+}
+
+fn diff_streaming(paths: &[String], format: DiffFormat, dialect: Dialect) -> u8 {
+    let baseline_source = match read_text(&paths[0]) {
+        Ok(source) => source,
+        Err(error) => return fail(error),
     };
-    u8::from(differs)
-}
+    let baseline = match parse_strict_with(&baseline_source, dialect) {
+        Ok(document) => document,
+        Err(error) => return fail(format!("{}: {error}", paths[0])),
+    };
 
-fn diff_human(paths: &[String], docs: &[Document<'_>]) -> bool {
-    let baseline = &docs[0];
+    let mut output = String::new();
+    let multi = paths.len() > 2;
+    if format == DiffFormat::Json {
+        write!(
+            output,
+            "{{\"version\":1,\"baseline\":{},\"files\":[",
+            json_string(&paths[0])
+        )
+        .expect("writing to String cannot fail");
+    }
+
     let mut differs = false;
-    for index in 1..docs.len() {
-        let comparison = baseline.compare(&docs[index]);
+    for (index, path) in paths.iter().enumerate().skip(1) {
+        let source = match read_text(path) {
+            Ok(source) => source,
+            Err(error) => return fail(error),
+        };
+        let document = match parse_strict_with(&source, dialect) {
+            Ok(document) => document,
+            Err(error) => return fail(format!("{path}: {error}")),
+        };
+        let comparison = baseline.compare(&document);
         if !comparison.is_empty() {
             differs = true;
         }
-        if docs.len() > 2 {
-            println!("{} -> {}", paths[0], paths[index]);
-            if comparison.is_empty() {
-                println!("(no differences)");
+
+        match format {
+            DiffFormat::Human => {
+                if multi {
+                    writeln!(output, "{} -> {}", paths[0], path)
+                        .expect("writing to String cannot fail");
+                    if comparison.is_empty() {
+                        output.push_str("(no differences)\n");
+                    }
+                }
+                write_comparison(&mut output, &comparison);
             }
+            DiffFormat::Json => {
+                if index > 1 {
+                    output.push(',');
+                }
+                write!(
+                    output,
+                    "{{\"path\":{},\"ok\":true,\"differences\":[{}]}}",
+                    json_string(path),
+                    render_comparison_json(&comparison)
+                )
+                .expect("writing to String cannot fail");
+            }
+            DiffFormat::Matrix => unreachable!("matrix output uses the retained document set"),
         }
-        print_comparison(&comparison);
     }
-    differs
-}
 
-fn diff_json(paths: &[String], docs: &[Document<'_>]) -> bool {
-    let baseline = &docs[0];
-    let mut differs = false;
-    let mut files = Vec::new();
-    for index in 1..docs.len() {
-        let comparison = baseline.compare(&docs[index]);
-        if !comparison.is_empty() {
-            differs = true;
-        }
-        files.push(format!(
-            "{{\"path\":{},\"ok\":true,\"differences\":[{}]}}",
-            json_string(&paths[index]),
-            render_comparison_json(&comparison)
-        ));
+    if format == DiffFormat::Json {
+        output.push_str("]}\n");
     }
-    println!(
-        "{{\"version\":1,\"baseline\":{},\"files\":[{}]}}",
-        json_string(&paths[0]),
-        files.join(",")
-    );
-    differs
+    print!("{output}");
+    u8::from(differs)
 }
 
 fn diff_matrix(paths: &[String], docs: &[Document<'_>]) -> bool {
@@ -1201,27 +1232,25 @@ fn validate_child_environment(loaded: &LoadedEnvironment) -> Result<(), String> 
     Ok(())
 }
 
-fn print_comparison(comparison: &Comparison) {
+fn write_comparison(output: &mut String, comparison: &Comparison) {
     for entry in comparison.differences() {
-        match entry.kind {
+        let result = match entry.kind {
             DifferenceKind::OnlyLeft => {
-                println!("- {}={}", entry.key, describe(entry.left.as_ref()));
+                writeln!(output, "- {}={}", entry.key, describe(entry.left.as_ref()))
             }
             DifferenceKind::OnlyRight => {
-                println!("+ {}={}", entry.key, describe(entry.right.as_ref()));
+                writeln!(output, "+ {}={}", entry.key, describe(entry.right.as_ref()))
             }
-            DifferenceKind::State | DifferenceKind::Value | DifferenceKind::Export => {
-                println!(
-                    "~ {}: {} -> {}",
-                    entry.key,
-                    describe(entry.left.as_ref()),
-                    describe(entry.right.as_ref())
-                );
-            }
-            _ => {
-                println!("~ {}: <unknown difference>", entry.key);
-            }
-        }
+            DifferenceKind::State | DifferenceKind::Value | DifferenceKind::Export => writeln!(
+                output,
+                "~ {}: {} -> {}",
+                entry.key,
+                describe(entry.left.as_ref()),
+                describe(entry.right.as_ref())
+            ),
+            _ => writeln!(output, "~ {}: <unknown difference>", entry.key),
+        };
+        result.expect("writing to String cannot fail");
     }
 }
 

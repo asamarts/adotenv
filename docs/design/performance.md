@@ -174,6 +174,15 @@ parsed and uses a temporary occurrence map for reports. Values-only loading now
 uses the shared parser's projection mode, so it retains neither the document
 nor report metadata; its peak is close to the final map size.
 
+### Streaming non-matrix diff (0.9.10)
+
+Human and JSON diff now parse the baseline once and each candidate incrementally,
+buffering output until every candidate validates. Matrix output still retains
+all documents because it needs every column at once. On a three-file fixture of
+identical 65,536-entry documents, peak RSS fell from 95.6 MB to 67.4 MB while
+producing byte-identical output. The reduction grows with the number of
+candidates; the preceding figure is a local measurement, not a CI threshold.
+
 ## Performance follow-ups
 
 Ranked by expected impact and risk:
@@ -202,9 +211,9 @@ Ranked by expected impact and risk:
    to 15.6 ms and a 64-key batch falls from 8.14 µs to 1.62 µs; retained RSS is
    about 30.9 MB versus 31.5 MB. Bounded probing falls back to the ordered map
    for collision-heavy inputs.
-7. **Streaming multi-file diff.** Human/JSON diff currently reads and parses all
-   candidates before emitting output; process candidates incrementally for
-   non-matrix modes to lower peak memory on large file sets.
+7. **Streaming multi-file diff (implemented).** Human/JSON diff parses the
+   baseline and each candidate incrementally, buffering output to preserve the
+   no-partial-output contract. Matrix output intentionally retains all documents.
 
 ## Interpretation
 
