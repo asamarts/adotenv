@@ -1,6 +1,6 @@
 # Migrating and adopting adotenv
 
-Status: current published release **0.9.11**; target compatibility release **1.0**.
+Status: current published release **0.9.12**; target compatibility release **1.0**.
 The core API has been frozen since 0.8 and no core breaking changes are planned
 for 1.0. This guide is the user-facing path; the evidence checklist for the 1.0
 milestone lives in [docs/design/1.0-readiness.md](docs/design/1.0-readiness.md).
@@ -9,7 +9,7 @@ milestone lives in [docs/design/1.0-readiness.md](docs/design/1.0-readiness.md).
 
 ```toml
 [dependencies]
-adotenv = "0.9.11"
+adotenv = "0.9.12"
 ```
 
 The default feature set is `std`. Disable default features for `alloc`-only
@@ -74,6 +74,7 @@ Common next steps:
 | 0.9.9 | Compact lookup index and empty-key lookup fix |
 | 0.9.10 | Streaming non-matrix multi-file diff |
 | 0.9.11 | Indexed document comparison |
+| 0.9.12 | Compact incremental matrix diff |
 | 1.0 | Compatibility target; no planned core API break |
 
 ## Migrating from 0.9.x to 1.0

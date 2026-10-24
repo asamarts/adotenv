@@ -982,6 +982,22 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   parser and lookup index are unchanged in this increment; the 0.9.8 parser
   fuzz campaign remains the latest parser evidence.
 
+### 0.9.12 development slice (2026-10-24)
+
+- Matrix diff now extends a compact row table one candidate at a time instead of
+  retaining every document. Three identical 65,536-entry files fall from
+  119.6 MB / 141 seconds to 103.0 MB / 0.8 seconds with byte-identical output.
+- Added matrix-late-failure coverage through the existing non-partial-output
+  tests; matrix output remains buffered until all candidates validate.
+- Validation: workspace 321 tests passed with 7 ignored; load 269, load+serde
+  279 and alloc-only 249, each with 7 ignored; config and Figment load tests pass
+  6 each. fmt, Clippy and warning-denied docs pass under Rust 1.95 and 1.99.
+  MSRV 1.81, alloc-only `thumbv7em-none-eabi`, package verification, bench smoke,
+  pinned conformance, Windows library/binary cross-checks and the forced
+  patch-semver check against 0.9.11 (229 checks pass, 31 skip) are green. The
+  parser and lookup-index representation are unchanged; the 0.9.8 parser fuzz
+  campaign remains the latest parser evidence.
+
 ### 0.9.11 release (2026-10-24)
 
 - Release run

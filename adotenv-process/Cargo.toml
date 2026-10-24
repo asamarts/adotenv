@@ -1,6 +1,6 @@
 [package]
 name = "adotenv-process"
-version = "0.9.11"
+version = "0.9.12"
 edition = "2021"
 rust-version = "1.81"
 description = "Unsafe process-environment adapter for adotenv loaded values."
@@ -12,7 +12,7 @@ keywords = ["dotenv", "environment", "process", "config"]
 categories = ["config", "development-tools"]
 
 [dependencies]
-adotenv = { path = "..", version = "0.9.11", features = ["load"] }
+adotenv = { path = "..", version = "0.9.12", features = ["load"] }
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

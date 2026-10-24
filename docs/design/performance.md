@@ -187,6 +187,11 @@ about 0.6 seconds instead of a quadratic scan; output remains identical. The
 reduction over the retained-document path grows with the number of candidates;
 these are local measurements, not CI thresholds.
 
+Matrix mode now extends a compact row table one candidate at a time instead of
+retaining every document. On the same three-file 65,536-entry fixture, peak RSS
+falls from 119.6 MB to 103.0 MB and runtime from 141 seconds to 0.8 seconds,
+with identical 10,289,460-byte table output.
+
 ## Performance follow-ups
 
 Ranked by expected impact and risk:
@@ -217,7 +222,8 @@ Ranked by expected impact and risk:
    for collision-heavy inputs.
 7. **Streaming multi-file diff (implemented).** Human/JSON diff parses the
    baseline and each candidate incrementally, buffering output to preserve the
-   no-partial-output contract. Matrix output intentionally retains all documents.
+   no-partial-output contract. Matrix mode now extends compact rows incrementally
+   instead of retaining every document.
 8. **Comparison lookup (implemented).** `Document::compare` uses `LookupIndex`
    for nonempty keys and a direct lookup only for dialect-specific empty keys,
    removing the per-key document scan.

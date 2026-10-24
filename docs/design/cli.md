@@ -2,7 +2,7 @@
 
 Status: the zero-dependency `adotenv-cli` companion was published as 0.7.0 on
 2026-10-19, 0.7.1 on 2026-10-20, 0.8.0 and 0.9.0 on 2026-10-21, 0.9.1 through
-0.9.4 on 2026-10-22, and 0.9.5 through 0.9.10 on 2026-10-23, and 0.9.11 on 2026-10-24. `run` starts a child process with loaded values but does not mutate
+0.9.4 on 2026-10-22, and 0.9.5 through 0.9.12 on 2026-10-23/24. `run` starts a child process with loaded values but does not mutate
 the parent environment.
 
 ## Commands
@@ -101,7 +101,9 @@ candidate differs from the baseline.
 `--format matrix` prints a table with keys as rows and the baseline plus every
 candidate as columns. Missing keys show `<unset>`, bare declarations show
 `<bare>`, empty values show `""`, and exported declarations are prefixed with
-`export`. Values are escaped for tabs, carriage returns and line feeds.
+`export`. Values are escaped for tabs, carriage returns and line feeds. Matrix
+mode extends a compact row table one candidate at a time rather than retaining
+every document; output is still buffered until all candidates validate.
 
 `--format json` (also available as `--json`) emits one versioned object:
 
@@ -188,7 +190,7 @@ lookup policy and native edit verification for every command, including
 ## Deliberate limits
 
 - Command substitution from loaded files is not enabled.
-- The CLI is published as `adotenv-cli` 0.9.11; see
+- The CLI is published as `adotenv-cli` 0.9.12; see
   [RELEASING.md](../../RELEASING.md).
 - The companion `config` and `figment` adapters live in separate workspace crates.
 - Unix writes use atomic rename. Windows attempts a direct replace and falls

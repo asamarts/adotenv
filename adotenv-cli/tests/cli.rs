@@ -571,6 +571,16 @@ fn diff_does_not_emit_partial_output_when_a_later_candidate_fails() {
 
     let output = run(&[
         "diff",
+        "--format=matrix",
+        base.to_str().unwrap(),
+        changed.to_str().unwrap(),
+        bad.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(stdout(&output), "");
+
+    let output = run(&[
+        "diff",
         base.to_str().unwrap(),
         changed.to_str().unwrap(),
         dir.path().join("missing.env").to_str().unwrap(),

@@ -1,7 +1,7 @@
 //! Small zero-dependency CLI for adotenv documents.
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     env, fs,
     io::{self, Read, Write},
     path::{Path, PathBuf},
@@ -892,23 +892,7 @@ fn diff(args: &[String], dialect: Dialect) -> u8 {
         return diff_streaming(&paths, format, dialect);
     }
 
-    // The matrix needs every candidate at once. Read and validate all inputs
-    // before selecting any document, preserving the all-or-nothing contract.
-    let mut sources = Vec::with_capacity(paths.len());
-    for path in &paths {
-        match read_text(path) {
-            Ok(source) => sources.push(source),
-            Err(error) => return fail(error),
-        }
-    }
-    let mut docs = Vec::with_capacity(sources.len());
-    for (path, source) in paths.iter().zip(&sources) {
-        match parse_strict_with(source, dialect) {
-            Ok(doc) => docs.push(doc),
-            Err(error) => return fail(format!("{path}: {error}")),
-        }
-    }
-    u8::from(diff_matrix(&paths, &docs))
+    diff_matrix_files(&paths, dialect)
 }
 
 fn diff_streaming(paths: &[String], format: DiffFormat, dialect: Dialect) -> u8 {
@@ -981,71 +965,103 @@ fn diff_streaming(paths: &[String], format: DiffFormat, dialect: Dialect) -> u8 
     u8::from(differs)
 }
 
-fn diff_matrix(paths: &[String], docs: &[Document<'_>]) -> bool {
-    let keys = collect_diff_keys(docs);
-    let mut rows = Vec::with_capacity(keys.len() + 1);
-    let mut header = Vec::with_capacity(docs.len() + 1);
-    header.push("key".to_string());
-    header.extend(paths.iter().map(|path| escape_table(path)));
-    rows.push(header);
-    for key in keys {
-        let mut row = Vec::with_capacity(docs.len() + 1);
-        row.push(escape_table(&key));
-        for doc in docs {
-            row.push(escape_table(&matrix_value(doc, &key)));
-        }
-        rows.push(row);
-    }
-    let columns = docs.len() + 1;
-    let mut widths = vec![0usize; columns];
-    for row in &rows {
-        for (index, cell) in row.iter().enumerate() {
-            widths[index] = widths[index].max(cell.chars().count());
+struct MatrixRows {
+    keys: Vec<String>,
+    rows: Vec<Vec<String>>,
+    seen: BTreeSet<String>,
+}
+
+impl MatrixRows {
+    fn new() -> Self {
+        Self {
+            keys: Vec::new(),
+            rows: Vec::new(),
+            seen: BTreeSet::new(),
         }
     }
-    for (row_index, row) in rows.iter().enumerate() {
-        let mut line = String::new();
-        for (index, cell) in row.iter().enumerate() {
-            if index > 0 {
-                line.push_str(" | ");
-            }
-            line.push_str(&format!("{cell:<width$}", width = widths[index]));
-        }
-        println!("{line}");
-        if row_index == 0 {
-            println!(
-                "{}",
-                widths
-                    .iter()
-                    .map(|width| "-".repeat(*width))
-                    .collect::<Vec<_>>()
-                    .join("-+-")
+
+    fn push(&mut self, document: &Document<'_>) {
+        let (keys, values) = matrix_column(document);
+        let prior_columns = self.rows.first().map_or(0, Vec::len);
+        for (key, row) in self.keys.iter().zip(self.rows.iter_mut()) {
+            row.push(
+                values
+                    .get(key)
+                    .cloned()
+                    .unwrap_or_else(|| "<unset>".to_string()),
             );
         }
-    }
-    let baseline = &docs[0];
-    (1..docs.len()).any(|index| !baseline.compare(&docs[index]).is_empty())
-}
-
-fn collect_diff_keys(docs: &[Document<'_>]) -> Vec<String> {
-    let mut keys = Vec::new();
-    let mut seen = BTreeSet::new();
-    for doc in docs {
-        for entry in doc.entries() {
-            if !entry.participates_in_lookup() {
-                continue;
-            }
-            let key = entry.key();
-            if seen.insert(key.to_string()) {
-                keys.push(key.to_string());
+        for key in keys {
+            if self.seen.insert(key.clone()) {
+                let mut row = vec!["<unset>".to_string(); prior_columns];
+                row.push(values.get(&key).cloned().unwrap_or_default());
+                self.keys.push(key);
+                self.rows.push(row);
             }
         }
     }
-    keys
 }
 
-fn matrix_value(doc: &Document<'_>, key: &str) -> String {
-    let Some(entry) = doc.get_entry(key) else {
+fn diff_matrix_files(paths: &[String], dialect: Dialect) -> u8 {
+    let baseline_source = match read_text(&paths[0]) {
+        Ok(source) => source,
+        Err(error) => return fail(error),
+    };
+    let baseline = match parse_strict_with(&baseline_source, dialect) {
+        Ok(document) => document,
+        Err(error) => return fail(format!("{}: {error}", paths[0])),
+    };
+    let mut matrix = MatrixRows::new();
+    matrix.push(&baseline);
+
+    let mut differs = false;
+    for path in paths.iter().skip(1) {
+        let source = match read_text(path) {
+            Ok(source) => source,
+            Err(error) => return fail(error),
+        };
+        let document = match parse_strict_with(&source, dialect) {
+            Ok(document) => document,
+            Err(error) => return fail(format!("{path}: {error}")),
+        };
+        if !baseline.compare(&document).is_empty() {
+            differs = true;
+        }
+        matrix.push(&document);
+    }
+    print_matrix(paths, &matrix);
+    u8::from(differs)
+}
+
+fn matrix_column(document: &Document<'_>) -> (Vec<String>, BTreeMap<String, String>) {
+    let index = document.lookup_index();
+    let mut keys = Vec::new();
+    let mut seen = BTreeSet::new();
+    for entry in document.entries() {
+        if !entry.participates_in_lookup() {
+            continue;
+        }
+        let key = entry.key();
+        if seen.insert(key.to_string()) {
+            keys.push(key.to_string());
+        }
+    }
+    let values = keys
+        .iter()
+        .map(|key| {
+            let entry = if key.is_empty() {
+                document.get_entry(key)
+            } else {
+                index.get_entry(key)
+            };
+            (key.clone(), matrix_entry_value(entry))
+        })
+        .collect();
+    (keys, values)
+}
+
+fn matrix_entry_value(entry: Option<adotenv::Entry<'_>>) -> String {
+    let Some(entry) = entry else {
         return "<unset>".to_string();
     };
     let value = match (entry.state(), entry.value()) {
@@ -1059,6 +1075,52 @@ fn matrix_value(doc: &Document<'_>, key: &str) -> String {
     } else {
         value
     }
+}
+
+fn print_matrix(paths: &[String], matrix: &MatrixRows) {
+    let columns = paths.len() + 1;
+    let mut widths = vec![0usize; columns];
+    widths[0] = escape_table("key").chars().count();
+    for (index, path) in paths.iter().enumerate() {
+        widths[index + 1] = escape_table(path).chars().count();
+    }
+    for (key, row) in matrix.keys.iter().zip(&matrix.rows) {
+        widths[0] = widths[0].max(escape_table(key).chars().count());
+        for (index, value) in row.iter().enumerate() {
+            widths[index + 1] = widths[index + 1].max(escape_table(value).chars().count());
+        }
+    }
+
+    let mut header = Vec::with_capacity(columns);
+    header.push("key".to_string());
+    header.extend(paths.iter().cloned());
+    print_table_row(&header, &widths);
+    println!(
+        "{}",
+        widths
+            .iter()
+            .map(|width| "-".repeat(*width))
+            .collect::<Vec<_>>()
+            .join("-+-")
+    );
+    for (key, row) in matrix.keys.iter().zip(&matrix.rows) {
+        let mut cells = Vec::with_capacity(columns);
+        cells.push(key.clone());
+        cells.extend(row.iter().cloned());
+        print_table_row(&cells, &widths);
+    }
+}
+
+fn print_table_row(cells: &[String], widths: &[usize]) {
+    let mut line = String::new();
+    for (index, cell) in cells.iter().enumerate() {
+        if index > 0 {
+            line.push_str(" | ");
+        }
+        let escaped = escape_table(cell);
+        line.push_str(&format!("{escaped:<width$}", width = widths[index]));
+    }
+    println!("{line}");
 }
 
 fn escape_table(value: &str) -> String {
