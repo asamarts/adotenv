@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.14] - 2026-10-24
+
+### Performance
+
+- When reports are retained, the default full loader no longer stores a duplicate
+  final-origin map; `origin()` derives from the final matching entry through a
+  lazy lookup cache. The 65,536-entry fixture falls from 83.3 MB peak / 56.6 MB
+  retained RSS to 76.5 MB / 49.3 MB. With raw tokens disabled it falls from
+  68.3 MB / 41.3 MB to 61.1 MB / 34.0 MB.
+- Added coverage for repeated origin lookup through the lazy cache.
+
 ## [0.9.13] - 2026-10-24
 
 ### Added

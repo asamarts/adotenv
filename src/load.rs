@@ -14,6 +14,7 @@ use std::{
     ops::Range,
     path::{Path, PathBuf},
     string::String,
+    sync::OnceLock,
     vec::Vec,
 };
 
@@ -93,7 +94,7 @@ pub struct LoadSkipped {
 }
 
 /// Fully validated result of a file load.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct LoadedEnvironment {
     values: BTreeMap<String, String>,
     origins: BTreeMap<String, LoadOrigin>,
@@ -104,7 +105,26 @@ pub struct LoadedEnvironment {
     repeated: Vec<LoadRepeated>,
     skipped: Vec<LoadSkipped>,
     raw_tokens: bool,
+    origins_in_entries: bool,
+    origin_index: OnceLock<BTreeMap<String, usize>>,
 }
+
+impl PartialEq for LoadedEnvironment {
+    fn eq(&self, other: &Self) -> bool {
+        self.values == other.values
+            && self.origins == other.origins
+            && self.raw_entries == other.raw_entries
+            && self.dialect == other.dialect
+            && self.entries == other.entries
+            && self.overrides == other.overrides
+            && self.repeated == other.repeated
+            && self.skipped == other.skipped
+            && self.raw_tokens == other.raw_tokens
+            && self.origins_in_entries == other.origins_in_entries
+    }
+}
+
+impl Eq for LoadedEnvironment {}
 
 /// Retention policy for the full loader.
 ///
@@ -193,12 +213,38 @@ impl LoadedEnvironment {
     }
     /// Final origin for one effective key.
     ///
-    /// Returns `None` when loaded with [`LoadOptions::with_origins`] set to
-    /// `false`.
+    /// When reports are retained, the origin is derived from the final matching
+    /// [`LoadedEntry`] instead of storing a duplicate map. Returns `None` when
+    /// loaded with [`LoadOptions::with_origins`] set to `false`.
     #[must_use]
     pub fn origin(&self, key: &str) -> Option<&LoadOrigin> {
-        self.origins.get(key)
+        if self.origins_in_entries {
+            let index = self.origin_index.get_or_init(|| {
+                self.entries
+                    .iter()
+                    .enumerate()
+                    .map(|(index, entry)| (entry.key.clone(), index))
+                    .collect()
+            });
+            index
+                .get(key)
+                .and_then(|index| self.entries.get(*index))
+                .map(|entry| &entry.origin)
+        } else {
+            self.origins.get(key)
+        }
     }
+    fn origins_map(&self) -> BTreeMap<String, LoadOrigin> {
+        if self.origins_in_entries {
+            self.entries
+                .iter()
+                .map(|entry| (entry.key.clone(), entry.origin.clone()))
+                .collect()
+        } else {
+            self.origins.clone()
+        }
+    }
+
     /// Every loaded declaration, including later-overridden entries.
     ///
     /// Empty when loaded with [`LoadOptions::with_reports`] set to `false`.
@@ -436,7 +482,7 @@ impl LoadedEnvironment {
         }
         Ok(ResolvedEnvironment {
             values,
-            origins: self.origins.clone(),
+            origins: self.origins_map(),
         })
     }
 
@@ -492,7 +538,7 @@ impl LoadedEnvironment {
         }
         Ok(ResolvedEnvironment {
             values,
-            origins: self.origins.clone(),
+            origins: self.origins_map(),
         })
     }
 }
@@ -768,7 +814,11 @@ where
         repeated: Vec::new(),
         skipped: Vec::new(),
         raw_tokens: options.retain_raw_tokens,
+        origins_in_entries: options.retain_reports && options.retain_origins,
+        origin_index: OnceLock::new(),
     };
+    let mut previous_origins = BTreeMap::new();
+    let mut previous_index = BTreeMap::new();
     let mut next_order = 0;
     for path in paths {
         let path = path.as_ref();
@@ -795,7 +845,18 @@ where
                 diagnostic,
             });
         }
-        merge_document(&mut loaded, path, &document, options, &mut next_order);
+        merge_document(
+            &mut loaded,
+            path,
+            &document,
+            options,
+            &mut previous_origins,
+            &mut previous_index,
+            &mut next_order,
+        );
+    }
+    if !loaded.origins_in_entries && options.retain_origins {
+        loaded.origins = previous_origins;
     }
     Ok(loaded)
 }
@@ -804,6 +865,8 @@ struct MergeState<'a> {
     loaded: &'a mut LoadedEnvironment,
     path: &'a Path,
     options: LoadOptions,
+    previous_origins: &'a mut BTreeMap<String, LoadOrigin>,
+    previous_index: &'a mut BTreeMap<String, usize>,
     next_order: usize,
 }
 
@@ -812,12 +875,16 @@ fn merge_document(
     path: &Path,
     document: &crate::Document<'_>,
     options: LoadOptions,
+    previous_origins: &mut BTreeMap<String, LoadOrigin>,
+    previous_index: &mut BTreeMap<String, usize>,
     next_order: &mut usize,
 ) {
     let mut state = MergeState {
         loaded,
         path,
         options,
+        previous_origins,
+        previous_index,
         next_order: *next_order,
     };
     if options.retain_reports {
@@ -954,29 +1021,28 @@ fn merge_effective(
             (order, raw_key.to_string(), raw_value.to_string()),
         );
     }
-    let previous = if state.options.retain_origins {
-        state
-            .loaded
-            .origins
-            .insert(key.clone(), entry_origin.clone())
-    } else {
-        None
-    };
     if state.options.retain_reports {
+        let entry_index = state.loaded.entries.len();
+        let previous = if state.options.retain_origins {
+            state.previous_index.insert(key.clone(), entry_index)
+        } else {
+            None
+        };
         state.loaded.entries.push(LoadedEntry {
             key: key.clone(),
             value: value.clone(),
             origin: entry_origin.clone(),
         });
-        if state.options.retain_origins {
-            if let Some(previous) = previous {
-                state.loaded.overrides.push(LoadOverride {
-                    key: key.clone(),
-                    previous,
-                    replacement: entry_origin,
-                });
-            }
+        if let (Some(previous), true) = (previous, state.options.retain_origins) {
+            let previous = state.loaded.entries[previous].origin.clone();
+            state.loaded.overrides.push(LoadOverride {
+                key: key.clone(),
+                previous,
+                replacement: entry_origin,
+            });
         }
+    } else if state.options.retain_origins {
+        state.previous_origins.insert(key.clone(), entry_origin);
     }
     state.loaded.values.insert(key, value);
 }

@@ -239,6 +239,7 @@ fn origin_spans_address_the_original_file() {
     let origin = loaded.origin("KEY").unwrap();
     assert_eq!(&source[origin.span.clone()], "value");
     assert_eq!(origin.line, 2);
+    assert_eq!(loaded.origin("KEY").unwrap().span, origin.span);
 }
 
 #[test]

@@ -9,7 +9,7 @@ lossless document model.
 ## Feature and API
 
 ```toml
-adotenv = { version = "0.9.13", features = ["load"] }
+adotenv = { version = "0.9.14", features = ["load"] }
 ```
 
 - `load_cascade(directory, mode)` uses Portable syntax.
@@ -85,9 +85,11 @@ disable either allocation independently:
   remains available.
 - `with_reports(false)` drops `entries()`, `overrides()`, `repeated()` and
   `skipped()` while retaining values, origins and (unless disabled) raw tokens.
-- `with_origins(false)` drops the final `origin()` map and cross-file override
-  reports. Reports that remain enabled still carry their own origins; combine
-  it with `with_reports(false)` for the lowest full-loader residency.
+- `with_origins(false)` drops `origin()` and cross-file override reports.
+  Reports that remain enabled still carry their own origins; combine it with
+  `with_reports(false)` for the lowest full-loader residency. With reports
+  retained, `origin()` is derived from the final matching entry through a lazy
+  lookup cache rather than a duplicate map.
 
 The linear merge pass reads each source document once. Report retention uses a
 temporary per-key occurrence map and does not scan the whole document for every
@@ -114,7 +116,7 @@ assert_eq!(values.get("PORT"), Some("8080"));
 Use `LoadedEnvironment` when provenance or `resolve_contextual` is required.
 For a 65,536-entry file, the local memory profile recorded in
 [performance.md](performance.md) is about 13.6 MB peak and retained RSS for
-values-only loading, versus 83.3 MB / 56.6 MB for the full default loader.
+values-only loading, versus 76.5 MB / 49.3 MB for the full default loader.
 Disabling origins and reports lowers the full loader to about 54.3 MB peak /
 28.9 MB retained with raw tokens, or 39.0 MB / 13.6 MB with raw tokens also
 disabled.

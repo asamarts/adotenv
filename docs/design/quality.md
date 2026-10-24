@@ -1014,6 +1014,22 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   and lookup-index code are unchanged; the 0.9.8 parser fuzz campaign remains
   the latest parser evidence.
 
+### 0.9.14 development slice (2026-10-24)
+
+- The default full loader now derives final origins from retained entries through
+  a lazy lookup cache instead of storing a duplicate map. The 65,536-entry
+  fixture falls from 83.3 MB / 56.6 MB peak/retained to 76.5 MB / 49.3 MB; with
+  raw tokens disabled, 61.1 MB / 34.0 MB.
+- Added coverage for repeated origin lookup through the lazy cache.
+- Validation: workspace 322 tests passed with 7 ignored; load 270, load+serde
+  280 and alloc-only 249, each with 7 ignored; config and Figment load tests pass
+  6 each. fmt, Clippy and warning-denied docs pass under Rust 1.95 and 1.99.
+  MSRV 1.81, alloc-only `thumbv7em-none-eabi`, package verification, bench smoke,
+  pinned conformance, Windows library/binary cross-checks and the forced
+  patch-semver check against 0.9.13 (229 checks pass, 31 skip) are green. Parser
+  and lookup-index code are unchanged; the 0.9.8 parser fuzz campaign remains the
+  latest parser evidence.
+
 ### 0.9.13 release (2026-10-24)
 
 - Release run
