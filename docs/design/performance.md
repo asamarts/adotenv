@@ -174,14 +174,18 @@ parsed and uses a temporary occurrence map for reports. Values-only loading now
 uses the shared parser's projection mode, so it retains neither the document
 nor report metadata; its peak is close to the final map size.
 
-### Streaming non-matrix diff (0.9.10)
+### Streaming and indexed diff (0.9.10/0.9.11)
 
-Human and JSON diff now parse the baseline once and each candidate incrementally,
+Human and JSON diff parse the baseline once and each candidate incrementally,
 buffering output until every candidate validates. Matrix output still retains
-all documents because it needs every column at once. On a three-file fixture of
-identical 65,536-entry documents, peak RSS fell from 95.6 MB to 67.4 MB while
-producing byte-identical output. The reduction grows with the number of
-candidates; the preceding figure is a local measurement, not a CI threshold.
+all documents because it needs every column at once. Streaming alone reduced
+peak RSS from 95.6 MB to 67.4 MB, but `Document::compare` still scanned the
+document for every key. 0.9.11 uses the explicit `LookupIndex` for comparison,
+with a direct fallback for dialect-specific empty keys. On the same three-file
+65,536-entry fixture, peak RSS is about 73.3 MB and the complete diff runs in
+about 0.6 seconds instead of a quadratic scan; output remains identical. The
+reduction over the retained-document path grows with the number of candidates;
+these are local measurements, not CI thresholds.
 
 ## Performance follow-ups
 
@@ -214,6 +218,9 @@ Ranked by expected impact and risk:
 7. **Streaming multi-file diff (implemented).** Human/JSON diff parses the
    baseline and each candidate incrementally, buffering output to preserve the
    no-partial-output contract. Matrix output intentionally retains all documents.
+8. **Comparison lookup (implemented).** `Document::compare` uses `LookupIndex`
+   for nonempty keys and a direct lookup only for dialect-specific empty keys,
+   removing the per-key document scan.
 
 ## Interpretation
 

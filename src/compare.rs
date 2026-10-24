@@ -121,10 +121,22 @@ impl Document<'_> {
         collect_keys(self, &mut keys, &mut seen);
         collect_keys(other, &mut keys, &mut seen);
 
+        let left_index = self.lookup_index();
+        let right_index = other.lookup_index();
         let mut differences = Vec::new();
         for key in keys {
-            let left = self.get_entry(&key).map(snapshot);
-            let right = other.get_entry(&key).map(snapshot);
+            let left = if key.is_empty() {
+                self.get_entry(&key)
+            } else {
+                left_index.get_entry(&key)
+            }
+            .map(snapshot);
+            let right = if key.is_empty() {
+                other.get_entry(&key)
+            } else {
+                right_index.get_entry(&key)
+            }
+            .map(snapshot);
             let kind = match (&left, &right) {
                 (None, Some(_)) => DifferenceKind::OnlyRight,
                 (Some(_), None) => DifferenceKind::OnlyLeft,

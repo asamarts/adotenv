@@ -58,6 +58,16 @@ fn empty_and_absent_are_distinct() {
 }
 
 #[test]
+fn compose_empty_keys_are_compared_directly() {
+    let (left, _) = parse_with("AA", Dialect::COMPOSE);
+    let (right, _) = parse_with("", Dialect::COMPOSE);
+    let comparison = left.compare(&right);
+    assert_eq!(comparison.len(), 1);
+    assert_eq!(comparison.differences()[0].key, "");
+    assert_eq!(comparison.differences()[0].kind, DifferenceKind::OnlyLeft);
+}
+
+#[test]
 fn duplicate_policy_selects_the_effective_declaration() {
     let first = Dialect {
         duplicates: Duplicates::First,

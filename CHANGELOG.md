@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.11] - 2026-10-24
+
+### Performance
+
+- `Document::compare` now uses the explicit `LookupIndex` for nonempty keys and
+  a direct fallback only for dialect-specific empty keys. This removes the
+  per-key document scan that made large CLI diffs quadratic. On three identical
+  65,536-entry files, the streaming diff completes in about 0.6 seconds with
+  about 73.3 MB peak RSS, versus 95.6 MB before streaming; output is identical.
+- Added a Compose empty-key comparison regression test.
+
 ## [0.9.10] - 2026-10-23
 
 ### Performance

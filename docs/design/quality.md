@@ -994,6 +994,22 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
 - The forced patch-semver check against 0.9.9 reports no breaking API change;
   this release streams non-matrix diff candidate processing.
 
+### 0.9.11 development slice (2026-10-24)
+
+- `Document::compare` now uses `LookupIndex` for nonempty keys and a direct
+  fallback for dialect-specific empty keys, removing per-key document scans.
+  Three identical 65,536-entry files complete the streaming diff in about 0.6
+  seconds with about 73.3 MB peak RSS; output remains identical.
+- Added a Compose empty-key comparison regression test.
+- Validation: workspace 321 tests passed with 7 ignored; load 269, load+serde
+  279 and alloc-only 249, each with 7 ignored; config and Figment load tests pass
+  6 each. fmt, Clippy and warning-denied docs pass under Rust 1.95 and 1.99.
+  MSRV 1.81, alloc-only `thumbv7em-none-eabi`, package verification, bench smoke,
+  pinned conformance, Windows library/binary cross-checks and the forced
+  patch-semver check against 0.9.10 (229 checks pass, 31 skip) are green. The
+  parser and lookup-index representation are unchanged; the 0.9.8 parser fuzz
+  campaign remains the latest parser evidence.
+
 ### 0.9.9 release (2026-10-23)
 
 - Release run
