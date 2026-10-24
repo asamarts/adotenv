@@ -98,7 +98,7 @@ accepts an explicit map.
 
 ## Packaging
 
-Both crates are published at version `0.9.9`. Their default feature set is
+Both crates are published at version `0.9.10`. Their default feature set is
 empty; `load` enables only the environment constructors and the core crate’s
 file-loading feature. Docs.rs builds them with all features. `adotenv-config`
 is built against `config` 0.14, the version compatible with the workspace MSRV.
