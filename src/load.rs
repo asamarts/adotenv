@@ -98,7 +98,8 @@ pub struct LoadSkipped {
 pub struct LoadedEnvironment {
     values: BTreeMap<String, String>,
     origins: BTreeMap<String, LoadOrigin>,
-    raw_entries: BTreeMap<String, (usize, String, String)>,
+    raw_entries: BTreeMap<String, (usize, Range<usize>, Range<usize>)>,
+    raw_source: String,
     dialect: Dialect,
     entries: Vec<LoadedEntry>,
     overrides: Vec<LoadOverride>,
@@ -518,10 +519,10 @@ impl LoadedEnvironment {
         let mut entries: Vec<_> = self.raw_entries.iter().collect();
         entries.sort_unstable_by_key(|(_, (order, _, _))| *order);
         let mut source = String::new();
-        for (_, (_, raw_key, raw_value)) in entries {
-            source.push_str(raw_key);
+        for (_, (_, key_range, value_range)) in entries {
+            source.push_str(&self.raw_source[key_range.clone()]);
             source.push('=');
-            source.push_str(raw_value);
+            source.push_str(&self.raw_source[value_range.clone()]);
             source.push('\n');
         }
         let document = parse_strict_with(&source, self.dialect).map_err(|error| {
@@ -808,6 +809,7 @@ where
         values: BTreeMap::new(),
         origins: BTreeMap::new(),
         raw_entries: BTreeMap::new(),
+        raw_source: String::new(),
         dialect: options.dialect,
         entries: Vec::new(),
         overrides: Vec::new(),
@@ -858,6 +860,7 @@ where
     if !loaded.origins_in_entries && options.retain_origins {
         loaded.origins = previous_origins;
     }
+    loaded.raw_source.shrink_to_fit();
     Ok(loaded)
 }
 
@@ -1016,10 +1019,16 @@ fn merge_effective(
     if state.options.retain_raw_tokens {
         let raw_key = &document.source()[effective.tokens().key.clone()];
         let raw_value = effective.raw_value().unwrap_or_default();
-        state.loaded.raw_entries.insert(
-            key.clone(),
-            (order, raw_key.to_string(), raw_value.to_string()),
-        );
+        let key_start = state.loaded.raw_source.len();
+        state.loaded.raw_source.push_str(raw_key);
+        let key_range = key_start..state.loaded.raw_source.len();
+        let value_start = state.loaded.raw_source.len();
+        state.loaded.raw_source.push_str(raw_value);
+        let value_range = value_start..state.loaded.raw_source.len();
+        state
+            .loaded
+            .raw_entries
+            .insert(key.clone(), (order, key_range, value_range));
     }
     if state.options.retain_reports {
         let entry_index = state.loaded.entries.len();

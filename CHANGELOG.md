@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.15] - 2026-10-24
+
+### Performance
+
+- Winning raw tokens are stored in one contiguous source buffer with ranges
+  instead of two owned strings plus map overhead per key. The 65,536-entry full
+  loader falls from 76.5 MB peak / 49.3 MB retained RSS to 71.8 MB / 44.7 MB;
+  with origins and reports disabled it falls to 49.6 MB / 24.3 MB.
+- Added a final source-buffer shrink after loading.
+
 ## [0.9.14] - 2026-10-24
 
 ### Performance

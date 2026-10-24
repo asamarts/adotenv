@@ -160,11 +160,11 @@ fixture (one file, measured 2026-10-23):
 
 | Loader | Peak RSS | Retained RSS |
 |---|---:|---:|
-| full `load_files` (default) | 76.5 MB | 49.3 MB |
+| full `load_files` (default) | 71.8 MB | 44.7 MB |
 | `LoadOptions::with_raw_tokens(false)` | 61.1 MB | 34.0 MB |
-| `LoadOptions::with_reports(false)` | 67.7 MB | 42.3 MB |
+| `LoadOptions::with_reports(false)` | 63.1 MB | 37.7 MB |
 | both raw tokens and reports disabled | 52.1 MB | 27.0 MB |
-| origins and reports disabled | 54.3 MB | 28.9 MB |
+| origins and reports disabled | 49.6 MB | 24.3 MB |
 | origins, reports and raw tokens disabled | 39.0 MB | 13.6 MB |
 | `load_values` | 13.6 MB | 13.6 MB |
 
@@ -177,6 +177,8 @@ parsed and uses a temporary occurrence map for reports. A new
 override reports; combined with `with_reports(false)` it retains only values
 plus any requested raw tokens. With reports retained, final origins are derived
 from the entries through a lazy lookup cache instead of being stored twice.
+Winning raw tokens are stored in one contiguous source buffer with ranges
+instead of two owned strings plus map overhead per key.
 Values-only loading uses the shared parser's projection mode, so it retains
 neither the document nor report metadata; its peak is close to the final map
 size.

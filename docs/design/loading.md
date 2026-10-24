@@ -9,7 +9,7 @@ lossless document model.
 ## Feature and API
 
 ```toml
-adotenv = { version = "0.9.14", features = ["load"] }
+adotenv = { version = "0.9.15", features = ["load"] }
 ```
 
 - `load_cascade(directory, mode)` uses Portable syntax.
@@ -116,9 +116,9 @@ assert_eq!(values.get("PORT"), Some("8080"));
 Use `LoadedEnvironment` when provenance or `resolve_contextual` is required.
 For a 65,536-entry file, the local memory profile recorded in
 [performance.md](performance.md) is about 13.6 MB peak and retained RSS for
-values-only loading, versus 76.5 MB / 49.3 MB for the full default loader.
-Disabling origins and reports lowers the full loader to about 54.3 MB peak /
-28.9 MB retained with raw tokens, or 39.0 MB / 13.6 MB with raw tokens also
+values-only loading, versus 71.8 MB / 44.7 MB for the full default loader.
+Disabling origins and reports lowers the full loader to about 49.6 MB peak /
+24.3 MB retained with raw tokens, or 39.0 MB / 13.6 MB with raw tokens also
 disabled.
 
 ## Errors

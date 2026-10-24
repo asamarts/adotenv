@@ -27,7 +27,7 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [MIGRATION.md](MIGRATION.md) | User-facing migration and adoption guidance |
 
 **Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0, 0.7.0, 0.7.1, 0.8.0,
-0.9.0, 0.9.1, 0.9.2, 0.9.3, 0.9.4, 0.9.5, 0.9.6, 0.9.7, 0.9.8, 0.9.9, 0.9.10, 0.9.11, 0.9.12, 0.9.13 and 0.9.14 are published. 0.3 implements explicit dialect configuration, all five syntax
+0.9.0, 0.9.1, 0.9.2, 0.9.3, 0.9.4, 0.9.5, 0.9.6, 0.9.7, 0.9.8, 0.9.9, 0.9.10, 0.9.11, 0.9.12, 0.9.13, 0.9.14 and 0.9.15 are published. 0.3 implements explicit dialect configuration, all five syntax
 presets, selected-dialect native verification, exact per-dialect encoding,
 applicable pinned-upstream comparison and cross-dialect portability reporting.
 0.4 implements literal reference inspection, opt-in variable resolution,
@@ -336,6 +336,14 @@ See [strategy.md](docs/design/strategy.md) for the full analysis.
   entries through a lazy cache instead of storing a duplicate origin map. The
   65,536-entry fixture falls from 83.3 MB / 56.6 MB peak/retained to 76.5 MB /
   49.3 MB; with raw tokens disabled, 61.1 MB / 34.0 MB.
+- **Released:** 2026-10-24 after the complete quality gate.
+
+### 0.9.15: Compact raw tokens (released 2026-10-24)
+
+- **Implemented:** winning raw tokens are stored in one contiguous source buffer
+  with ranges instead of two owned strings plus map overhead per key. The
+  65,536-entry full loader falls from 76.5 MB / 49.3 MB peak/retained to 71.8 MB
+  / 44.7 MB; with origins and reports disabled it falls to 49.6 MB / 24.3 MB.
 - **Released:** 2026-10-24 after the complete quality gate.
 
 ### 1.0: Stable API (future)
