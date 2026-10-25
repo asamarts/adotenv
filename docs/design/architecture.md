@@ -1,369 +1,81 @@
 # Architecture
 
-Status: the lossless core/native edit model, 0.3 dialect configuration and
-presets, 0.4 references/resolution/command callbacks, 0.5 structure, formatting,
-comparison, example and sorting APIs, 0.6 loading, serde and process adapters,
-and the 0.7 CLI plus config/Figment integrations are implemented. Sections
-explicitly marked future are designs, not additional shipped interfaces.
+adotenv separates syntax from meaning.
 
 ## Document model
 
-The model is a flat, ordered list of items rather than a general syntax tree.
-The selected grammar determines their boundaries: multiline values and quoted
-keys can span physical lines, and Compose can split one physical line into
-multiple statements.
-
-```text
-Document<'src>
-  source: Cow<'src, str>
-  item/entry metadata: vectors of spans and indexes (no self-references)
-  bom: bool
-  dialect: Dialect (exact selected configuration)
-
-Item view
-  kind: Blank | Comment | Entry | Invalid | Ignored
-  span, line_ending, optional entry or primary diagnostic
-
-Entry view
-  snapshot-local id and item_id, quote, assignment state, optional decoded value
-
-EntryTokens (byte ranges; optional syntax uses Option<Range<usize>>)
-  indent  export  space_after_export  key  space_before_eq  eq  space_after_eq
-  value  body  quoted_tail  trailing_space  inline_comment
-```
-
-Rules the model guarantees:
-
-- **Lossless.** Printing the document reproduces any UTF-8 input byte for
-  byte, including the BOM, comments, blank lines and malformed `.env` syntax.
-  A property test asserts this.
-- **Raw first.** Tokens keep text as written. Values borrow their body until
-  unescaping, newline normalization or syntax deletion requires decoded text.
-  `decoded_offset_to_raw` and `decoded_span_to_raw` map decoded UTF-8 boundaries
-  back to original-source regions, including escapes and removed delimiters.
-- **Assignment state.** Recognized entries expose Bare/Empty/Value separately
-  from quoting. Bare `value()` is `None`; assigned empty is `Some("")`.
-  Configurable bare policies affect effective lookup or errors without
-  inheritance. Preset-specific grammar quirks remain explicit in
-  [dialects.md](dialects.md), including Compose's EOF empty-key assignment.
-- **Multi-line values** are one entry whose span covers several lines.
-
-Generic syntax-tree libraries were considered and rejected for this format:
-they add a dependency and indirection that a line-based grammar with about a
-dozen token kinds does not need.
-
-## Input
-
-The core accepts UTF-8 text (`&str`). Invalid `.env` syntax is retained with
-diagnostics; invalid UTF-8 is outside the parser's input domain. File readers
-must reject decoding errors rather than silently replacing bytes. The core
-does not provide a lossy-decoding mode: replacement characters would change
-the original bytes and invalidate source-relative offsets.
-
-## Source ownership
-
-Normal parsing borrows its `&str` input without copying the source. An
-explicit owned entry point takes a `String` by move; converting a borrowed
-document to an owned one copies the source only when requested.
-
-Stored tokens are spans, not references into the document's own storage.
-Reading derives views from the retained source, so borrowed and owned
-documents use the same model without self-referential structures. Keys and
-values that need no unescaping borrow source text; decoded values allocate
-only when needed.
-
-## Dialect-specific structure
-
-A document's items, entries and diagnostics belong to the grammar used to
-parse it. Dialects can change statement boundaries, not just decoded values:
-for example, a multiline quoted assignment and a raw physical-line value
-cannot share one universal entry grouping.
-
-Each selected dialect parses the retained source separately. `parse_with`,
-`parse_owned_with` and `parse_strict_with` take an explicit `Dialect`;
-`Document::dialect()` retains it and `reparse` returns a borrowed
-reinterpretation. Existing entry points retain Portable defaults and no legacy
-0.1 grammar is introduced.
-
-Borrowed interpretations share text without copying it. Portability comparison
-performs one linear parse per unique dialect and reports physical-line
-differences from their ordered items; it does not require a neutral syntax
-model, generic syntax tree or cross-dialect cache.
-
-## Reading
-
-Two surfaces over one model:
-
-- **Entries** for the common case: `doc.get("K")`, `get_entry("K")`,
-  `get_all("K")` (duplicates in order), `unique("K")` and per-entry `key()`,
-  optional decoded `value()`, optional `raw_value()`, `quote()`, spans and
-  `inline_comment()`.
-- **Items and tokens** for formatters and editors: every blank line, comment,
-  invalid statement and raw token span.
-
-`entries()` and `items()` return exact-size double-ended view iterators, not
-slices. `entry(id)` and `item(id)` return optional views for zero-based IDs
-local to this exact snapshot. Views are borrowed from the document.
-`effective_entries()` applies duplicate and bare-key policy once and yields
-`EffectiveEntry` values with the winning declaration and effective string; serde
-and the integration adapters share this primitive. `lookup_index()` builds an
-explicit borrowed `LookupIndex` for repeated key lookups; it stores winner entry
-IDs in a compact open-addressed table and falls back to an ordered map on
-pathological probing. It does not mutate or cache inside `Document`.
-
-Duplicates remain ordered. Effective lookup filters `participates_in_lookup()`
-and selects first or last by configuration; ignored bare keys do not erase an
-earlier assigned value. `get_all()` and uniqueness checks retain all recognized
-declarations. Portable keeps its last-bare-means-`None` behavior.
-
-## Structure views
-
-`Document::groups()` yields borrowed views over maximal nonblank item runs;
-blank items are separators. `Document::header()` is the item prefix before the
-first entry, and `Entry::leading_comments()` walks backward through contiguous
-comment items only. These views do not create a second tree or copy source.
-They use the same snapshot-local item IDs and exact selected-dialect grouping
-as everything else. A blank line breaks comment attachment; inline comments are
-entry token data rather than leading items. See
-[formatting.md](formatting.md) for the full contracts.
-
-## Diagnostics
-
-`parse` never fails. It returns the document and a list of diagnostics:
-
-```rust
-let text = "A=value\n";
-let (doc, diagnostics) = adotenv::parse(text);
-assert_eq!(doc.get("A"), Some("value"));
-assert!(diagnostics.is_empty());
-```
-
-Each diagnostic has a stable code (an enum with documented meanings, never
-renumbered), a severity, a primary span, an optional secondary span, and a
-message. `DiagnosticCode::as_str()` is a stable machine identity, independent
-of enum order or wording. Errors include invalid keys, unterminated quotes,
-quoted trailing text and explicit forbidden BOM/bare/escape/line-limit policies.
-Warnings include duplicates, ignored statements and selected grammar's
-portability diagnostics. A stripped, retained BOM prelude is informational.
-
-Malformed statements become `Invalid` errors or `Ignored` warnings according to
-configuration; primary diagnostics remain on items even when a strict/native
-parse omits the side diagnostic vector. Explicit policy violations stay errors.
-Multiline quotes follow the selected grammar rather than guessed author intent.
-
-Portable unmatched quotes retain the opening physical line as invalid and resume
-at the following line. Other grammars retain their own recovery boundaries and
-literal fallback rules. The parser remains linear; repeated unbounded rescans
-are not allowed.
-
-`parse_strict` and `parse_strict_with` return the first error in source order.
-Warning-only ignored statements do not fail strict parsing.
-
-## Positions
-
-Spans are byte ranges into the original text. `LineIndex` converts between
-offsets and zero-based line/column positions, counting columns in UTF-8 bytes,
-Unicode scalar values or UTF-16 code units. LSP defaults to UTF-16; callers
-honor negotiated encodings. One-based display coordinates require explicit
-conversion. Existing one-based line-number accessors remain documented as
-such. Scalar columns are not terminal cell widths.
-
-Conversions are checked: out-of-range or unrepresentable positions return
-an error, never a clamped or rounded location. Scalar and UTF-16 conversions
-reject interior UTF-8 bytes; UTF-8 columns retain byte-exact interior offsets.
-UTF-16 also rejects split surrogate pairs. Text-edit ranges must be UTF-8
-boundaries. `Position::one_based()` uses checked addition.
-`LineIndex` treats LF, CRLF and lone CR as source line breaks,
-independently of dialect syntax. EOF is valid; a final line break creates
-a final empty line.
-Line-ending starts map to the preceding content's end, while a position
-inside a CRLF pair is unrepresentable. Reverse conversion rejects columns
-beyond line content. Indexing counts the original source, BOM included.
-Acceptance tests must cover exact round trips and rejection at these boundaries.
-
-## Edits
-
-An edit is data:
-
-```rust
-// Public shape; use adotenv::TextEdit in programs.
-struct TextEdit { range: core::ops::Range<usize>, replacement: String }
-```
-
-`Document::edit(&[Edit])` produces a `VerifiedEdits` containing native ranges
-and the complete verified output. `Edit` variants are Set, Remove, Rename,
-Insert, Comment, Uncomment and Export. Entry selectors and item selectors
-are separate, zero-based snapshot-local IDs; invalid IDs return an error.
-`InsertPosition` supports End, AfterKey, AfterEntry and Sorted.
-Sorted means before the first greater original key in source order, even when
-the original entries are unsorted. Repeated key lookups share a batch-local
-index; single lookups do not allocate one. Insertion separators use planned
-surviving item kinds. Fields ending the preceding item belong before a
-same-offset insertion; fields beginning the following item belong after it.
-The original final-newline policy is retained unless a terminator is required
-to represent a requested final bare declaration (Compose's EOF exception).
-
-Document convenience methods `set`, `remove`, `rename`, `insert`, `comment`,
-`uncomment` and `set_export` use the same producer. Free `set` / `remove`
-parse recovering Portable syntax and return `Result<String, EditError>`.
-No legacy grammar adapter remains.
-
-`VerifiedEdits::edits()` borrows text edits; `into_edits()` consumes them.
-`as_str()` borrows the verified output; `into_string()` consumes it.
-
-Key-only convenience edits require a unique matching entry and reject
-duplicates. Native operations also accept an explicitly selected occurrence
-from the same document snapshot, so callers can fix duplicates without
-guessing or manually bypassing verification.
-
-Comments are preserved by default. Callers may explicitly select comment
-items/spans to remove with an entry in the same verified batch. The 0.5
-structure views expose leading/inline attachment, but automatic
-attachment-based edit shortcuts are not implemented; ownership is never
-guessed.
-
-Comment generation follows the selected scanner's line breaks, so an internal
-CR remains data in LF-only modes and comment/uncomment restoration stays exact.
-
-Uncommenting removes one marker and at most one following space. Empty EOF
-comments may disappear, and adjacent selected comment regions may restore one
-multiline statement across explicitly removed intervening items. An insertion
-between those regions prevents them from merging. An explicitly uncommented
-leading region may expose its own BOM; unrelated BOM exposure is still refused.
-
-Every operation is verified before it returns: the edited text is parsed and
-checked to read back the intended value, and all other entries are checked
-to be unchanged. An edit that cannot be expressed exactly is an error, never
-an approximation. Quoting preserves the existing style when exactly
-representable and otherwise chooses an exact safe style.
-
-Verified operations may edit explicitly identified valid targets even when
-unrelated parts of the document are invalid. Re-parsing must preserve
-unrelated raw items, literal states and diagnostic identities, allowing
-expected position shifts. If an edit changes their interpretation or quote
-grouping, reject it. Never infer a key target from invalid text; deliberate
-repairs require an explicit item or span and defined postconditions.
-
-Text edits refer to the exact source snapshot used to produce them.
-External appliers are responsible for document-version checks.
-When applying ranges externally, apply them from highest offset to lowest;
-they do not refer to successively modified versions of the source.
-
-An operation's edit batch is verified as a whole against one source snapshot;
-individually valid edits do not waive final batch verification. Verification
-always reparses using the document's exact configuration, including custom
-overrides. A shared dialect-aware codec validates standalone LF/EOF tokens and
-native source contexts. Value spelling is deferred until rename/export headers
-are planned, and insertion spelling until its actual ending is known. Ending
-fields account for generated separators. A selected entry may expose its own
-blank/comment suffix as separate items, but cannot consume another declaration
-or regroup an unselected item. Custom byte caps include the surrounding physical
-line, including neighboring statements; same-line sets resolve against other
-final values with bounded retries, so spelling is independent of operation order.
-The complete output is always rechecked.
-
-## Trivia formatting
-
-`Document::format(&FormatOptions)` is a separate producer from `edit`: it plans
-only trivia changes, applies them, reparses the complete output with the exact
-dialect and compares the semantic and structural model before returning a
-`FormatResult`. `FormatResult` carries source-relative `TextEdit`s and verified
-text, mirroring `VerifiedEdits`.
-
-The formatter does not infer formatting intent. Spacing around `=`, trailing
-whitespace and final-newline policy are explicit. Raw values, multiline value
-bodies, invalid/ignored items, empty assignments whose spacing may be
-indentation, empty keys and ambiguous mixed line endings are preserved. The
-verifier compares BOM, item kinds and order, comment text after trailing
-whitespace, malformed statement content, and all declaration meaning. See
-[formatting.md](formatting.md) for the guarantees and conservative skips.
-
-## Comparison and examples
-
-`Document::compare` builds an owned effective-key comparison. It selects each
-key through the document's duplicate policy and excludes nonparticipating
-declarations. Bare, empty and absent keys remain distinct, decoded values are
-literal, and export differences are reported independently. The result owns its
-keys and values so it can outlive either source snapshot.
-
-`Document::example` is deliberately not an edit or format operation. It removes
-assigned values, keeps comments/blank lines/keys/exports/layout and converts
-invalid or ignored statements into indentation-preserving comments so raw
-unrecognized text cannot leak a value. Both operations are pure and perform no
-lookup, I/O or execution. See [comparison.md](comparison.md).
-
-## Group sorting
-
-`Document::sort` is a separate verified transformation from trivia formatting.
-It builds one replacement edit per sortable blank-line group. Group-leading
-comments stay at the top, comments before later entries move with those entries,
-and trailing comments stay at the bottom. Entries are ordered by key with
-`${VAR}` dependencies before dependents; lexical key order breaks ties.
-
-Malformed groups, empty/duplicate keys and cycles are left unchanged. The output
-is reparsed and checked for group count, planned group text and key order, entry
-meaning, inline comments, and comment-text multisets. See
-[sorting.md](sorting.md).
-
-## Loading
-
-The opt-in std-only `load` feature is the only path in the crate that reads
-files. It reads a standard `.env` cascade or an explicit ordered file list,
-strictly decodes UTF-8, parses every file with the selected dialect and rejects
-the complete load on the first error before returning any values. No process
-environment is mutated.
-
-`LoadedEnvironment` separates final values, active origins, all loaded entries,
-cross-file overrides, in-file repeats and skipped declarations. Origins retain
-the original path, value span and one-based line. Bare values are not guessed;
-they are reported as skipped unless the dialect maps them to effective empty
-values. `LoadedEnvironment::resolve_contextual` reconstructs winning raw tokens
-to preserve quote/escape/dialect context; `resolve_decoded` is an explicit
-decoded-text policy. Single-source context-aware resolution remains
-`Document::resolve`. See [loading.md](loading.md).
-
-The separate `adotenv-process` crate contains the only process-environment
-mutation path. It prevalidates all keys and values, exposes an unsafe `apply`,
-sets only loaded keys and documents the lack of rollback and thread-safety
-requirements. The core crate remains `forbid(unsafe_code)`.
-
-The opt-in `serde` feature implements `Document::deserialize` over a
-string-valued effective map. With `load` enabled, it also implements
-`LoadedEnvironment::deserialize` over final merged values. Scalar visitors parse
-literal strings; nested sequences/maps/enums are rejected rather than
-synthesized. Conversion errors carry source lines and keys. See
-[serde.md](serde.md).
-
-The workspace `adotenv-config` and `adotenv-figment` companions expose effective
-literal values to those configuration ecosystems without changing core behavior.
-The zero-dependency workspace `adotenv-cli` exposes read, check, format, sort,
-compare, example, load and set commands through the public library APIs. It does
-not mutate the process environment. `run` starts a child with loaded values
-and file command substitution remains disabled. See [cli.md](cli.md).
-
-## Crate layout and platform
-
-The repository is a Cargo workspace with the core package at the root. Its
-members are `adotenv`, `adotenv-process`, `adotenv-cli`, `adotenv-config` and
-`adotenv-figment`; fuzzing has an excluded, separate workspace. `adotenv` has
-zero runtime dependencies, `#![no_std]` with `alloc`, and unconditional
-`#![forbid(unsafe_code)]`. Default feature `std` can be disabled without losing
-core parsing/editing/position APIs or `core::error::Error` implementations.
-There is no implicit I/O or environment/process integration under either mode.
-
-The unsafe prohibition in `adotenv` is unconditional. The opt-in, std-only
-`adotenv-process` adapter owns the narrowly documented unsafe function for
-applying validated values to the process environment. File loading remains an
-opt-in safe `adotenv` feature. The CLI is zero-dependency; the config and
-Figment adapters keep their ecosystem dependencies outside the core and expose
-the optional `load` feature for environment constructors. Workspace crates are
-versioned and released independently.
-
-## Error types
-
-0.2 fallible APIs use specific non-exhaustive `EditError` and `PositionError`
-enums; strict parsing returns a `Diagnostic`. Each implements `Display` and
-`core::error::Error` on MSRV 1.81. `ResolveError` covers 0.4 variable
-resolution and command-callback failures, `LoadError` covers the opt-in file
-cascade, and `DeserializeError` carries typed serde failures. The process
-companion reports invalid keys/values through `ApplyError`.
+`Document` borrows or owns one UTF-8 source string and a dialect. It stores:
+
+- items in source order, including comments, blank lines and invalid text;
+- entries that the selected dialect recognizes;
+- raw token spans for keys, separators, values and comments;
+- diagnostics produced during parsing;
+- a line index built on demand.
+
+`Item` covers comments, blank lines, declarations and invalid or ignored
+statements. `Entry` is a declaration view. Both are zero-based snapshot IDs.
+
+The parser never edits source text. Printing a document returns the original
+bytes unchanged.
+
+## Recovering and strict parsing
+
+`parse` and `parse_owned` always return a document plus diagnostics. They recover
+at the smallest safe boundary and preserve the source that caused a problem.
+
+`parse_strict` returns the first error. Warnings and informational diagnostics do
+not fail a strict parse.
+
+Diagnostics contain a stable code, severity, message, primary span and optional
+secondary labels. Message text may change; codes and spans are the stable
+contract.
+
+## Meaning and lookup
+
+A dialect decides which text counts as a declaration and how it is decoded.
+Lookup follows the dialect's duplicate policy and participation rules.
+
+- `get` returns the effective value.
+- `get_entry` returns the effective declaration.
+- `get_all` returns every occurrence.
+- `unique` rejects duplicate keys.
+- `effective_entries` yields one winning declaration per effective key.
+- `lookup_index` builds an explicit index for repeated lookups.
+
+Bare declarations are distinct from empty assignments. `KEY` has no value,
+`KEY=` has an empty value. `BareKeys::Empty` changes effective lookup without
+changing the declaration's syntax state.
+
+## Spans and positions
+
+Source spans are byte ranges into the original input. Token helpers return raw
+ranges. Decoded value offsets can be mapped back to raw ranges when escapes are
+present.
+
+`LineIndex` converts between offsets and line/column positions. Encodings are
+explicit: UTF-8 bytes, Unicode scalars or UTF-16 code units. Invalid positions
+return an error. They are never rounded or clamped.
+
+Entry and diagnostic lines are one-based. `Position` is zero-based.
+
+## Verified edits
+
+Edits are built as text replacements against the original snapshot. Before an
+edit is returned, the complete result is parsed with the same dialect and checked
+for changes to unrelated declarations, comments, item kinds and invalid
+statements. If a change cannot be verified, the edit fails.
+
+`VerifiedEdits` exposes borrowed text edits, the verified output and optional
+metadata. Apply edits from the highest offset to the lowest.
+
+## Features and safety
+
+The core has no runtime dependencies and no I/O. `load` enables filesystem
+loading. `serde` enables typed deserialization. `exec` enables a command runner
+with an explicit working directory.
+
+The core forbids unsafe code. Process environment mutation lives in the separate
+`adotenv-process` crate and is an unsafe API because the environment is global.
+
+Disable default features for `no_std` with `alloc`. The parser, model, edits,
+formatting, comparison and sorting remain available.

@@ -1,113 +1,95 @@
 # Loading
 
-Status: standard file-cascade loading and the separate process adapter were
-introduced in 0.6; the unified 0.10.0 provenance model is implemented on the
-release branch. `serde` integration is documented separately.
+The `load` feature adds strict filesystem loading. Parsing itself never reads
+files.
 
-The core parser still performs no I/O. Loading is a std-only adapter around the
-lossless document model.
+## Cascades
 
-## Feature and API
-
-```toml
-adotenv = { version = "0.10.0", features = ["load"] }
-```
-
-- `load_cascade(directory, mode)` uses Portable syntax.
-- `load_cascade_with(directory, mode, dialect)` selects a dialect.
-- `load_files(paths, dialect)` loads an explicit ordered list; every listed file
-  must exist.
-- `load_cascade_with_options(directory, mode, options)` and
-  `load_files_with_options(paths, options)` use `LoadOptions` to choose raw
-  token, origin and report retention. `LoadOptions::new` is the lean default;
-  `LoadOptions::full` enables reports.
-- `load_cascade_values` / `load_cascade_values_with` and `load_values` are the
-  compact application path: they retain only final key/value strings, not
-  origins, raw tokens or reports.
-- `LoadedEnvironment::into_values` drops provenance and reports from an already
-  loaded environment.
-
-The standard cascade order is:
+`load_cascade(directory, mode)` reads, in order:
 
 1. `.env`
 2. `.env.local`
 3. `.env.{mode}`
 4. `.env.{mode}.local`
 
-Later files override earlier files by effective key. An empty mode loads only
-the base and local files. Mode names containing path separators, NUL, `.` or
-`..` are rejected.
+A missing cascade file is skipped. A file that exists but cannot be read,
+decoded as UTF-8 or parsed invalidates the whole load. Later files override
+earlier files by effective key.
 
-## Validation and atomicity
+`load_files(paths, dialect)` reads an explicit ordered list. Every listed file
+must exist.
 
-Every participating file is read as bytes and decoded as strict UTF-8 before
-parsing. Invalid UTF-8 is an error, never replacement decoding. Each document is
-parsed with the selected dialect; the first error-severity diagnostic rejects
-the whole load. Warnings and ignored statements remain subject to the selected
-dialect’s normal policy.
+## Environment data
 
-The result is built only after all files have been read and validated. A missing
-cascade file is skipped, but an existing file that fails to read, decode or parse
-returns `LoadError` and no partial environment. No process-environment variables
-are changed by this module.
+`LoadedEnvironment` stores:
 
-## Merging and origins
+- final values, sorted by key;
+- shared-file origins with path, value span and line;
+- raw winning tokens for contextual resolution;
+- optional reports for entries, overrides, repeats and skipped declarations.
 
-Each document contributes its effective declarations according to the dialect’s
-duplicate and lookup-participation policy. Values remain literal; no expansion,
-environment lookup or command execution occurs.
+The default profile keeps values, origins and raw tokens. Reports are off.
 
-`LoadedEnvironment` contains:
+```rust,ignore
+use adotenv::load::load_cascade;
 
-```text
-values()      borrowed final key/value iterator, sorted by key
-origin(key)   borrowed path, value span and one-based line
-entries()     every loaded effective declaration, including overridden ones
-overrides()   previous -> replacement origins for cross-file wins
-repeated()    duplicate keys within a single file
-skipped()     bare, nonparticipating or empty-key declarations
+let loaded = load_cascade("/srv/my-app", "production")?;
+assert_eq!(loaded.get("PORT"), Some("8080"));
+
+let origin = loaded.origin("PORT").unwrap();
+println!("{}:{}", origin.path().display(), origin.line());
 ```
 
-`LoadOrigin<'_>` borrows the shared file table; use `path()`, `span()` and
-`line()`. `entries()` preserves file load order and source order. Repeated
-declarations are still reported even when the duplicate policy selects one
-winner. Reports are opt-in; the default loader leaves all report iterators
-empty.
+Values and report views borrow the environment:
 
-Bare declarations are skipped rather than guessed as empty, except when the selected dialect’s `BareKeys::Empty` policy makes them effective empty values. Nonparticipating
-declarations (for example Node’s `__proto__` object property or ignored bare
-keys) and empty keys are reported with a `SkipReason`.
+```text
+get(key)                 Option<&str>
+values()                 Iterator<Item = (&str, &str)>
+origin(key)              Option<LoadOrigin<'_>>
+entries()                Iterator<Item = LoadedEntry<'_>>
+overrides()              Iterator<Item = LoadedOverride<'_>>
+repeated()               Iterator<Item = LoadRepeated<'_>>
+skipped()                Iterator<Item = LoadSkipped<'_>>
+into_values()            LoadedValues
+```
 
-## Retention options
+`LoadOrigin<'_>` exposes `path()`, `span()` and `line()`. Entry, override,
+repeat and skipped views expose accessors rather than public fields.
 
-`LoadOptions::new(dialect)` is the default: values, shared-file origins and raw
-winning tokens for `resolve_contextual`; reports are disabled.
-`LoadOptions::full(dialect)` enables entries, overrides, repeats and skipped
-declarations. Builders can adjust either profile independently:
+## Options
 
-- `with_raw_tokens(false)` drops raw key/value tokens. Values and origins remain;
-  `resolve_contextual` returns an error and `resolve_decoded` remains available.
-- `with_reports(false)` leaves `entries()`, `overrides()`, `repeated()` and
-  `skipped()` empty while retaining values, origins and raw tokens.
-- `with_origins(false)` drops `origin()` and cross-file override reports.
-  Reports that remain enabled still carry their own origins; combine it with
-  `with_reports(false)` for the lowest residency.
+`LoadOptions::new(dialect)` is the default. `LoadOptions::full(dialect)` enables
+all reports. Builders control each group:
 
-The linear merge pass reads each source document once. Report retention uses a
-temporary per-key occurrence map and does not scan the whole document for every
-key.
+| Builder | Effect |
+|---|---|
+| `with_raw_tokens(false)` | Drop raw tokens; `resolve_contextual` returns an error |
+| `with_reports(false)` | Leave report iterators empty |
+| `with_origins(false)` | Drop final origins and override reports |
 
-## Values-only loading
+With reports enabled, entry records share keys and values with the final value
+table. Reports do not duplicate final values.
 
-Application configuration often needs only the final effective strings. The
-values-only path uses the same file reads, strict UTF-8 decoding, statement
-grammar, dialect, duplicate policy, error handling and later-file override rules
-as the full loader. It runs the shared parser in projection mode, retaining only
-`LoadedValues` (a sorted key/value map) instead of a lossless document. It does
-not expose origins, raw winning tokens, overrides, repeats or skipped
-declarations.
+## Resolution
 
-```rust
+`resolve_contextual` reconstructs each winning raw token, reparses it with the
+load dialect and resolves references. Quote, escape and dialect context survive
+the merge. It requires raw-token retention.
+
+`resolve_decoded` treats every final value as unquoted decoded text. It requires
+whole-file resolution scope.
+
+Both methods return `ResolvedEnvironment`. Origins are available through
+`origin(key)`. Command substitution remains literal unless a caller callback is
+provided through the document resolver.
+
+## Values only
+
+`load_cascade_values` and `load_values` retain only final strings. They use the
+parser projection path and do not keep origins, raw tokens, reports or a
+lossless document.
+
+```rust,ignore
 use adotenv::{load::load_cascade_values, Dialect};
 
 let values = load_cascade_values("/srv/my-app", "production")?;
@@ -115,87 +97,25 @@ assert_eq!(values.get("PORT"), Some("8080"));
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-Use `LoadedEnvironment` when provenance or `resolve_contextual` is required.
-For a 65,536-entry file, the local memory profile recorded in
-[performance.md](performance.md) is about 13.9 MB peak / 12.6 MB retained for
-values-only loading, 53.8 MB / 29.7 MB for the default `LoadedEnvironment`
-profile, and 63.9 MB / 35.6 MB with `LoadOptions::full`. Disabling origins and
-reports and raw tokens further reduces full-loader residency when provenance is
-not needed.
-
-## Unified provenance (0.10.0)
-
-`LoadedEnvironment` is the single provenance type. It stores interned
-`Arc<str>` keys and values, one shared file table, compact final origins and a
-contiguous raw-token buffer. Values and report views borrow this storage:
-
-```rust
-use adotenv::load::{load_cascade_with_options, LoadOptions};
-
-let loaded = load_cascade_with_options(
-    "/srv/my-app",
-    "production",
-    LoadOptions::full(adotenv::Dialect::PORTABLE),
-)?;
-for entry in loaded.entries() {
-    println!("{}={} ({}:{})", entry.key(), entry.value(),
-             entry.origin().path().display(), entry.origin().line());
-}
-# Ok::<(), Box<dyn std::error::Error>>(())
-```
-
-The separate 0.9.19 `CompactLoadedEnvironment`/compact loader API is removed.
-Its values-plus-origins profile is now the default `LoadedEnvironment` profile,
-with raw context added and reports disabled. See
-[compact-provenance.md](compact-provenance.md).
-
 ## Errors
 
 `LoadError` distinguishes:
 
 - I/O failure with path and OS error;
 - invalid UTF-8;
-- the first syntax/policy error with path and diagnostic;
-- invalid mode names.
+- the first syntax or policy error with path and diagnostic;
+- an invalid mode name.
 
-Missing explicit files passed to `load_files` are I/O errors; only the standard
-cascade skips missing names.
+Mode names may not contain path separators, `.` or `..`.
 
-## Resolution
+## Memory
 
-`LoadedEnvironment::resolve_contextual` reconstructs the winning raw key/value
-tokens in cascade order, reparses them with the load dialect and resolves the
-result. Quote, escape and dialect context therefore survive the merge. Errors
-retain the winning declaration's `LoadOriginOwned`, key and message. Both
-whole-file and sequential scope are supported; the reconstructed source order is
-cascade order. The method requires raw-token retention; use `resolve_decoded`
-when the environment was loaded with raw tokens disabled.
+Measured on a release build with one 65,536-entry file:
 
-`LoadedEnvironment::resolve_decoded` is the explicit decoded-value policy: every
-final value is treated as unquoted decoded text. It requires whole-file scope.
-Command substitutions remain literal in both APIs. The returned
-`ResolvedEnvironment` exposes the winning `LoadOrigin<'_>` for each key.
+| Profile | Peak | Retained |
+|---|---:|---:|
+| Default | 53.8 MB | 29.7 MB |
+| `LoadOptions::full` | 63.9 MB | 35.6 MB |
+| Values only | 13.9 MB | 12.6 MB |
 
-Use `Document::resolve` for context-aware resolution over a single retained
-source document. See [expansion.md](expansion.md).
-
-## Process application
-
-The separate `adotenv-process` workspace crate depends on `adotenv` with `load`
-enabled and exposes:
-
-```text
-validate(&LoadedEnvironment) -> Result<(), ApplyError>
-unsafe apply(&LoadedEnvironment) -> Result<(), ApplyError>
-```
-
-`validate` checks every key for emptiness/NUL/`=` and every value for NUL before
-mutation. `apply` performs the same validation, then calls the process
-environment API. It sets only loaded keys and never clears unrelated variables.
-The operation is explicitly unsafe because process environments are global and
-not thread-safe on all platforms; changes cannot be rolled back. Returning the
-`LoadedEnvironment` map remains the default.
-
-## Future work
-
-- Optional command/expansion callbacks during loading, never enabled implicitly.
+These are local reference numbers, not hard limits.

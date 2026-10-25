@@ -16,7 +16,7 @@ assert_eq!(config.get_string("host")?, "localhost");
 assert_eq!(config.get_int("port")?, 8080);
 ```
 
-Typed extraction uses `config`'s own scalar coercion:
+Typed extraction uses `config`'s scalar coercion:
 
 ```rust,ignore
 use serde::Deserialize;
@@ -30,23 +30,17 @@ struct App {
 let app: App = config.try_deserialize()?;
 ```
 
-`from_values` accepts an explicit map. Enable the `load` feature to use
-`from_environment` with a `LoadedEnvironment`.
+`from_values` accepts an explicit map. The `load` feature adds `from_environment`
+for `LoadedEnvironment`.
 
-## Key semantics
+## Keys
 
-`config` owns key normalization. It lowercases names and interprets `.` as a
-nested path separator. Thus `.env` keys `A.B` and `a.b` collide, and `A.B`
-becomes a nested `a.b` table rather than a literal flat key. The adapter does
-not escape or rewrite keys; use `from_values` for already normalized config
-keys.
+`config` lowercases names and treats `.` as a nested path separator. Keys `A.B`
+and `a.b` therefore collide. The adapter does not rewrite keys. Use `from_values`
+when keys are already normalized for `config`.
 
-Values are decoded literal strings. Duplicate policy, nonparticipating keys and
-`BareKeys::Empty` follow the wrapped document or loaded environment. No
-expansion, command execution or implicit file access occurs.
+Values are decoded literals. Duplicate policy, lookup participation and
+`BareKeys::Empty` follow the source document or loaded environment. The adapter
+performs no expansion, command execution or file access.
 
-This crate is built against `config` 0.14, which supports the workspace MSRV of
-Rust 1.81. `config` 0.15 is not adopted: 0.15.0 changes key-normalization
-behavior, and the current 0.15 line requires Rust 1.88 and edition 2024. It is
-part of the
-[`adotenv` workspace](https://github.com/asamarts/adotenv).
+The crate is built against `config` 0.14 and supports Rust 1.81.

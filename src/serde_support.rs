@@ -97,7 +97,7 @@ impl Document<'_> {
     ///
     /// Duplicate keys follow the selected dialect; nonparticipating
     /// declarations and empty keys are ignored. Bare declarations are exposed
-    /// only when the dialect’s `BareKeys::Empty` policy makes them effective
+    /// only when the dialect's `BareKeys::Empty` policy makes them effective
     /// empty strings. Values remain literal and are never expanded.
     ///
     /// # Errors

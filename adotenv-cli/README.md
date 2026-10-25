@@ -1,33 +1,31 @@
 # adotenv-cli
 
-Command-line tools for literal `.env` documents, built on
+Command-line tools for literal `.env` files, built on
 [`adotenv`](https://crates.io/crates/adotenv).
 
 ```console
 cargo install adotenv-cli
 ```
 
-The binary is `adotenv-cli`:
-
 ```text
-adotenv-cli [--dialect <portable|node|python|compose|docker>] <command> [options]
+adotenv-cli [--dialect portable|node|python|compose|docker] <command> [options]
 
-get <file> <key>             print an effective literal value
-check <file>...              report parse diagnostics
-fmt [--write|--check] [--sort] <file>...
-                             format, check or write documents
-diff <left> <right>          compare effective keys
-example <file>               print a value-free example
-load <directory> [mode]      load the standard dotenv cascade
-set <file> <key> <value>     set and write one declaration
+get <file> <key>
+check [--format human|json|github] [--source] [--recursive] [--exclude <path>] <path>...
+fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <path>...
+diff [--format human|matrix|json] <baseline> <file>...
+example <file>
+load <directory> [mode]
+set <file> <key> <value>
 run <directory> [mode] -- <program> [args...]
-                             run a child with loaded values
 ```
 
-`run` starts a child with the loaded values and never mutates the parent
-process environment. `fmt --write` and `set` use an atomic same-directory
-rename on Unix. Values remain literal: no expansion, environment inheritance or
-command substitution is performed.
+`run` starts a child with loaded values and does not change the parent
+environment. `fmt --write` and `set` use a same-directory replace on Unix. On
+Windows the fallback backup swap is not crash-atomic.
 
-This crate is part of the [`adotenv` workspace](https://github.com/asamarts/adotenv).
-It has no runtime dependencies outside the workspace and supports Rust 1.81.
+Values stay literal. The CLI does not expand references, inherit environment
+values or run command substitutions from files.
+
+The crate has no runtime dependencies outside the workspace and supports Rust
+1.81.

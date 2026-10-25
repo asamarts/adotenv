@@ -12,16 +12,17 @@ let doc = parse_strict("host=localhost\nport=8080\n")?;
 let figment = Figment::new().merge(AdotenvProvider::from_document(&doc));
 ```
 
-`from_values` accepts an explicit map. Enable the `load` feature to use
-`from_environment` with a `LoadedEnvironment`.
+`from_values` accepts an explicit map. The `load` feature adds `from_environment`
+for `LoadedEnvironment`.
 
-## Value and key behavior
+## Values and keys
 
-The provider exposes a `Profile::Default` dictionary with the original key
-spelling. Figment's path-oriented lookup APIs still treat dots as separators;
-extraction into a literal map or a matching typed structure is the lossless
-route. Values are strings: deserialize string fields or convert explicitly.
-The adapter does not infer numeric or boolean types.
+The provider uses `Profile::Default` and keeps original key spelling. Figment's
+path lookups still treat dots as separators. Extract into a literal map or a
+matching typed structure when dots are part of a key.
+
+Values are strings. Deserialize string fields and convert numbers or booleans
+explicitly.
 
 ```rust,ignore
 use serde::Deserialize;
@@ -38,9 +39,8 @@ let raw: RawApp = Figment::new()
 let port: u16 = raw.port.parse()?;
 ```
 
-Duplicate policy, nonparticipating keys and `BareKeys::Empty` follow the wrapped
-document or loaded environment. No expansion, command execution or implicit
-file access occurs.
+Duplicate policy, lookup participation and `BareKeys::Empty` follow the source
+document or loaded environment. The adapter performs no expansion, command
+execution or file access.
 
-This crate is part of the [`adotenv` workspace](https://github.com/asamarts/adotenv)
-and supports Rust 1.81.
+The crate supports Rust 1.81.

@@ -1,7 +1,7 @@
 # adotenv-process
 
-Explicit process-environment mutation for [`adotenv`](https://crates.io/crates/adotenv)
-loaded environments.
+Explicit process-environment mutation for
+[`adotenv`](https://crates.io/crates/adotenv) loaded environments.
 
 ```rust,ignore
 use adotenv::load::load_cascade;
@@ -12,12 +12,12 @@ let loaded = load_cascade("/srv/my-app", "production")?;
 unsafe { apply(&loaded)? };
 ```
 
-`apply` validates every key and value before the first mutation, sets only the
-loaded keys and cannot roll changes back. The process environment is global and
-not thread-safe on all platforms, so the caller owns those guarantees. Iterating or collecting
-from `LoadedEnvironment::values()` remains the safe default.
+`apply` validates every key and value before the first mutation. It sets only
+keys from the loaded environment and cannot roll changes back. The process
+environment is global, so the caller owns the concurrency guarantee.
 
-This is the only crate in the workspace with an unsafe API; the core `adotenv`
-crate remains `#![forbid(unsafe_code)]`. This crate is part of the
-[`adotenv` workspace](https://github.com/asamarts/adotenv) and supports Rust
-1.81.
+Prefer iterating or collecting `LoadedEnvironment::values()` when mutation is
+not required.
+
+This is the only workspace crate with an unsafe API. The core `adotenv` crate
+forbids unsafe code. The crate supports Rust 1.81.

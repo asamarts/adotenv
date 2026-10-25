@@ -20,7 +20,7 @@ repository = "https://github.com/asamarts/adotenv"
 documentation = "https://docs.rs/adotenv"
 keywords = ["dotenv", "env", "parser", "linter", "lossless"]
 categories = ["parser-implementations", "config", "development-tools"]
-include = ["src/**/*.rs", "benches/**/*.rs", "README.md", "CHANGELOG.md", "ROADMAP.md", "MIGRATION.md", "docs/design/*.md", "LICENSE-APACHE", "LICENSE-MIT"]
+include = ["src/**/*.rs", "benches/**/*.rs", "README.md", "ROADMAP.md", "docs/design/*.md", "LICENSE-APACHE", "LICENSE-MIT"]
 
 [package.metadata.docs.rs]
 all-features = true
