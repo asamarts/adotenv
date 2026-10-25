@@ -1091,6 +1091,40 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   and lookup-index code are unchanged; the 0.9.8 parser fuzz campaign remains the
   latest parser evidence.
 
+### 0.10.0 development slice (2026-10-25)
+
+- Replaced the full/compact loader split with one interned `LoadedEnvironment`.
+  Values and report records share `Arc<str>` keys/values; origins use a compact
+  file-index/span/line record over one shared path table; report accessors are
+  borrowed views. `LoadOptions::new` is lean (values + origins + raw tokens) and
+  `LoadOptions::full` enables reports. The 0.9.19 compact API was removed.
+- Memory on the 65,536-entry fixture: default 53.8 MB peak / 29.7 MB retained;
+  full reports 63.9 MB / 35.6 MB; values-only 13.9 MB / 12.6 MB. The default is
+  below the 30 MB retained target.
+- Validation: workspace 342 tests passed with 7 ignored; default core 221, load
+  247, load+serde 255 and no-default core 221, each with 7 ignored; config and
+  Figment load tests pass 6 each; 37 CLI integration tests pass. fmt, Clippy and
+  warning-denied docs pass. MSRV 1.81 checks pass, including no-default core and
+  the `thumbv7em-none-eabi` alloc-only build. Package verification, bench smoke,
+  pinned conformance (1420 observations; 71 cases, 20 profiles), Windows
+  library/CLI cross-checks and a 0.9.19-to-0.10.0 semver report. The semver
+  report lists only the approved removals and view/field lifetime changes; this
+  is an intentional pre-1.0 break.
+- Parser, lookup-index, edit, encoding, resolve and format code are unchanged,
+  so the 2026-10-23 fuzz evidence clock is not reset by this loader-only change.
+
+### 0.10.0 release (2026-10-25)
+
+- Release run
+  [40230481794](https://github.com/asamarts/adotenv/actions/runs/40230481794)
+  passed all release quality and publish jobs. All five 0.10.0 crates were
+  published keylessly through Trusted Publishing/OIDC.
+- Main CI run [40230214609](https://github.com/asamarts/adotenv/actions/runs/40230214609)
+  is green.
+- crates.io returns HTTP 200 for all five 0.10.0 package versions. docs.rs
+  returns HTTP 200 for the core, process, config, figment and CLI roots.
+- GitHub Release v0.10.0 is Latest.
+
 ### 0.9.19 development slice (2026-10-25)
 
 - Added the additive compact provenance API (`CompactLoadedEnvironment`,

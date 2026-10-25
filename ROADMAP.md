@@ -27,7 +27,7 @@ milestones to 1.0. Design detail lives in [`docs/design/`](docs/design/):
 | [MIGRATION.md](MIGRATION.md) | User-facing migration and adoption guidance |
 
 **Current status:** 0.2.1, 0.3.0, 0.4.0, 0.5.0, 0.6.0, 0.7.0, 0.7.1, 0.8.0,
-0.9.0, 0.9.1, 0.9.2, 0.9.3, 0.9.4, 0.9.5, 0.9.6, 0.9.7, 0.9.8, 0.9.9, 0.9.10, 0.9.11, 0.9.12, 0.9.13, 0.9.14, 0.9.15, 0.9.16, 0.9.17, 0.9.18 and 0.9.19 are published. 0.3 implements explicit dialect configuration, all five syntax
+0.9.0, 0.9.1, 0.9.2, 0.9.3, 0.9.4, 0.9.5, 0.9.6, 0.9.7, 0.9.8, 0.9.9, 0.9.10, 0.9.11, 0.9.12, 0.9.13, 0.9.14, 0.9.15, 0.9.16, 0.9.17, 0.9.18, 0.9.19 and 0.10.0 are published. 0.3 implements explicit dialect configuration, all five syntax
 presets, selected-dialect native verification, exact per-dialect encoding,
 applicable pinned-upstream comparison and cross-dialect portability reporting.
 0.4 implements literal reference inspection, opt-in variable resolution,
@@ -382,29 +382,31 @@ See [strategy.md](docs/design/strategy.md) for the full analysis.
   loader.
 - **Released:** 2026-10-25 after the complete quality gate.
 
-### 0.10: Unified provenance (planned)
+### 0.10.0: Unified provenance (released 2026-10-25)
 
-A deliberate pre-1.0 breaking release that folds the 0.9.19 compact API into one
+A deliberate pre-1.0 breaking release folds the 0.9.19 compact API into one
 interned `LoadedEnvironment`:
 
-- retain values, shared-file origins and raw winning tokens by default;
-- make entries/override/repeated/skipped reports opt-in;
-- expose borrowed value iteration, `LoadOrigin<'_>` and report views with
-  accessors instead of owned snapshots;
-- store keys and values as `Arc<str>` and remove `CompactLoadedEnvironment`,
-  `CompactLoadOrigin` and the compact loader functions;
-- add `LoadOptions::new` (lean default) and `LoadOptions::full` (reports on).
+- values, shared-file origins and raw winning tokens are retained by default;
+- entries/override/repeated/skipped reports are opt-in;
+- borrowed value iteration, `LoadOrigin<'_>` and report views use accessors
+  instead of owned snapshots;
+- keys and values use `Arc<str>`; the separate compact types/loaders are gone;
+- `LoadOptions::new` is lean and `LoadOptions::full` enables reports.
 
-The decisions and implementation sequence are recorded in
-[compact-provenance.md](docs/design/compact-provenance.md). 0.10.0 must complete
-the full quality gate before publication.
+The 65,536-entry fixture retains 29.7 MB at 53.8 MB peak for the default
+profile, 35.6 MB / 63.9 MB with full reports, and 12.6 MB / 13.9 MB values-only.
+Decisions and the implementation record are in
+[compact-provenance.md](docs/design/compact-provenance.md). Release run
+[40230481794](https://github.com/asamarts/adotenv/actions/runs/40230481794)
+passed all quality and publish jobs.
 
 ### 1.0: Stable API (future)
 
-The core API is frozen and follows semver. The live evidence checklist is
+The core API is frozen again at 0.10.0 and follows semver. The live evidence checklist is
 [1.0-readiness.md](docs/design/1.0-readiness.md). Criteria:
 
-- Every item through 0.9 shipped.
+- Every item through 0.10 shipped.
 - Fuzzing clean for a sustained period, and the conformance corpus passing
   for every preset. A weekly/manual workflow runs bounded 300-second jobs for all
   five fuzz targets. The 0.9.8 projection-parser refactor reset the evidence

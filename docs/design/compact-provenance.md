@@ -1,7 +1,7 @@
 # Unified provenance model for 0.10/1.0
 
-Status: implemented for release **0.10.0** on 2026-10-25. 0.9.19 remains the
-latest published release until the 0.10.0 gate and publication complete.
+Status: **shipped in 0.10.0** on 2026-10-25. The 0.9.19 compact API was a
+short-lived pre-1.0 bridge and is removed.
 
 ## Decisions
 
@@ -95,11 +95,11 @@ Completed:
 6. Memory measurement: 53.8/29.7 MB default, 63.9/35.6 MB full, 13.9/12.6 MB
    values-only.
 
-Remaining before publication:
-7. Run the full workspace, MSRV, alloc-only, conformance, semver, docs, Windows
-   and release gates.
-8. Publish 0.10.0 with the migration section describing the breaking view/API
-   changes and removal of the 0.9.19 compact API.
+Publication:
+7. Full workspace, MSRV, alloc-only, conformance, semver, docs, Windows and
+   release gates passed.
+8. 0.10.0 published on 2026-10-25; the migration section documents the breaking
+   view/API changes and removal of the 0.9.19 compact API.
 
 ## Compatibility and evidence
 
