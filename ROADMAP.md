@@ -382,6 +382,23 @@ See [strategy.md](docs/design/strategy.md) for the full analysis.
   loader.
 - **Released:** 2026-10-25 after the complete quality gate.
 
+### 0.10: Unified provenance (planned)
+
+A deliberate pre-1.0 breaking release that folds the 0.9.19 compact API into one
+interned `LoadedEnvironment`:
+
+- retain values, shared-file origins and raw winning tokens by default;
+- make entries/override/repeated/skipped reports opt-in;
+- expose borrowed value iteration, `LoadOrigin<'_>` and report views with
+  accessors instead of owned snapshots;
+- store keys and values as `Arc<str>` and remove `CompactLoadedEnvironment`,
+  `CompactLoadOrigin` and the compact loader functions;
+- add `LoadOptions::new` (lean default) and `LoadOptions::full` (reports on).
+
+The decisions and implementation sequence are recorded in
+[compact-provenance.md](docs/design/compact-provenance.md). 0.10.0 must complete
+the full quality gate before publication.
+
 ### 1.0: Stable API (future)
 
 The core API is frozen and follows semver. The live evidence checklist is

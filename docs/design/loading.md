@@ -116,15 +116,17 @@ assert_eq!(values.get("PORT"), Some("8080"));
 Use `LoadedEnvironment` when provenance or `resolve_contextual` is required.
 For a 65,536-entry file, the local memory profile recorded in
 [performance.md](performance.md) is about 13.6 MB peak and retained RSS for
-values-only loading, versus 71.8 MB / 44.7 MB for the full default loader.
-Disabling origins and reports lowers the full loader to about 49.6 MB peak /
-24.3 MB retained with raw tokens, or 39.0 MB / 13.6 MB with raw tokens also
-disabled.
+values-only loading, versus 63.6 MB / 37.1 MB for the 0.9.19 full default
+loader. Disabling origins and reports lowers the full loader to about 49.7 MB
+peak / 24.3 MB retained with raw tokens, or 38.9 MB / 13.6 MB with raw tokens
+also disabled.
 
-## Compact provenance
+## Compact provenance (0.9.19; removed in 0.10.0)
 
-`CompactLoadedEnvironment` is the additive low-memory provenance path. It keeps
-values plus shared-file origins without report vectors or raw context. Use
+`CompactLoadedEnvironment` was added as an additive low-memory path in 0.9.19.
+The 0.10.0 unified loader replaces it; see
+[compact-provenance.md](compact-provenance.md). The 0.9.19 API keeps values plus
+shared-file origins without report vectors or raw context. Use
 `load_cascade_compact`, `load_cascade_compact_with` or `load_files_compact`;
 `LoadedEnvironment::into_compact` converts an existing load.
 
@@ -144,6 +146,12 @@ come from the environment via `path(origin)` or `origin_path(key)`. Reports and
 raw contextual tokens are intentionally omitted. For the 65,536-entry fixture
 the compact loader retains about 16.2 MB versus 37.1 MB for the full default
 loader.
+
+In the planned 0.10.0 unified model, `LoadedEnvironment` itself retains values,
+shared-file origins and raw winning tokens by default, with reports opt-in. It
+uses interned `Arc<str>` keys/values and borrowed views; the separate compact
+type and loaders are removed. See
+[compact-provenance.md](compact-provenance.md) for the approved public shape.
 
 ## Errors
 

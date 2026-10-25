@@ -166,7 +166,7 @@ fixture (one file, measured 2026-10-23):
 | both raw tokens and reports disabled | 52.3 MB | 26.9 MB |
 | origins and reports disabled | 49.7 MB | 24.3 MB |
 | origins, reports and raw tokens disabled | 38.9 MB | 13.6 MB |
-| `load_files_compact` | 41.3 MB | 16.2 MB |
+| `load_files_compact` (0.9.19; removed in 0.10.0) | 41.3 MB | 16.2 MB |
 | `load_values` | 13.6 MB | 13.6 MB |
 
 The full-loader merge now reads each document once for reports instead of
@@ -246,9 +246,12 @@ Ranked by expected impact and risk:
    for nonempty keys and a direct lookup only for dialect-specific empty keys,
    removing the per-key document scan.
 
-9. **1.0 compact provenance.** A prototype compact values-plus-origins result
-   retained about 36.6 MB versus 37.1 MB for the current full loader, so it was
-   not shipped. The proposed 1.0 model and acceptance criteria are documented in
+9. **Unified 0.10 provenance (planned).** The 0.9.19 compact values-plus-origins
+   API retains 16.2 MB, but the 1.0 review chose to unify it into one interned
+   `LoadedEnvironment` rather than keep two provenance types. The planned 0.10.0
+   default retains values, shared-file origins and raw tokens with reports
+   opt-in, targeting about 27 MB retained on the 65,536-entry fixture. The
+   decisions, public shape and implementation sequence are documented in
    [compact-provenance.md](compact-provenance.md).
 
 ## Interpretation

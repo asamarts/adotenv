@@ -1,9 +1,11 @@
 # Migrating and adopting adotenv
 
-Status: current published release **0.9.19**; target compatibility release **1.0**.
-The core API has been frozen since 0.8 and no core breaking changes are planned
-for 1.0. This guide is the user-facing path; the evidence checklist for the 1.0
-milestone lives in [docs/design/1.0-readiness.md](docs/design/1.0-readiness.md).
+Status: current published release **0.9.19**; next planned release **0.10.0**;
+target compatibility release **1.0**. The core API has been frozen since 0.8,
+but the approved 0.10.0 unified provenance model is an intentional pre-1.0
+breaking change. The loader API will be frozen again after 0.10.0. This guide is
+the user-facing path; the evidence checklist for the 1.0 milestone lives in
+[docs/design/1.0-readiness.md](docs/design/1.0-readiness.md).
 
 ## Adopt the core
 
@@ -82,6 +84,7 @@ Common next steps:
 | 0.9.17 | Shared-file compact origins |
 | 0.9.18 | Sparse overridden-value storage |
 | 0.9.19 | Compact provenance API |
+| 0.10 (planned) | Unified interned loader; borrowed views; compact API removed |
 | 1.0 | Compatibility target; no planned core API break |
 
 ## Migrating from 0.9.x to 1.0
@@ -128,6 +131,24 @@ features.
   and one integration or migration finding; private confirmation is sufficient.
   The 1.0 external-user criterion is defined in
   [the readiness checklist](docs/design/1.0-readiness.md#external-user-definition).
+
+## Preparing for 0.10 (planned)
+
+0.10.0 is an intentional pre-1.0 breaking release with one provenance type:
+
+- `LoadedEnvironment` retains values, shared-file origins and raw winning tokens
+  by default; reports are opt-in via `LoadOptions`.
+- `values()` and report accessors return borrowed iterators/views; `get()` keeps
+  returning `Option<&str>`.
+- `LoadOrigin<'_>` exposes `path()`, `span()` and `line()` accessors.
+- `CompactLoadedEnvironment`, `CompactLoadOrigin`, the compact loaders and
+  `into_compact` are removed; use `LoadedEnvironment` with options.
+- `load_values`/`LoadedValues` remain the values-only path.
+
+The exact public shape and implementation sequence are in
+[docs/design/compact-provenance.md](docs/design/compact-provenance.md). Update
+code that clones `values()` into a `BTreeMap` to iterate or call
+`into_values()`; update code that reads public entry/origin fields to accessors.
 
 ## Known boundaries
 

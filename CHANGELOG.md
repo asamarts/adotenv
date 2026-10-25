@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Planned for 0.10.0: unify the full and compact provenance APIs into one
+  interned `LoadedEnvironment`. Values, shared-file origins and raw winning
+  tokens are retained by default; reports are opt-in. Values and report views
+  are borrowed, and keys/values use `Arc<str>`.
+
+### Removed
+
+- Planned for 0.10.0: `CompactLoadedEnvironment`, `CompactLoadOrigin`,
+  `load_cascade_compact`, `load_cascade_compact_with`, `load_files_compact` and
+  `LoadedEnvironment::into_compact` are folded into `LoadedEnvironment`.
+
 ## [0.9.19] - 2026-10-25
 
 ### Added
