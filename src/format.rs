@@ -455,8 +455,8 @@ impl Document<'_> {
             }
             FinalNewline::Remove => {
                 // Removing the terminator of a blank final item would remove a
-                // blank line (or merge mixed CR/LF boundaries), not just a final
-                // newline. Keep that structure.
+                // blank line (or merge mixed CR/LF boundaries) rather than only
+                // a final newline. Keep that structure.
                 if self
                     .items()
                     .next_back()
