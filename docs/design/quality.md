@@ -1109,6 +1109,18 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   parser and lookup index are unchanged; the 0.9.8 parser fuzz campaign remains
   the latest parser evidence.
 
+### 0.9.19 release (2026-10-25)
+
+- Release run
+  [40208729372](https://github.com/asamarts/adotenv/actions/runs/40208729372)
+  passed the full quality gate and all publish jobs. All five 0.9.19 crates were
+  published keylessly through Trusted Publishing/OIDC.
+- crates.io returns HTTP 200 for all five 0.9.19 package versions. docs.rs serves
+  the four library roots; the `adotenv-cli` crate page is available.
+- GitHub Release v0.9.19 is Latest.
+- The forced patch-semver check against 0.9.18 reports no breaking API change;
+  this release adds the additive compact provenance API.
+
 ### 0.9.18 release (2026-10-24)
 
 - Release run
