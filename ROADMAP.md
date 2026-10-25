@@ -395,6 +395,8 @@ The core API is frozen and follows semver. The live evidence checklist is
 
 ### Later
 
+- Compact 1.0 provenance using interned keys/values; see
+  [compact-provenance.md](docs/design/compact-provenance.md).
 - Semantic tokens and language-server support for editors.
 - A WebAssembly playground.
 - More dialect presets as users ask for them.

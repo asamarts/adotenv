@@ -243,6 +243,11 @@ Ranked by expected impact and risk:
    for nonempty keys and a direct lookup only for dialect-specific empty keys,
    removing the per-key document scan.
 
+9. **1.0 compact provenance.** A prototype compact values-plus-origins result
+   retained about 36.6 MB versus 37.1 MB for the current full loader, so it was
+   not shipped. The proposed 1.0 model and acceptance criteria are documented in
+   [compact-provenance.md](compact-provenance.md).
+
 ## Interpretation
 
 - Parsing is linear and fast for typical files; the 65,536-entry fixture is a
