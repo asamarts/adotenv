@@ -4,20 +4,37 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.10.0] - 2026-10-25
 
 ### Changed
 
-- Planned for 0.10.0: unify the full and compact provenance APIs into one
-  interned `LoadedEnvironment`. Values, shared-file origins and raw winning
-  tokens are retained by default; reports are opt-in. Values and report views
-  are borrowed, and keys/values use `Arc<str>`.
+- Unified the full and compact provenance APIs into one interned
+  `LoadedEnvironment`. Values, shared-file origins and raw winning tokens are
+  retained by default; entries, overrides, repeats and skipped declarations are
+  opt-in through `LoadOptions::full` or `.with_reports(true)`.
+- `LoadedEnvironment::values()` now returns a borrowed iterator, and
+  `entries()`/`overrides()`/`repeated()`/`skipped()` return borrowed report
+  iterators. `LoadedEntry`, `LoadOrigin`, `LoadOverride`, `LoadRepeated` and
+  `LoadSkipped` expose private data through accessors.
+- Keys and values use `Arc<str>` sharing, and origins use a compact file table.
+- Added `LoadOptions::full`; `LoadOptions::new` is now the lean default profile.
+- Resolution errors expose `LoadOriginOwned` with accessors.
+- Updated the CLI, process, `config` and Figment consumers for borrowed value
+  iteration.
 
 ### Removed
 
-- Planned for 0.10.0: `CompactLoadedEnvironment`, `CompactLoadOrigin`,
-  `load_cascade_compact`, `load_cascade_compact_with`, `load_files_compact` and
-  `LoadedEnvironment::into_compact` are folded into `LoadedEnvironment`.
+- `CompactLoadedEnvironment`, `CompactLoadOrigin`, `load_cascade_compact`,
+  `load_cascade_compact_with`, `load_files_compact` and
+  `LoadedEnvironment::into_compact` are removed. Their values-plus-origins
+  profile is the default unified `LoadedEnvironment` profile.
+
+### Performance
+
+- On the 65,536-entry fixture the default loader retains 29.7 MB at 53.8 MB
+  peak RSS; `LoadOptions::full` retains 35.6 MB at 63.9 MB peak; values-only
+  loading retains 12.6 MB at 13.9 MB peak. The 0.9.19 comparison points were
+  37.1 MB / 63.6 MB full and 16.2 MB compact.
 
 ## [0.9.19] - 2026-10-25
 

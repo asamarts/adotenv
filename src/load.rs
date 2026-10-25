@@ -14,7 +14,7 @@ use std::{
     ops::Range,
     path::{Path, PathBuf},
     string::String,
-    sync::OnceLock,
+    sync::Arc,
     vec::Vec,
 };
 
@@ -23,50 +23,111 @@ use crate::{
     ExpandScope, ResolveError, Severity,
 };
 
-/// A file, source span and one-based line identifying a loaded value.
+/// A borrowed file, source span and one-based line identifying a loaded value.
+///
+/// Origins produced by [`LoadedEnvironment`] borrow the environment's shared
+/// file table. Use the accessors to read the path, span and line.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
-pub struct LoadOrigin {
+pub struct LoadOrigin<'a> {
+    path: &'a Path,
+    span: Range<usize>,
+    line: usize,
+}
+
+impl<'a> LoadOrigin<'a> {
     /// File path used for the load.
-    pub path: PathBuf,
+    #[must_use]
+    pub const fn path(&self) -> &'a Path {
+        self.path
+    }
     /// Original value span in that file.
-    pub span: Range<usize>,
+    #[must_use]
+    pub const fn span(&self) -> &Range<usize> {
+        &self.span
+    }
     /// One-based source line.
-    pub line: usize,
+    #[must_use]
+    pub const fn line(&self) -> usize {
+        self.line
+    }
 }
 
 /// One effective declaration observed during a load.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct LoadedEntry {
+pub struct LoadedEntry<'a> {
+    key: &'a str,
+    value: &'a str,
+    origin: LoadOrigin<'a>,
+}
+
+impl<'a> LoadedEntry<'a> {
     /// Declaration key.
-    pub key: String,
+    #[must_use]
+    pub const fn key(&self) -> &'a str {
+        self.key
+    }
     /// Decoded literal value.
-    pub value: String,
+    #[must_use]
+    pub const fn value(&self) -> &'a str {
+        self.value
+    }
     /// Where the declaration came from.
-    pub origin: LoadOrigin,
+    #[must_use]
+    pub const fn origin(&self) -> &LoadOrigin<'a> {
+        &self.origin
+    }
 }
 
 /// A later file overriding an earlier effective key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct LoadOverride {
+pub struct LoadOverride<'a> {
+    key: &'a str,
+    previous: LoadOrigin<'a>,
+    replacement: LoadOrigin<'a>,
+}
+
+impl<'a> LoadOverride<'a> {
     /// Overridden key.
-    pub key: String,
+    #[must_use]
+    pub const fn key(&self) -> &'a str {
+        self.key
+    }
     /// Earlier active value.
-    pub previous: LoadOrigin,
+    #[must_use]
+    pub const fn previous(&self) -> &LoadOrigin<'a> {
+        &self.previous
+    }
     /// Later active value.
-    pub replacement: LoadOrigin,
+    #[must_use]
+    pub const fn replacement(&self) -> &LoadOrigin<'a> {
+        &self.replacement
+    }
 }
 
 /// Duplicate declarations for one key within a single file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct LoadRepeated {
+pub struct LoadRepeated<'a> {
+    key: &'a str,
+    origins: &'a [CompactOrigin],
+    files: &'a [PathBuf],
+}
+
+impl<'a> LoadRepeated<'a> {
     /// Repeated key.
-    pub key: String,
+    #[must_use]
+    pub const fn key(&self) -> &'a str {
+        self.key
+    }
     /// All occurrences in source order.
-    pub origins: Vec<LoadOrigin>,
+    pub fn origins(&self) -> impl Iterator<Item = LoadOrigin<'a>> + '_ {
+        self.origins
+            .iter()
+            .map(|origin| view_origin(self.files, origin))
+    }
 }
 
 /// Why a declaration was not loaded.
@@ -84,81 +145,44 @@ pub enum SkipReason {
 /// A declaration that was retained in the report but not loaded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct LoadSkipped {
+pub struct LoadSkipped<'a> {
+    key: Option<&'a str>,
+    origin: LoadOrigin<'a>,
+    reason: SkipReason,
+}
+
+impl<'a> LoadSkipped<'a> {
     /// Key, if one was available.
-    pub key: Option<String>,
+    #[must_use]
+    pub const fn key(&self) -> Option<&'a str> {
+        self.key
+    }
     /// File and position.
-    pub origin: LoadOrigin,
+    #[must_use]
+    pub const fn origin(&self) -> &LoadOrigin<'a> {
+        &self.origin
+    }
     /// Why it was skipped.
-    pub reason: SkipReason,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CompactOrigin {
-    file: usize,
-    span: Range<usize>,
-    line: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CompactEntry {
-    key: String,
-    origin: CompactOrigin,
-}
-
-/// Fully validated result of a file load.
-#[derive(Debug, Clone)]
-pub struct LoadedEnvironment {
-    values: BTreeMap<String, String>,
-    origins: BTreeMap<String, LoadOrigin>,
-    raw_entries: BTreeMap<String, (usize, Range<usize>, Range<usize>)>,
-    raw_source: String,
-    files: Vec<PathBuf>,
-    dialect: Dialect,
-    entry_records: Vec<CompactEntry>,
-    overridden_values: BTreeMap<usize, String>,
-    entries_cache: OnceLock<Vec<LoadedEntry>>,
-    overrides: Vec<LoadOverride>,
-    repeated: Vec<LoadRepeated>,
-    skipped: Vec<LoadSkipped>,
-    raw_tokens: bool,
-    origins_in_entries: bool,
-    origins_cache: OnceLock<BTreeMap<String, LoadOrigin>>,
-}
-
-impl PartialEq for LoadedEnvironment {
-    fn eq(&self, other: &Self) -> bool {
-        self.values == other.values
-            && self.origins == other.origins
-            && self.raw_entries == other.raw_entries
-            && self.files == other.files
-            && self.dialect == other.dialect
-            && self.entry_records == other.entry_records
-            && self.overridden_values == other.overridden_values
-            && self.overrides == other.overrides
-            && self.repeated == other.repeated
-            && self.skipped == other.skipped
-            && self.raw_tokens == other.raw_tokens
-            && self.origins_in_entries == other.origins_in_entries
+    #[must_use]
+    pub const fn reason(&self) -> SkipReason {
+        self.reason
     }
 }
 
-impl Eq for LoadedEnvironment {}
-
-/// A compact origin referencing one file in a [`CompactLoadedEnvironment`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// An owned origin used by resolution errors.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
-pub struct CompactLoadOrigin {
-    file: usize,
+pub struct LoadOriginOwned {
+    path: PathBuf,
     span: Range<usize>,
     line: usize,
 }
 
-impl CompactLoadOrigin {
-    /// Index into the environment's file table.
+impl LoadOriginOwned {
+    /// File path used for the load.
     #[must_use]
-    pub const fn file_index(&self) -> usize {
-        self.file
+    pub fn path(&self) -> &Path {
+        &self.path
     }
     /// Original value span in that file.
     #[must_use]
@@ -173,85 +197,66 @@ impl CompactLoadOrigin {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct CompactRecord {
-    value: Box<str>,
-    origin: Option<CompactLoadOrigin>,
+struct CompactOrigin {
+    file: usize,
+    span: Range<usize>,
+    line: usize,
 }
 
-/// Loaded values with compact shared-file provenance.
-///
-/// This result intentionally omits report vectors and raw context. Origins are
-/// stored as a file index plus span/line, with one shared path per file.
-/// Disabled origin retention can leave individual records without an origin.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct CompactLoadedEnvironment {
-    entries: BTreeMap<Box<str>, CompactRecord>,
-    files: Vec<PathBuf>,
+struct EntryRecord {
+    key: Arc<str>,
+    value: Arc<str>,
+    origin: CompactOrigin,
 }
 
-impl CompactLoadedEnvironment {
-    /// Final value for one key.
-    #[must_use]
-    pub fn get(&self, key: &str) -> Option<&str> {
-        self.entries.get(key).map(|entry| entry.value.as_ref())
-    }
-    /// Iterate final key/value pairs in key order.
-    pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> + '_ {
-        self.entries
-            .iter()
-            .map(|(key, entry)| (key.as_ref(), entry.value.as_ref()))
-    }
-    /// Compact origin for one key, when origins were retained.
-    #[must_use]
-    pub fn origin(&self, key: &str) -> Option<&CompactLoadOrigin> {
-        self.entries
-            .get(key)
-            .and_then(|entry| entry.origin.as_ref())
-    }
-    /// File path for one compact origin.
-    #[must_use]
-    pub fn path(&self, origin: &CompactLoadOrigin) -> Option<&Path> {
-        self.files.get(origin.file).map(PathBuf::as_path)
-    }
-    /// File path for one key's winning origin.
-    #[must_use]
-    pub fn origin_path(&self, key: &str) -> Option<&Path> {
-        self.origin(key).and_then(|origin| self.path(origin))
-    }
-    /// Number of effective values.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-    /// Whether no effective values were loaded.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-    /// Consume the compact result and materialize an owned value map.
-    #[must_use]
-    pub fn into_values(self) -> BTreeMap<String, String> {
-        self.entries
-            .into_iter()
-            .map(|(key, entry)| (key.into_string(), entry.value.into_string()))
-            .collect()
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OverrideRecord {
+    key: Arc<str>,
+    previous: CompactOrigin,
+    replacement: CompactOrigin,
 }
 
-/// Retention policy for the full loader.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RepeatedRecord {
+    key: Arc<str>,
+    origins: Vec<CompactOrigin>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SkippedRecord {
+    key: Option<Arc<str>>,
+    origin: CompactOrigin,
+    reason: SkipReason,
+}
+
+/// Fully validated result of a file load.
 ///
-/// The default retains every report and the raw winning tokens required by
-/// [`LoadedEnvironment::resolve_contextual`]. Applications that only need
-/// values, or that never need contextual resolution, can opt out of the
-/// corresponding allocations. Disabling reports leaves
-/// [`LoadedEnvironment::entries`], [`LoadedEnvironment::overrides`],
-/// [`LoadedEnvironment::repeated`] and [`LoadedEnvironment::skipped`] empty.
-/// Disabling origins omits the final [`LoadedEnvironment::origin`] map and
-/// override reports; reports that remain enabled still carry their own origins.
-/// Disabling raw tokens makes [`LoadedEnvironment::resolve_contextual`] return
-/// an error; decoded-value resolution remains available. Use
-/// [`crate::load::load_values`] when no origins or reports are needed at all.
+/// Values, shared-file origins and raw winning tokens are retained by default.
+/// Reports are opt-in through [`LoadOptions::with_reports`] or
+/// [`LoadOptions::full`]. Values and report views borrow the environment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoadedEnvironment {
+    values: BTreeMap<Arc<str>, Arc<str>>,
+    origins: BTreeMap<Arc<str>, CompactOrigin>,
+    raw_entries: BTreeMap<Arc<str>, (usize, Range<usize>, Range<usize>)>,
+    raw_source: String,
+    files: Vec<PathBuf>,
+    dialect: Dialect,
+    entries: Vec<EntryRecord>,
+    overrides: Vec<OverrideRecord>,
+    repeated: Vec<RepeatedRecord>,
+    skipped: Vec<SkippedRecord>,
+    raw_tokens: bool,
+    origins_retained: bool,
+}
+
+/// Retention policy for loading.
+///
+/// [`LoadOptions::new`] retains values, shared-file origins and raw winning
+/// tokens while leaving reports empty. [`LoadOptions::full`] additionally
+/// retains entries, overrides, repeats and skipped declarations. Applications
+/// that only need values should use [`crate::load::load_values`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct LoadOptions {
@@ -272,9 +277,24 @@ impl Default for LoadOptions {
 }
 
 impl LoadOptions {
-    /// Full retention using the selected dialect.
+    /// Default retention using the selected dialect.
+    ///
+    /// Values, shared-file origins and raw winning tokens are retained;
+    /// reports are disabled.
     #[must_use]
     pub const fn new(dialect: Dialect) -> Self {
+        Self {
+            dialect,
+            retain_raw_tokens: true,
+            retain_reports: false,
+            retain_origins: true,
+        }
+    }
+    /// Full retention using the selected dialect.
+    ///
+    /// Includes entries, overrides, repeats and skipped-declaration reports.
+    #[must_use]
+    pub const fn full(dialect: Dialect) -> Self {
         Self {
             dialect,
             retain_raw_tokens: true,
@@ -309,10 +329,11 @@ impl LoadOptions {
 }
 
 impl LoadedEnvironment {
-    /// Final effective literal values.
-    #[must_use]
-    pub fn values(&self) -> &BTreeMap<String, String> {
-        &self.values
+    /// Iterate final effective literal values in key order.
+    pub fn values(&self) -> impl Iterator<Item = (&str, &str)> + '_ {
+        self.values
+            .iter()
+            .map(|(key, value)| (key.as_ref(), value.as_ref()))
     }
     /// Whether raw winning tokens were retained for contextual resolution.
     #[must_use]
@@ -322,89 +343,68 @@ impl LoadedEnvironment {
     /// Final value for one key.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.values.get(key).map(String::as_str)
+        self.values.get(key).map(Arc::as_ref)
     }
     /// Final origin for one effective key.
     ///
-    /// When reports are retained, the origin is derived from the final matching
-    /// [`LoadedEntry`] instead of storing a duplicate map. Returns `None` when
-    /// loaded with [`LoadOptions::with_origins`] set to `false`.
+    /// Returns `None` when loaded with [`LoadOptions::with_origins`] set to
+    /// `false`.
     #[must_use]
-    pub fn origin(&self, key: &str) -> Option<&LoadOrigin> {
-        if self.origins_in_entries {
-            self.origins_cache
-                .get_or_init(|| {
-                    self.entry_records
-                        .iter()
-                        .map(|entry| (entry.key.clone(), self.load_origin(&entry.origin)))
-                        .collect()
-                })
+    pub fn origin(&self, key: &str) -> Option<LoadOrigin<'_>> {
+        if self.origins_retained {
+            self.origins
                 .get(key)
+                .map(|origin| view_origin(&self.files, origin))
         } else {
-            self.origins.get(key)
+            None
         }
     }
-    fn load_origin(&self, origin: &CompactOrigin) -> LoadOrigin {
-        LoadOrigin {
-            path: self.files[origin.file].clone(),
-            span: origin.span.clone(),
+    fn owned_origin(&self, key: &str) -> Option<LoadOriginOwned> {
+        self.origin(key).map(|origin| LoadOriginOwned {
+            path: origin.path.to_path_buf(),
+            span: origin.span,
             line: origin.line,
-        }
+        })
     }
-    fn origins_map(&self) -> BTreeMap<String, LoadOrigin> {
-        if self.origins_in_entries {
-            self.entry_records
-                .iter()
-                .map(|entry| (entry.key.clone(), self.load_origin(&entry.origin)))
-                .collect()
-        } else {
-            self.origins.clone()
-        }
-    }
-
     /// Every loaded declaration, including later-overridden entries.
     ///
     /// Empty when loaded with [`LoadOptions::with_reports`] set to `false`.
-    /// The owned report is materialized lazily on the first call.
-    #[must_use]
-    pub fn entries(&self) -> &[LoadedEntry] {
-        self.entries_cache.get_or_init(|| {
-            self.entry_records
-                .iter()
-                .enumerate()
-                .map(|(index, entry)| LoadedEntry {
-                    key: entry.key.clone(),
-                    value: self
-                        .overridden_values
-                        .get(&index)
-                        .cloned()
-                        .or_else(|| self.values.get(&entry.key).cloned())
-                        .unwrap_or_default(),
-                    origin: self.load_origin(&entry.origin),
-                })
-                .collect()
+    pub fn entries(&self) -> impl Iterator<Item = LoadedEntry<'_>> + '_ {
+        self.entries.iter().map(|entry| LoadedEntry {
+            key: entry.key.as_ref(),
+            value: entry.value.as_ref(),
+            origin: view_origin(&self.files, &entry.origin),
         })
     }
     /// Cross-file overrides in load order.
     ///
-    /// Empty when loaded with [`LoadOptions::with_reports`] set to `false`.
-    #[must_use]
-    pub fn overrides(&self) -> &[LoadOverride] {
-        &self.overrides
+    /// Empty when reports or origins are disabled.
+    pub fn overrides(&self) -> impl Iterator<Item = LoadOverride<'_>> + '_ {
+        self.overrides.iter().map(|override_report| LoadOverride {
+            key: override_report.key.as_ref(),
+            previous: view_origin(&self.files, &override_report.previous),
+            replacement: view_origin(&self.files, &override_report.replacement),
+        })
     }
     /// Duplicate declarations within individual files.
     ///
     /// Empty when loaded with [`LoadOptions::with_reports`] set to `false`.
-    #[must_use]
-    pub fn repeated(&self) -> &[LoadRepeated] {
-        &self.repeated
+    pub fn repeated(&self) -> impl Iterator<Item = LoadRepeated<'_>> + '_ {
+        self.repeated.iter().map(|repeated| LoadRepeated {
+            key: repeated.key.as_ref(),
+            origins: &repeated.origins,
+            files: &self.files,
+        })
     }
     /// Declarations that were inspected but not loaded.
     ///
     /// Empty when loaded with [`LoadOptions::with_reports`] set to `false`.
-    #[must_use]
-    pub fn skipped(&self) -> &[LoadSkipped] {
-        &self.skipped
+    pub fn skipped(&self) -> impl Iterator<Item = LoadSkipped<'_>> + '_ {
+        self.skipped.iter().map(|skipped| LoadSkipped {
+            key: skipped.key.as_deref(),
+            origin: view_origin(&self.files, &skipped.origin),
+            reason: skipped.reason,
+        })
     }
     /// Number of effective values.
     #[must_use]
@@ -415,6 +415,25 @@ impl LoadedEnvironment {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.values.is_empty()
+    }
+    /// Drop provenance and reports, retaining only final effective values.
+    #[must_use]
+    pub fn into_values(self) -> LoadedValues {
+        LoadedValues {
+            values: self
+                .values
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect(),
+        }
+    }
+}
+
+fn view_origin<'a>(files: &'a [PathBuf], origin: &CompactOrigin) -> LoadOrigin<'a> {
+    LoadOrigin {
+        path: files[origin.file].as_path(),
+        span: origin.span.clone(),
+        line: origin.line,
     }
 }
 
@@ -456,75 +475,7 @@ impl LoadedValues {
     }
 }
 
-impl LoadedEnvironment {
-    /// Drop reports and raw context while retaining compact provenance.
-    ///
-    /// If origins were disabled at load time, the compact result preserves that
-    /// choice and its origin accessors return `None`.
-    #[must_use]
-    pub fn into_compact(self) -> CompactLoadedEnvironment {
-        let mut files = self.files;
-        let mut origins = BTreeMap::new();
-        if self.origins_in_entries {
-            for entry in self.entry_records {
-                origins.insert(
-                    entry.key,
-                    CompactLoadOrigin {
-                        file: entry.origin.file,
-                        span: entry.origin.span,
-                        line: entry.origin.line,
-                    },
-                );
-            }
-        } else if !self.origins.is_empty() {
-            for (key, origin) in self.origins {
-                let file = files
-                    .iter()
-                    .position(|path| path == &origin.path)
-                    .unwrap_or_else(|| {
-                        let index = files.len();
-                        files.push(origin.path.clone());
-                        index
-                    });
-                origins.insert(
-                    key,
-                    CompactLoadOrigin {
-                        file,
-                        span: origin.span,
-                        line: origin.line,
-                    },
-                );
-            }
-        } else {
-            files.clear();
-        }
-        let entries = self
-            .values
-            .into_iter()
-            .map(|(key, value)| {
-                let origin = origins.remove(&key);
-                (
-                    key.into_boxed_str(),
-                    CompactRecord {
-                        value: value.into_boxed_str(),
-                        origin,
-                    },
-                )
-            })
-            .collect();
-        CompactLoadedEnvironment { entries, files }
-    }
-
-    /// Drop provenance and reports, retaining only final effective values.
-    #[must_use]
-    pub fn into_values(self) -> LoadedValues {
-        LoadedValues {
-            values: self.values,
-        }
-    }
-}
-
-/// A resolved decoded loaded environment.
+/// A resolved loaded environment.
 ///
 /// Values have been processed by [`LoadedEnvironment::resolve_contextual`] or
 /// [`LoadedEnvironment::resolve_decoded`]. Origins identify the winning
@@ -532,7 +483,8 @@ impl LoadedEnvironment {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedEnvironment {
     values: BTreeMap<String, String>,
-    origins: BTreeMap<String, LoadOrigin>,
+    origins: BTreeMap<String, CompactOrigin>,
+    files: Vec<PathBuf>,
 }
 
 impl ResolvedEnvironment {
@@ -548,8 +500,10 @@ impl ResolvedEnvironment {
     }
     /// Origin of the winning declaration for one key.
     #[must_use]
-    pub fn origin(&self, key: &str) -> Option<&LoadOrigin> {
-        self.origins.get(key)
+    pub fn origin(&self, key: &str) -> Option<LoadOrigin<'_>> {
+        self.origins
+            .get(key)
+            .map(|origin| view_origin(&self.files, origin))
     }
     /// Number of resolved values.
     #[must_use]
@@ -567,12 +521,16 @@ impl ResolvedEnvironment {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadedResolveError {
     key: Option<String>,
-    origin: Option<LoadOrigin>,
+    origin: Option<LoadOriginOwned>,
     message: String,
 }
 
 impl LoadedResolveError {
-    fn new(key: Option<String>, origin: Option<LoadOrigin>, message: impl Into<String>) -> Self {
+    fn new(
+        key: Option<String>,
+        origin: Option<LoadOriginOwned>,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             key,
             origin,
@@ -586,7 +544,7 @@ impl LoadedResolveError {
     }
     /// Origin of the winning declaration when available.
     #[must_use]
-    pub fn origin(&self) -> Option<&LoadOrigin> {
+    pub fn origin(&self) -> Option<&LoadOriginOwned> {
         self.origin.as_ref()
     }
     /// Human-readable failure message.
@@ -599,7 +557,7 @@ impl LoadedResolveError {
 impl fmt::Display for LoadedResolveError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(origin) = &self.origin {
-            write!(formatter, "{}:{}: ", origin.path.display(), origin.line)?;
+            write!(formatter, "{}:{}: ", origin.path().display(), origin.line())?;
         }
         formatter.write_str(&self.message)
     }
@@ -641,14 +599,14 @@ impl LoadedEnvironment {
         }
         let mut source = String::new();
         for (key, value) in &self.values {
-            let token = encode_value(value).ok_or_else(|| {
+            let token = encode_value(value.as_ref()).ok_or_else(|| {
                 LoadedResolveError::new(
-                    Some(key.clone()),
-                    self.origin(key).cloned(),
+                    Some(key.to_string()),
+                    self.owned_origin(key),
                     "value cannot be represented exactly",
                 )
             })?;
-            source.push_str(key);
+            source.push_str(key.as_ref());
             source.push('=');
             source.push_str(&token);
             source.push('\n');
@@ -664,7 +622,7 @@ impl LoadedEnvironment {
         options.rules.escaped_dollar = true;
         let resolved = document.resolve(lookup, &options).map_err(|error| {
             let key = resolve_error_key(&error).to_string();
-            let origin = self.origin(&key).cloned();
+            let origin = self.owned_origin(&key);
             LoadedResolveError::new(Some(key), origin, error.to_string())
         })?;
         let mut values = BTreeMap::new();
@@ -673,7 +631,12 @@ impl LoadedEnvironment {
         }
         Ok(ResolvedEnvironment {
             values,
-            origins: self.origins_map(),
+            origins: self
+                .origins
+                .iter()
+                .map(|(key, origin)| (key.to_string(), origin.clone()))
+                .collect(),
+            files: self.files.clone(),
         })
     }
 
@@ -720,7 +683,7 @@ impl LoadedEnvironment {
         })?;
         let resolved = document.resolve(lookup, options).map_err(|error| {
             let key = resolve_error_key(&error).to_string();
-            let origin = self.origin(&key).cloned();
+            let origin = self.owned_origin(&key);
             LoadedResolveError::new(Some(key), origin, error.to_string())
         })?;
         let mut values = BTreeMap::new();
@@ -729,7 +692,12 @@ impl LoadedEnvironment {
         }
         Ok(ResolvedEnvironment {
             values,
-            origins: self.origins_map(),
+            origins: self
+                .origins
+                .iter()
+                .map(|(key, origin)| (key.to_string(), origin.clone()))
+                .collect(),
+            files: self.files.clone(),
         })
     }
 }
@@ -879,61 +847,6 @@ where
     load_paths(paths, options, false)
 }
 
-/// Load the standard cascade into a compact provenance result.
-///
-/// Uses Portable syntax and the same strict read, parse and override semantics
-/// as [`load_cascade`], retaining values plus compact file/span/line origins.
-/// Reports and raw context are intentionally omitted.
-///
-/// # Errors
-/// Returns [`LoadError`] for invalid mode names, I/O errors, invalid UTF-8 or
-/// syntax/policy errors.
-pub fn load_cascade_compact<P: AsRef<Path>>(
-    directory: P,
-    mode: &str,
-) -> Result<CompactLoadedEnvironment, LoadError> {
-    load_cascade_compact_with(directory, mode, Dialect::PORTABLE)
-}
-
-/// Load the standard cascade into a compact provenance result with a dialect.
-///
-/// # Errors
-/// Returns [`LoadError`] for invalid mode names, I/O errors, invalid UTF-8 or
-/// syntax/policy errors.
-pub fn load_cascade_compact_with<P: AsRef<Path>>(
-    directory: P,
-    mode: &str,
-    dialect: Dialect,
-) -> Result<CompactLoadedEnvironment, LoadError> {
-    if !valid_mode(mode) {
-        return Err(LoadError::InvalidMode);
-    }
-    let directory = directory.as_ref();
-    let mut paths = vec![directory.join(".env"), directory.join(".env.local")];
-    if !mode.is_empty() {
-        paths.push(directory.join(format!(".env.{mode}")));
-        paths.push(directory.join(format!(".env.{mode}.local")));
-    }
-    load_compact_paths(paths, dialect, true)
-}
-
-/// Load an explicit ordered file list into a compact provenance result.
-///
-/// Every listed file must exist. Later files override earlier files by key.
-///
-/// # Errors
-/// Returns [`LoadError`] for I/O errors, invalid UTF-8 or syntax/policy errors.
-pub fn load_files_compact<I, P>(
-    paths: I,
-    dialect: Dialect,
-) -> Result<CompactLoadedEnvironment, LoadError>
-where
-    I: IntoIterator<Item = P>,
-    P: AsRef<Path>,
-{
-    load_compact_paths(paths, dialect, false)
-}
-
 /// Load the standard cascade while retaining only final effective values.
 ///
 /// This is the compact application-loading path. It applies the same strict
@@ -990,62 +903,6 @@ where
     P: AsRef<Path>,
 {
     load_value_paths(paths, dialect, false)
-}
-
-fn load_compact_paths<I, P>(
-    paths: I,
-    dialect: Dialect,
-    skip_missing: bool,
-) -> Result<CompactLoadedEnvironment, LoadError>
-where
-    I: IntoIterator<Item = P>,
-    P: AsRef<Path>,
-{
-    let mut entries = BTreeMap::new();
-    let mut files = Vec::new();
-    for path in paths {
-        let path = path.as_ref();
-        let bytes = match fs::read(path) {
-            Ok(bytes) => bytes,
-            Err(error) if skip_missing && error.kind() == io::ErrorKind::NotFound => continue,
-            Err(source) => {
-                return Err(LoadError::Io {
-                    path: path.to_path_buf(),
-                    source,
-                });
-            }
-        };
-        let text = String::from_utf8(bytes).map_err(|_| LoadError::InvalidUtf8 {
-            path: path.to_path_buf(),
-        })?;
-        let (document, diagnostics) = parse_with(&text, dialect);
-        if let Some(diagnostic) = diagnostics
-            .into_iter()
-            .find(|diagnostic| diagnostic.severity() == Severity::Error)
-        {
-            return Err(LoadError::Invalid {
-                path: path.to_path_buf(),
-                diagnostic,
-            });
-        }
-        let file = files.len();
-        files.push(path.to_path_buf());
-        for effective in document.effective_entries() {
-            let compact = compact_origin(file, effective.entry());
-            entries.insert(
-                effective.key().into(),
-                CompactRecord {
-                    value: effective.value().into(),
-                    origin: Some(CompactLoadOrigin {
-                        file: compact.file,
-                        span: compact.span,
-                        line: compact.line,
-                    }),
-                },
-            );
-        }
-    }
-    Ok(CompactLoadedEnvironment { entries, files })
 }
 
 fn load_value_paths<I, P>(
@@ -1113,18 +970,14 @@ where
         raw_source: String::new(),
         files: Vec::new(),
         dialect: options.dialect,
-        entry_records: Vec::new(),
-        overridden_values: BTreeMap::new(),
-        entries_cache: OnceLock::new(),
+        entries: Vec::new(),
         overrides: Vec::new(),
         repeated: Vec::new(),
         skipped: Vec::new(),
         raw_tokens: options.retain_raw_tokens,
-        origins_in_entries: options.retain_reports && options.retain_origins,
-        origins_cache: OnceLock::new(),
+        origins_retained: options.retain_origins,
     };
     let mut scratch = MergeScratch {
-        previous_origins: BTreeMap::new(),
         previous_index: BTreeMap::new(),
     };
     let mut next_order = 0;
@@ -1153,7 +1006,7 @@ where
                 diagnostic,
             });
         }
-        let file_index = if options.retain_reports {
+        let file_index = if options.retain_reports || options.retain_origins {
             let index = loaded.files.len();
             loaded.files.push(path.to_path_buf());
             index
@@ -1162,7 +1015,6 @@ where
         };
         merge_document(
             &mut loaded,
-            path,
             file_index,
             &document,
             options,
@@ -1170,31 +1022,25 @@ where
             &mut next_order,
         );
     }
-    if !loaded.origins_in_entries && options.retain_origins {
-        loaded.origins = scratch.previous_origins;
-    }
     loaded.raw_source.shrink_to_fit();
+    loaded.files.shrink_to_fit();
     Ok(loaded)
 }
 
 struct MergeScratch {
-    previous_origins: BTreeMap<String, LoadOrigin>,
-    previous_index: BTreeMap<String, usize>,
+    previous_index: BTreeMap<Arc<str>, usize>,
 }
 
 struct MergeState<'a> {
     loaded: &'a mut LoadedEnvironment,
-    path: &'a Path,
     file_index: usize,
     options: LoadOptions,
-    previous_origins: &'a mut BTreeMap<String, LoadOrigin>,
-    previous_index: &'a mut BTreeMap<String, usize>,
+    previous_index: &'a mut BTreeMap<Arc<str>, usize>,
     next_order: usize,
 }
 
 fn merge_document(
     loaded: &mut LoadedEnvironment,
-    path: &Path,
     file_index: usize,
     document: &crate::Document<'_>,
     options: LoadOptions,
@@ -1203,10 +1049,8 @@ fn merge_document(
 ) {
     let mut state = MergeState {
         loaded,
-        path,
         file_index,
         options,
-        previous_origins: &mut scratch.previous_origins,
         previous_index: &mut scratch.previous_index,
         next_order: *next_order,
     };
@@ -1223,8 +1067,8 @@ fn merge_effective_entries(state: &mut MergeState<'_>, document: &crate::Documen
         merge_effective(
             state,
             document,
-            effective.key().to_string(),
-            effective.value().to_string(),
+            Arc::from(effective.key()),
+            Arc::from(effective.value()),
             effective.entry(),
         );
     }
@@ -1269,9 +1113,9 @@ fn merge_reported_key(
 ) {
     if key.is_empty() {
         for entry in all {
-            state.loaded.skipped.push(LoadSkipped {
+            state.loaded.skipped.push(SkippedRecord {
                 key: None,
-                origin: origin(state.path, *entry),
+                origin: compact_origin(state.file_index, *entry),
                 reason: SkipReason::EmptyKey,
             });
         }
@@ -1289,13 +1133,14 @@ fn merge_reported_key(
             participating_count += 1;
         }
     }
+    let key: Arc<str> = Arc::from(key);
     if participating_count > 1 {
-        state.loaded.repeated.push(LoadRepeated {
-            key: key.to_string(),
+        state.loaded.repeated.push(RepeatedRecord {
+            key: key.clone(),
             origins: all
                 .iter()
                 .filter(|entry| entry.participates_in_lookup())
-                .map(|entry| origin(state.path, *entry))
+                .map(|entry| compact_origin(state.file_index, *entry))
                 .collect(),
         });
     }
@@ -1304,33 +1149,33 @@ fn merge_reported_key(
         crate::Duplicates::Last => last_participating,
     };
     let Some(effective) = effective else {
-        state.loaded.skipped.push(LoadSkipped {
-            key: Some(key.to_string()),
-            origin: origin(state.path, all[0]),
+        state.loaded.skipped.push(SkippedRecord {
+            key: Some(key),
+            origin: compact_origin(state.file_index, all[0]),
             reason: SkipReason::NonParticipating,
         });
         return;
     };
     let value = if let Some(value) = effective.value() {
-        value.to_string()
+        Arc::from(value)
     } else if document.dialect().bare_keys == crate::BareKeys::Empty {
-        String::new()
+        Arc::from("")
     } else {
-        state.loaded.skipped.push(LoadSkipped {
-            key: Some(key.to_string()),
-            origin: origin(state.path, effective),
+        state.loaded.skipped.push(SkippedRecord {
+            key: Some(key),
+            origin: compact_origin(state.file_index, effective),
             reason: SkipReason::Bare,
         });
         return;
     };
-    merge_effective(state, document, key.to_string(), value, effective);
+    merge_effective(state, document, key, value, effective);
 }
 
 fn merge_effective(
     state: &mut MergeState<'_>,
     document: &crate::Document<'_>,
-    key: String,
-    value: String,
+    key: Arc<str>,
+    value: Arc<str>,
     effective: crate::Entry<'_>,
 ) {
     let compact_origin = compact_origin(state.file_index, effective);
@@ -1351,32 +1196,28 @@ fn merge_effective(
             .insert(key.clone(), (order, key_range, value_range));
     }
     if state.options.retain_reports {
-        let entry_index = state.loaded.entry_records.len();
+        let entry_index = state.loaded.entries.len();
         let previous = if state.options.retain_origins {
             state.previous_index.insert(key.clone(), entry_index)
         } else {
             None
         };
-        let previous_value = state.loaded.values.get(&key).cloned();
-        state.loaded.entry_records.push(CompactEntry {
+        state.loaded.entries.push(EntryRecord {
             key: key.clone(),
+            value: value.clone(),
             origin: compact_origin.clone(),
         });
-        if let (Some(previous), true) = (previous, state.options.retain_origins) {
-            let previous_origin = state.loaded.entry_records[previous].origin.clone();
-            if let Some(value) = previous_value {
-                state.loaded.overridden_values.insert(previous, value);
-            }
-            state.loaded.overrides.push(LoadOverride {
+        if let Some(previous) = previous {
+            let previous_origin = state.loaded.entries[previous].origin.clone();
+            state.loaded.overrides.push(OverrideRecord {
                 key: key.clone(),
-                previous: state.loaded.load_origin(&previous_origin),
-                replacement: state.loaded.load_origin(&compact_origin),
+                previous: previous_origin,
+                replacement: compact_origin.clone(),
             });
         }
-    } else if state.options.retain_origins {
-        state
-            .previous_origins
-            .insert(key.clone(), origin(state.path, effective));
+    }
+    if state.options.retain_origins {
+        state.loaded.origins.insert(key.clone(), compact_origin);
     }
     state.loaded.values.insert(key, value);
 }
@@ -1384,14 +1225,6 @@ fn merge_effective(
 fn compact_origin(file: usize, entry: crate::Entry<'_>) -> CompactOrigin {
     CompactOrigin {
         file,
-        span: entry.value_span().unwrap_or_else(|| entry.key_span()),
-        line: entry.line(),
-    }
-}
-
-fn origin(path: &Path, entry: crate::Entry<'_>) -> LoadOrigin {
-    LoadOrigin {
-        path: path.to_path_buf(),
         span: entry.value_span().unwrap_or_else(|| entry.key_span()),
         line: entry.line(),
     }

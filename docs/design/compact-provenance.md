@@ -1,8 +1,7 @@
 # Unified provenance model for 0.10/1.0
 
-Status: decisions recorded 2026-10-25. The unified breaking model is planned for
-release **0.10.0**; 0.9.19 remains the current published release. No unified
-implementation has shipped yet.
+Status: implemented for release **0.10.0** on 2026-10-25. 0.9.19 remains the
+latest published release until the 0.10.0 gate and publication complete.
 
 ## Decisions
 
@@ -35,13 +34,15 @@ bounds:
 
 | Loader/profile | Peak RSS | Retained RSS |
 |---|---:|---:|
-| Current full default | 63.6 MB | 37.1 MB |
-| Compact values + origins | 41.3 MB | 16.2 MB |
-| Values + origins + raw (target) | about 54 MB | about 27 MB |
-| Values-only | 13.6 MB | 13.6 MB |
+| 0.9.19 full default | 63.6 MB | 37.1 MB |
+| 0.9.19 compact values + origins | 41.3 MB | 16.2 MB |
+| 0.10.0 default (values + origins + raw) | 53.8 MB | 29.7 MB |
+| 0.10.0 full reports | 63.9 MB | 35.6 MB |
+| 0.10.0 values-only | 13.9 MB | 12.6 MB |
 
-The exact unified numbers must be measured after implementation; the target is
-below 30 MB retained with the default profile.
+The measured 0.10.0 default is below the 30 MB retained target. The extra
+residency over the 0.9.19 compact API is the retained raw-token context and
+final origin map.
 
 ## Public shape
 
@@ -63,6 +64,11 @@ LoadOrigin<'_>
   path() -> &Path
   span() -> &Range<usize>
   line() -> usize
+
+LoadOriginOwned              // resolution errors
+  path() -> &Path
+  span() -> &Range<usize>
+  line() -> usize
 ```
 
 `LoadedEntry<'_>`, `LoadedOverride<'_>`, `LoadRepeated<'_>` and
@@ -78,18 +84,22 @@ iterators are empty unless enabled through `LoadOptions`.
 - opt-in report records sharing `Arc<str>` keys/values and compact origins
 - no owned report snapshots or cached values map
 
-## Implementation sequence
+## Implementation status
 
-1. Introduce the unified internal storage and borrowed public view types.
-2. Change `LoadOptions` to lean-by-default with an explicit `full` constructor.
-3. Adapt full loading and resolution; remove compact types/loaders.
-4. Update CLI, process, config and Figment consumers to borrowed iteration.
-5. Rewrite loader tests for borrowed views, report opt-in and default profiles.
-6. Measure full default, values-only, and report-enabled memory profiles.
+Completed:
+1. Unified internal storage and borrowed public view types.
+2. Lean `LoadOptions::new` default with an explicit `LoadOptions::full`.
+3. Unified full loading and resolution; compact types/loaders removed.
+4. CLI/process/config/Figment consumer updates.
+5. Loader tests for borrowed views, report opt-in and default profiles.
+6. Memory measurement: 53.8/29.7 MB default, 63.9/35.6 MB full, 13.9/12.6 MB
+   values-only.
+
+Remaining before publication:
 7. Run the full workspace, MSRV, alloc-only, conformance, semver, docs, Windows
    and release gates.
-8. Publish 0.10.0 with a migration section explaining the breaking view/API
-   changes and the removal of the 0.9.19 compact API.
+8. Publish 0.10.0 with the migration section describing the breaking view/API
+   changes and removal of the 0.9.19 compact API.
 
 ## Compatibility and evidence
 

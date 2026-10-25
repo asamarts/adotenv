@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
@@ -6,9 +7,9 @@ use std::{
 
 use crate::{
     load::{
-        load_cascade, load_cascade_compact, load_cascade_values, load_cascade_values_with,
-        load_cascade_with, load_cascade_with_options, load_files, load_files_compact,
-        load_files_with_options, load_values, LoadError, LoadOptions, SkipReason,
+        load_cascade, load_cascade_values, load_cascade_values_with, load_cascade_with,
+        load_cascade_with_options, load_files, load_files_with_options, load_values, LoadError,
+        LoadOptions, SkipReason,
     },
     Dialect, ExpandOptions, ExpandScope, Unresolved,
 };
@@ -46,6 +47,21 @@ impl Drop for TempDir {
     }
 }
 
+fn full_cascade(dir: &Path, mode: &str) -> crate::load::LoadedEnvironment {
+    load_cascade_with_options(dir, mode, LoadOptions::full(Dialect::PORTABLE)).unwrap()
+}
+
+fn full_cascade_with(dir: &Path, mode: &str, dialect: Dialect) -> crate::load::LoadedEnvironment {
+    load_cascade_with_options(dir, mode, LoadOptions::full(dialect)).unwrap()
+}
+
+fn full_values(loaded: &crate::load::LoadedEnvironment) -> BTreeMap<String, String> {
+    loaded
+        .values()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect()
+}
+
 #[test]
 fn cascade_order_origins_and_overrides_are_explicit() {
     let dir = TempDir::new();
@@ -54,45 +70,70 @@ fn cascade_order_origins_and_overrides_are_explicit() {
     dir.write(".env.production", "C=mode\nD=mode\n");
     dir.write(".env.production.local", "D=mode-local\n");
 
-    let loaded = load_cascade(dir.path(), "production").unwrap();
+    let loaded = full_cascade(dir.path(), "production");
     assert_eq!(loaded.get("A"), Some("base"));
     assert_eq!(loaded.get("B"), Some("local"));
     assert_eq!(loaded.get("C"), Some("mode"));
     assert_eq!(loaded.get("D"), Some("mode-local"));
-    assert_eq!(loaded.entries().len(), 7);
-    assert_eq!(loaded.overrides().len(), 3);
+    assert_eq!(loaded.entries().count(), 7);
+    assert_eq!(loaded.overrides().count(), 3);
     assert_eq!(
         loaded
             .overrides()
-            .iter()
-            .map(|entry| entry.key.as_str())
+            .map(|entry| entry.key())
             .collect::<Vec<_>>(),
         ["B", "C", "D"]
     );
     assert_eq!(
-        loaded.origin("D").unwrap().path,
+        loaded.origin("D").unwrap().path(),
         dir.path().join(".env.production.local")
     );
-    assert_eq!(loaded.origin("D").unwrap().line, 1);
-    assert_eq!(loaded.origin("A").unwrap().path, dir.path().join(".env"));
+    assert_eq!(loaded.origin("D").unwrap().line(), 1);
+    assert_eq!(loaded.origin("A").unwrap().path(), dir.path().join(".env"));
 }
 
 #[test]
-fn lazy_entries_preserve_overridden_values_and_origins() {
+fn borrowed_entries_preserve_overridden_values_and_origins() {
     let dir = TempDir::new();
     dir.write(".env", "A=base\n");
     dir.write(".env.local", "A=local\n");
 
+    let loaded = full_cascade(dir.path(), "");
+    assert_eq!(loaded.get("A"), Some("local"));
+    let entries = loaded.entries().collect::<Vec<_>>();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].key(), "A");
+    assert_eq!(entries[0].value(), "base");
+    assert_eq!(entries[1].key(), "A");
+    assert_eq!(entries[1].value(), "local");
+    assert_eq!(entries[0].origin().path(), dir.path().join(".env"));
+    assert_eq!(entries[1].origin().path(), dir.path().join(".env.local"));
+}
+
+#[test]
+fn default_loader_retains_values_origins_and_raw_tokens_without_reports() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=base\nB=one\n");
+    let local = "A=local\nC=two\n";
+    dir.write(".env.local", local);
+
     let loaded = load_cascade(dir.path(), "").unwrap();
     assert_eq!(loaded.get("A"), Some("local"));
-    let entries = loaded.entries();
-    assert_eq!(entries.len(), 2);
-    assert_eq!(entries[0].key, "A");
-    assert_eq!(entries[0].value, "base");
-    assert_eq!(entries[1].key, "A");
-    assert_eq!(entries[1].value, "local");
-    assert_eq!(entries[0].origin.path, dir.path().join(".env"));
-    assert_eq!(entries[1].origin.path, dir.path().join(".env.local"));
+    assert_eq!(loaded.get("B"), Some("one"));
+    assert_eq!(loaded.get("C"), Some("two"));
+    assert_eq!(loaded.len(), 3);
+    assert_eq!(
+        loaded.values().collect::<Vec<_>>(),
+        [("A", "local"), ("B", "one"), ("C", "two")]
+    );
+    let origin = loaded.origin("A").unwrap();
+    assert_eq!(&local[origin.span().clone()], "local");
+    assert_eq!(origin.line(), 1);
+    assert!(loaded.retains_raw_tokens());
+    assert_eq!(loaded.entries().count(), 0);
+    assert_eq!(loaded.overrides().count(), 0);
+    assert_eq!(loaded.repeated().count(), 0);
+    assert_eq!(loaded.skipped().count(), 0);
 }
 
 #[test]
@@ -102,13 +143,14 @@ fn missing_cascade_files_are_skipped() {
     let loaded = load_cascade(dir.path(), "production").unwrap();
     assert_eq!(loaded.get("A"), Some("1"));
     assert_eq!(loaded.len(), 1);
-    assert_eq!(loaded.entries().len(), 1);
+    assert_eq!(loaded.entries().count(), 0);
+    assert_eq!(full_cascade(dir.path(), "production").entries().count(), 1);
 
     let empty = TempDir::new();
     let loaded = load_cascade(empty.path(), "production").unwrap();
     assert!(loaded.is_empty());
     assert_eq!(loaded.len(), 0);
-    assert_eq!(loaded.entries().len(), 0);
+    assert_eq!(loaded.entries().count(), 0);
 }
 
 #[cfg(feature = "serde")]
@@ -178,23 +220,24 @@ fn invalid_utf8_is_reported_without_lossy_decoding() {
 fn duplicate_and_bare_declarations_are_reported() {
     let dir = TempDir::new();
     dir.write(".env", "A=1\nA=2\nBARE\nX=3\n");
-    let loaded = load_cascade(dir.path(), "").unwrap();
+    let loaded = full_cascade(dir.path(), "");
     assert_eq!(loaded.get("A"), Some("2"));
     assert_eq!(loaded.get("X"), Some("3"));
     assert_eq!(
         loaded
             .entries()
-            .iter()
-            .map(|entry| entry.key.as_str())
+            .map(|entry| entry.key())
             .collect::<Vec<_>>(),
         ["A", "X"]
     );
-    assert_eq!(loaded.repeated().len(), 1);
-    assert_eq!(loaded.repeated()[0].key, "A");
-    assert_eq!(loaded.repeated()[0].origins.len(), 2);
-    assert_eq!(loaded.skipped().len(), 1);
-    assert_eq!(loaded.skipped()[0].key.as_deref(), Some("BARE"));
-    assert_eq!(loaded.skipped()[0].reason, SkipReason::Bare);
+    let repeated = loaded.repeated().collect::<Vec<_>>();
+    assert_eq!(repeated.len(), 1);
+    assert_eq!(repeated[0].key(), "A");
+    assert_eq!(repeated[0].origins().count(), 2);
+    let skipped = loaded.skipped().collect::<Vec<_>>();
+    assert_eq!(skipped.len(), 1);
+    assert_eq!(skipped[0].key(), Some("BARE"));
+    assert_eq!(skipped[0].reason(), SkipReason::Bare);
 }
 
 #[test]
@@ -218,10 +261,10 @@ fn nonparticipating_declarations_are_skipped() {
         bare_keys: crate::BareKeys::Ignore,
         ..Dialect::PORTABLE
     };
-    let loaded = load_cascade_with(dir.path(), "", dialect).unwrap();
+    let loaded = full_cascade_with(dir.path(), "", dialect);
     assert_eq!(loaded.get("X"), Some("1"));
-    assert!(loaded.skipped().iter().any(|skipped| {
-        skipped.key.as_deref() == Some("A") && skipped.reason == SkipReason::NonParticipating
+    assert!(loaded.skipped().any(|skipped| {
+        skipped.key() == Some("A") && skipped.reason() == SkipReason::NonParticipating
     }));
 }
 
@@ -255,9 +298,10 @@ fn origin_spans_address_the_original_file() {
     dir.write(".env", source);
     let loaded = load_cascade(dir.path(), "").unwrap();
     let origin = loaded.origin("KEY").unwrap();
-    assert_eq!(&source[origin.span.clone()], "value");
-    assert_eq!(origin.line, 2);
-    assert_eq!(loaded.origin("KEY").unwrap().span, origin.span);
+    assert_eq!(&source[origin.span().clone()], "value");
+    assert_eq!(origin.line(), 2);
+    let second = loaded.origin("KEY").unwrap();
+    assert_eq!(second.span(), origin.span());
 }
 
 #[test]
@@ -275,10 +319,10 @@ fn loaded_resolution_uses_final_values_and_origins() {
     assert_eq!(resolved.get("B"), Some("base-suffix"));
     assert_eq!(resolved.len(), 2);
     assert_eq!(
-        resolved.origin("B").unwrap().path,
+        resolved.origin("B").unwrap().path(),
         dir.path().join(".env.local")
     );
-    assert_eq!(resolved.origin("B").unwrap().line, 1);
+    assert_eq!(resolved.origin("B").unwrap().line(), 1);
 
     let resolved = loaded
         .resolve_decoded(
@@ -307,8 +351,8 @@ fn loaded_resolution_reports_scope_and_origin_failures() {
     };
     let error = loaded.resolve_decoded(|_| None, &options).unwrap_err();
     assert_eq!(error.key(), Some("A"));
-    assert_eq!(error.origin().unwrap().path, dir.path().join(".env"));
-    assert_eq!(error.origin().unwrap().line, 1);
+    assert_eq!(error.origin().unwrap().path(), dir.path().join(".env"));
+    assert_eq!(error.origin().unwrap().line(), 1);
 }
 
 #[test]
@@ -325,11 +369,11 @@ fn contextual_resolution_preserves_quote_and_escape_context() {
     assert_eq!(resolved.get("B"), Some("value"));
     assert_eq!(resolved.get("C"), Some("$B"));
     assert_eq!(resolved.get("D"), Some("value"));
-    assert_eq!(resolved.origin("D").unwrap().line, 4);
+    assert_eq!(resolved.origin("D").unwrap().line(), 4);
 }
 
 #[test]
-fn compact_values_match_full_load_but_drop_provenance() {
+fn compact_values_match_default_load_but_drop_provenance() {
     let dir = TempDir::new();
     dir.write(".env", "A=base\nA=last\nB\nC=one\n");
     dir.write(".env.local", "B=local\nC=two\n");
@@ -337,20 +381,20 @@ fn compact_values_match_full_load_but_drop_provenance() {
     dir.write(".env.production.local", "D=mode-local\n");
 
     let full = load_cascade(dir.path(), "production").unwrap();
-    let compact = load_cascade_values(dir.path(), "production").unwrap();
-    assert_eq!(compact.values(), full.values());
-    assert_eq!(compact.get("A"), Some("last"));
-    assert_eq!(compact.get("B"), Some("local"));
-    assert_eq!(compact.len(), 4);
-    assert!(!compact.is_empty());
+    let values = load_cascade_values(dir.path(), "production").unwrap();
+    assert_eq!(values.values(), &full_values(&full));
+    assert_eq!(values.get("A"), Some("last"));
+    assert_eq!(values.get("B"), Some("local"));
+    assert_eq!(values.len(), 4);
+    assert!(!values.is_empty());
 
     dir.write(".env.local", "A\n");
     let full = load_cascade(dir.path(), "production").unwrap();
-    let compact = load_cascade_values(dir.path(), "production").unwrap();
-    assert_eq!(compact.values(), full.values());
-    assert_eq!(compact.get("A"), Some("last"));
+    let values = load_cascade_values(dir.path(), "production").unwrap();
+    assert_eq!(values.values(), &full_values(&full));
+    assert_eq!(values.get("A"), Some("last"));
 
-    let map = compact.into_values();
+    let map = values.into_values();
     assert_eq!(map.get("D").map(String::as_str), Some("mode-local"));
     let from_full = full.into_values();
     assert_eq!(from_full.values(), &map);
@@ -432,7 +476,7 @@ fn projected_values_match_full_loader_across_dialects() {
         fs::write(&path, source).unwrap();
         let full = load_files([&path], dialect).unwrap();
         let compact = load_values([&path], dialect).unwrap();
-        assert_eq!(compact.values(), full.values(), "case {name}");
+        assert_eq!(compact.values(), &full_values(&full), "case {name}");
     }
 }
 
@@ -482,48 +526,43 @@ fn projected_values_reject_the_same_invalid_sources() {
 }
 
 #[test]
-fn compact_loader_matches_full_values_and_origins() {
+fn default_loader_matches_full_values_and_origins() {
     let dir = TempDir::new();
     dir.write(".env", "A=base\nB=one\n");
     let local = "A=local\nC=two\n";
     dir.write(".env.local", local);
 
-    let compact = load_cascade_compact(dir.path(), "").unwrap();
-    assert_eq!(compact.get("A"), Some("local"));
-    assert_eq!(compact.get("B"), Some("one"));
-    assert_eq!(compact.get("C"), Some("two"));
-    assert_eq!(compact.len(), 3);
+    let loaded = load_cascade(dir.path(), "").unwrap();
+    assert_eq!(loaded.get("A"), Some("local"));
+    assert_eq!(loaded.get("B"), Some("one"));
+    assert_eq!(loaded.get("C"), Some("two"));
+    assert_eq!(loaded.len(), 3);
     assert_eq!(
-        compact.iter().collect::<Vec<_>>(),
+        loaded.values().collect::<Vec<_>>(),
         [("A", "local"), ("B", "one"), ("C", "two")]
     );
     assert_eq!(
-        compact.origin_path("A"),
-        Some(dir.path().join(".env.local").as_path())
+        loaded.origin("A").unwrap().path(),
+        dir.path().join(".env.local")
     );
-    let origin = compact.origin("A").unwrap();
+    let origin = loaded.origin("A").unwrap();
     assert_eq!(&local[origin.span().clone()], "local");
     assert_eq!(origin.line(), 1);
-    assert_eq!(origin.file_index(), 1);
-    assert_eq!(
-        compact.into_values().get("A").map(String::as_str),
-        Some("local")
-    );
+    assert_eq!(loaded.into_values().get("A"), Some("local"));
 
     let explicit = dir.path().join("explicit.env");
     fs::write(&explicit, "D=four\n").unwrap();
-    let compact = load_files_compact([&explicit], Dialect::PORTABLE).unwrap();
-    assert_eq!(compact.get("D"), Some("four"));
+    let loaded = load_files([&explicit], Dialect::PORTABLE).unwrap();
+    assert_eq!(loaded.get("D"), Some("four"));
 
-    let full = load_cascade_with_options(
+    let no_origins = load_cascade_with_options(
         dir.path(),
         "",
         LoadOptions::new(Dialect::PORTABLE).with_origins(false),
     )
-    .unwrap()
-    .into_compact();
-    assert_eq!(full.get("A"), Some("local"));
-    assert!(full.origin("A").is_none());
+    .unwrap();
+    assert_eq!(no_origins.get("A"), Some("local"));
+    assert!(no_origins.origin("A").is_none());
 }
 
 #[test]
@@ -532,21 +571,21 @@ fn full_loader_can_drop_the_origin_map() {
     dir.write(".env", "A=base\n");
     dir.write(".env.local", "A=local\nB=two\n");
 
-    let options = LoadOptions::new(Dialect::PORTABLE).with_origins(false);
+    let options = LoadOptions::full(Dialect::PORTABLE).with_origins(false);
     let loaded = load_cascade_with_options(dir.path(), "", options).unwrap();
     assert_eq!(loaded.get("A"), Some("local"));
     assert_eq!(loaded.get("B"), Some("two"));
     assert!(loaded.origin("A").is_none());
     assert!(loaded.origin("B").is_none());
-    assert_eq!(loaded.overrides(), []);
-    assert_ne!(loaded.entries(), []);
+    assert_eq!(loaded.overrides().count(), 0);
+    assert_ne!(loaded.entries().count(), 0);
 
-    let options = LoadOptions::new(Dialect::PORTABLE)
+    let options = LoadOptions::full(Dialect::PORTABLE)
         .with_origins(false)
         .with_reports(false);
     let loaded = load_cascade_with_options(dir.path(), "", options).unwrap();
     assert_eq!(loaded.get("A"), Some("local"));
-    assert_eq!(loaded.entries(), []);
+    assert_eq!(loaded.entries().count(), 0);
     assert!(loaded.origin("A").is_none());
     assert!(loaded.retains_raw_tokens());
 }
@@ -557,17 +596,15 @@ fn full_loader_options_drop_raw_tokens_or_reports() {
     dir.write(".env", "A=base\nA=last\nB\nC=one\n");
     dir.write(".env.local", "B=local\nC=two\n");
 
-    let compact = LoadOptions::new(Dialect::PORTABLE)
-        .with_raw_tokens(false)
-        .with_reports(false);
+    let compact = LoadOptions::new(Dialect::PORTABLE).with_raw_tokens(false);
     let loaded = load_cascade_with_options(dir.path(), "", compact).unwrap();
     assert_eq!(loaded.get("A"), Some("last"));
     assert_eq!(loaded.get("B"), Some("local"));
     assert!(!loaded.retains_raw_tokens());
-    assert_eq!(loaded.entries(), []);
-    assert_eq!(loaded.overrides(), []);
-    assert_eq!(loaded.repeated(), []);
-    assert_eq!(loaded.skipped(), []);
+    assert_eq!(loaded.entries().count(), 0);
+    assert_eq!(loaded.overrides().count(), 0);
+    assert_eq!(loaded.repeated().count(), 0);
+    assert_eq!(loaded.skipped().count(), 0);
     assert!(loaded.origin("A").is_some());
     assert!(loaded
         .resolve_contextual(|_| None, &ExpandOptions::portable())
@@ -582,20 +619,20 @@ fn full_loader_options_drop_raw_tokens_or_reports() {
         )
         .is_ok());
 
-    let no_reports = LoadOptions::new(Dialect::PORTABLE).with_reports(false);
+    let no_reports = LoadOptions::full(Dialect::PORTABLE).with_reports(false);
     let loaded = load_cascade_with_options(dir.path(), "", no_reports).unwrap();
     assert!(loaded.retains_raw_tokens());
-    assert_eq!(loaded.entries(), []);
+    assert_eq!(loaded.entries().count(), 0);
     let options = ExpandOptions {
         scope: ExpandScope::WholeFile,
         ..ExpandOptions::portable()
     };
     assert!(loaded.resolve_contextual(|_| None, &options).is_ok());
 
-    let no_raw = LoadOptions::new(Dialect::PORTABLE).with_raw_tokens(false);
+    let no_raw = LoadOptions::full(Dialect::PORTABLE).with_raw_tokens(false);
     let loaded = load_cascade_with_options(dir.path(), "", no_raw).unwrap();
     assert!(!loaded.retains_raw_tokens());
-    assert_ne!(loaded.entries(), []);
+    assert_ne!(loaded.entries().count(), 0);
     assert!(loaded.origin("A").is_some());
     assert!(loaded
         .resolve_contextual(|_| None, &ExpandOptions::portable())
@@ -623,4 +660,82 @@ fn full_loader_options_drop_raw_tokens_or_reports() {
     )
     .unwrap();
     assert_eq!(loaded.get("Z"), Some("explicit"));
+}
+
+#[test]
+fn report_views_expose_borrowed_keys_values_and_origins() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=one\nBARE\nC=1\nC=2\n");
+    dir.write(".env.local", "A=three\n");
+
+    let loaded = full_cascade(dir.path(), "");
+    let entries = loaded.entries().collect::<Vec<_>>();
+    assert_eq!(
+        entries
+            .iter()
+            .map(|entry| (entry.key(), entry.value()))
+            .collect::<Vec<_>>(),
+        [("A", "one"), ("C", "2"), ("A", "three")]
+    );
+    assert_eq!(entries[0].origin().path(), dir.path().join(".env"));
+    assert_eq!(entries[2].origin().path(), dir.path().join(".env.local"));
+
+    let overrides = loaded.overrides().collect::<Vec<_>>();
+    assert_eq!(overrides.len(), 1);
+    assert_eq!(overrides[0].key(), "A");
+    assert_eq!(overrides[0].previous().path(), dir.path().join(".env"));
+    assert_eq!(overrides[0].previous().line(), 1);
+    assert_eq!(
+        overrides[0].replacement().path(),
+        dir.path().join(".env.local")
+    );
+
+    let repeated = loaded.repeated().collect::<Vec<_>>();
+    assert_eq!(repeated.len(), 1);
+    assert_eq!(repeated[0].key(), "C");
+    let repeated_origins = repeated[0].origins().collect::<Vec<_>>();
+    assert_eq!(repeated_origins.len(), 2);
+    assert_eq!(repeated_origins[0].path(), dir.path().join(".env"));
+    assert_eq!(repeated_origins[0].line(), 3);
+    assert_eq!(repeated_origins[1].line(), 4);
+
+    let skipped = loaded.skipped().collect::<Vec<_>>();
+    assert_eq!(skipped.len(), 1);
+    assert_eq!(skipped[0].key(), Some("BARE"));
+    assert_eq!(skipped[0].reason(), SkipReason::Bare);
+    assert_eq!(skipped[0].origin().path(), dir.path().join(".env"));
+}
+
+#[test]
+fn reports_can_retain_origins_when_the_final_origin_map_is_disabled() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=one\nA=two\n");
+    dir.write(".env.local", "A=three\n");
+
+    let loaded = load_cascade_with_options(
+        dir.path(),
+        "",
+        LoadOptions::full(Dialect::PORTABLE).with_origins(false),
+    )
+    .unwrap();
+    assert!(loaded.origin("A").is_none());
+    assert_eq!(loaded.overrides().count(), 0);
+    let entries = loaded.entries().collect::<Vec<_>>();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].origin().path(), dir.path().join(".env"));
+    let repeated = loaded.repeated().collect::<Vec<_>>();
+    assert_eq!(repeated.len(), 1);
+    assert_eq!(repeated[0].origins().count(), 2);
+
+    let resolved = loaded
+        .resolve_decoded(
+            |_| None,
+            &ExpandOptions {
+                scope: ExpandScope::WholeFile,
+                ..ExpandOptions::portable()
+            },
+        )
+        .unwrap();
+    assert_eq!(resolved.get("A"), Some("three"));
+    assert!(resolved.origin("A").is_none());
 }

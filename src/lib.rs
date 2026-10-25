@@ -78,12 +78,13 @@
 //! The opt-in std-only `load` feature provides `load::load_cascade` and
 //! `load::load_files`. They strictly read and validate every participating file
 //! before returning `load::LoadedEnvironment`, which carries final values,
-//! origins, overrides, repeats and skipped declarations. The full loader can
-//! use `load::LoadOptions` to drop raw winning tokens or reports while keeping
-//! values and origins; `resolve_contextual` requires raw tokens, while
-//! `resolve_decoded` remains available. Single-source context-aware resolution
-//! remains [`Document::resolve`]. Loading performs no expansion or
-//! process-environment mutation by itself.
+//! shared-file origins and raw winning tokens by default. Reports (entries,
+//! overrides, repeats and skipped declarations) are opt-in through
+//! `load::LoadOptions::full`. Values and report views borrow interned storage;
+//! `resolve_contextual` requires raw tokens, while `resolve_decoded` remains
+//! available. Single-source context-aware resolution remains
+//! [`Document::resolve`]. Loading performs no expansion or process-environment
+//! mutation by itself.
 //!
 //! The opt-in `serde` feature adds `Document::deserialize`, mapping effective
 //! literal declarations into a Serde type with line/key-aware conversion errors.

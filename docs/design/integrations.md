@@ -2,7 +2,8 @@
 
 Status: the `config` and `figment` companion adapters were published as 0.7.0 on
 2026-10-19, 0.7.1 on 2026-10-20, 0.8.0 and 0.9.0 on 2026-10-21, 0.9.1 through
-0.9.4 on 2026-10-22, and 0.9.5 through 0.9.19 on 2026-10-23/24/25. Trusted Publishing is configured for both crates.
+0.9.4 on 2026-10-22, 0.9.5 through 0.9.19 on 2026-10-23/24/25, and 0.10.0 on
+2026-10-25. Trusted Publishing is configured for both crates.
 
 Both adapters consume effective literal values from either a `Document` or,
 with their optional `load` feature, a `LoadedEnvironment`. They never expand
@@ -98,7 +99,7 @@ accepts an explicit map.
 
 ## Packaging
 
-Both crates are published at version `0.9.19`. Their default feature set is
+Both crates are published at version `0.10.0`. Their default feature set is
 empty; `load` enables only the environment constructors and the core crate’s
 file-loading feature. Docs.rs builds them with all features. `adotenv-config`
 is built against `config` 0.14, the version compatible with the workspace MSRV.

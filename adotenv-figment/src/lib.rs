@@ -49,7 +49,10 @@ impl AdotenvProvider {
     #[must_use]
     pub fn from_environment(environment: &LoadedEnvironment) -> Self {
         Self {
-            values: environment.values().clone(),
+            values: environment
+                .values()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect(),
             source: "loaded environment",
         }
     }

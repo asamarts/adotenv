@@ -428,38 +428,35 @@ use adotenv::load::load_cascade;
 let loaded = load_cascade("/srv/my-app", "production")?;
 assert_eq!(loaded.get("PORT"), Some("8080"));
 let origin = loaded.origin("PORT").unwrap();
-println!("{}:{}", origin.path.display(), origin.line);
-for change in loaded.overrides() {
-    println!("{}: {:?} -> {:?}", change.key, change.previous, change.replacement);
-}
+println!("{}:{}", origin.path().display(), origin.line());
 ```
 
 `entries()` retains every loaded declaration, including later-overridden ones;
 `overrides()`, `repeated()` and `skipped()` explain precedence, duplicate keys
-and bare/nonparticipating declarations. `load_files` accepts an explicit
-ordered file list. Values remain literal; no expansion, environment lookup or
-command execution occurs. Bare declarations are skipped unless the selected
-dialect maps them to effective empty values.
-
-The full loader retains values, origins, raw winning tokens and all reports by
-default. When an application does not need contextual resolution or reports,
-use `load_cascade_with_options` or `load_files_with_options` with `LoadOptions`:
+and bare/nonparticipating declarations. These reports are opt-in. The default
+loader retains values, shared-file origins and raw winning tokens, so
+`entries()` and the other report iterators are empty unless `LoadOptions::full`
+or `.with_reports(true)` is used. `load_files` accepts an explicit ordered file
+list. Values remain literal; no expansion, environment lookup or command
+execution occurs. Bare declarations are skipped unless the selected dialect
+maps them to effective empty values.
 
 ```rust,ignore
 use adotenv::load::{load_cascade_with_options, LoadOptions};
 
-let options = LoadOptions::new(adotenv::Dialect::PORTABLE)
-    .with_raw_tokens(false)
-    .with_reports(false);
+let options = LoadOptions::full(adotenv::Dialect::PORTABLE);
 let loaded = load_cascade_with_options("/srv/my-app", "production", options)?;
-assert_eq!(loaded.get("PORT"), Some("8080"));
-assert!(!loaded.retains_raw_tokens());
+for entry in loaded.entries() {
+    println!("{}={} at {}:{}", entry.key(), entry.value(),
+             entry.origin().path().display(), entry.origin().line());
+}
 ```
 
-Origins remain available, while `entries()`, `overrides()`, `repeated()` and
-`skipped()` are empty when reports are disabled. Add `.with_origins(false)` to
-drop the final origin map and override reports as well. Dropping raw tokens
-makes `resolve_contextual` return an error; `resolve_decoded` still works. Use
+Use `LoadOptions::new(dialect)` for the default profile or builders to adjust
+it. `.with_raw_tokens(false)` drops raw tokens while keeping values and origins;
+`.with_reports(false)` keeps reports empty; `.with_origins(false)` drops the
+final origin map and override reports. Dropping raw tokens makes
+`resolve_contextual` return an error; `resolve_decoded` still works. Use
 `load_cascade_values` or `load_values` when no provenance is needed at all.
 
 ### Resolve loaded values
@@ -490,8 +487,8 @@ APIs.
 The separate `adotenv-process` adapter applies a fully loaded environment
 through an explicit `unsafe fn`. Keys and values are validated before the first
 mutation; the adapter never clears or removes unrelated process variables and
-cannot roll changes back. Returning a map from `LoadedEnvironment::values()` is
-the default and does not mutate the process.
+cannot roll changes back. Iterating or collecting from
+`LoadedEnvironment::values()` is the default and does not mutate the process.
 
 ```rust,ignore
 use adotenv::load::load_cascade;
@@ -502,7 +499,7 @@ let loaded = load_cascade("/srv/my-app", "production")?;
 unsafe { apply(&loaded)? };
 ```
 
-The adapter is published as `adotenv-process` 0.9.19. See
+The adapter is published as `adotenv-process` 0.10.0. See
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md) for
 the one-time crates.io bootstrap.
 
@@ -590,7 +587,7 @@ On Windows it writes a same-directory temporary file and attempts a direct
 replace; if that fails, it moves the old file to a backup, installs the new file
 and restores the backup on failure. This fallback is not crash-atomic. Command
 substitution from files remains disabled. The CLI uses the library’s verified formatting, sorting,
-loading and edit APIs. It is published as `adotenv-cli` 0.9.19; see
+loading and edit APIs. It is published as `adotenv-cli` 0.10.0; see
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md).
 
 ## Integrations (0.9, workspace companions)
@@ -614,7 +611,7 @@ let config = config::Config::builder()
 
 `config` can deserialize typed structures using its own scalar coercion.
 Figment values remain strings: deserialize string fields and convert explicitly.
-Both adapters are published as 0.9.19 companion crates; see
+Both adapters are published as 0.10.0 companion crates; see
 [RELEASING.md](https://github.com/asamarts/adotenv/blob/main/RELEASING.md).
 
 ## Portable syntax (unchanged default)

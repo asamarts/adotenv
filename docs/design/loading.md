@@ -1,7 +1,8 @@
 # Loading
 
-Status: standard file-cascade loading and the separate process adapter are
-implemented in 0.6. `serde` integration is documented separately.
+Status: standard file-cascade loading and the separate process adapter were
+introduced in 0.6; the unified 0.10.0 provenance model is implemented on the
+release branch. `serde` integration is documented separately.
 
 The core parser still performs no I/O. Loading is a std-only adapter around the
 lossless document model.
@@ -9,7 +10,7 @@ lossless document model.
 ## Feature and API
 
 ```toml
-adotenv = { version = "0.9.19", features = ["load"] }
+adotenv = { version = "0.10.0", features = ["load"] }
 ```
 
 - `load_cascade(directory, mode)` uses Portable syntax.
@@ -18,7 +19,8 @@ adotenv = { version = "0.9.19", features = ["load"] }
   must exist.
 - `load_cascade_with_options(directory, mode, options)` and
   `load_files_with_options(paths, options)` use `LoadOptions` to choose raw
-  token and report retention; the default remains full retention.
+  token, origin and report retention. `LoadOptions::new` is the lean default;
+  `LoadOptions::full` enables reports.
 - `load_cascade_values` / `load_cascade_values_with` and `load_values` are the
   compact application path: they retain only final key/value strings, not
   origins, raw tokens or reports.
@@ -58,17 +60,19 @@ environment lookup or command execution occurs.
 `LoadedEnvironment` contains:
 
 ```text
-values        final BTreeMap<String, String>
-origin(key)   final path, value span and one-based line
+values()      borrowed final key/value iterator, sorted by key
+origin(key)   borrowed path, value span and one-based line
 entries()     every loaded effective declaration, including overridden ones
 overrides()   previous -> replacement origins for cross-file wins
 repeated()    duplicate keys within a single file
 skipped()     bare, nonparticipating or empty-key declarations
 ```
 
-`LoadOrigin.span` addresses the original file bytes. `entries()` preserves file
-load order and source order; `values` is sorted by key. Repeated declarations
-are still reported even when the duplicate policy selects one winner.
+`LoadOrigin<'_>` borrows the shared file table; use `path()`, `span()` and
+`line()`. `entries()` preserves file load order and source order. Repeated
+declarations are still reported even when the duplicate policy selects one
+winner. Reports are opt-in; the default loader leaves all report iterators
+empty.
 
 Bare declarations are skipped rather than guessed as empty, except when the selected dialect’s `BareKeys::Empty` policy makes them effective empty values. Nonparticipating
 declarations (for example Node’s `__proto__` object property or ignored bare
@@ -76,20 +80,18 @@ keys) and empty keys are reported with a `SkipReason`.
 
 ## Retention options
 
-`LoadOptions::new(dialect)` preserves the full-loader default: values, origins,
-raw winning tokens for `resolve_contextual`, and all reports. Builders can
-disable either allocation independently:
+`LoadOptions::new(dialect)` is the default: values, shared-file origins and raw
+winning tokens for `resolve_contextual`; reports are disabled.
+`LoadOptions::full(dialect)` enables entries, overrides, repeats and skipped
+declarations. Builders can adjust either profile independently:
 
-- `with_raw_tokens(false)` drops raw key/value tokens. Values, origins and
-  reports remain; `resolve_contextual` returns an error and `resolve_decoded`
-  remains available.
-- `with_reports(false)` drops `entries()`, `overrides()`, `repeated()` and
-  `skipped()` while retaining values, origins and (unless disabled) raw tokens.
+- `with_raw_tokens(false)` drops raw key/value tokens. Values and origins remain;
+  `resolve_contextual` returns an error and `resolve_decoded` remains available.
+- `with_reports(false)` leaves `entries()`, `overrides()`, `repeated()` and
+  `skipped()` empty while retaining values, origins and raw tokens.
 - `with_origins(false)` drops `origin()` and cross-file override reports.
   Reports that remain enabled still carry their own origins; combine it with
-  `with_reports(false)` for the lowest full-loader residency. With reports
-  retained, `origin()` is derived from the final matching entry through a lazy
-  lookup cache rather than a duplicate map.
+  `with_reports(false)` for the lowest residency.
 
 The linear merge pass reads each source document once. Report retention uses a
 temporary per-key occurrence map and does not scan the whole document for every
@@ -115,43 +117,37 @@ assert_eq!(values.get("PORT"), Some("8080"));
 
 Use `LoadedEnvironment` when provenance or `resolve_contextual` is required.
 For a 65,536-entry file, the local memory profile recorded in
-[performance.md](performance.md) is about 13.6 MB peak and retained RSS for
-values-only loading, versus 63.6 MB / 37.1 MB for the 0.9.19 full default
-loader. Disabling origins and reports lowers the full loader to about 49.7 MB
-peak / 24.3 MB retained with raw tokens, or 38.9 MB / 13.6 MB with raw tokens
-also disabled.
+[performance.md](performance.md) is about 13.9 MB peak / 12.6 MB retained for
+values-only loading, 53.8 MB / 29.7 MB for the default `LoadedEnvironment`
+profile, and 63.9 MB / 35.6 MB with `LoadOptions::full`. Disabling origins and
+reports and raw tokens further reduces full-loader residency when provenance is
+not needed.
 
-## Compact provenance (0.9.19; removed in 0.10.0)
+## Unified provenance (0.10.0)
 
-`CompactLoadedEnvironment` was added as an additive low-memory path in 0.9.19.
-The 0.10.0 unified loader replaces it; see
-[compact-provenance.md](compact-provenance.md). The 0.9.19 API keeps values plus
-shared-file origins without report vectors or raw context. Use
-`load_cascade_compact`, `load_cascade_compact_with` or `load_files_compact`;
-`LoadedEnvironment::into_compact` converts an existing load.
+`LoadedEnvironment` is the single provenance type. It stores interned
+`Arc<str>` keys and values, one shared file table, compact final origins and a
+contiguous raw-token buffer. Values and report views borrow this storage:
 
 ```rust
-use adotenv::load::load_cascade_compact;
+use adotenv::load::{load_cascade_with_options, LoadOptions};
 
-let compact = load_cascade_compact("/srv/my-app", "production")?;
-assert_eq!(compact.get("PORT"), Some("8080"));
-for (key, value) in compact.iter() {
-    println!("{key}={value}");
+let loaded = load_cascade_with_options(
+    "/srv/my-app",
+    "production",
+    LoadOptions::full(adotenv::Dialect::PORTABLE),
+)?;
+for entry in loaded.entries() {
+    println!("{}={} ({}:{})", entry.key(), entry.value(),
+             entry.origin().path().display(), entry.origin().line());
 }
-let path = compact.origin_path("PORT");
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-`CompactLoadOrigin` exposes `file_index()`, `span()` and `line()`, while paths
-come from the environment via `path(origin)` or `origin_path(key)`. Reports and
-raw contextual tokens are intentionally omitted. For the 65,536-entry fixture
-the compact loader retains about 16.2 MB versus 37.1 MB for the full default
-loader.
-
-In the planned 0.10.0 unified model, `LoadedEnvironment` itself retains values,
-shared-file origins and raw winning tokens by default, with reports opt-in. It
-uses interned `Arc<str>` keys/values and borrowed views; the separate compact
-type and loaders are removed. See
-[compact-provenance.md](compact-provenance.md) for the approved public shape.
+The separate 0.9.19 `CompactLoadedEnvironment`/compact loader API is removed.
+Its values-plus-origins profile is now the default `LoadedEnvironment` profile,
+with raw context added and reports disabled. See
+[compact-provenance.md](compact-provenance.md).
 
 ## Errors
 
@@ -170,15 +166,15 @@ cascade skips missing names.
 `LoadedEnvironment::resolve_contextual` reconstructs the winning raw key/value
 tokens in cascade order, reparses them with the load dialect and resolves the
 result. Quote, escape and dialect context therefore survive the merge. Errors
-retain the winning declaration's `LoadOrigin`, key and message. Both whole-file
-and sequential scope are supported; the reconstructed source order is cascade
-order. The method requires raw-token retention; use `resolve_decoded` when the
-environment was loaded with raw tokens disabled.
+retain the winning declaration's `LoadOriginOwned`, key and message. Both
+whole-file and sequential scope are supported; the reconstructed source order is
+cascade order. The method requires raw-token retention; use `resolve_decoded`
+when the environment was loaded with raw tokens disabled.
 
 `LoadedEnvironment::resolve_decoded` is the explicit decoded-value policy: every
 final value is treated as unquoted decoded text. It requires whole-file scope.
 Command substitutions remain literal in both APIs. The returned
-`ResolvedEnvironment` retains the winning `LoadOrigin` for each key.
+`ResolvedEnvironment` exposes the winning `LoadOrigin<'_>` for each key.
 
 Use `Document::resolve` for context-aware resolution over a single retained
 source document. See [expansion.md](expansion.md).

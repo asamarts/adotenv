@@ -1,17 +1,17 @@
 # Migrating and adopting adotenv
 
-Status: current published release **0.9.19**; next planned release **0.10.0**;
-target compatibility release **1.0**. The core API has been frozen since 0.8,
-but the approved 0.10.0 unified provenance model is an intentional pre-1.0
-breaking change. The loader API will be frozen again after 0.10.0. This guide is
-the user-facing path; the evidence checklist for the 1.0 milestone lives in
+Status: current release **0.10.0**; target compatibility release **1.0**. The
+core API was frozen from 0.8 through 0.9.19. The 0.10.0 unified provenance
+model is an intentional pre-1.0 breaking change; the loader API is frozen again
+as of 0.10.0. This guide is the user-facing path; the evidence checklist for the
+1.0 milestone lives in
 [docs/design/1.0-readiness.md](docs/design/1.0-readiness.md).
 
 ## Adopt the core
 
 ```toml
 [dependencies]
-adotenv = "0.9.19"
+adotenv = "0.10.0"
 ```
 
 The default feature set is `std`. Disable default features for `alloc`-only
@@ -84,7 +84,7 @@ Common next steps:
 | 0.9.17 | Shared-file compact origins |
 | 0.9.18 | Sparse overridden-value storage |
 | 0.9.19 | Compact provenance API |
-| 0.10 (planned) | Unified interned loader; borrowed views; compact API removed |
+| 0.10 | Unified interned loader; borrowed views; compact API removed |
 | 1.0 | Compatibility target; no planned core API break |
 
 ## Migrating from 0.9.x to 1.0
@@ -132,23 +132,28 @@ features.
   The 1.0 external-user criterion is defined in
   [the readiness checklist](docs/design/1.0-readiness.md#external-user-definition).
 
-## Preparing for 0.10 (planned)
+## Migrating from 0.9 to 0.10
 
 0.10.0 is an intentional pre-1.0 breaking release with one provenance type:
 
 - `LoadedEnvironment` retains values, shared-file origins and raw winning tokens
-  by default; reports are opt-in via `LoadOptions`.
-- `values()` and report accessors return borrowed iterators/views; `get()` keeps
-  returning `Option<&str>`.
-- `LoadOrigin<'_>` exposes `path()`, `span()` and `line()` accessors.
-- `CompactLoadedEnvironment`, `CompactLoadOrigin`, the compact loaders and
-  `into_compact` are removed; use `LoadedEnvironment` with options.
+  by default; reports are opt-in via `LoadOptions::full` or
+  `.with_reports(true)`.
+- `values()` returns a borrowed iterator, not `&BTreeMap<String, String>`.
+  Iterate it directly or call `into_values()` for an owned `LoadedValues`.
+- `entries()`, `overrides()`, `repeated()` and `skipped()` return borrowed
+  iterators/views. Use `key()`, `value()`, `origin()`, `previous()`,
+  `replacement()`, `origins()`, `reason()` and the other accessors instead of
+  public fields.
+- `LoadOrigin<'_>` is borrowed and exposes `path()`, `span()` and `line()`.
+  Resolution errors expose an owned `LoadOriginOwned` with the same accessors.
+- `CompactLoadedEnvironment`, `CompactLoadOrigin`, `load_cascade_compact`,
+  `load_cascade_compact_with`, `load_files_compact` and `into_compact` are
+  removed; use `LoadedEnvironment` with options.
 - `load_values`/`LoadedValues` remain the values-only path.
 
-The exact public shape and implementation sequence are in
-[docs/design/compact-provenance.md](docs/design/compact-provenance.md). Update
-code that clones `values()` into a `BTreeMap` to iterate or call
-`into_values()`; update code that reads public entry/origin fields to accessors.
+The exact public shape and implementation record are in
+[docs/design/compact-provenance.md](docs/design/compact-provenance.md).
 
 ## Known boundaries
 
@@ -159,8 +164,9 @@ code that clones `values()` into a `BTreeMap` to iterate or call
 - Windows writes use a best-effort backup swap and are not crash-atomic.
 - The lossless `Document` retains token/item metadata and is intentionally
   heavier than map-only loaders; `load_cascade_values`/`load_values` provide a
-  compact application path when provenance is not needed. The full loader can
-  also use `LoadOptions` to drop raw tokens or reports while keeping origins.
+  values-only path when provenance is not needed. `LoadedEnvironment` retains
+  values, shared origins and raw tokens by default; reports are opt-in, and
+  `LoadOptions` can drop raw tokens, origins or reports.
 - There is no language server or semantic-token integration yet.
 - The external-user and sustained-fuzz criteria for 1.0 are tracked separately;
   this guide does not claim they are complete.

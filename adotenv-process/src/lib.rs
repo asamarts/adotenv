@@ -53,10 +53,14 @@ pub fn validate(environment: &LoadedEnvironment) -> Result<(), ApplyError> {
             return Err(ApplyError::EmptyKey);
         }
         if key.bytes().any(|byte| byte == 0 || byte == b'=') {
-            return Err(ApplyError::InvalidKey { key: key.clone() });
+            return Err(ApplyError::InvalidKey {
+                key: key.to_string(),
+            });
         }
         if value.as_bytes().contains(&0) {
-            return Err(ApplyError::InvalidValue { key: key.clone() });
+            return Err(ApplyError::InvalidValue {
+                key: key.to_string(),
+            });
         }
     }
     Ok(())

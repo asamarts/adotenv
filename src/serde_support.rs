@@ -188,10 +188,9 @@ impl<'de> Deserializer<'de> for LoadedEnvironmentDeserializer<'_> {
 fn loaded_entries(environment: &LoadedEnvironment) -> Vec<(String, String, usize)> {
     environment
         .values()
-        .iter()
         .map(|(key, value)| {
-            let line = environment.origin(key).map_or(0, |origin| origin.line);
-            (key.clone(), value.clone(), line)
+            let line = environment.origin(key).map_or(0, |origin| origin.line());
+            (key.to_string(), value.to_string(), line)
         })
         .collect()
 }

@@ -153,39 +153,35 @@ but peak memory still includes the document until it is dropped.
 
 ### Loader retention (0.9.7)
 
-`LoadOptions` lets the full loader keep origins while dropping raw winning
-tokens, reports, or both. `load_values` / `load_cascade_values` remain the
-lowest-memory path because they also drop origins. For the 65,536-entry
-fixture (one file, measured 2026-10-23):
+`LoadOptions::new` is the default profile: values, shared-file origins and raw
+winning tokens, with reports disabled. `LoadOptions::full` enables entries,
+overrides, repeats and skipped declarations. Values and report views borrow
+interned `Arc<str>` keys/values and the shared file table. For the 65,536-entry
+fixture (one file, measured 2026-10-25 on a release build):
 
-| Loader | Peak RSS | Retained RSS |
+| Profile | Peak RSS | Retained RSS |
 |---|---:|---:|
-| full `load_files` (default) | 63.6 MB | 37.1 MB |
-| `LoadOptions::with_raw_tokens(false)` | 53.4 MB | 26.3 MB |
-| `LoadOptions::with_reports(false)` | 62.9 MB | 37.7 MB |
-| both raw tokens and reports disabled | 52.3 MB | 26.9 MB |
-| origins and reports disabled | 49.7 MB | 24.3 MB |
-| origins, reports and raw tokens disabled | 38.9 MB | 13.6 MB |
-| `load_files_compact` (0.9.19; removed in 0.10.0) | 41.3 MB | 16.2 MB |
-| `load_values` | 13.6 MB | 13.6 MB |
+| default (`LoadOptions::new`) | 53.8 MB | 29.7 MB |
+| `LoadOptions::full` | 63.9 MB | 35.6 MB |
+| `load_values` | 13.9 MB | 12.6 MB |
 
-The full-loader merge now reads each document once for reports instead of
-scanning the whole document for every key. The previous per-key scans made the
+The 0.9.19 comparison points were 63.6 MB / 37.1 MB for the full default,
+16.2 MB retained for the separate compact values-plus-origins loader, and
+13.6 MB for values-only loading. The unified default is below the 30 MB target;
+the extra memory over the old compact API is the retained raw-token context
+and the final origin map.
+
+The full-loader merge reads each document once for reports instead of scanning
+the whole document for every key. The previous per-key scans made the
 65,536-entry case effectively quadratic; the single-pass merge removes that
-cost. The full loader still keeps one lossless document while each file is
-parsed and uses a temporary occurrence map for reports. A new
-`LoadOptions::with_origins(false)` policy omits the final origin map and
-override reports; combined with `with_reports(false)` it retains only values
-plus any requested raw tokens. With reports retained, final origins are derived
-from the entries through a lazy lookup cache instead of being stored twice.
-Winning raw tokens are stored in one contiguous source buffer with ranges
-instead of two owned strings plus map overhead per key. Report entries are
-stored compactly and materialized lazily on the first `entries()` call, so
-applications that only use values, origins or contextual resolution do not pay
-for a second copy of every final value. Compact entries reference a shared file
-table instead of cloning a path for every entry; full `LoadOrigin` values are
-materialized only for the public origin/entry APIs. Overridden entry values use
-a sparse index map rather than an `Option<String>` slot on every record.
+cost. The loader still keeps one lossless document while each file is parsed
+and uses a temporary occurrence map for reports. Winning raw tokens are stored
+in one contiguous source buffer with ranges. Final origins use a compact
+file-index/span/line record and one shared path per file. In full-report mode,
+entry records share keys and values with the final value map, so overridden
+final values are not duplicated. Reports are off by default, so applications
+that only use values, origins or contextual resolution do not pay for report
+vectors.
 Values-only loading uses the shared parser's projection mode, so it retains
 neither the document nor report metadata; its peak is close to the final map
 size.
@@ -227,9 +223,9 @@ Ranked by expected impact and risk:
    only final strings. Peak/retained memory for the 65,536-entry fixture is 13.6
    MB; the full loader remains the path that retains the lossless document.
 4. **LoadedEnvironment residency (implemented).** `LoadOptions` can drop raw
-   winning tokens, report vectors and/or the final origin map. The default
-   remains full retention for compatibility; values-only loading remains the
-   lowest-memory option.
+   winning tokens, report vectors and/or the final origin map. The 0.10 default
+   retains values, shared origins and raw tokens with reports disabled;
+   values-only loading remains the lowest-memory option.
 5. **Full-loader report merge (implemented).** Replace per-key document scans
    with one occurrence pass while preserving duplicate, bare, empty-key and
    override reporting.
@@ -246,12 +242,12 @@ Ranked by expected impact and risk:
    for nonempty keys and a direct lookup only for dialect-specific empty keys,
    removing the per-key document scan.
 
-9. **Unified 0.10 provenance (planned).** The 0.9.19 compact values-plus-origins
-   API retains 16.2 MB, but the 1.0 review chose to unify it into one interned
-   `LoadedEnvironment` rather than keep two provenance types. The planned 0.10.0
-   default retains values, shared-file origins and raw tokens with reports
-   opt-in, targeting about 27 MB retained on the 65,536-entry fixture. The
-   decisions, public shape and implementation sequence are documented in
+9. **Unified 0.10 provenance (implemented).** The 1.0 review chose one interned
+   `LoadedEnvironment` over two provenance types. The default now retains
+   values, shared-file origins and raw tokens with reports opt-in, retaining
+   29.7 MB at 53.8 MB peak on the 65,536-entry fixture. `LoadOptions::full`
+   retains reports at 35.6 MB / 63.9 MB peak, and values-only loading retains
+   12.6 MB / 13.9 MB peak. The decisions and public shape are documented in
    [compact-provenance.md](compact-provenance.md).
 
 ## Interpretation
