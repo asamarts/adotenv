@@ -217,9 +217,11 @@ Ranked by expected impact and risk:
    entry index and boxes decoded/mapping storage. Retained memory falls from
    36.2 MB to 23.6 MB; parse+map peak falls from 43.4 MB to 32.0 MB. Callgrind
    shows no measurable instruction increase from the shrink step.
-2. **Further internal metadata.** Compact comment spans and shrink the remaining
-   `ItemData` padding; `EntryTokens` remains 240 bytes and would require a public
-   field-type change, so defer that to a major version or a separate compact mode.
+2. **Further internal metadata (evaluated 2026-10-25).** `ItemData` is 64 bytes,
+   `EntryData` 296 bytes and the public `EntryTokens` 240 bytes; `EntryData` is
+   dominated by `EntryTokens`. Remaining non-breaking padding/integer packing
+   saves little, while changing public token field types requires a major version
+   or a separate compact mode. Defer.
 3. **Values-only loading and projection (implemented).** `load_values` and
    `load_cascade_values` run the shared parser with a projection output, retaining
    only final strings. Peak/retained memory for the 65,536-entry fixture is 13.6
