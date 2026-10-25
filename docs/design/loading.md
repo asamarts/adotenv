@@ -9,7 +9,7 @@ lossless document model.
 ## Feature and API
 
 ```toml
-adotenv = { version = "0.9.18", features = ["load"] }
+adotenv = { version = "0.9.19", features = ["load"] }
 ```
 
 - `load_cascade(directory, mode)` uses Portable syntax.
@@ -120,6 +120,30 @@ values-only loading, versus 71.8 MB / 44.7 MB for the full default loader.
 Disabling origins and reports lowers the full loader to about 49.6 MB peak /
 24.3 MB retained with raw tokens, or 39.0 MB / 13.6 MB with raw tokens also
 disabled.
+
+## Compact provenance
+
+`CompactLoadedEnvironment` is the additive low-memory provenance path. It keeps
+values plus shared-file origins without report vectors or raw context. Use
+`load_cascade_compact`, `load_cascade_compact_with` or `load_files_compact`;
+`LoadedEnvironment::into_compact` converts an existing load.
+
+```rust
+use adotenv::load::load_cascade_compact;
+
+let compact = load_cascade_compact("/srv/my-app", "production")?;
+assert_eq!(compact.get("PORT"), Some("8080"));
+for (key, value) in compact.iter() {
+    println!("{key}={value}");
+}
+let path = compact.origin_path("PORT");
+```
+
+`CompactLoadOrigin` exposes `file_index()`, `span()` and `line()`, while paths
+come from the environment via `path(origin)` or `origin_path(key)`. Reports and
+raw contextual tokens are intentionally omitted. For the 65,536-entry fixture
+the compact loader retains about 16.2 MB versus 37.1 MB for the full default
+loader.
 
 ## Errors
 

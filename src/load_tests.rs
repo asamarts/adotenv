@@ -6,9 +6,9 @@ use std::{
 
 use crate::{
     load::{
-        load_cascade, load_cascade_values, load_cascade_values_with, load_cascade_with,
-        load_cascade_with_options, load_files, load_files_with_options, load_values, LoadError,
-        LoadOptions, SkipReason,
+        load_cascade, load_cascade_compact, load_cascade_values, load_cascade_values_with,
+        load_cascade_with, load_cascade_with_options, load_files, load_files_compact,
+        load_files_with_options, load_values, LoadError, LoadOptions, SkipReason,
     },
     Dialect, ExpandOptions, ExpandScope, Unresolved,
 };
@@ -479,6 +479,51 @@ fn projected_values_reject_the_same_invalid_sources() {
             "projected loader accepted {name}"
         );
     }
+}
+
+#[test]
+fn compact_loader_matches_full_values_and_origins() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=base\nB=one\n");
+    let local = "A=local\nC=two\n";
+    dir.write(".env.local", local);
+
+    let compact = load_cascade_compact(dir.path(), "").unwrap();
+    assert_eq!(compact.get("A"), Some("local"));
+    assert_eq!(compact.get("B"), Some("one"));
+    assert_eq!(compact.get("C"), Some("two"));
+    assert_eq!(compact.len(), 3);
+    assert_eq!(
+        compact.iter().collect::<Vec<_>>(),
+        [("A", "local"), ("B", "one"), ("C", "two")]
+    );
+    assert_eq!(
+        compact.origin_path("A"),
+        Some(dir.path().join(".env.local").as_path())
+    );
+    let origin = compact.origin("A").unwrap();
+    assert_eq!(&local[origin.span().clone()], "local");
+    assert_eq!(origin.line(), 1);
+    assert_eq!(origin.file_index(), 1);
+    assert_eq!(
+        compact.into_values().get("A").map(String::as_str),
+        Some("local")
+    );
+
+    let explicit = dir.path().join("explicit.env");
+    fs::write(&explicit, "D=four\n").unwrap();
+    let compact = load_files_compact([&explicit], Dialect::PORTABLE).unwrap();
+    assert_eq!(compact.get("D"), Some("four"));
+
+    let full = load_cascade_with_options(
+        dir.path(),
+        "",
+        LoadOptions::new(Dialect::PORTABLE).with_origins(false),
+    )
+    .unwrap()
+    .into_compact();
+    assert_eq!(full.get("A"), Some("local"));
+    assert!(full.origin("A").is_none());
 }
 
 #[test]

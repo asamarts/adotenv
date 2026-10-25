@@ -145,6 +145,100 @@ impl PartialEq for LoadedEnvironment {
 
 impl Eq for LoadedEnvironment {}
 
+/// A compact origin referencing one file in a [`CompactLoadedEnvironment`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct CompactLoadOrigin {
+    file: usize,
+    span: Range<usize>,
+    line: usize,
+}
+
+impl CompactLoadOrigin {
+    /// Index into the environment's file table.
+    #[must_use]
+    pub const fn file_index(&self) -> usize {
+        self.file
+    }
+    /// Original value span in that file.
+    #[must_use]
+    pub const fn span(&self) -> &Range<usize> {
+        &self.span
+    }
+    /// One-based source line.
+    #[must_use]
+    pub const fn line(&self) -> usize {
+        self.line
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CompactRecord {
+    value: Box<str>,
+    origin: Option<CompactLoadOrigin>,
+}
+
+/// Loaded values with compact shared-file provenance.
+///
+/// This result intentionally omits report vectors and raw context. Origins are
+/// stored as a file index plus span/line, with one shared path per file.
+/// Disabled origin retention can leave individual records without an origin.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct CompactLoadedEnvironment {
+    entries: BTreeMap<Box<str>, CompactRecord>,
+    files: Vec<PathBuf>,
+}
+
+impl CompactLoadedEnvironment {
+    /// Final value for one key.
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.entries.get(key).map(|entry| entry.value.as_ref())
+    }
+    /// Iterate final key/value pairs in key order.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> + '_ {
+        self.entries
+            .iter()
+            .map(|(key, entry)| (key.as_ref(), entry.value.as_ref()))
+    }
+    /// Compact origin for one key, when origins were retained.
+    #[must_use]
+    pub fn origin(&self, key: &str) -> Option<&CompactLoadOrigin> {
+        self.entries
+            .get(key)
+            .and_then(|entry| entry.origin.as_ref())
+    }
+    /// File path for one compact origin.
+    #[must_use]
+    pub fn path(&self, origin: &CompactLoadOrigin) -> Option<&Path> {
+        self.files.get(origin.file).map(PathBuf::as_path)
+    }
+    /// File path for one key's winning origin.
+    #[must_use]
+    pub fn origin_path(&self, key: &str) -> Option<&Path> {
+        self.origin(key).and_then(|origin| self.path(origin))
+    }
+    /// Number of effective values.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+    /// Whether no effective values were loaded.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+    /// Consume the compact result and materialize an owned value map.
+    #[must_use]
+    pub fn into_values(self) -> BTreeMap<String, String> {
+        self.entries
+            .into_iter()
+            .map(|(key, entry)| (key.into_string(), entry.value.into_string()))
+            .collect()
+    }
+}
+
 /// Retention policy for the full loader.
 ///
 /// The default retains every report and the raw winning tokens required by
@@ -363,6 +457,64 @@ impl LoadedValues {
 }
 
 impl LoadedEnvironment {
+    /// Drop reports and raw context while retaining compact provenance.
+    ///
+    /// If origins were disabled at load time, the compact result preserves that
+    /// choice and its origin accessors return `None`.
+    #[must_use]
+    pub fn into_compact(self) -> CompactLoadedEnvironment {
+        let mut files = self.files;
+        let mut origins = BTreeMap::new();
+        if self.origins_in_entries {
+            for entry in self.entry_records {
+                origins.insert(
+                    entry.key,
+                    CompactLoadOrigin {
+                        file: entry.origin.file,
+                        span: entry.origin.span,
+                        line: entry.origin.line,
+                    },
+                );
+            }
+        } else if !self.origins.is_empty() {
+            for (key, origin) in self.origins {
+                let file = files
+                    .iter()
+                    .position(|path| path == &origin.path)
+                    .unwrap_or_else(|| {
+                        let index = files.len();
+                        files.push(origin.path.clone());
+                        index
+                    });
+                origins.insert(
+                    key,
+                    CompactLoadOrigin {
+                        file,
+                        span: origin.span,
+                        line: origin.line,
+                    },
+                );
+            }
+        } else {
+            files.clear();
+        }
+        let entries = self
+            .values
+            .into_iter()
+            .map(|(key, value)| {
+                let origin = origins.remove(&key);
+                (
+                    key.into_boxed_str(),
+                    CompactRecord {
+                        value: value.into_boxed_str(),
+                        origin,
+                    },
+                )
+            })
+            .collect();
+        CompactLoadedEnvironment { entries, files }
+    }
+
     /// Drop provenance and reports, retaining only final effective values.
     #[must_use]
     pub fn into_values(self) -> LoadedValues {
@@ -727,6 +879,61 @@ where
     load_paths(paths, options, false)
 }
 
+/// Load the standard cascade into a compact provenance result.
+///
+/// Uses Portable syntax and the same strict read, parse and override semantics
+/// as [`load_cascade`], retaining values plus compact file/span/line origins.
+/// Reports and raw context are intentionally omitted.
+///
+/// # Errors
+/// Returns [`LoadError`] for invalid mode names, I/O errors, invalid UTF-8 or
+/// syntax/policy errors.
+pub fn load_cascade_compact<P: AsRef<Path>>(
+    directory: P,
+    mode: &str,
+) -> Result<CompactLoadedEnvironment, LoadError> {
+    load_cascade_compact_with(directory, mode, Dialect::PORTABLE)
+}
+
+/// Load the standard cascade into a compact provenance result with a dialect.
+///
+/// # Errors
+/// Returns [`LoadError`] for invalid mode names, I/O errors, invalid UTF-8 or
+/// syntax/policy errors.
+pub fn load_cascade_compact_with<P: AsRef<Path>>(
+    directory: P,
+    mode: &str,
+    dialect: Dialect,
+) -> Result<CompactLoadedEnvironment, LoadError> {
+    if !valid_mode(mode) {
+        return Err(LoadError::InvalidMode);
+    }
+    let directory = directory.as_ref();
+    let mut paths = vec![directory.join(".env"), directory.join(".env.local")];
+    if !mode.is_empty() {
+        paths.push(directory.join(format!(".env.{mode}")));
+        paths.push(directory.join(format!(".env.{mode}.local")));
+    }
+    load_compact_paths(paths, dialect, true)
+}
+
+/// Load an explicit ordered file list into a compact provenance result.
+///
+/// Every listed file must exist. Later files override earlier files by key.
+///
+/// # Errors
+/// Returns [`LoadError`] for I/O errors, invalid UTF-8 or syntax/policy errors.
+pub fn load_files_compact<I, P>(
+    paths: I,
+    dialect: Dialect,
+) -> Result<CompactLoadedEnvironment, LoadError>
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    load_compact_paths(paths, dialect, false)
+}
+
 /// Load the standard cascade while retaining only final effective values.
 ///
 /// This is the compact application-loading path. It applies the same strict
@@ -783,6 +990,62 @@ where
     P: AsRef<Path>,
 {
     load_value_paths(paths, dialect, false)
+}
+
+fn load_compact_paths<I, P>(
+    paths: I,
+    dialect: Dialect,
+    skip_missing: bool,
+) -> Result<CompactLoadedEnvironment, LoadError>
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    let mut entries = BTreeMap::new();
+    let mut files = Vec::new();
+    for path in paths {
+        let path = path.as_ref();
+        let bytes = match fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if skip_missing && error.kind() == io::ErrorKind::NotFound => continue,
+            Err(source) => {
+                return Err(LoadError::Io {
+                    path: path.to_path_buf(),
+                    source,
+                });
+            }
+        };
+        let text = String::from_utf8(bytes).map_err(|_| LoadError::InvalidUtf8 {
+            path: path.to_path_buf(),
+        })?;
+        let (document, diagnostics) = parse_with(&text, dialect);
+        if let Some(diagnostic) = diagnostics
+            .into_iter()
+            .find(|diagnostic| diagnostic.severity() == Severity::Error)
+        {
+            return Err(LoadError::Invalid {
+                path: path.to_path_buf(),
+                diagnostic,
+            });
+        }
+        let file = files.len();
+        files.push(path.to_path_buf());
+        for effective in document.effective_entries() {
+            let compact = compact_origin(file, effective.entry());
+            entries.insert(
+                effective.key().into(),
+                CompactRecord {
+                    value: effective.value().into(),
+                    origin: Some(CompactLoadOrigin {
+                        file: compact.file,
+                        span: compact.span,
+                        line: compact.line,
+                    }),
+                },
+            );
+        }
+    }
+    Ok(CompactLoadedEnvironment { entries, files })
 }
 
 fn load_value_paths<I, P>(

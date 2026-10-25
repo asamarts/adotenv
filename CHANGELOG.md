@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.19] - 2026-10-25
+
+### Added
+
+- Additive `CompactLoadedEnvironment` and `CompactLoadOrigin` APIs, with direct
+  `load_cascade_compact`, `load_cascade_compact_with` and `load_files_compact`
+  loaders plus `LoadedEnvironment::into_compact`. They retain values and
+  shared-file origins without reports or raw context.
+- Compact values expose borrowed `get`/`iter` access and `into_values` for an
+  explicitly owned map.
+
+### Performance
+
+- The 65,536-entry compact loader retains 16.2 MB at 41.3 MB peak RSS, versus
+  37.1 MB / 63.6 MB for the full default loader and 13.6 MB for values-only
+  loading.
+
 ## [0.9.18] - 2026-10-24
 
 ### Performance

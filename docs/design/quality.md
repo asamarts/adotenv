@@ -1091,6 +1091,24 @@ Tested source: the 0.7 release tree adding `adotenv-config` and
   and lookup-index code are unchanged; the 0.9.8 parser fuzz campaign remains the
   latest parser evidence.
 
+### 0.9.19 development slice (2026-10-25)
+
+- Added the additive compact provenance API (`CompactLoadedEnvironment`,
+  `CompactLoadOrigin`, direct compact loaders and `LoadedEnvironment::into_compact`).
+  Compact entries use one `Box<str>` keyed map, a shared file table and private
+  origin file indexes; values expose borrowed iteration and explicit
+  `into_values`.
+- The 65,536-entry compact loader retains 16.2 MB at 41.3 MB peak RSS, versus
+  37.1 MB / 63.6 MB for the full default loader.
+- Validation: workspace 324 tests passed with 7 ignored; load 272, load+serde
+  282 and alloc-only 249, each with 7 ignored; config and Figment load tests pass
+  6 each. fmt, Clippy and warning-denied docs pass under Rust 1.95 and 1.99.
+  MSRV 1.81, alloc-only `thumbv7em-none-eabi`, package verification, bench smoke,
+  pinned conformance, Windows library/binary cross-checks and the forced
+  patch-semver check against 0.9.18 (229 checks pass, 31 skip) are green. The
+  parser and lookup index are unchanged; the 0.9.8 parser fuzz campaign remains
+  the latest parser evidence.
+
 ### 0.9.18 release (2026-10-24)
 
 - Release run

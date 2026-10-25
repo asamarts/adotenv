@@ -1,78 +1,66 @@
-# Compact provenance for 1.0
+# Compact provenance (0.9.19)
 
-Status: design note recorded 2026-10-24 after the 0.9.18 residency work. This is
-a proposed 1.0 direction, not shipped API.
+Status: **shipped in 0.9.19** as an additive API. `LoadedEnvironment` remains
+source-compatible.
 
-## Current profile
+## Result
 
-For the 65,536-entry fixture at 0.9.18:
-
-| Configuration | Peak RSS | Retained RSS |
-|---|---:|---:|
-| Full default | 63.6 MB | 37.1 MB |
-| Raw tokens disabled | 53.4 MB | 26.3 MB |
-| Values-only | 13.6 MB | 13.6 MB |
-
-The remaining default residency is dominated by the public value map, compact
-entry keys/origins and raw winning tokens. Existing non-breaking improvements
-already removed the duplicate final-origin map, shared file paths, materialized
-entries lazily, stored overridden values sparsely and compacted raw tokens into
-one buffer.
-
-## Tested limit
-
-A separate compact provenance result was prototyped: values plus a shared-file
-origin map, with no entries, reports or raw tokens. It retained about 36.6 MB
-on the same fixture versus 37.1 MB for the current full loader. The gain was not
-enough to justify another public result type, so the prototype was not shipped.
-
-The limiting factor is that `LoadedEnvironment::values()` must return an owned
-`BTreeMap<String, String>`, while entry reports also require owned `String` keys
-and values. Reducing the default further therefore requires an explicit API
-data-model decision.
-
-## Proposed 1.0 model
-
-The recommended direction is a compact provenance representation with explicit
-accessors rather than public owned fields:
-
-- Intern keys and values with `Arc<str>` so the value map and report records can
-  share allocations.
-- Store origins by shared file index plus span/line everywhere, not only in the
-  lazy entry records.
-- Keep `LoadedEntry` materialization lazy and optional.
-- Keep raw tokens in one contiguous source buffer.
-- Preserve the existing `LoadedEnvironment` semantics and builder-style API
-  during a migration window, even if underlying field types change.
-
-A possible compact API surface:
+`CompactLoadedEnvironment` stores one keyed map from `Box<str>` key to a
+`Box<str>` value plus an optional compact origin. Origins point into a shared
+file table instead of owning a `PathBuf` per key. The type exposes:
 
 ```text
-LoadedEnvironment::values()          // borrowed or materialized map
-LoadedEnvironment::entries()         // lazy, cached report
-LoadedEnvironment::origin(key)       // compact origin accessor
-LoadedEnvironment::origin_path(...)  // resolved file path
+get(key)                 -> Option<&str>
+iter()                   -> Iterator<Item = (&str, &str)>
+origin(key)              -> Option<&CompactLoadOrigin>
+path(origin)             -> Option<&Path>
+origin_path(key)         -> Option<&Path>
+len() / is_empty()
+into_values()            -> BTreeMap<String, String>
 ```
 
-The exact public types should be decided in a 1.0 migration proposal; changing
-public `LoadOrigin.path`, `LoadedEntry.key` or `LoadedEntry.value` types is a
-breaking change and should not be attempted in a patch release.
+`CompactLoadOrigin` keeps its file index private and exposes `file_index()`,
+`span()` and `line()`. Reports, raw context and override lists are intentionally
+not retained.
 
-## Acceptance criteria
+## Loading APIs
 
-- Full default retained RSS below 30 MB on the 65,536-entry fixture, or a
-  documented reason why the public compatibility target prevents it.
-- No regression in `origin()` lookup performance after materialization.
-- One shared file table for all origins; one allocation per interned key/value.
-- Lazy entry reports remain byte-for-byte equivalent in values, ordering and
-  origins.
-- Migration guide and API examples updated before the 1.0 tag.
+```text
+load_cascade_compact(directory, mode)
+load_cascade_compact_with(directory, mode, dialect)
+load_files_compact(paths, dialect)
+LoadedEnvironment::into_compact()
+```
 
-## Sequencing
+The direct loaders use the same strict file reads, UTF-8 decoding, parser,
+dialect, duplicate policy and later-file override rules as the full loader.
+`into_compact` consumes an existing environment and preserves values plus
+whatever origins were retained; if `with_origins(false)` was used, compact
+origins remain absent.
 
-1. Decide whether 1.0 changes public provenance/entry field types or introduces
-   a separate compact result.
-2. Implement interned values and origins behind the chosen API.
-3. Re-run the full memory, loader, conformance, MSRV, Windows and fuzz gates.
-4. Keep the 0.9 retention options (`with_reports`, `with_origins`,
-   `with_raw_tokens`) as the supported lower-memory paths until 1.0 lands.
+## Memory
+
+For the 65,536-entry fixture at 0.9.19:
+
+| Loader | Peak RSS | Retained RSS |
+|---|---:|---:|
+| Full default | 63.6 MB | 37.1 MB |
+| `load_files_compact` | 41.3 MB | 16.2 MB |
+| Values-only | 13.6 MB | 13.6 MB |
+
+The earlier two-map prototype retained only about 36.6 MB because it duplicated
+map nodes and key/value ownership. The final one-map design is materially
+smaller and is why the additive API is justified.
+
+## Rationale and boundaries
+
+- The API is additive; `LoadedEnvironment` values and report field types remain
+  unchanged.
+- `CompactLoadedEnvironment` deliberately has no `values()` returning an owned
+  `BTreeMap`; callers use borrowed iteration or explicitly consume
+  `into_values()`.
+- `Box<str>` avoids the capacity word and atomic reference-count overhead that a
+  single-owner compact map does not need.
+- The separate shared file table avoids one path clone per key.
+- Full-loader default residency remains dominated by its public report and value
+  representations; changing those would require a 1.0 data-model decision.

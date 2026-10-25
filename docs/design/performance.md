@@ -166,6 +166,7 @@ fixture (one file, measured 2026-10-23):
 | both raw tokens and reports disabled | 52.3 MB | 26.9 MB |
 | origins and reports disabled | 49.7 MB | 24.3 MB |
 | origins, reports and raw tokens disabled | 38.9 MB | 13.6 MB |
+| `load_files_compact` | 41.3 MB | 16.2 MB |
 | `load_values` | 13.6 MB | 13.6 MB |
 
 The full-loader merge now reads each document once for reports instead of
