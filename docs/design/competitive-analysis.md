@@ -5,7 +5,7 @@ goal is to identify concrete work, not to rank libraries on a single number.
 
 ## Comparison set
 
-- `adotenv` 0.10.1
+- `adotenv` 0.10.2
 - `dotenvy` 0.15.7
 - `dotenv` 0.15.0
 - `dotenv-compat` 0.4.0
