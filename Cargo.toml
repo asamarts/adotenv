@@ -6,7 +6,7 @@ members = [
     "adotenv-config",
     "adotenv-figment",
 ]
-exclude = ["fuzz"]
+exclude = ["fuzz", "benchmarks/compare"]
 resolver = "2"
 
 [package]
