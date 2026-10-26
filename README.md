@@ -27,7 +27,7 @@ verifies every edit before returning it.
 
 ```toml
 [dependencies]
-adotenv = "0.10"
+adotenv = "0.10.1"
 ```
 
 | Feature | Purpose |
@@ -40,7 +40,7 @@ adotenv = "0.10"
 Disable default features for a `no_std` core that uses `alloc`:
 
 ```toml
-adotenv = { version = "0.10", default-features = false }
+adotenv = { version = "0.10.1", default-features = false }
 ```
 
 ## Parse
