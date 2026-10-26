@@ -57,4 +57,5 @@ The current release provides:
 | [integrations.md](docs/design/integrations.md) | `config` and Figment adapters |
 | [quality.md](docs/design/quality.md) | Tests, fuzzing, conformance, MSRV |
 | [performance.md](docs/design/performance.md) | Benchmarks and memory |
+| [competitive-analysis.md](docs/design/competitive-analysis.md) | Competitor metrics and gaps |
 | [1.0-readiness.md](docs/design/1.0-readiness.md) | Release evidence checklist |
