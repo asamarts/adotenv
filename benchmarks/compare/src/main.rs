@@ -7,6 +7,11 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use adotenv::{
+    load::{load_files, load_files_with_options, load_values, LoadOptions},
+    Dialect,
+};
+
 struct Counting;
 
 static ALLOCATED: AtomicUsize = AtomicUsize::new(0);
@@ -52,7 +57,7 @@ fn main() {
     let mode = env::args().nth(1).expect("mode");
     let iterations: usize = env::args().nth(2).expect("iterations").parse().unwrap();
     let path = env::args().nth(3).expect("fixture");
-    let source = fs::read_to_string(path).unwrap();
+    let source = fs::read_to_string(&path).unwrap();
 
     if mode.starts_with("rss_") {
         match mode.as_str() {
@@ -139,6 +144,38 @@ fn main() {
                     map.len()
                 );
             }
+            "rss_adotenv_values" => {
+                let values = load_values([path.as_str()], Dialect::PORTABLE).unwrap();
+                println!(
+                    "{} rss_kb={} hwm_kb={} len={}",
+                    mode,
+                    rss_kb(),
+                    status_kb("VmHWM:"),
+                    values.len()
+                );
+            }
+            "rss_adotenv_load_default" => {
+                let loaded = load_files([path.as_str()], Dialect::PORTABLE).unwrap();
+                println!(
+                    "{} rss_kb={} hwm_kb={} len={}",
+                    mode,
+                    rss_kb(),
+                    status_kb("VmHWM:"),
+                    loaded.len()
+                );
+            }
+            "rss_adotenv_load_full" => {
+                let loaded =
+                    load_files_with_options([path.as_str()], LoadOptions::full(Dialect::PORTABLE))
+                        .unwrap();
+                println!(
+                    "{} rss_kb={} hwm_kb={} len={}",
+                    mode,
+                    rss_kb(),
+                    status_kb("VmHWM:"),
+                    loaded.len()
+                );
+            }
             other => panic!("unknown mode {other}"),
         }
         return;
@@ -198,6 +235,28 @@ fn main() {
                 let map = dotenv_parser::parse_dotenv(black_box(&source)).unwrap();
                 let len = map.len();
                 black_box(map);
+                len
+            }
+            "adotenv_values" => {
+                let values = load_values([black_box(path.as_str())], Dialect::PORTABLE).unwrap();
+                let len = values.len();
+                black_box(values);
+                len
+            }
+            "adotenv_load_default" => {
+                let loaded = load_files([black_box(path.as_str())], Dialect::PORTABLE).unwrap();
+                let len = loaded.len();
+                black_box(loaded);
+                len
+            }
+            "adotenv_load_full" => {
+                let loaded = load_files_with_options(
+                    [black_box(path.as_str())],
+                    LoadOptions::full(Dialect::PORTABLE),
+                )
+                .unwrap();
+                let len = loaded.len();
+                black_box(loaded);
                 len
             }
             other => panic!("unknown mode {other}"),

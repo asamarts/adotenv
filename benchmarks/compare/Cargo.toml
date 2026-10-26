@@ -7,7 +7,7 @@ publish = false
 [workspace]
 
 [dependencies]
-adotenv = { path = "../.." }
+adotenv = { path = "../..", features = ["load"] }
 dotenvy = "=0.15.7"
 dotenv-compat = "=0.4.0"
 dotenv-ng-core = "=1.0.0"

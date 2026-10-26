@@ -47,13 +47,39 @@ One 65,536-entry file on a release build:
 
 | Profile | Peak | Retained |
 |---|---:|---:|
-| Default | 53.8 MB | 29.7 MB |
-| `LoadOptions::full` | 63.9 MB | 35.6 MB |
-| Values only | 13.9 MB | 12.6 MB |
+| Default | 47.3 MB | 27.8 MB |
+| `LoadOptions::full` | 57.1 MB | 37.6 MB |
+| Values only | 11.2 MB | 9.9 MB |
 
 The default keeps values, shared-file origins and raw tokens. Reports add entry,
 override, repeat and skipped vectors. Values-only loading projects values while
 parsing and retains no document or provenance.
+
+The default profile now stores value, origin and raw-token data in one record
+per key. This removes two per-key maps from the retained loader.
+
+## Budgets
+
+The comparison harness is the source of these budgets. Run the full check with:
+
+```console
+python3 scripts/compare.py --check-budgets
+```
+
+| Profile | Instructions | Peak RSS | Retained RSS |
+|---|---:|---:|---:|
+| adotenv parse | 260M | not budgeted | 29 MB |
+| adotenv parse + map | 335M | not budgeted | 16 MB |
+| values-only load | 400M | 13 MB | 11.5 MB |
+| default load | 560M | 50 MB | 30 MB |
+| full-report load | 750M | 60 MB | 40 MB |
+
+The parse-only binary budget is 500 KB. Wall time is recorded but not enforced
+because the shared host is too noisy for a hard threshold.
+
+A release blocks above the instruction or memory budget until the regression is
+fixed or explicitly accepted. A wall-time result between 1.5x and 2x requires a
+repeat run and an explanation; above 2x blocks the release.
 
 ## Diff and matrix
 

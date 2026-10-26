@@ -204,6 +204,13 @@ struct CompactOrigin {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct ValueRecord {
+    value: Arc<str>,
+    origin: Option<CompactOrigin>,
+    raw: Option<(usize, Range<usize>, Range<usize>)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct EntryRecord {
     key: Arc<str>,
     value: Arc<str>,
@@ -237,9 +244,7 @@ struct SkippedRecord {
 /// [`LoadOptions::full`]. Values and report views borrow the environment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadedEnvironment {
-    values: BTreeMap<Arc<str>, Arc<str>>,
-    origins: BTreeMap<Arc<str>, CompactOrigin>,
-    raw_entries: BTreeMap<Arc<str>, (usize, Range<usize>, Range<usize>)>,
+    records: BTreeMap<Arc<str>, ValueRecord>,
     raw_source: String,
     files: Vec<PathBuf>,
     dialect: Dialect,
@@ -331,9 +336,9 @@ impl LoadOptions {
 impl LoadedEnvironment {
     /// Iterate final effective literal values in key order.
     pub fn values(&self) -> impl Iterator<Item = (&str, &str)> + '_ {
-        self.values
+        self.records
             .iter()
-            .map(|(key, value)| (key.as_ref(), value.as_ref()))
+            .map(|(key, record)| (key.as_ref(), record.value.as_ref()))
     }
     /// Whether raw winning tokens were retained for contextual resolution.
     #[must_use]
@@ -343,7 +348,7 @@ impl LoadedEnvironment {
     /// Final value for one key.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.values.get(key).map(Arc::as_ref)
+        self.records.get(key).map(|record| record.value.as_ref())
     }
     /// Final origin for one effective key.
     ///
@@ -352,8 +357,9 @@ impl LoadedEnvironment {
     #[must_use]
     pub fn origin(&self, key: &str) -> Option<LoadOrigin<'_>> {
         if self.origins_retained {
-            self.origins
+            self.records
                 .get(key)
+                .and_then(|record| record.origin.as_ref())
                 .map(|origin| view_origin(&self.files, origin))
         } else {
             None
@@ -409,21 +415,21 @@ impl LoadedEnvironment {
     /// Number of effective values.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.values.len()
+        self.records.len()
     }
     /// Whether no effective values were loaded.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.values.is_empty()
+        self.records.is_empty()
     }
     /// Drop provenance and reports, retaining only final effective values.
     #[must_use]
     pub fn into_values(self) -> LoadedValues {
         LoadedValues {
             values: self
-                .values
+                .records
                 .into_iter()
-                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .map(|(key, record)| (key.to_string(), record.value.to_string()))
                 .collect(),
         }
     }
@@ -598,8 +604,8 @@ impl LoadedEnvironment {
             ));
         }
         let mut source = String::new();
-        for (key, value) in &self.values {
-            let token = encode_value(value.as_ref()).ok_or_else(|| {
+        for (key, record) in &self.records {
+            let token = encode_value(record.value.as_ref()).ok_or_else(|| {
                 LoadedResolveError::new(
                     Some(key.to_string()),
                     self.owned_origin(key),
@@ -632,9 +638,14 @@ impl LoadedEnvironment {
         Ok(ResolvedEnvironment {
             values,
             origins: self
-                .origins
+                .records
                 .iter()
-                .map(|(key, origin)| (key.to_string(), origin.clone()))
+                .filter_map(|(key, record)| {
+                    record
+                        .origin
+                        .as_ref()
+                        .map(|origin| (key.to_string(), origin.clone()))
+                })
                 .collect(),
             files: self.files.clone(),
         })
@@ -669,10 +680,14 @@ impl LoadedEnvironment {
                 "raw token context was not retained; load with raw tokens or use resolve_decoded",
             ));
         }
-        let mut entries: Vec<_> = self.raw_entries.iter().collect();
-        entries.sort_unstable_by_key(|(_, (order, _, _))| *order);
+        let mut entries: Vec<_> = self
+            .records
+            .values()
+            .filter_map(|record| record.raw.clone())
+            .collect();
+        entries.sort_unstable_by_key(|(order, _, _)| *order);
         let mut source = String::new();
-        for (_, (_, key_range, value_range)) in entries {
+        for (_, key_range, value_range) in entries {
             source.push_str(&self.raw_source[key_range.clone()]);
             source.push('=');
             source.push_str(&self.raw_source[value_range.clone()]);
@@ -693,9 +708,14 @@ impl LoadedEnvironment {
         Ok(ResolvedEnvironment {
             values,
             origins: self
-                .origins
+                .records
                 .iter()
-                .map(|(key, origin)| (key.to_string(), origin.clone()))
+                .filter_map(|(key, record)| {
+                    record
+                        .origin
+                        .as_ref()
+                        .map(|origin| (key.to_string(), origin.clone()))
+                })
                 .collect(),
             files: self.files.clone(),
         })
@@ -964,9 +984,7 @@ where
     P: AsRef<Path>,
 {
     let mut loaded = LoadedEnvironment {
-        values: BTreeMap::new(),
-        origins: BTreeMap::new(),
-        raw_entries: BTreeMap::new(),
+        records: BTreeMap::new(),
         raw_source: String::new(),
         files: Vec::new(),
         dialect: options.dialect,
@@ -1181,7 +1199,7 @@ fn merge_effective(
     let compact_origin = compact_origin(state.file_index, effective);
     let order = state.next_order;
     state.next_order += 1;
-    if state.options.retain_raw_tokens {
+    let raw = if state.options.retain_raw_tokens {
         let raw_key = &document.source()[effective.tokens().key.clone()];
         let raw_value = effective.raw_value().unwrap_or_default();
         let key_start = state.loaded.raw_source.len();
@@ -1190,11 +1208,10 @@ fn merge_effective(
         let value_start = state.loaded.raw_source.len();
         state.loaded.raw_source.push_str(raw_value);
         let value_range = value_start..state.loaded.raw_source.len();
-        state
-            .loaded
-            .raw_entries
-            .insert(key.clone(), (order, key_range, value_range));
-    }
+        Some((order, key_range, value_range))
+    } else {
+        None
+    };
     if state.options.retain_reports {
         let entry_index = state.loaded.entries.len();
         let previous = if state.options.retain_origins {
@@ -1216,10 +1233,15 @@ fn merge_effective(
             });
         }
     }
-    if state.options.retain_origins {
-        state.loaded.origins.insert(key.clone(), compact_origin);
-    }
-    state.loaded.values.insert(key, value);
+    let origin = if state.options.retain_origins {
+        Some(compact_origin)
+    } else {
+        None
+    };
+    state
+        .loaded
+        .records
+        .insert(key, ValueRecord { value, origin, raw });
 }
 
 fn compact_origin(file: usize, entry: crate::Entry<'_>) -> CompactOrigin {

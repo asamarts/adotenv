@@ -21,5 +21,6 @@ The command writes `target/compare/report.md` and JSON results. Use
 `--update-doc` to replace the generated benchmark section in
 `docs/design/competitive-analysis.md`.
 
-Use `--smoke` for a quick local check that skips instruction counts and only
-uses the small fixture. Do not run timing-sensitive comparisons on a busy host.
+Use `--check-budgets` to fail when a measured profile exceeds the budgets in
+`scripts/compare.py`. Use `--smoke` for a quick local check that skips
+instruction counts and only uses the small fixture. Do not run timing-sensitive comparisons on a busy host.

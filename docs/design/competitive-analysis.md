@@ -42,29 +42,39 @@ Per parse on the 65,536-entry fixture:
 
 | Implementation | Wall time | Instructions | Peak RSS | Retained RSS |
 |---|---:|---:|---:|---:|
-| adotenv parse | 43.7 ms | 235M | 26.6 MB | 26.6 MB |
-| adotenv parse + map | 66.6 ms | 301M | 32.3 MB | 14.3 MB |
-| dotenvy iterator + map | 79.5 ms | 355M | 18.8 MB | 11.5 MB |
-| dotenv-compat parse | 55.2 ms | 265M | 20.0 MB | 14.6 MB |
-| dotenv-ng input-only | 123.4 ms | 378M | 26.1 MB | 20.4 MB |
-| dotenv-parser map | 160.7 ms | 1239M | 25.4 MB | 10.7 MB |
+| adotenv parse | 32.5 ms | 234M | 26.5 MB | 26.4 MB |
+| adotenv parse + map | 40.0 ms | 301M | 32.6 MB | 14.2 MB |
+| dotenvy iterator + map | 72.1 ms | 354M | 18.4 MB | 11.3 MB |
+| dotenv-compat parse | 45.1 ms | 265M | 19.7 MB | 14.4 MB |
+| dotenv-ng input-only | 136.8 ms | 378M | 26.5 MB | 20.4 MB |
+| dotenv-parser map | 173.4 ms | 1239M | 25.3 MB | 10.6 MB |
 
 Small-file parsing, in microseconds per parse:
 
 | Implementation | 128 entries |
 |---|---:|
-| adotenv parse | 47.7 us |
-| adotenv parse + map | 87.5 us |
-| dotenvy iterator + map | 89.7 us |
-| dotenv-compat parse | 52.4 us |
-| dotenv-ng input-only | 81.6 us |
-| dotenv-parser map | 231.5 us |
+| adotenv parse | 41.8 us |
+| adotenv parse + map | 55.9 us |
+| dotenvy iterator + map | 80.6 us |
+| dotenv-compat parse | 61.6 us |
+| dotenv-ng input-only | 75.3 us |
+| dotenv-parser map | 226.7 us |
+
+### Loader profiles
+
+Per load on the 65,536-entry fixture:
+
+| Profile | Wall time | Instructions | Peak RSS | Retained RSS |
+|---|---:|---:|---:|---:|
+| values-only load | 61.3 ms | 364M | 11.2 MB | 9.9 MB |
+| default load | 113.1 ms | 502M | 47.3 MB | 27.8 MB |
+| full-report load | 173.0 ms | 683M | 57.1 MB | 37.6 MB |
 
 ### Parse-only binaries
 
 | Binary | Stripped size |
 |---|---:|
-| adotenv | 447 KB |
+| adotenv | 446 KB |
 | dotenv_compat | 367 KB |
 | dotenv_ng | 404 KB |
 | dotenv_parser | 449 KB |

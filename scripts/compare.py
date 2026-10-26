@@ -34,6 +34,12 @@ MODES = [
     ("dotenv_parser", "dotenv-parser map"),
 ]
 
+LOAD_MODES = [
+    ("adotenv_values", "values-only load"),
+    ("adotenv_load_default", "default load"),
+    ("adotenv_load_full", "full-report load"),
+]
+
 BINS = {
     "adotenv_parse": "adotenv",
     "adotenv_map": "adotenv",
@@ -42,6 +48,28 @@ BINS = {
     "dotenv_ng": "dotenv_ng",
     "dotenv_parser": "dotenv_parser",
 }
+
+BUDGETS = {
+    "adotenv_parse": {"instructions": 260_000_000, "retained": 29.0},
+    "adotenv_map": {"instructions": 335_000_000, "retained": 16.0},
+    "adotenv_values": {
+        "instructions": 400_000_000,
+        "peak": 13.0,
+        "retained": 11.5,
+    },
+    "adotenv_load_default": {
+        "instructions": 560_000_000,
+        "peak": 50.0,
+        "retained": 30.0,
+    },
+    "adotenv_load_full": {
+        "instructions": 750_000_000,
+        "peak": 60.0,
+        "retained": 40.0,
+    },
+}
+
+BINARY_BUDGET = 500 * 1024
 
 
 def run(cmd: list[str], *, cwd: Path = ROOT) -> subprocess.CompletedProcess[str]:
@@ -165,7 +193,7 @@ def make_report(
     noop_instructions = instructions("noop", large) if include_instructions else 0
 
     rows = []
-    for mode, label in MODES:
+    for mode, label in MODES + LOAD_MODES:
         small_time = wall_time(mode, small, small_iterations)
         large_time = wall_time(mode, large, large_iterations)
         retained, peak = rss(mode, large)
@@ -197,7 +225,9 @@ def make_report(
         "| Implementation | Wall time | Instructions | Peak RSS | Retained RSS |",
         "|---|---:|---:|---:|---:|",
     ]
-    for row in rows:
+    core_rows = rows[: len(MODES)]
+    load_rows = rows[len(MODES) :]
+    for row in core_rows:
         instructions_text = (
             f"{row['instructions'] / 1_000_000:.0f}M"
             if row["instructions"] is not None
@@ -215,8 +245,28 @@ def make_report(
         "| Implementation | 128 entries |",
         "|---|---:|",
     ]
-    for row in rows:
+    for row in core_rows:
         lines.append(f"| {row['label']} | {duration(row['small'])} |")
+    lines += [
+        "",
+        "### Loader profiles",
+        "",
+        "Per load on the 65,536-entry fixture:",
+        "",
+        "| Profile | Wall time | Instructions | Peak RSS | Retained RSS |",
+        "|---|---:|---:|---:|---:|",
+    ]
+    for row in load_rows:
+        instructions_text = (
+            f"{row['instructions'] / 1_000_000:.0f}M"
+            if row["instructions"] is not None
+            else "not measured"
+        )
+        lines.append(
+            f"| {row['label']} | {duration(row['large'])} | "
+            f"{instructions_text} | {memory(row['peak'])} | "
+            f"{memory(row['retained'])} |"
+        )
     lines += [
         "",
         "### Parse-only binaries",
@@ -231,6 +281,27 @@ def make_report(
     return "\n".join(lines), rows
 
 
+def check_budgets(rows: list[dict]) -> int:
+    failed = 0
+    size = binary("adotenv").stat().st_size
+    if size > BINARY_BUDGET:
+        print(
+            f"budget failed: adotenv parse binary={size} limit={BINARY_BUDGET}",
+            file=sys.stderr,
+        )
+        failed += 1
+    for row in rows:
+        budget = BUDGETS.get(row["mode"])
+        if not budget:
+            continue
+        for key, limit in budget.items():
+            value = row[key]
+            if value is None or value > limit:
+                print(f"budget failed: {row['label']} {key}={value} limit={limit}", file=sys.stderr)
+                failed += 1
+    return failed
+
+
 def update_doc(report: str) -> None:
     text = DOC.read_text()
     start = text.index(BEGIN)
@@ -242,6 +313,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--smoke", action="store_true", help="small fixture, no instructions")
     parser.add_argument("--update-doc", action="store_true", help="replace the generated doc section")
+    parser.add_argument("--check-budgets", action="store_true", help="fail when a budget is exceeded")
     args = parser.parse_args()
 
     TARGET.mkdir(parents=True, exist_ok=True)
@@ -260,6 +332,7 @@ def main() -> int:
         return 0
 
     report, rows = make_report(small, large, include_instructions=True)
+    failed = check_budgets(rows) if args.check_budgets else 0
     REPORT.write_text(report + "\n")
     RESULTS.write_text(
         json.dumps(
@@ -275,7 +348,7 @@ def main() -> int:
     if args.update_doc:
         update_doc(report)
     print(report)
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
