@@ -58,6 +58,7 @@ The current release provides:
 | [quality.md](docs/design/quality.md) | Tests, fuzzing, conformance, MSRV |
 | [performance.md](docs/design/performance.md) | Benchmarks and memory |
 | [competitive-analysis.md](docs/design/competitive-analysis.md) | Competitor metrics and gaps |
+| [feature-decisions.md](docs/design/feature-decisions.md) | Adopt, defer and reject decisions |
 | [1.0-readiness.md](docs/design/1.0-readiness.md) | Release evidence checklist |
 
 Published site: <https://asamarts.github.io/adotenv/>
