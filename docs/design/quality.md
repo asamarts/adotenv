@@ -35,7 +35,7 @@ Diagnostic codes and spans are stable. Message text may change.
 
 ## Fuzzing
 
-The workspace has five fuzz targets:
+The workspace has five scheduled fuzz targets:
 
 - parser;
 - edits;
@@ -47,6 +47,17 @@ Each target has a public seed corpus. Scheduled runs use bounded time and memory
 Manual campaigns are useful during development but do not replace the scheduled
 coverage used for release evidence.
 
+The fuzz crate also has a local differential target for the simple Portable
+subset against dotenv-compat:
+
+```console
+cd fuzz
+cargo +nightly fuzz run --target x86_64-unknown-linux-gnu differential
+```
+
+This target is for local investigation and is not part of the five-target
+scheduled evidence.
+
 Run one target with:
 
 ```console
@@ -56,9 +67,9 @@ cargo fuzz run parser
 ## Conformance
 
 `conformance/manifest.json` records pinned observations from real Node, Python,
-Compose and Docker env-file APIs. The runner checks package and source identities,
-hashes inputs and compares only observations that map to the literal adotenv
-model.
+Compose and Docker env-file APIs. The current corpus has 80 cases and 20 profiles.
+The runner checks package and source identities, hashes inputs and compares only
+observations that map to the literal adotenv model.
 
 ```console
 python3 conformance/check_adotenv.py --setup

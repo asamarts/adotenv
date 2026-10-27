@@ -347,20 +347,36 @@
     {
       "id": "service-explicit-precedence",
       "source": "A=file\nCOPY=${A}\nEMPTY=file\nBARE=file\n",
-      "environment": {"A": "project"},
-      "service_environment": {"A": "service", "EMPTY": "", "BARE": null, "UNSET": null}
+      "environment": {
+        "A": "project"
+      },
+      "service_environment": {
+        "A": "service",
+        "EMPTY": "",
+        "BARE": null,
+        "UNSET": null
+      }
     },
     {
       "id": "service-lookup-fallback",
       "source": "COPY=${A}\nBARE\n",
       "environment": {},
-      "service_environment": {"A": "service", "BARE": "service-bare", "UNSET": null}
+      "service_environment": {
+        "A": "service",
+        "BARE": "service-bare",
+        "UNSET": null
+      }
     },
     {
       "id": "service-bare-yaml-override",
       "source": "A=file\nB=file\n",
-      "environment": {"A": "project"},
-      "service_environment": {"A": null, "B": null}
+      "environment": {
+        "A": "project"
+      },
+      "service_environment": {
+        "A": null,
+        "B": null
+      }
     },
     {
       "id": "duplicate-last-bare-no-lookup",
@@ -384,7 +400,52 @@
     },
     {
       "id": "compose-unsupported-key-tail-space",
-      "source": "A\u1680=x\nGOOD=y\n",
+      "source": "A =x\nGOOD=y\n",
+      "environment": {}
+    },
+    {
+      "id": "quoted-tail-tight",
+      "source": "A=\"one\"tail\nNEXT=retained\n",
+      "environment": {}
+    },
+    {
+      "id": "quoted-tail-comment",
+      "source": "A=\"one\"#comment\nNEXT=retained\n",
+      "environment": {}
+    },
+    {
+      "id": "multiline-single-crlf",
+      "source": "A='one\r\ntwo'\r\nB=kept\r\n",
+      "environment": {}
+    },
+    {
+      "id": "multiline-backtick-crlf",
+      "source": "A=`one\r\ntwo`\r\nB=kept\r\n",
+      "environment": {}
+    },
+    {
+      "id": "mixed-endings-multiline",
+      "source": "A=\"one\r\ntwo\"\rB=kept\n",
+      "environment": {}
+    },
+    {
+      "id": "bom-multiline",
+      "source": "﻿A=\"one\ntwo\"\n",
+      "environment": {}
+    },
+    {
+      "id": "hash-in-single",
+      "source": "A='a#b'\n",
+      "environment": {}
+    },
+    {
+      "id": "hash-in-double",
+      "source": "A=\"a#b\"\n",
+      "environment": {}
+    },
+    {
+      "id": "escaped-quote-tail",
+      "source": "A=\"a\\\"b\"tail\n",
       "environment": {}
     }
   ]

@@ -1,6 +1,6 @@
 {
   "inputs": {
-    "cases_sha256": "79141e52a34b85e0a9a1bf95fd612ccf922659b0778ddb4311641bccbcc85cb1",
+    "cases_sha256": "a8d3fed8f2d196a27a882a68e5306d9a05a333ef3d11b293af11ff5f8f95e24c",
     "locks_sha256": {
       "go/go.mod": "48e6f8966e9c647e6a23ceb744ef882b0ae42ea9e2213abe3adf9d17bfb0f186",
       "go/go.sum": "430e52eda01eaf979d93a54663eb64db56b72041da8bb0a9ea924f9167ee312c",
@@ -71,6 +71,12 @@
         "error": false,
         "values": {
           "A": "one"
+        }
+      },
+      "bom-multiline": {
+        "error": false,
+        "values": {
+          "A": "one\ntwo"
         }
       },
       "colon-space": {
@@ -163,6 +169,12 @@
           "A": "#b"
         }
       },
+      "escaped-quote-tail": {
+        "error": false,
+        "values": {
+          "A": "a\"b"
+        }
+      },
       "export-space": {
         "error": false,
         "values": {
@@ -173,6 +185,18 @@
         "error": false,
         "values": {
           "A": "value"
+        }
+      },
+      "hash-in-double": {
+        "error": false,
+        "values": {
+          "A": "a#b"
+        }
+      },
+      "hash-in-single": {
+        "error": false,
+        "values": {
+          "A": "a#b"
         }
       },
       "hash-only": {
@@ -233,11 +257,24 @@
           "B": "two\rC=three"
         }
       },
+      "mixed-endings-multiline": {
+        "error": false,
+        "values": {
+          "A": "one\r\ntwo",
+          "B": "kept"
+        }
+      },
       "multiline-backtick": {
         "error": true,
         "values": {
           "A": "`one",
           "INNER": "not-a-declaration"
+        }
+      },
+      "multiline-backtick-crlf": {
+        "error": true,
+        "values": {
+          "A": "`one"
         }
       },
       "multiline-cr": {
@@ -273,6 +310,13 @@
         "values": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        }
+      },
+      "multiline-single-crlf": {
+        "error": false,
+        "values": {
+          "A": "one\r\ntwo",
+          "B": "kept"
         }
       },
       "multiple-equals": {
@@ -326,6 +370,20 @@
         }
       },
       "quoted-tail": {
+        "error": false,
+        "values": {
+          "A": "one",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-comment": {
+        "error": false,
+        "values": {
+          "A": "one",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-tight": {
         "error": false,
         "values": {
           "A": "one",
@@ -521,6 +579,12 @@
           "A": "one"
         }
       },
+      "bom-multiline": {
+        "error": false,
+        "values": {
+          "A": "one\ntwo"
+        }
+      },
       "colon-space": {
         "error": false,
         "values": {
@@ -611,6 +675,12 @@
           "A": "#b"
         }
       },
+      "escaped-quote-tail": {
+        "error": false,
+        "values": {
+          "A": "a\"b"
+        }
+      },
       "export-space": {
         "error": false,
         "values": {
@@ -621,6 +691,18 @@
         "error": false,
         "values": {
           "A": "value"
+        }
+      },
+      "hash-in-double": {
+        "error": false,
+        "values": {
+          "A": "a#b"
+        }
+      },
+      "hash-in-single": {
+        "error": false,
+        "values": {
+          "A": "a#b"
         }
       },
       "hash-only": {
@@ -682,7 +764,18 @@
           "B": "two\rC=three"
         }
       },
+      "mixed-endings-multiline": {
+        "error": false,
+        "values": {
+          "A": "one\r\ntwo",
+          "B": "kept"
+        }
+      },
       "multiline-backtick": {
+        "error": true,
+        "values": null
+      },
+      "multiline-backtick-crlf": {
         "error": true,
         "values": null
       },
@@ -719,6 +812,13 @@
         "values": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        }
+      },
+      "multiline-single-crlf": {
+        "error": false,
+        "values": {
+          "A": "one\r\ntwo",
+          "B": "kept"
         }
       },
       "multiple-equals": {
@@ -772,6 +872,20 @@
         }
       },
       "quoted-tail": {
+        "error": false,
+        "values": {
+          "A": "one",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-comment": {
+        "error": false,
+        "values": {
+          "A": "one",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-tight": {
         "error": false,
         "values": {
           "A": "one",
@@ -969,6 +1083,12 @@
           "A": "one"
         }
       },
+      "bom-multiline": {
+        "error": false,
+        "values": {
+          "A": "one\ntwo"
+        }
+      },
       "colon-space": {
         "error": false,
         "values": {
@@ -1059,6 +1179,12 @@
           "A": "#b"
         }
       },
+      "escaped-quote-tail": {
+        "error": false,
+        "values": {
+          "A": "a\"b"
+        }
+      },
       "export-space": {
         "error": false,
         "values": {
@@ -1069,6 +1195,18 @@
         "error": false,
         "values": {
           "A": "value"
+        }
+      },
+      "hash-in-double": {
+        "error": false,
+        "values": {
+          "A": "a#b"
+        }
+      },
+      "hash-in-single": {
+        "error": false,
+        "values": {
+          "A": "a#b"
         }
       },
       "hash-only": {
@@ -1129,7 +1267,18 @@
           "B": "two\rC=three"
         }
       },
+      "mixed-endings-multiline": {
+        "error": false,
+        "values": {
+          "A": "one\r\ntwo",
+          "B": "kept"
+        }
+      },
       "multiline-backtick": {
+        "error": true,
+        "values": null
+      },
+      "multiline-backtick-crlf": {
         "error": true,
         "values": null
       },
@@ -1166,6 +1315,13 @@
         "values": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        }
+      },
+      "multiline-single-crlf": {
+        "error": false,
+        "values": {
+          "A": "one\r\ntwo",
+          "B": "kept"
         }
       },
       "multiple-equals": {
@@ -1219,6 +1375,20 @@
         }
       },
       "quoted-tail": {
+        "error": false,
+        "values": {
+          "A": "one",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-comment": {
+        "error": false,
+        "values": {
+          "A": "one",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-tight": {
         "error": false,
         "values": {
           "A": "one",
@@ -1419,6 +1589,12 @@
           "A": "one"
         }
       },
+      "bom-multiline": {
+        "error": false,
+        "values": {
+          "A": "\"one"
+        }
+      },
       "colon-space": {
         "error": true,
         "values": null
@@ -1504,6 +1680,12 @@
           "A": " #b"
         }
       },
+      "escaped-quote-tail": {
+        "error": false,
+        "values": {
+          "A": "\"a\\\"b\"tail"
+        }
+      },
       "export-space": {
         "error": true,
         "values": null
@@ -1511,6 +1693,18 @@
       "export-tab": {
         "error": true,
         "values": null
+      },
+      "hash-in-double": {
+        "error": false,
+        "values": {
+          "A": "\"a#b\""
+        }
+      },
+      "hash-in-single": {
+        "error": false,
+        "values": {
+          "A": "'a#b'"
+        }
       },
       "hash-only": {
         "error": false,
@@ -1567,12 +1761,26 @@
           "B": "two\rC=three"
         }
       },
+      "mixed-endings-multiline": {
+        "error": false,
+        "values": {
+          "A": "\"one",
+          "two\"\rB": "kept"
+        }
+      },
       "multiline-backtick": {
         "error": false,
         "values": {
           "A": "`one",
           "INNER": "not-a-declaration",
           "NEXT": "retained"
+        }
+      },
+      "multiline-backtick-crlf": {
+        "error": false,
+        "values": {
+          "A": "`one",
+          "B": "kept"
         }
       },
       "multiline-cr": {
@@ -1609,6 +1817,13 @@
           "A": "'one",
           "INNER": "not-a-declaration",
           "NEXT": "retained"
+        }
+      },
+      "multiline-single-crlf": {
+        "error": false,
+        "values": {
+          "A": "'one",
+          "B": "kept"
         }
       },
       "multiple-equals": {
@@ -1664,6 +1879,20 @@
         }
       },
       "quoted-tail": {
+        "error": false,
+        "values": {
+          "A": "\"one\"tail",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-comment": {
+        "error": false,
+        "values": {
+          "A": "\"one\"#comment",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-tight": {
         "error": false,
         "values": {
           "A": "\"one\"tail",
@@ -1870,6 +2099,12 @@
           "A=one"
         ]
       },
+      "bom-multiline": {
+        "error": false,
+        "lines": [
+          "A=\"one"
+        ]
+      },
       "colon-space": {
         "error": true,
         "lines": []
@@ -1958,6 +2193,12 @@
           "A= #b"
         ]
       },
+      "escaped-quote-tail": {
+        "error": false,
+        "lines": [
+          "A=\"a\\\"b\"tail"
+        ]
+      },
       "export-space": {
         "error": true,
         "lines": []
@@ -1965,6 +2206,18 @@
       "export-tab": {
         "error": true,
         "lines": []
+      },
+      "hash-in-double": {
+        "error": false,
+        "lines": [
+          "A=\"a#b\""
+        ]
+      },
+      "hash-in-single": {
+        "error": false,
+        "lines": [
+          "A='a#b'"
+        ]
       },
       "hash-only": {
         "error": false,
@@ -2021,12 +2274,26 @@
           "B=two\rC=three"
         ]
       },
+      "mixed-endings-multiline": {
+        "error": false,
+        "lines": [
+          "A=\"one",
+          "two\"\rB=kept"
+        ]
+      },
       "multiline-backtick": {
         "error": false,
         "lines": [
           "A=`one",
           "INNER=not-a-declaration",
           "NEXT=retained"
+        ]
+      },
+      "multiline-backtick-crlf": {
+        "error": false,
+        "lines": [
+          "A=`one",
+          "B=kept"
         ]
       },
       "multiline-cr": {
@@ -2063,6 +2330,13 @@
           "A='one",
           "INNER=not-a-declaration",
           "NEXT=retained"
+        ]
+      },
+      "multiline-single-crlf": {
+        "error": false,
+        "lines": [
+          "A='one",
+          "B=kept"
         ]
       },
       "multiple-equals": {
@@ -2118,6 +2392,20 @@
         ]
       },
       "quoted-tail": {
+        "error": false,
+        "lines": [
+          "A=\"one\"tail",
+          "NEXT=retained"
+        ]
+      },
+      "quoted-tail-comment": {
+        "error": false,
+        "lines": [
+          "A=\"one\"#comment",
+          "NEXT=retained"
+        ]
+      },
+      "quoted-tail-tight": {
         "error": false,
         "lines": [
           "A=\"one\"tail",
@@ -2319,6 +2607,12 @@
           "A=one"
         ]
       },
+      "bom-multiline": {
+        "error": false,
+        "lines": [
+          "A=\"one"
+        ]
+      },
       "colon-space": {
         "error": true,
         "lines": []
@@ -2405,6 +2699,12 @@
           "A= #b"
         ]
       },
+      "escaped-quote-tail": {
+        "error": false,
+        "lines": [
+          "A=\"a\\\"b\"tail"
+        ]
+      },
       "export-space": {
         "error": true,
         "lines": []
@@ -2412,6 +2712,18 @@
       "export-tab": {
         "error": true,
         "lines": []
+      },
+      "hash-in-double": {
+        "error": false,
+        "lines": [
+          "A=\"a#b\""
+        ]
+      },
+      "hash-in-single": {
+        "error": false,
+        "lines": [
+          "A='a#b'"
+        ]
       },
       "hash-only": {
         "error": false,
@@ -2468,12 +2780,26 @@
           "B=two\rC=three"
         ]
       },
+      "mixed-endings-multiline": {
+        "error": false,
+        "lines": [
+          "A=\"one",
+          "two\"\rB=kept"
+        ]
+      },
       "multiline-backtick": {
         "error": false,
         "lines": [
           "A=`one",
           "INNER=not-a-declaration",
           "NEXT=retained"
+        ]
+      },
+      "multiline-backtick-crlf": {
+        "error": false,
+        "lines": [
+          "A=`one",
+          "B=kept"
         ]
       },
       "multiline-cr": {
@@ -2510,6 +2836,13 @@
           "A='one",
           "INNER=not-a-declaration",
           "NEXT=retained"
+        ]
+      },
+      "multiline-single-crlf": {
+        "error": false,
+        "lines": [
+          "A='one",
+          "B=kept"
         ]
       },
       "multiple-equals": {
@@ -2565,6 +2898,20 @@
         ]
       },
       "quoted-tail": {
+        "error": false,
+        "lines": [
+          "A=\"one\"tail",
+          "NEXT=retained"
+        ]
+      },
+      "quoted-tail-comment": {
+        "error": false,
+        "lines": [
+          "A=\"one\"#comment",
+          "NEXT=retained"
+        ]
+      },
+      "quoted-tail-tight": {
         "error": false,
         "lines": [
           "A=\"one\"tail",
@@ -2826,6 +3173,18 @@
         },
         "parsed_prototype": "Object.prototype"
       },
+      "bom-multiline": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "one\ntwo"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "one\ntwo"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
       "colon-space": {
         "diagnostics_supported": false,
         "environment": {
@@ -3000,6 +3359,18 @@
         },
         "parsed_prototype": "Object.prototype"
       },
+      "escaped-quote-tail": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "\"a\\\"b\"tail"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "\"a\\\"b\"tail"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
       "export-space": {
         "diagnostics_supported": false,
         "environment": {
@@ -3021,6 +3392,30 @@
         "error": null,
         "parsed": {
           "A": "value"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "hash-in-double": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "a#b"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "a#b"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "hash-in-single": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "a#b"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "a#b"
         },
         "parsed_prototype": "Object.prototype"
       },
@@ -3145,6 +3540,20 @@
         },
         "parsed_prototype": "Object.prototype"
       },
+      "mixed-endings-multiline": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "one\ntwo",
+          "B": "kept"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "one\ntwo",
+          "B": "kept"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
       "multiline-backtick": {
         "diagnostics_supported": false,
         "environment": {
@@ -3156,6 +3565,20 @@
         "parsed": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "multiline-backtick-crlf": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "one\ntwo",
+          "B": "kept"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "one\ntwo",
+          "B": "kept"
         },
         "parsed_prototype": "Object.prototype"
       },
@@ -3226,6 +3649,20 @@
         "parsed": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "multiline-single-crlf": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "one\ntwo",
+          "B": "kept"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "one\ntwo",
+          "B": "kept"
         },
         "parsed_prototype": "Object.prototype"
       },
@@ -3328,6 +3765,34 @@
         "parsed_prototype": "Object.prototype"
       },
       "quoted-tail": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "\"one\"tail",
+          "NEXT": "retained"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "\"one\"tail",
+          "NEXT": "retained"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "quoted-tail-comment": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "one",
+          "NEXT": "retained"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "one",
+          "NEXT": "retained"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "quoted-tail-tight": {
         "diagnostics_supported": false,
         "environment": {
           "A": "\"one\"tail",
@@ -3735,6 +4200,18 @@
         },
         "parsed_prototype": "Object.prototype"
       },
+      "bom-multiline": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "one\ntwo"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "one\ntwo"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
       "colon-space": {
         "diagnostics_supported": false,
         "environment": {
@@ -3909,6 +4386,18 @@
         },
         "parsed_prototype": "Object.prototype"
       },
+      "escaped-quote-tail": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "\"a\\\"b\"tail"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "\"a\\\"b\"tail"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
       "export-space": {
         "diagnostics_supported": false,
         "environment": {
@@ -3930,6 +4419,30 @@
         "error": null,
         "parsed": {
           "A": "value"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "hash-in-double": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "a#b"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "a#b"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "hash-in-single": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "a#b"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "a#b"
         },
         "parsed_prototype": "Object.prototype"
       },
@@ -4054,6 +4567,20 @@
         },
         "parsed_prototype": "Object.prototype"
       },
+      "mixed-endings-multiline": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "one\ntwo",
+          "B": "kept"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "one\ntwo",
+          "B": "kept"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
       "multiline-backtick": {
         "diagnostics_supported": false,
         "environment": {
@@ -4065,6 +4592,20 @@
         "parsed": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "multiline-backtick-crlf": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "one\ntwo",
+          "B": "kept"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "one\ntwo",
+          "B": "kept"
         },
         "parsed_prototype": "Object.prototype"
       },
@@ -4135,6 +4676,20 @@
         "parsed": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "multiline-single-crlf": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "one\ntwo",
+          "B": "kept"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "one\ntwo",
+          "B": "kept"
         },
         "parsed_prototype": "Object.prototype"
       },
@@ -4237,6 +4792,34 @@
         "parsed_prototype": "Object.prototype"
       },
       "quoted-tail": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "\"one\"tail",
+          "NEXT": "retained"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "\"one\"tail",
+          "NEXT": "retained"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "quoted-tail-comment": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "one",
+          "NEXT": "retained"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "one",
+          "NEXT": "retained"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "quoted-tail-tight": {
         "diagnostics_supported": false,
         "environment": {
           "A": "\"one\"tail",
@@ -4594,6 +5177,13 @@
           "A": "one"
         }
       },
+      "bom-multiline": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one\ntwo"
+        }
+      },
       "colon-space": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
@@ -4697,6 +5287,13 @@
           "A": ""
         }
       },
+      "escaped-quote-tail": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "\"a\\\"b\"tail"
+        }
+      },
       "export-space": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
@@ -4709,6 +5306,20 @@
         "prototype": "Object.prototype",
         "values": {
           "A": "value"
+        }
+      },
+      "hash-in-double": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "a#b"
+        }
+      },
+      "hash-in-single": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "a#b"
         }
       },
       "hash-only": {
@@ -4780,12 +5391,28 @@
           "C": "three"
         }
       },
+      "mixed-endings-multiline": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
+        }
+      },
       "multiline-backtick": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
         "values": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        }
+      },
+      "multiline-backtick-crlf": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
         }
       },
       "multiline-cr": {
@@ -4826,6 +5453,14 @@
         "values": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        }
+      },
+      "multiline-single-crlf": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
         }
       },
       "multiple-equals": {
@@ -4886,6 +5521,22 @@
         }
       },
       "quoted-tail": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "\"one\"tail",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-comment": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-tight": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
         "values": {
@@ -5116,6 +5767,13 @@
           "A": "one"
         }
       },
+      "bom-multiline": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one\ntwo"
+        }
+      },
       "colon-space": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
@@ -5219,6 +5877,13 @@
           "A": ""
         }
       },
+      "escaped-quote-tail": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "\"a\\\"b\"tail"
+        }
+      },
       "export-space": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
@@ -5231,6 +5896,20 @@
         "prototype": "Object.prototype",
         "values": {
           "A": "value"
+        }
+      },
+      "hash-in-double": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "a#b"
+        }
+      },
+      "hash-in-single": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "a#b"
         }
       },
       "hash-only": {
@@ -5302,12 +5981,28 @@
           "C": "three"
         }
       },
+      "mixed-endings-multiline": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
+        }
+      },
       "multiline-backtick": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
         "values": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        }
+      },
+      "multiline-backtick-crlf": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
         }
       },
       "multiline-cr": {
@@ -5348,6 +6043,14 @@
         "values": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        }
+      },
+      "multiline-single-crlf": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
         }
       },
       "multiple-equals": {
@@ -5408,6 +6111,22 @@
         }
       },
       "quoted-tail": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "\"one\"tail",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-comment": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-tight": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
         "values": {
@@ -5638,6 +6357,13 @@
           "A": "one"
         }
       },
+      "bom-multiline": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one\ntwo"
+        }
+      },
       "colon-space": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
@@ -5741,6 +6467,13 @@
           "A": ""
         }
       },
+      "escaped-quote-tail": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "\"a\\\"b\"tail"
+        }
+      },
       "export-space": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
@@ -5753,6 +6486,20 @@
         "prototype": "Object.prototype",
         "values": {
           "A": "value"
+        }
+      },
+      "hash-in-double": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "a#b"
+        }
+      },
+      "hash-in-single": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "a#b"
         }
       },
       "hash-only": {
@@ -5824,12 +6571,28 @@
           "C": "three"
         }
       },
+      "mixed-endings-multiline": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
+        }
+      },
       "multiline-backtick": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
         "values": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        }
+      },
+      "multiline-backtick-crlf": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
         }
       },
       "multiline-cr": {
@@ -5870,6 +6633,14 @@
         "values": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        }
+      },
+      "multiline-single-crlf": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
         }
       },
       "multiple-equals": {
@@ -5930,6 +6701,22 @@
         }
       },
       "quoted-tail": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "\"one\"tail",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-comment": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-tight": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
         "values": {
@@ -6160,6 +6947,13 @@
           "A": "one"
         }
       },
+      "bom-multiline": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one\ntwo"
+        }
+      },
       "colon-space": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
@@ -6263,6 +7057,13 @@
           "A": ""
         }
       },
+      "escaped-quote-tail": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "\"a\\\"b\"tail"
+        }
+      },
       "export-space": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
@@ -6275,6 +7076,20 @@
         "prototype": "Object.prototype",
         "values": {
           "A": "value"
+        }
+      },
+      "hash-in-double": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "a#b"
+        }
+      },
+      "hash-in-single": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "a#b"
         }
       },
       "hash-only": {
@@ -6346,12 +7161,28 @@
           "C": "three"
         }
       },
+      "mixed-endings-multiline": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
+        }
+      },
       "multiline-backtick": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
         "values": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        }
+      },
+      "multiline-backtick-crlf": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
         }
       },
       "multiline-cr": {
@@ -6392,6 +7223,14 @@
         "values": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        }
+      },
+      "multiline-single-crlf": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
         }
       },
       "multiple-equals": {
@@ -6452,6 +7291,22 @@
         }
       },
       "quoted-tail": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "\"one\"tail",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-comment": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "one",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-tight": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
         "values": {
@@ -6791,6 +7646,19 @@
           }
         ]
       },
+      "bom-multiline": {
+        "bindings": [
+          {
+            "error": false,
+            "key": "A",
+            "original": {
+              "line": 1,
+              "string": "A=\"one\ntwo\"\n"
+            },
+            "value": "one\ntwo"
+          }
+        ]
+      },
       "colon-space": {
         "bindings": [
           {
@@ -7034,6 +7902,19 @@
           }
         ]
       },
+      "escaped-quote-tail": {
+        "bindings": [
+          {
+            "error": true,
+            "key": null,
+            "original": {
+              "line": 1,
+              "string": "A=\"a\\\"b\"tail\n"
+            },
+            "value": null
+          }
+        ]
+      },
       "export-space": {
         "bindings": [
           {
@@ -7057,6 +7938,32 @@
               "string": "export\tA=value\n"
             },
             "value": "value"
+          }
+        ]
+      },
+      "hash-in-double": {
+        "bindings": [
+          {
+            "error": false,
+            "key": "A",
+            "original": {
+              "line": 1,
+              "string": "A=\"a#b\"\n"
+            },
+            "value": "a#b"
+          }
+        ]
+      },
+      "hash-in-single": {
+        "bindings": [
+          {
+            "error": false,
+            "key": "A",
+            "original": {
+              "line": 1,
+              "string": "A='a#b'\n"
+            },
+            "value": "a#b"
           }
         ]
       },
@@ -7276,6 +8183,28 @@
           }
         ]
       },
+      "mixed-endings-multiline": {
+        "bindings": [
+          {
+            "error": false,
+            "key": "A",
+            "original": {
+              "line": 1,
+              "string": "A=\"one\r\ntwo\"\r"
+            },
+            "value": "one\r\ntwo"
+          },
+          {
+            "error": false,
+            "key": "B",
+            "original": {
+              "line": 3,
+              "string": "B=kept\n"
+            },
+            "value": "kept"
+          }
+        ]
+      },
       "multiline-backtick": {
         "bindings": [
           {
@@ -7313,6 +8242,37 @@
               "string": "NEXT=retained\n"
             },
             "value": "retained"
+          }
+        ]
+      },
+      "multiline-backtick-crlf": {
+        "bindings": [
+          {
+            "error": false,
+            "key": "A",
+            "original": {
+              "line": 1,
+              "string": "A=`one\r\n"
+            },
+            "value": "`one"
+          },
+          {
+            "error": false,
+            "key": "two`",
+            "original": {
+              "line": 2,
+              "string": "two`\r\n"
+            },
+            "value": null
+          },
+          {
+            "error": false,
+            "key": "B",
+            "original": {
+              "line": 3,
+              "string": "B=kept\r\n"
+            },
+            "value": "kept"
           }
         ]
       },
@@ -7423,6 +8383,28 @@
               "string": "NEXT=retained\n"
             },
             "value": "retained"
+          }
+        ]
+      },
+      "multiline-single-crlf": {
+        "bindings": [
+          {
+            "error": false,
+            "key": "A",
+            "original": {
+              "line": 1,
+              "string": "A='one\r\ntwo'\r\n"
+            },
+            "value": "one\r\ntwo"
+          },
+          {
+            "error": false,
+            "key": "B",
+            "original": {
+              "line": 3,
+              "string": "B=kept\r\n"
+            },
+            "value": "kept"
           }
         ]
       },
@@ -7585,6 +8567,50 @@
         ]
       },
       "quoted-tail": {
+        "bindings": [
+          {
+            "error": true,
+            "key": null,
+            "original": {
+              "line": 1,
+              "string": "A=\"one\"tail\n"
+            },
+            "value": null
+          },
+          {
+            "error": false,
+            "key": "NEXT",
+            "original": {
+              "line": 2,
+              "string": "NEXT=retained\n"
+            },
+            "value": "retained"
+          }
+        ]
+      },
+      "quoted-tail-comment": {
+        "bindings": [
+          {
+            "error": false,
+            "key": "A",
+            "original": {
+              "line": 1,
+              "string": "A=\"one\"#comment\n"
+            },
+            "value": "one"
+          },
+          {
+            "error": false,
+            "key": "NEXT",
+            "original": {
+              "line": 2,
+              "string": "NEXT=retained\n"
+            },
+            "value": "retained"
+          }
+        ]
+      },
+      "quoted-tail-tight": {
         "bindings": [
           {
             "error": true,
@@ -8168,6 +9194,13 @@
         "error": null,
         "loaded": true
       },
+      "bom-multiline": {
+        "environment": {
+          "A": "one\ntwo"
+        },
+        "error": null,
+        "loaded": true
+      },
       "colon-space": {
         "environment": {},
         "error": null,
@@ -8267,6 +9300,11 @@
         "error": null,
         "loaded": true
       },
+      "escaped-quote-tail": {
+        "environment": {},
+        "error": null,
+        "loaded": false
+      },
       "export-space": {
         "environment": {
           "A": "value"
@@ -8277,6 +9315,20 @@
       "export-tab": {
         "environment": {
           "A": "value"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "hash-in-double": {
+        "environment": {
+          "A": "a#b"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "hash-in-single": {
+        "environment": {
+          "A": "a#b"
         },
         "error": null,
         "loaded": true
@@ -8349,11 +9401,27 @@
         "error": null,
         "loaded": true
       },
+      "mixed-endings-multiline": {
+        "environment": {
+          "A": "one\r\ntwo",
+          "B": "kept"
+        },
+        "error": null,
+        "loaded": true
+      },
       "multiline-backtick": {
         "environment": {
           "A": "`one",
           "INNER": "not-a-declaration",
           "NEXT": "retained"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "multiline-backtick-crlf": {
+        "environment": {
+          "A": "`one",
+          "B": "kept"
         },
         "error": null,
         "loaded": true
@@ -8394,6 +9462,14 @@
         "environment": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "multiline-single-crlf": {
+        "environment": {
+          "A": "one\r\ntwo",
+          "B": "kept"
         },
         "error": null,
         "loaded": true
@@ -8459,6 +9535,21 @@
         "loaded": true
       },
       "quoted-tail": {
+        "environment": {
+          "NEXT": "retained"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "quoted-tail-comment": {
+        "environment": {
+          "A": "one",
+          "NEXT": "retained"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "quoted-tail-tight": {
         "environment": {
           "NEXT": "retained"
         },
@@ -8696,6 +9787,13 @@
         "error": null,
         "loaded": true
       },
+      "bom-multiline": {
+        "environment": {
+          "A": "one\ntwo"
+        },
+        "error": null,
+        "loaded": true
+      },
       "colon-space": {
         "environment": {},
         "error": null,
@@ -8795,6 +9893,11 @@
         "error": null,
         "loaded": true
       },
+      "escaped-quote-tail": {
+        "environment": {},
+        "error": null,
+        "loaded": false
+      },
       "export-space": {
         "environment": {
           "A": "value"
@@ -8805,6 +9908,20 @@
       "export-tab": {
         "environment": {
           "A": "value"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "hash-in-double": {
+        "environment": {
+          "A": "a#b"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "hash-in-single": {
+        "environment": {
+          "A": "a#b"
         },
         "error": null,
         "loaded": true
@@ -8877,11 +9994,27 @@
         "error": null,
         "loaded": true
       },
+      "mixed-endings-multiline": {
+        "environment": {
+          "A": "one\r\ntwo",
+          "B": "kept"
+        },
+        "error": null,
+        "loaded": true
+      },
       "multiline-backtick": {
         "environment": {
           "A": "`one",
           "INNER": "not-a-declaration",
           "NEXT": "retained"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "multiline-backtick-crlf": {
+        "environment": {
+          "A": "`one",
+          "B": "kept"
         },
         "error": null,
         "loaded": true
@@ -8922,6 +10055,14 @@
         "environment": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "multiline-single-crlf": {
+        "environment": {
+          "A": "one\r\ntwo",
+          "B": "kept"
         },
         "error": null,
         "loaded": true
@@ -8987,6 +10128,21 @@
         "loaded": true
       },
       "quoted-tail": {
+        "environment": {
+          "NEXT": "retained"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "quoted-tail-comment": {
+        "environment": {
+          "A": "one",
+          "NEXT": "retained"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "quoted-tail-tight": {
         "environment": {
           "NEXT": "retained"
         },
@@ -9224,6 +10380,13 @@
         "error": null,
         "loaded": true
       },
+      "bom-multiline": {
+        "environment": {
+          "A": "one\ntwo"
+        },
+        "error": null,
+        "loaded": true
+      },
       "colon-space": {
         "environment": {},
         "error": null,
@@ -9323,6 +10486,11 @@
         "error": null,
         "loaded": true
       },
+      "escaped-quote-tail": {
+        "environment": {},
+        "error": null,
+        "loaded": false
+      },
       "export-space": {
         "environment": {
           "A": "value"
@@ -9333,6 +10501,20 @@
       "export-tab": {
         "environment": {
           "A": "value"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "hash-in-double": {
+        "environment": {
+          "A": "a#b"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "hash-in-single": {
+        "environment": {
+          "A": "a#b"
         },
         "error": null,
         "loaded": true
@@ -9405,11 +10587,27 @@
         "error": null,
         "loaded": true
       },
+      "mixed-endings-multiline": {
+        "environment": {
+          "A": "one\r\ntwo",
+          "B": "kept"
+        },
+        "error": null,
+        "loaded": true
+      },
       "multiline-backtick": {
         "environment": {
           "A": "`one",
           "INNER": "not-a-declaration",
           "NEXT": "retained"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "multiline-backtick-crlf": {
+        "environment": {
+          "A": "`one",
+          "B": "kept"
         },
         "error": null,
         "loaded": true
@@ -9450,6 +10648,14 @@
         "environment": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "multiline-single-crlf": {
+        "environment": {
+          "A": "one\r\ntwo",
+          "B": "kept"
         },
         "error": null,
         "loaded": true
@@ -9515,6 +10721,21 @@
         "loaded": true
       },
       "quoted-tail": {
+        "environment": {
+          "NEXT": "retained"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "quoted-tail-comment": {
+        "environment": {
+          "A": "one",
+          "NEXT": "retained"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "quoted-tail-tight": {
         "environment": {
           "NEXT": "retained"
         },
@@ -9752,6 +10973,13 @@
         "error": null,
         "loaded": true
       },
+      "bom-multiline": {
+        "environment": {
+          "A": "one\ntwo"
+        },
+        "error": null,
+        "loaded": true
+      },
       "colon-space": {
         "environment": {},
         "error": null,
@@ -9851,6 +11079,11 @@
         "error": null,
         "loaded": true
       },
+      "escaped-quote-tail": {
+        "environment": {},
+        "error": null,
+        "loaded": false
+      },
       "export-space": {
         "environment": {
           "A": "value"
@@ -9861,6 +11094,20 @@
       "export-tab": {
         "environment": {
           "A": "value"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "hash-in-double": {
+        "environment": {
+          "A": "a#b"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "hash-in-single": {
+        "environment": {
+          "A": "a#b"
         },
         "error": null,
         "loaded": true
@@ -9933,11 +11180,27 @@
         "error": null,
         "loaded": true
       },
+      "mixed-endings-multiline": {
+        "environment": {
+          "A": "one\r\ntwo",
+          "B": "kept"
+        },
+        "error": null,
+        "loaded": true
+      },
       "multiline-backtick": {
         "environment": {
           "A": "`one",
           "INNER": "not-a-declaration",
           "NEXT": "retained"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "multiline-backtick-crlf": {
+        "environment": {
+          "A": "`one",
+          "B": "kept"
         },
         "error": null,
         "loaded": true
@@ -9978,6 +11241,14 @@
         "environment": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "multiline-single-crlf": {
+        "environment": {
+          "A": "one\r\ntwo",
+          "B": "kept"
         },
         "error": null,
         "loaded": true
@@ -10043,6 +11314,21 @@
         "loaded": true
       },
       "quoted-tail": {
+        "environment": {
+          "NEXT": "retained"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "quoted-tail-comment": {
+        "environment": {
+          "A": "one",
+          "NEXT": "retained"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "quoted-tail-tight": {
         "environment": {
           "NEXT": "retained"
         },
@@ -10262,6 +11548,11 @@
           "A": "one"
         }
       },
+      "bom-multiline": {
+        "values": {
+          "A": "one\ntwo"
+        }
+      },
       "colon-space": {
         "values": {}
       },
@@ -10333,6 +11624,9 @@
           "A": ""
         }
       },
+      "escaped-quote-tail": {
+        "values": {}
+      },
       "export-space": {
         "values": {
           "A": "value"
@@ -10341,6 +11635,16 @@
       "export-tab": {
         "values": {
           "A": "value"
+        }
+      },
+      "hash-in-double": {
+        "values": {
+          "A": "a#b"
+        }
+      },
+      "hash-in-single": {
+        "values": {
+          "A": "a#b"
         }
       },
       "hash-only": {
@@ -10397,11 +11701,24 @@
           "C": "three"
         }
       },
+      "mixed-endings-multiline": {
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
+        }
+      },
       "multiline-backtick": {
         "values": {
           "A": "`one",
           "INNER": "not-a-declaration",
           "NEXT": "retained",
+          "two`": null
+        }
+      },
+      "multiline-backtick-crlf": {
+        "values": {
+          "A": "`one",
+          "B": "kept",
           "two`": null
         }
       },
@@ -10433,6 +11750,12 @@
         "values": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        }
+      },
+      "multiline-single-crlf": {
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
         }
       },
       "multiple-equals": {
@@ -10482,6 +11805,17 @@
         }
       },
       "quoted-tail": {
+        "values": {
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-comment": {
+        "values": {
+          "A": "one",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-tight": {
         "values": {
           "NEXT": "retained"
         }
@@ -10659,6 +11993,11 @@
           "A": "one"
         }
       },
+      "bom-multiline": {
+        "values": {
+          "A": "one\ntwo"
+        }
+      },
       "colon-space": {
         "values": {}
       },
@@ -10730,6 +12069,9 @@
           "A": ""
         }
       },
+      "escaped-quote-tail": {
+        "values": {}
+      },
       "export-space": {
         "values": {
           "A": "value"
@@ -10738,6 +12080,16 @@
       "export-tab": {
         "values": {
           "A": "value"
+        }
+      },
+      "hash-in-double": {
+        "values": {
+          "A": "a#b"
+        }
+      },
+      "hash-in-single": {
+        "values": {
+          "A": "a#b"
         }
       },
       "hash-only": {
@@ -10794,11 +12146,24 @@
           "C": "three"
         }
       },
+      "mixed-endings-multiline": {
+        "values": {
+          "A": "one\r\ntwo",
+          "B": "kept"
+        }
+      },
       "multiline-backtick": {
         "values": {
           "A": "`one",
           "INNER": "not-a-declaration",
           "NEXT": "retained",
+          "two`": null
+        }
+      },
+      "multiline-backtick-crlf": {
+        "values": {
+          "A": "`one",
+          "B": "kept",
           "two`": null
         }
       },
@@ -10830,6 +12195,12 @@
         "values": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        }
+      },
+      "multiline-single-crlf": {
+        "values": {
+          "A": "one\r\ntwo",
+          "B": "kept"
         }
       },
       "multiple-equals": {
@@ -10879,6 +12250,17 @@
         }
       },
       "quoted-tail": {
+        "values": {
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-comment": {
+        "values": {
+          "A": "one",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-tight": {
         "values": {
           "NEXT": "retained"
         }
@@ -11056,6 +12438,11 @@
           "A": "one"
         }
       },
+      "bom-multiline": {
+        "values": {
+          "A": "one\ntwo"
+        }
+      },
       "colon-space": {
         "values": {}
       },
@@ -11127,6 +12514,9 @@
           "A": ""
         }
       },
+      "escaped-quote-tail": {
+        "values": {}
+      },
       "export-space": {
         "values": {
           "A": "value"
@@ -11135,6 +12525,16 @@
       "export-tab": {
         "values": {
           "A": "value"
+        }
+      },
+      "hash-in-double": {
+        "values": {
+          "A": "a#b"
+        }
+      },
+      "hash-in-single": {
+        "values": {
+          "A": "a#b"
         }
       },
       "hash-only": {
@@ -11191,11 +12591,24 @@
           "C": "three"
         }
       },
+      "mixed-endings-multiline": {
+        "values": {
+          "A": "one\r\ntwo",
+          "B": "kept"
+        }
+      },
       "multiline-backtick": {
         "values": {
           "A": "`one",
           "INNER": "not-a-declaration",
           "NEXT": "retained",
+          "two`": null
+        }
+      },
+      "multiline-backtick-crlf": {
+        "values": {
+          "A": "`one",
+          "B": "kept",
           "two`": null
         }
       },
@@ -11227,6 +12640,12 @@
         "values": {
           "A": "one\nINNER=not-a-declaration\ntwo",
           "NEXT": "retained"
+        }
+      },
+      "multiline-single-crlf": {
+        "values": {
+          "A": "one\r\ntwo",
+          "B": "kept"
         }
       },
       "multiple-equals": {
@@ -11276,6 +12695,17 @@
         }
       },
       "quoted-tail": {
+        "values": {
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-comment": {
+        "values": {
+          "A": "one",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-tight": {
         "values": {
           "NEXT": "retained"
         }
@@ -11417,7 +12847,7 @@
         "package": "1.2.4"
       }
     },
-    "utc": "2026-10-16T20:28:08.015562+00:00"
+    "utc": "2026-10-27T04:15:20.489517+00:00"
   },
   "schema": 1
 }
