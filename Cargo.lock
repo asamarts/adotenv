@@ -4,7 +4,7 @@ version = 3
 
 [[package]]
 name = "adotenv"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "criterion",
  "proptest",
@@ -13,14 +13,14 @@ dependencies = [
 
 [[package]]
 name = "adotenv-cli"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "adotenv",
 ]
 
 [[package]]
 name = "adotenv-config"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "adotenv",
  "config",
@@ -29,7 +29,7 @@ dependencies = [
 
 [[package]]
 name = "adotenv-figment"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "adotenv",
  "figment",
@@ -38,7 +38,7 @@ dependencies = [
 
 [[package]]
 name = "adotenv-process"
-version = "0.10.3"
+version = "0.10.4"
 dependencies = [
  "adotenv",
 ]
