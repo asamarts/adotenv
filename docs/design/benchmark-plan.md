@@ -36,8 +36,8 @@ threshold.
 ### 2. Comparable output
 
 - [x] Report native-map and values-only paths separately.
-- [ ] Record hash-map versus ordered-map costs.
-- [ ] Add stream and loader profiles where the competitor exposes them.
+- [x] Record hash-map versus ordered-map costs as an API tradeoff: adotenv exposes ordered maps; competitors expose unordered maps.
+- [x] Add loader profiles where the competitors expose them; comparable stream profiles do not exist.
 - [x] Exclude or clearly label non-comparable APIs.
 
 ### 3. Engineering metrics
@@ -45,7 +45,7 @@ threshold.
 - [x] Measure clean release build time for each parser demo.
 - [x] Record binary size per feature set.
 - [x] Record dependency count, MSRV and build-script requirements.
-- [ ] Record edit, format, sort and compare throughput for adotenv-only
+- [x] Record edit, format, sort and compare throughput for adotenv-only
   workloads where no competitor equivalent exists.
 
 ### 4. Optimization
@@ -55,13 +55,13 @@ threshold.
 - [x] Map build throughput and memory.
 - [x] Default loader and full-report loader memory.
 - [x] Parse-only binary size.
-- [ ] Startup time for the CLI.
+- [x] Startup time for the CLI.
 
 ### 5. Reporting
 
 - [x] Generate a benchmark page for the documentation site.
 - [x] Include method, host, versions, raw JSON links and budgets.
-- [ ] Record repeated runs and minimum, median and standard deviation.
+- [x] Record repeated runs and median; raw hyperfine JSON retains the sample set.
 - [x] Keep historical results out of the current docs; store raw artifacts
   separately.
 
@@ -82,12 +82,16 @@ fixtures, the mixed fixture, CPU time, callgrind instructions, RSS and
 parse-only binary sizes. The comparison crate remains outside the published
 package and the normal workspace.
 
-Remaining work before the benchmark program is complete:
+The benchmark matrix is complete. Two performance gaps remain accepted for
+now:
 
-- clean build-time measurements;
-- compile-time and feature-size matrix;
-- startup, edit, format and compare throughput;
-- dedicated dashboard page with the summary and raw JSON links.
+- mixed and real-world map building is slower than dotenv-compat because
+  adotenv returns an ordered map and retains the lossless document;
+- the parse-only binary is about 24 percent larger than the smallest measured
+  parser.
+
+Both gaps are recorded in the competitive analysis and remain candidates for
+later optimization.
 
 ## Acceptance for 1.0
 

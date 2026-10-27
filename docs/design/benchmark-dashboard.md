@@ -64,6 +64,18 @@ Adotenv only, 65,536 declarations:
 | Compose | 51.7 ms | 305M | 14.2 MB |
 | Docker | 42.7 ms | 269M | 14.3 MB |
 
+## Adotenv-only operations
+
+65,536-entry workloads:
+
+| Operation | Time |
+|---|---:|
+| native set | 61.7 ms |
+| native batch | 63.6 ms |
+| format normalize | 76.7 ms |
+| sort | 161.1 ms |
+| compare large versus typical | 61.0 ms |
+
 ## Build and startup
 
 Clean release builds on kbench:
@@ -75,6 +87,7 @@ Clean release builds on kbench:
 | dotenvy | 45.2 s | 386 KB | 660 us |
 | dotenv-ng | 45.1 s | 404 KB | 661 us |
 | dotenv-parser | 45.7 s | 450 KB | 698 us |
+| adotenv-cli | 16.8 s | 1,199 KB | 653 us |
 
 Feature-set library sizes:
 

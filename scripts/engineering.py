@@ -93,8 +93,6 @@ def build_feature(name: str, args: list[str]) -> dict:
 
 def startup(name: str) -> dict:
     export = TARGET / f"startup-{name}.json"
-    command = f"{TARGET / 'compare' / 'release' / name} {EMPTY}"
-    # The compare binary is built in target/compare, not target/engineering.
     command = f"{ROOT / 'target' / 'compare' / 'cargo' / 'release' / name} {EMPTY}"
     subprocess.run(
         [
@@ -115,6 +113,55 @@ def startup(name: str) -> dict:
     return {"name": name, "seconds": metric(export)}
 
 
+def build_cli() -> dict:
+    target = TARGET / "cli"
+    shutil.rmtree(target, ignore_errors=True)
+    env = os.environ.copy()
+    env["CARGO_TARGET_DIR"] = str(target)
+    started = time.perf_counter()
+    run(
+        [
+            "cargo",
+            "build",
+            "-p",
+            "adotenv-cli",
+            "--release",
+            "--locked",
+            "--target-dir",
+            str(target),
+        ],
+        env=env,
+    )
+    elapsed = time.perf_counter() - started
+    binary = target / "release" / "adotenv-cli"
+    export = TARGET / "startup-cli.json"
+    subprocess.run(
+        [
+            "hyperfine",
+            "--warmup",
+            "5",
+            "--runs",
+            "20",
+            "--export-json",
+            str(export),
+            f"{binary} --version",
+        ],
+        cwd=ROOT,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return {
+        "build_seconds": elapsed,
+        "bytes": binary.stat().st_size,
+        "startup_seconds": metric(export),
+        "memory_peak_resident": json.loads(export.read_text())["results"][0]
+        .get("summary", {})
+        .get("memory_peak_resident", {})
+        .get("median"),
+    }
+
+
 def main() -> int:
     TARGET.mkdir(parents=True, exist_ok=True)
     EMPTY.write_text("")
@@ -126,10 +173,18 @@ def main() -> int:
         "binaries": [build_bin(name) for name in BINS],
         "features": [build_feature(name, args) for name, args in FEATURES],
         "startup": [startup(name) for name in BINS],
+        "cli": build_cli(),
     }
     OUTPUT.write_text(json.dumps(data, indent=2) + "\n")
     for section, rows in data.items():
         print(section)
+        if section == "cli":
+            print(
+                f"  adotenv-cli: {rows['build_seconds']:.2f}s "
+                f"{rows['bytes'] / 1024:.0f}KB "
+                f"{rows['startup_seconds'] * 1_000_000:.1f}us"
+            )
+            continue
         for row in rows:
             if "bytes" in row:
                 print(f"  {row['name']}: {row['seconds']:.2f}s {row['bytes'] / 1024:.0f}KB")

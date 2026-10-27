@@ -2,82 +2,88 @@
   "binaries": [
     {
       "name": "adotenv",
-      "seconds": 46.57781597413123,
+      "seconds": 46.22080537863076,
       "bytes": 465000
     },
     {
       "name": "dotenvy",
-      "seconds": 45.17404011450708,
+      "seconds": 45.09011557511985,
       "bytes": 395136
     },
     {
       "name": "dotenv_compat",
-      "seconds": 45.00039505586028,
+      "seconds": 45.012695318087935,
       "bytes": 375712
     },
     {
       "name": "dotenv_ng",
-      "seconds": 45.07558889314532,
+      "seconds": 45.05717835389078,
       "bytes": 414040
     },
     {
       "name": "dotenv_parser",
-      "seconds": 45.743114445358515,
+      "seconds": 45.712874345481396,
       "bytes": 460368
     }
   ],
   "features": [
     {
       "name": "alloc",
-      "seconds": 11.88431734032929,
+      "seconds": 11.896790396422148,
       "bytes": 2678380
     },
     {
       "name": "std",
-      "seconds": 11.853953272104263,
+      "seconds": 11.862536545842886,
       "bytes": 2678760
     },
     {
       "name": "load",
-      "seconds": 13.236876597627997,
+      "seconds": 13.227408025413752,
       "bytes": 3185622
     },
     {
       "name": "serde",
-      "seconds": 14.795239282771945,
+      "seconds": 14.772686025127769,
       "bytes": 2856188
     },
     {
       "name": "load-serde",
-      "seconds": 16.21970015577972,
+      "seconds": 16.210601108148694,
       "bytes": 3404130
     },
     {
       "name": "exec",
-      "seconds": 12.070640068501234,
+      "seconds": 12.037470066919923,
       "bytes": 2717998
     }
   ],
   "startup": [
     {
       "name": "adotenv",
-      "seconds": 0.0006512515
+      "seconds": 0.0006517275
     },
     {
       "name": "dotenvy",
-      "seconds": 0.000659474
+      "seconds": 0.000661944
     },
     {
       "name": "dotenv_compat",
-      "seconds": 0.0006634780000000001
+      "seconds": 0.00066457
     },
     {
       "name": "dotenv_ng",
-      "seconds": 0.0006611295
+      "seconds": 0.0006699055
     },
     {
       "name": "dotenv_parser",
-      "seconds": 0.000697914
+      "seconds": 0.0006994145
     }
-  ]
+  ],
+  "cli": {
+    "build_seconds": 16.78526357933879,
+    "bytes": 1227544,
+    "startup_seconds": 0.0006524925,
+    "memory_peak_resident": 3387392.0
+  }
 }
