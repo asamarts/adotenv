@@ -24,7 +24,7 @@ threshold.
 
 - [x] Standalone comparison crate with pinned competitor versions.
 - [x] Simple 128-entry and 65,536-entry fixtures.
-- [x] Mixed fixture with quoting, spacing, Unicode, empty values and comments.
+- [x] Mixed fixture with quoting, spacing, Unicode, comments and assigned values.
 - [x] Wall time, CPU time, callgrind instructions, peak RSS, retained RSS and
   stripped binary size.
 - [x] One-command report generation and optional document update.
@@ -35,10 +35,10 @@ threshold.
 
 ### 2. Comparable output
 
-- [ ] Report native-map and values-only paths separately.
+- [x] Report native-map and values-only paths separately.
 - [ ] Record hash-map versus ordered-map costs.
 - [ ] Add stream and loader profiles where the competitor exposes them.
-- [ ] Exclude or clearly label non-comparable APIs.
+- [x] Exclude or clearly label non-comparable APIs.
 
 ### 3. Engineering metrics
 
@@ -59,7 +59,7 @@ threshold.
 
 ### 5. Reporting
 
-- [ ] Generate a benchmark page for the documentation site.
+- [x] Generate a benchmark page for the documentation site.
 - [ ] Include method, host, versions, raw JSON links and budgets.
 - [ ] Record repeated runs and minimum, median and standard deviation.
 - [ ] Keep historical results out of the current docs; store raw artifacts
@@ -69,7 +69,7 @@ threshold.
 
 - [x] Normal CI runs benchmark smoke only.
 - [x] Manual budget check exists.
-- [ ] Run the complete comparison on kbench before a performance claim or a 1.0
+- [x] Run the complete comparison on kbench before a performance claim or a 1.0
   release.
 - [ ] Compare against the previous accepted baseline and require an explanation
   for a 1.5x to 2x regression.

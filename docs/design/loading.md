@@ -114,9 +114,9 @@ Measured on a release build with one 65,536-entry file:
 
 | Profile | Peak | Retained |
 |---|---:|---:|
-| Default | 47.3 MB | 27.8 MB |
-| `LoadOptions::full` | 57.1 MB | 37.6 MB |
-| Values only | 11.2 MB | 9.9 MB |
+| Default | 47.8 MB | 28.0 MB |
+| `LoadOptions::full` | 57.4 MB | 37.8 MB |
+| Values only | 11.3 MB | 10.1 MB |
 
 The default loader keeps one record per key for its value, origin and raw token.
 Budgets and the full benchmark method are in [performance.md](performance.md).

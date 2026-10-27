@@ -47,9 +47,9 @@ One 65,536-entry file on a release build:
 
 | Profile | Peak | Retained |
 |---|---:|---:|
-| Default | 47.3 MB | 27.8 MB |
-| `LoadOptions::full` | 57.1 MB | 37.6 MB |
-| Values only | 11.2 MB | 9.9 MB |
+| Default | 47.8 MB | 28.0 MB |
+| `LoadOptions::full` | 57.4 MB | 37.8 MB |
+| Values only | 11.3 MB | 10.1 MB |
 
 The default keeps values, shared-file origins and raw tokens. Reports add entry,
 override, repeat and skipped vectors. Values-only loading projects values while
@@ -60,7 +60,8 @@ per key. This removes two per-key maps from the retained loader.
 
 ## Budgets
 
-The comparison harness is the source of these budgets. Run the full check with:
+The comparison harness is the source of these budgets. Reference results are
+recorded on the kbench host. Run the full check with:
 
 ```console
 python3 scripts/compare.py --check-budgets
