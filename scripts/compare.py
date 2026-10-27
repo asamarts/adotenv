@@ -125,7 +125,7 @@ def make_fixtures() -> tuple[Path, Path, Path, Path]:
     small = FIXTURES / "small.env"
     large = FIXTURES / "large.env"
     mixed = FIXTURES / "mixed.env"
-    real = REAL
+    real = FIXTURES / "real.env"
     small.write_text("".join(f"KEY_{i:03}=value_{i:03}\n" for i in range(128)))
     large.write_text("".join(f"KEY_{i:05}=value_{i:05}\n" for i in range(65_536)))
     lines = []
@@ -139,6 +139,16 @@ def make_fixtures() -> tuple[Path, Path, Path, Path]:
         lines.append("")
         lines.append("# synthetic mixed fixture")
     mixed.write_text("\n".join(lines) + "\n")
+    source_lines = REAL.read_text().splitlines()
+    scaled = []
+    for block in range(256):
+        for line in source_lines:
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                scaled.append(f"COPY_{block:03}_{key}={value}")
+            else:
+                scaled.append(line)
+    real.write_text("\n".join(scaled) + "\n")
     return small, large, mixed, real
 
 
@@ -405,7 +415,7 @@ def make_report(
         "",
         "### Real-world corpus",
         "",
-        "Per parse on the pinned public configuration corpus:",
+        "Per parse on the pinned public corpus, repeated with unique key prefixes:",
         "",
         "| Implementation | Wall time | CPU time | Instructions | Peak RSS | Retained RSS |",
         "|---|---:|---:|---:|---:|---:|",
@@ -527,7 +537,9 @@ def main() -> int:
                     "large_sha256": sha256(large),
                     "mixed": "target/compare/fixtures/mixed.env",
                     "mixed_sha256": sha256(mixed),
-                    "real": "benchmarks/compare/fixtures/real.env",
+                    "real_source": "benchmarks/compare/fixtures/real.env",
+                    "real_source_sha256": sha256(REAL),
+                    "real": "target/compare/fixtures/real.env",
                     "real_sha256": sha256(real),
                 },
                 "runs": args.runs,
