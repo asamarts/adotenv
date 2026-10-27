@@ -148,6 +148,7 @@ pub struct Document<'src> {
     pub(crate) entries: Vec<EntryData>,
     pub(crate) bom: bool,
     pub(crate) dialect: Dialect,
+    pub(crate) has_duplicate_keys: bool,
 }
 
 impl Document<'_> {
@@ -248,30 +249,50 @@ impl Document<'_> {
     /// document.
     #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn effective_entries(&self) -> impl Iterator<Item = EffectiveEntry<'_>> {
-        let mut seen = BTreeSet::new();
         let mut effective = Vec::new();
-        let indices: alloc::boxed::Box<dyn Iterator<Item = usize>> = match self.dialect.duplicates {
-            Duplicates::First => alloc::boxed::Box::new(0..self.entries.len()),
-            Duplicates::Last => alloc::boxed::Box::new((0..self.entries.len()).rev()),
-        };
-        for index in indices {
-            let Some(entry) = self.entry(index) else {
-                continue;
-            };
-            let key = entry.key();
-            if !entry.participates_in_lookup() || key.is_empty() || !seen.insert(key) {
-                continue;
+        if self.has_duplicate_keys {
+            let mut seen = BTreeSet::new();
+            let indices: alloc::boxed::Box<dyn Iterator<Item = usize>> =
+                match self.dialect.duplicates {
+                    Duplicates::First => alloc::boxed::Box::new(0..self.entries.len()),
+                    Duplicates::Last => alloc::boxed::Box::new((0..self.entries.len()).rev()),
+                };
+            for index in indices {
+                let Some(entry) = self.entry(index) else {
+                    continue;
+                };
+                let key = entry.key();
+                if !entry.participates_in_lookup() || key.is_empty() || !seen.insert(key) {
+                    continue;
+                }
+                let value = entry.value().or_else(|| {
+                    (entry.state() == AssignmentState::Bare
+                        && self.dialect.bare_keys == BareKeys::Empty)
+                        .then_some("")
+                });
+                if let Some(value) = value {
+                    effective.push((index, EffectiveEntry { entry, value }));
+                }
             }
-            let value = entry.value().or_else(|| {
-                (entry.state() == AssignmentState::Bare
-                    && self.dialect.bare_keys == BareKeys::Empty)
-                    .then_some("")
-            });
-            if let Some(value) = value {
-                effective.push((index, EffectiveEntry { entry, value }));
+            effective.sort_unstable_by_key(|(index, _)| *index);
+        } else {
+            for index in 0..self.entries.len() {
+                let Some(entry) = self.entry(index) else {
+                    continue;
+                };
+                if !entry.participates_in_lookup() || entry.key().is_empty() {
+                    continue;
+                }
+                let value = entry.value().or_else(|| {
+                    (entry.state() == AssignmentState::Bare
+                        && self.dialect.bare_keys == BareKeys::Empty)
+                        .then_some("")
+                });
+                if let Some(value) = value {
+                    effective.push((index, EffectiveEntry { entry, value }));
+                }
             }
         }
-        effective.sort_unstable_by_key(|(index, _)| *index);
         effective.into_iter().map(|(_, entry)| entry)
     }
 
@@ -352,6 +373,7 @@ impl Document<'_> {
             entries: self.entries,
             bom: self.bom,
             dialect: self.dialect,
+            has_duplicate_keys: self.has_duplicate_keys,
         }
     }
     /// The dominant source line ending, or LF for a document without endings.

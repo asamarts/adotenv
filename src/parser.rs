@@ -39,6 +39,7 @@ pub fn parse_with(source: &str, dialect: Dialect) -> (Document<'_>, Vec<Diagnost
 fn parse_impl<const D: bool>(source: &str, dialect: Dialect) -> (Document<'_>, Vec<Diagnostic>) {
     let mut parser = Parser::<D>::new(source, dialect, None);
     parser.run();
+    parser.document.has_duplicate_keys = parser.has_duplicate_keys;
     let diagnostics = if D
         && dialect.syntax == Syntax::Portable
         && dialect.line_breaks == LineBreaks::Universal
@@ -102,9 +103,15 @@ pub fn parse_owned(source: String) -> (Document<'static>, Vec<Diagnostic>) {
 /// Consume owned source using the selected literal configuration.
 #[must_use]
 pub fn parse_owned_with(source: String, dialect: Dialect) -> (Document<'static>, Vec<Diagnostic>) {
-    let (items, entries, bom, diagnostics) = {
+    let (items, entries, bom, has_duplicate_keys, diagnostics) = {
         let (document, diagnostics) = parse_with(&source, dialect);
-        (document.items, document.entries, document.bom, diagnostics)
+        (
+            document.items,
+            document.entries,
+            document.bom,
+            document.has_duplicate_keys,
+            diagnostics,
+        )
     };
     (
         Document {
@@ -113,6 +120,7 @@ pub fn parse_owned_with(source: String, dialect: Dialect) -> (Document<'static>,
             entries,
             bom,
             dialect,
+            has_duplicate_keys,
         },
         diagnostics,
     )
@@ -281,6 +289,7 @@ struct Parser<'src, const D: bool> {
     diagnostics: Vec<Diagnostic>,
     keys: KeyIndex,
     first_key: Option<usize>,
+    has_duplicate_keys: bool,
     failed_quotes: [Option<usize>; 3],
     line: usize,
     projection: Option<Projection>,
@@ -360,10 +369,12 @@ impl<'src, const D: bool> Parser<'src, D> {
                 entries: Vec::new(),
                 bom: false,
                 dialect,
+                has_duplicate_keys: false,
             },
             diagnostics: Vec::new(),
             keys: KeyIndex::default(),
             first_key: None,
+            has_duplicate_keys: false,
             failed_quotes: [None; 3],
             line: 1,
             projection,
@@ -1040,14 +1051,17 @@ impl<const D: bool> Parser<'_, D> {
                 self.keys.insert(&self.source[range], first);
             }
             if let Some(previous) = self.keys.insert(key, index) {
-                let entry = &self.document.entries[previous];
-                let mut diagnostic = Diagnostic::new(DiagnosticCode::DuplicateKey, span, line);
-                diagnostic.secondary = Some(if entry.key_quoted {
-                    entry.tokens.key.start + 1..entry.tokens.key.end - 1
-                } else {
-                    entry.tokens.key.clone()
-                });
-                self.diagnostics.push(diagnostic);
+                self.has_duplicate_keys = true;
+                if D {
+                    let entry = &self.document.entries[previous];
+                    let mut diagnostic = Diagnostic::new(DiagnosticCode::DuplicateKey, span, line);
+                    diagnostic.secondary = Some(if entry.key_quoted {
+                        entry.tokens.key.start + 1..entry.tokens.key.end - 1
+                    } else {
+                        entry.tokens.key.clone()
+                    });
+                    self.diagnostics.push(diagnostic);
+                }
             }
         } else {
             self.first_key = Some(index);
@@ -1104,7 +1118,7 @@ impl<const D: bool> Parser<'_, D> {
                 line,
             ));
         }
-        if D && participates {
+        if participates && self.projection.is_none() {
             self.duplicate_key(key, key_span.clone(), index, line);
         }
         let mut invalid = None;

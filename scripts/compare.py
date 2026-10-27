@@ -143,7 +143,9 @@ def metric(result: dict, name: str) -> float | None:
     summary = result.get("summary")
     if summary is not None:
         item = summary.get(name)
-        return None if item is None else item["value"]
+        if item is None:
+            return None
+        return item.get("value", item.get("median", item.get("mean")))
     if name == "time_wall_clock":
         return result.get("median", result.get("mean"))
     return None
