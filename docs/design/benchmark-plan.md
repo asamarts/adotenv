@@ -29,7 +29,7 @@ threshold.
   stripped binary size.
 - [x] One-command report generation and optional document update.
 - [x] Budget check for selected profiles.
-- [ ] Record fixture hashes and host metadata in the JSON result.
+- [x] Record fixture hashes and host metadata in the JSON result.
 - [ ] Add a real-world corpus from representative public `.env` files.
 - [ ] Add a per-dialect adotenv matrix.
 
@@ -74,6 +74,22 @@ threshold.
 - [ ] Compare against the previous accepted baseline and require an explanation
   for a 1.5x to 2x regression.
 - [ ] Block above 2x until fixed or explicitly accepted.
+
+## Current reference run
+
+The current reference run uses the simple 128-entry and 65,536-entry
+fixtures, the mixed fixture, CPU time, callgrind instructions, RSS and
+parse-only binary sizes. The comparison crate remains outside the published
+package and the normal workspace.
+
+Remaining work before the benchmark program is complete:
+
+- real-world fixture corpus;
+- per-dialect adotenv matrix;
+- clean build-time measurements;
+- compile-time and feature-size matrix;
+- benchmark dashboard page with raw JSON links;
+- previous-baseline comparison and regression owner assignment.
 
 ## Acceptance for 1.0
 

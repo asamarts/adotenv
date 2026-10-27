@@ -4,27 +4,27 @@ These are local reference measurements, not CI thresholds.
 
 ## Method
 
-- Linux x86_64, AMD Ryzen 9 3900X.
+- Reference host: kbench, Intel Core i7-6700HQ, 4 cores and 8 threads, 2.6 GHz,
+  Linux x86_64, rustc 1.97.0. The benchmark process was pinned to one CPU.
 - Release build with a fixed fixture generator.
-- `cargo bench -p adotenv --bench core --locked -- --sample-size 20 --measurement-time 3`
-- The host is shared. Treat wall-clock values as approximate and prefer
-  instruction counts when comparing CPU work.
-- Re-run on an idle host before making a performance decision.
+- `cargo bench -p adotenv --bench core --locked -- --sample-size 20 --measurement-time 2`
+- The host was otherwise idle. Wall time is recorded; instruction counts are the
+  stable CPU comparison for cross-library work.
 
 ## Core workloads
 
 | Workload | 8 entries | 128 entries | 65,536 entries |
 |---|---:|---:|---:|
-| parse | 6.07 us | 87.4 us | 92.8 ms |
-| lookup index build | 125 ns | 2.81 us | 15.6 ms |
-| indexed get, 64 keys | 194 ns | 1.69 us | 1.62 us |
-| portability, 4 presets | 46.2 us | 822 us | 843 ms |
-| references | 513 ns | 8.91 us | 5.20 ms |
-| resolve | 6.79 us | 133 us | 161 ms |
-| sort | 3.12 us | 247 us | 436 ms |
-| format normalize | 8.26 us | 150 us | 187 ms |
-| native set | 8.57 us | 91.4 us | 80.3 ms |
-| native batch | 7.12 us | 75.6 us | 106.6 ms |
+| parse | 6.29 us | 99.8 us | 62.4 ms |
+| lookup index build | 136.6 ns | 2.36 us | 3.40 ms |
+| indexed get, 64 keys | 195.8 ns | 1.63 us | 1.76 us |
+| portability, 4 presets | 62.8 us | 1.09 ms | 745 ms |
+| references | 507.6 ns | 7.94 us | 4.64 ms |
+| resolve | 7.23 us | 173.9 us | 118.9 ms |
+| sort | 3.19 us | 278.6 us | 161.1 ms |
+| format normalize | 8.30 us | 135.8 us | 76.7 ms |
+| native set | 10.4 us | 102.4 us | 61.7 ms |
+| native batch | 8.33 us | 102.9 us | 63.6 ms |
 
 `Document::get` scans entries. For many lookups, build `Document::lookup_index`
 once. The index uses a compact open-addressed table with an ordered fallback for
@@ -47,9 +47,9 @@ One 65,536-entry file on a release build:
 
 | Profile | Peak | Retained |
 |---|---:|---:|
-| Default | 47.8 MB | 28.0 MB |
-| `LoadOptions::full` | 57.4 MB | 37.8 MB |
-| Values only | 11.3 MB | 10.1 MB |
+| Default | 47.7 MB | 28.0 MB |
+| `LoadOptions::full` | 57.4 MB | 37.7 MB |
+| Values only | 11.2 MB | 10.0 MB |
 
 The default keeps values, shared-file origins and raw tokens. Reports add entry,
 override, repeat and skipped vectors. Values-only loading projects values while
