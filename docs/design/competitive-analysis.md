@@ -42,23 +42,25 @@ Per parse on the 65,536-entry fixture:
 
 | Implementation | Wall time | Instructions | Peak RSS | Retained RSS |
 |---|---:|---:|---:|---:|
-| adotenv parse | 32.5 ms | 234M | 26.5 MB | 26.4 MB |
-| adotenv parse + map | 40.0 ms | 301M | 32.6 MB | 14.2 MB |
-| dotenvy iterator + map | 72.1 ms | 354M | 18.4 MB | 11.3 MB |
-| dotenv-compat parse | 45.1 ms | 265M | 19.7 MB | 14.4 MB |
-| dotenv-ng input-only | 136.8 ms | 378M | 26.5 MB | 20.4 MB |
-| dotenv-parser map | 173.4 ms | 1239M | 25.3 MB | 10.6 MB |
+| adotenv parse | 31.9 ms | 234M | 26.6 MB | 26.6 MB |
+| adotenv parse + values | 42.8 ms | 363M | 10.0 MB | 10.0 MB |
+| adotenv parse + map | 38.8 ms | 301M | 32.4 MB | 14.4 MB |
+| dotenvy iterator + map | 72.6 ms | 354M | 18.9 MB | 11.4 MB |
+| dotenv-compat parse | 48.7 ms | 265M | 19.8 MB | 14.5 MB |
+| dotenv-ng input-only | 126.8 ms | 378M | 26.5 MB | 20.5 MB |
+| dotenv-parser map | 140.7 ms | 1239M | 25.3 MB | 10.6 MB |
 
 Small-file parsing, in microseconds per parse:
 
 | Implementation | 128 entries |
 |---|---:|
-| adotenv parse | 41.8 us |
-| adotenv parse + map | 55.9 us |
-| dotenvy iterator + map | 80.6 us |
-| dotenv-compat parse | 61.6 us |
-| dotenv-ng input-only | 75.3 us |
-| dotenv-parser map | 226.7 us |
+| adotenv parse | 42.3 us |
+| adotenv parse + values | 54.3 us |
+| adotenv parse + map | 50.3 us |
+| dotenvy iterator + map | 85.0 us |
+| dotenv-compat parse | 59.0 us |
+| dotenv-ng input-only | 74.4 us |
+| dotenv-parser map | 215.3 us |
 
 ### Loader profiles
 
@@ -66,9 +68,9 @@ Per load on the 65,536-entry fixture:
 
 | Profile | Wall time | Instructions | Peak RSS | Retained RSS |
 |---|---:|---:|---:|---:|
-| values-only load | 61.3 ms | 364M | 11.2 MB | 9.9 MB |
-| default load | 113.1 ms | 502M | 47.3 MB | 27.8 MB |
-| full-report load | 173.0 ms | 683M | 57.1 MB | 37.6 MB |
+| values-only load | 46.9 ms | 364M | 11.2 MB | 10.1 MB |
+| default load | 93.9 ms | 502M | 47.7 MB | 28.0 MB |
+| full-report load | 135.8 ms | 683M | 57.2 MB | 37.9 MB |
 
 ### Parse-only binaries
 

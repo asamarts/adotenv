@@ -160,7 +160,8 @@ pub use model::{
     LookupIndex, Quote,
 };
 pub use parser::{
-    parse, parse_owned, parse_owned_with, parse_strict, parse_strict_with, parse_with,
+    parse, parse_owned, parse_owned_with, parse_strict, parse_strict_with, parse_values,
+    parse_values_with, parse_with,
 };
 pub use portability::{
     PortabilityDeclaration, PortabilityDifference, PortabilityPart, PortabilityReading,

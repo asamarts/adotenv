@@ -22,6 +22,8 @@ bytes unchanged.
 
 `parse` and `parse_owned` always return a document plus diagnostics. They recover
 at the smallest safe boundary and preserve the source that caused a problem.
+`parse_values` and `parse_values_with` are the values-only path. They use the
+projection parser, discard warnings and return the first error.
 
 `parse_strict` returns the first error. Warnings and informational diagnostics do
 not fail a strict parse.

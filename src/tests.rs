@@ -1,14 +1,11 @@
-#[cfg(feature = "load")]
 use alloc::collections::BTreeMap;
-use alloc::{format, string::String, vec, vec::Vec};
+use alloc::{format, string::String, string::ToString, vec, vec::Vec};
 use proptest::prelude::*;
 
-#[cfg(feature = "load")]
-use crate::parser::parse_projected_values;
 use crate::{
-    encode_value, parse, parse_owned, parse_strict, parse_with, AssignmentState, BareKeys,
-    DiagnosticCode as Code, Dialect, Duplicates, EffectiveEntry, ItemKind, LookupIndex,
-    PositionError, Quote, Severity,
+    encode_value, parse, parse_owned, parse_strict, parse_values, parse_values_with, parse_with,
+    AssignmentState, BareKeys, DiagnosticCode as Code, Dialect, Duplicates, EffectiveEntry,
+    ItemKind, LookupIndex, PositionError, Quote, Severity,
 };
 
 #[test]
@@ -440,10 +437,9 @@ proptest! {
     }
 }
 
-#[cfg(feature = "load")]
 proptest! {
     #[test]
-    fn projected_values_match_effective_entries(
+    fn values_only_match_effective_entries(
         source in prop::collection::vec(
             prop_oneof![
                 Just('A'), Just('B'), Just('='), Just('"'), Just('\''), Just('\\'),
@@ -474,7 +470,7 @@ proptest! {
             .filter_map(crate::Item::diagnostic)
             .find(|diagnostic| diagnostic.severity() == Severity::Error)
             .map(crate::Diagnostic::code);
-        match parse_projected_values(&text, dialect) {
+        match parse_values_with(&text, dialect) {
             Ok(values) => {
                 prop_assert_eq!(first_error, None);
                 prop_assert_eq!(values, expected);
@@ -484,6 +480,23 @@ proptest! {
             }
         }
     }
+}
+
+#[test]
+fn values_only_parse_matches_effective_entries() {
+    let values = parse_values("A=1\nA=2\nBARE\nC=3\n").unwrap();
+    assert_eq!(
+        values
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str()))
+            .collect::<Vec<_>>(),
+        [("A", "2"), ("C", "3")]
+    );
+    assert!(parse_values("BAD KEY=value\n").is_err());
+    assert_eq!(
+        parse_values_with("A\n", Dialect::PORTABLE.with_bare_keys(BareKeys::Empty)).unwrap()["A"],
+        ""
+    );
 }
 
 #[test]

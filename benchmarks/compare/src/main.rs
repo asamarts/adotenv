@@ -80,6 +80,16 @@ fn main() {
                     doc.effective_entries().count()
                 );
             }
+            "rss_adotenv_parse_values" => {
+                let values = adotenv::parse_values(&source).unwrap();
+                println!(
+                    "{} rss_kb={} hwm_kb={} len={}",
+                    mode,
+                    rss_kb(),
+                    status_kb("VmHWM:"),
+                    values.len()
+                );
+            }
             "rss_adotenv_map" => {
                 let doc = adotenv::parse_strict(&source).unwrap();
                 let map: BTreeMap<String, String> = doc
@@ -191,6 +201,12 @@ fn main() {
             "adotenv_parse" => {
                 let doc = adotenv::parse_strict(black_box(&source)).unwrap();
                 doc.effective_entries().count()
+            }
+            "adotenv_parse_values" => {
+                let values = adotenv::parse_values(black_box(&source)).unwrap();
+                let len = values.len();
+                black_box(values);
+                len
             }
             "adotenv_map" => {
                 let doc = adotenv::parse_strict(black_box(&source)).unwrap();

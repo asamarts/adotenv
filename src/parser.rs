@@ -7,11 +7,9 @@ use alloc::{
 };
 use core::ops::Range;
 
-#[cfg(feature = "load")]
-use crate::dialect::Duplicates;
 use crate::dialect::{
-    BareKeys, BomPolicy, ColonSeparator, Dialect, InlineComments, KeySyntax, LineBreaks,
-    MalformedLines, QuotedTail, SingleEscapes, Syntax, Whitespace,
+    BareKeys, BomPolicy, ColonSeparator, Dialect, Duplicates, InlineComments, KeySyntax,
+    LineBreaks, MalformedLines, QuotedTail, SingleEscapes, Syntax, Whitespace,
 };
 use crate::model::{EntryData, ItemData, NO_ENTRY};
 use crate::{
@@ -56,13 +54,31 @@ fn parse_impl<const D: bool>(source: &str, dialect: Dialect) -> (Document<'_>, V
     (parser.document, diagnostics)
 }
 
-/// Parse only the effective literal values.
+/// Parse only the effective literal values using Portable syntax.
 ///
-/// This shares the complete statement grammar and error handling with
-/// [`parse_with`] but avoids retaining item and entry metadata. It is used by
-/// the values-only loaders to keep peak memory close to the final map size.
-#[cfg(feature = "load")]
-pub(crate) fn parse_projected_values(
+/// This shares the statement grammar and duplicate policy of [`parse`], but it
+/// does not retain items, entries or raw spans. Warnings are discarded. The
+/// first error is returned.
+///
+/// # Errors
+/// Returns the first error-severity diagnostic.
+pub fn parse_values(source: &str) -> Result<BTreeMap<String, String>, Diagnostic> {
+    parse_values_with(source, Dialect::PORTABLE)
+}
+
+/// Parse only the effective literal values under an explicit configuration.
+///
+/// This is the values-only counterpart to [`parse_with`]. It avoids retaining
+/// item and entry metadata and keeps peak memory close to the final map size.
+/// Warnings are discarded. The first error is returned.
+///
+/// # Errors
+/// Returns the first error-severity diagnostic.
+///
+/// # Panics
+/// Panics only if the projection parser is created without its internal
+/// projection state. This cannot happen through this API.
+pub fn parse_values_with(
     source: &str,
     dialect: Dialect,
 ) -> Result<BTreeMap<String, String>, Diagnostic> {
@@ -277,7 +293,6 @@ struct Projection {
 }
 
 impl Projection {
-    #[cfg(feature = "load")]
     fn new(dialect: Dialect) -> Self {
         Self {
             values: BTreeMap::new(),

@@ -83,6 +83,17 @@ secondary spans. Match codes and spans, not message text.
 `parse_owned(String)` moves the source into the document. `Document::into_owned`
 copies only when the document still borrows its input.
 
+When only final values are needed, `parse_values` uses the projection parser and
+avoids retaining items and spans. It returns the first error and discards
+warnings.
+
+```rust
+let values = adotenv::parse_values("A=1\nA=2\nBARE\nC=3\n").unwrap();
+assert_eq!(values.get("A").map(String::as_str), Some("2"));
+assert_eq!(values.get("C").map(String::as_str), Some("3"));
+assert_eq!(values.len(), 2);
+```
+
 ## Dialects
 
 The default is `Dialect::PORTABLE`. Other presets are `NODE_DOTENV`,

@@ -27,6 +27,7 @@ END = "<!-- END GENERATED BENCHMARKS -->"
 
 MODES = [
     ("adotenv_parse", "adotenv parse"),
+    ("adotenv_parse_values", "adotenv parse + values"),
     ("adotenv_map", "adotenv parse + map"),
     ("dotenvy_map", "dotenvy iterator + map"),
     ("dotenv_compat", "dotenv-compat parse"),
@@ -42,6 +43,7 @@ LOAD_MODES = [
 
 BINS = {
     "adotenv_parse": "adotenv",
+    "adotenv_parse_values": "adotenv",
     "adotenv_map": "adotenv",
     "dotenvy_map": "dotenvy",
     "dotenv_compat": "dotenv_compat",
@@ -51,6 +53,11 @@ BINS = {
 
 BUDGETS = {
     "adotenv_parse": {"instructions": 260_000_000, "retained": 29.0},
+    "adotenv_parse_values": {
+        "instructions": 400_000_000,
+        "peak": 12.0,
+        "retained": 12.0,
+    },
     "adotenv_map": {"instructions": 335_000_000, "retained": 16.0},
     "adotenv_values": {
         "instructions": 400_000_000,

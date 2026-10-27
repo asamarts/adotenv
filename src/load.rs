@@ -950,7 +950,7 @@ where
         let text = String::from_utf8(bytes).map_err(|_| LoadError::InvalidUtf8 {
             path: path.to_path_buf(),
         })?;
-        let projected = match crate::parser::parse_projected_values(&text, dialect) {
+        let projected = match crate::parse_values_with(&text, dialect) {
             Ok(values) => values,
             Err(diagnostic) => {
                 return Err(LoadError::Invalid {

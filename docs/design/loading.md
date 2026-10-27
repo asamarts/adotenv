@@ -86,8 +86,8 @@ provided through the document resolver.
 ## Values only
 
 `load_cascade_values` and `load_values` retain only final strings. They use the
-parser projection path and do not keep origins, raw tokens, reports or a
-lossless document.
+same projection path as core `parse_values` and do not keep origins, raw tokens,
+reports or a lossless document.
 
 ```rust,ignore
 use adotenv::{load::load_cascade_values, Dialect};

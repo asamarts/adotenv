@@ -46,6 +46,13 @@ assert_eq!(
 );
 ```
 
+When only final values are needed, use the values-only parser:
+
+```rust
+let values = adotenv::parse_values("A=1\nA=2\nB=3\n").unwrap();
+assert_eq!(values.get("A").map(String::as_str), Some("2"));
+```
+
 ## Documentation
 
 - [Architecture](design/architecture.md)

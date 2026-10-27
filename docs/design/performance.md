@@ -69,6 +69,7 @@ python3 scripts/compare.py --check-budgets
 | Profile | Instructions | Peak RSS | Retained RSS |
 |---|---:|---:|---:|
 | adotenv parse | 260M | not budgeted | 29 MB |
+| adotenv parse + values | 400M | 12 MB | 12 MB |
 | adotenv parse + map | 335M | not budgeted | 16 MB |
 | values-only load | 400M | 13 MB | 11.5 MB |
 | default load | 560M | 50 MB | 30 MB |
