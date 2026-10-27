@@ -71,7 +71,7 @@ threshold.
 - [x] Manual budget check exists.
 - [x] Run the complete comparison on kbench before a performance claim or a 1.0
   release.
-- [ ] Compare against the previous accepted baseline and require an explanation
+- [x] Compare against the previous accepted baseline and require an explanation
   for a 1.5x to 2x regression.
 - [ ] Block above 2x until fixed or explicitly accepted.
 
@@ -87,8 +87,6 @@ Remaining work before the benchmark program is complete:
 - clean build-time measurements;
 - compile-time and feature-size matrix;
 - startup, edit, format and compare throughput;
-- CPU-cycle fields in the committed result schema;
-- previous-baseline comparison and regression owner assignment;
 - dedicated dashboard page with the summary and raw JSON links.
 
 ## Acceptance for 1.0
