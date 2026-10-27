@@ -60,7 +60,7 @@ threshold.
 ### 5. Reporting
 
 - [x] Generate a benchmark page for the documentation site.
-- [ ] Include method, host, versions, raw JSON links and budgets.
+- [x] Include method, host, versions, raw JSON links and budgets.
 - [ ] Record repeated runs and minimum, median and standard deviation.
 - [ ] Keep historical results out of the current docs; store raw artifacts
   separately.

@@ -31,7 +31,8 @@ measurement, parses it, and builds a map where the library supports one.
 - Dependencies and MSRV: crates.io metadata.
 
 Run `python3 scripts/compare.py --update-doc` to regenerate the benchmark
-section on an idle host. The tables below were recorded on kbench.
+section on an idle host. The tables below were recorded on kbench. Raw results
+are stored in `benchmarks/compare/results.json`.
 
 ## Results
 

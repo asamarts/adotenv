@@ -20,7 +20,7 @@ COMPARE = ROOT / "benchmarks" / "compare"
 TARGET = ROOT / "target" / "compare"
 CARGO_TARGET = TARGET / "cargo"
 FIXTURES = TARGET / "fixtures"
-RESULTS = TARGET / "results.json"
+RESULTS = COMPARE / "results.json"
 REPORT = TARGET / "report.md"
 DOC = ROOT / "docs" / "design" / "competitive-analysis.md"
 BEGIN = "<!-- BEGIN GENERATED BENCHMARKS -->"
@@ -436,11 +436,11 @@ def main() -> int:
                 "host": socket.gethostname(),
                 "rustc": rustc_version(),
                 "fixtures": {
-                    "small": str(small),
+                    "small": "target/compare/fixtures/small.env",
                     "small_sha256": sha256(small),
-                    "large": str(large),
+                    "large": "target/compare/fixtures/large.env",
                     "large_sha256": sha256(large),
-                    "mixed": str(mixed),
+                    "mixed": "target/compare/fixtures/mixed.env",
                     "mixed_sha256": sha256(mixed),
                 },
                 "runs": args.runs,
