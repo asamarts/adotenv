@@ -22,6 +22,7 @@ CARGO_TARGET = TARGET / "cargo"
 FIXTURES = TARGET / "fixtures"
 REAL = COMPARE / "fixtures" / "real.env"
 RESULTS = COMPARE / "results.json"
+BASELINE = COMPARE / "baseline.json"
 REPORT = TARGET / "report.md"
 DOC = ROOT / "docs" / "design" / "competitive-analysis.md"
 BEGIN = "<!-- BEGIN GENERATED BENCHMARKS -->"
@@ -185,7 +186,7 @@ def timing(
     fixture: Path,
     iterations: int,
     runs: int,
-) -> tuple[float, float | None]:
+) -> tuple[float, float | None, int | None]:
     export = TARGET / f"hyperfine-{mode}-{fixture.stem}.json"
     command = " ".join(
         shlex.quote(str(part))
@@ -210,9 +211,14 @@ def timing(
     result = json.loads(export.read_text())["results"][0]
     wall = metric(result, "time_wall_clock")
     cpu = metric(result, "time_cpu")
+    cycles = metric(result, "cpu_cycles")
     if wall is None:
         raise RuntimeError(f"no wall time in {export}")
-    return wall / iterations, None if cpu is None else cpu / iterations
+    return (
+        wall / iterations,
+        None if cpu is None else cpu / iterations,
+        None if cycles is None else int(cycles / iterations),
+    )
 
 
 def instructions(mode: str, fixture: Path) -> int:
@@ -272,22 +278,22 @@ def make_report(
     rows = []
     core_modes = {mode for mode, _ in MODES}
     for mode, label in MODES + LOAD_MODES:
-        small_time, small_cpu = timing(mode, small, small_iterations, runs)
-        large_time, large_cpu = timing(mode, large, large_iterations, runs)
+        small_time, small_cpu, small_cycles = timing(mode, small, small_iterations, runs)
+        large_time, large_cpu, large_cycles = timing(mode, large, large_iterations, runs)
         retained, peak = rss(mode, large)
         instruction_count = (
             instructions(mode, large) - noop_instructions
             if include_instructions
             else None
         )
-        mixed_time = mixed_cpu = mixed_peak = mixed_retained = None
+        mixed_time = mixed_cpu = mixed_cycles = mixed_peak = mixed_retained = None
         mixed_instructions = None
-        real_time = real_cpu = real_peak = real_retained = None
+        real_time = real_cpu = real_cycles = real_peak = real_retained = None
         real_instructions = None
         if mode in core_modes:
-            mixed_time, mixed_cpu = timing(mode, mixed, 20, runs)
+            mixed_time, mixed_cpu, mixed_cycles = timing(mode, mixed, 20, runs)
             mixed_retained, mixed_peak = rss(mode, mixed)
-            real_time, real_cpu = timing(mode, real, 50, runs)
+            real_time, real_cpu, real_cycles = timing(mode, real, 50, runs)
             real_retained, real_peak = rss(mode, real)
             if include_instructions:
                 mixed_instructions = instructions(mode, mixed) - mixed_noop_instructions
@@ -298,18 +304,22 @@ def make_report(
                 "label": label,
                 "small": small_time,
                 "small_cpu": small_cpu,
+                "small_cycles": small_cycles,
                 "large": large_time,
                 "large_cpu": large_cpu,
+                "large_cycles": large_cycles,
                 "instructions": instruction_count,
                 "peak": peak - base_hwm,
                 "retained": retained - base_rss,
                 "mixed": mixed_time,
                 "mixed_cpu": mixed_cpu,
+                "mixed_cycles": mixed_cycles,
                 "mixed_instructions": mixed_instructions,
                 "mixed_peak": None if mixed_peak is None else mixed_peak - mixed_base_hwm,
                 "mixed_retained": None if mixed_retained is None else mixed_retained - mixed_base_rss,
                 "real": real_time,
                 "real_cpu": real_cpu,
+                "real_cycles": real_cycles,
                 "real_instructions": real_instructions,
                 "real_peak": None if real_peak is None else real_peak - real_base_hwm,
                 "real_retained": None if real_retained is None else real_retained - real_base_rss,
@@ -396,7 +406,7 @@ def make_report(
         )
     dialect_rows = []
     for mode, label in DIALECT_MODES:
-        wall, cpu = timing(mode, large, large_iterations, runs)
+        wall, cpu, cycles = timing(mode, large, large_iterations, runs)
         retained, peak = rss(mode, large)
         dialect_rows.append(
             {
@@ -404,6 +414,7 @@ def make_report(
                 "label": label,
                 "large": wall,
                 "large_cpu": cpu,
+                "large_cycles": cycles,
                 "instructions": instructions(mode, large) - noop_instructions
                 if include_instructions
                 else None,
@@ -490,6 +501,38 @@ def check_budgets(rows: list[dict]) -> int:
     return failed
 
 
+def check_baseline(rows: list[dict], dialect_rows: list[dict]) -> int:
+    if not BASELINE.exists():
+        print("baseline missing; run once and copy results.json to baseline.json", file=sys.stderr)
+        return 1
+    baseline = json.loads(BASELINE.read_text())
+    if baseline.get("host") != socket.gethostname():
+        print(
+            f"baseline host {baseline.get('host')!r} differs from {socket.gethostname()!r}; skipping",
+            file=sys.stderr,
+        )
+        return 0
+    old = {row["mode"]: row for row in baseline.get("rows", [])}
+    failures = 0
+    for row in rows + dialect_rows:
+        previous = old.get(row["mode"])
+        if not previous:
+            continue
+        for field in ("instructions", "peak", "retained"):
+            current = row.get(field)
+            before = previous.get(field)
+            if current is None or before is None:
+                continue
+            limit = before * 1.20 if field != "instructions" else before * 1.10
+            if current > limit:
+                print(
+                    f"baseline failed: {row['label']} {field}={current:.2f} limit={limit:.2f}",
+                    file=sys.stderr,
+                )
+                failures += 1
+    return failures
+
+
 def update_doc(report: str) -> None:
     text = DOC.read_text()
     start = text.index(BEGIN)
@@ -503,6 +546,7 @@ def main() -> int:
     parser.add_argument("--update-doc", action="store_true", help="replace the generated doc section")
     parser.add_argument("--check-budgets", action="store_true", help="fail when a budget is exceeded")
     parser.add_argument("--runs", type=int, default=5, help="hyperfine process runs per measurement")
+    parser.add_argument("--check-baseline", action="store_true", help="compare against benchmarks/compare/baseline.json")
     args = parser.parse_args()
 
     TARGET.mkdir(parents=True, exist_ok=True)
@@ -524,6 +568,8 @@ def main() -> int:
         small, large, mixed, real, include_instructions=True, runs=args.runs
     )
     failed = check_budgets(rows) if args.check_budgets else 0
+    if args.check_baseline:
+        failed += check_baseline(rows, dialect_rows)
     REPORT.write_text(report + "\n")
     RESULTS.write_text(
         json.dumps(
