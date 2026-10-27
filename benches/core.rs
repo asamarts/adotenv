@@ -130,6 +130,7 @@ fn core(c: &mut Criterion) {
     formatting(c, &fixtures);
     examples(c, &fixtures);
     sorting(c, &fixtures);
+    comparison(c, &fixtures);
 
     scaling(c);
 }
@@ -248,6 +249,17 @@ fn formatting(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
         });
     }
     formatting.finish();
+}
+
+fn comparison(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
+    let left = parse_strict(&fixtures[2].2).expect("benchmark fixture is valid Portable syntax");
+    let right = parse_strict(&fixtures[1].2).expect("benchmark fixture is valid Portable syntax");
+    let mut group = c.benchmark_group("compare");
+    group.throughput(Throughput::Bytes(fixtures[2].2.len() as u64));
+    group.bench_function("large-vs-typical", |b| {
+        b.iter(|| black_box(left.compare(black_box(&right))));
+    });
+    group.finish();
 }
 
 fn resolution(c: &mut Criterion, fixtures: &[(&str, usize, String)]) {
