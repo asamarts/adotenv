@@ -1,0 +1,83 @@
+{
+  "binaries": [
+    {
+      "name": "adotenv",
+      "seconds": 46.57781597413123,
+      "bytes": 465000
+    },
+    {
+      "name": "dotenvy",
+      "seconds": 45.17404011450708,
+      "bytes": 395136
+    },
+    {
+      "name": "dotenv_compat",
+      "seconds": 45.00039505586028,
+      "bytes": 375712
+    },
+    {
+      "name": "dotenv_ng",
+      "seconds": 45.07558889314532,
+      "bytes": 414040
+    },
+    {
+      "name": "dotenv_parser",
+      "seconds": 45.743114445358515,
+      "bytes": 460368
+    }
+  ],
+  "features": [
+    {
+      "name": "alloc",
+      "seconds": 11.88431734032929,
+      "bytes": 2678380
+    },
+    {
+      "name": "std",
+      "seconds": 11.853953272104263,
+      "bytes": 2678760
+    },
+    {
+      "name": "load",
+      "seconds": 13.236876597627997,
+      "bytes": 3185622
+    },
+    {
+      "name": "serde",
+      "seconds": 14.795239282771945,
+      "bytes": 2856188
+    },
+    {
+      "name": "load-serde",
+      "seconds": 16.21970015577972,
+      "bytes": 3404130
+    },
+    {
+      "name": "exec",
+      "seconds": 12.070640068501234,
+      "bytes": 2717998
+    }
+  ],
+  "startup": [
+    {
+      "name": "adotenv",
+      "seconds": 0.0006512515
+    },
+    {
+      "name": "dotenvy",
+      "seconds": 0.000659474
+    },
+    {
+      "name": "dotenv_compat",
+      "seconds": 0.0006634780000000001
+    },
+    {
+      "name": "dotenv_ng",
+      "seconds": 0.0006611295
+    },
+    {
+      "name": "dotenv_parser",
+      "seconds": 0.000697914
+    }
+  ]
+}

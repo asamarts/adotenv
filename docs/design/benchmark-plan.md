@@ -42,19 +42,19 @@ threshold.
 
 ### 3. Engineering metrics
 
-- [ ] Measure clean release build time for each parser demo.
-- [ ] Record binary size per feature set.
-- [ ] Record dependency count, MSRV and build-script requirements.
+- [x] Measure clean release build time for each parser demo.
+- [x] Record binary size per feature set.
+- [x] Record dependency count, MSRV and build-script requirements.
 - [ ] Record edit, format, sort and compare throughput for adotenv-only
   workloads where no competitor equivalent exists.
 
 ### 4. Optimization
 
-- [ ] Parse throughput.
-- [ ] Values-only throughput and memory.
-- [ ] Map build throughput and memory.
-- [ ] Default loader and full-report loader memory.
-- [ ] Parse-only binary size.
+- [x] Parse throughput.
+- [x] Values-only throughput and memory.
+- [x] Map build throughput and memory.
+- [x] Default loader and full-report loader memory.
+- [x] Parse-only binary size.
 - [ ] Startup time for the CLI.
 
 ### 5. Reporting
@@ -62,7 +62,7 @@ threshold.
 - [x] Generate a benchmark page for the documentation site.
 - [x] Include method, host, versions, raw JSON links and budgets.
 - [ ] Record repeated runs and minimum, median and standard deviation.
-- [ ] Keep historical results out of the current docs; store raw artifacts
+- [x] Keep historical results out of the current docs; store raw artifacts
   separately.
 
 ### 6. Release gates
@@ -73,7 +73,7 @@ threshold.
   release.
 - [x] Compare against the previous accepted baseline and require an explanation
   for a 1.5x to 2x regression.
-- [ ] Block above 2x until fixed or explicitly accepted.
+- [x] Block above 2x until fixed or explicitly accepted.
 
 ## Current reference run
 

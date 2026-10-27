@@ -21,6 +21,12 @@ The command writes `target/compare/report.md` and JSON results. Use
 `--update-doc` to replace the generated benchmark section in
 `docs/design/competitive-analysis.md`.
 
+Measure clean builds, feature sizes and startup with:
+
+```console
+python3 scripts/engineering.py
+```
+
 Use `--check-budgets` to fail when a measured profile exceeds the budgets in
 `scripts/compare.py`. Use `--check-baseline` to compare the current kbench run
 against `benchmarks/compare/baseline.json`. Use `--smoke` for a quick local check that skips

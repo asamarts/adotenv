@@ -59,6 +59,7 @@ The current release provides:
 | [performance.md](docs/design/performance.md) | Benchmarks and memory |
 | [benchmark-plan.md](docs/design/benchmark-plan.md) | Benchmark program and acceptance criteria |
 | [competitive-analysis.md](docs/design/competitive-analysis.md) | Competitor metrics and gaps |
+| [benchmark-dashboard.md](docs/design/benchmark-dashboard.md) | Reference results and engineering metrics |
 | [feature-decisions.md](docs/design/feature-decisions.md) | Adopt, defer and reject decisions |
 | [1.0-readiness.md](docs/design/1.0-readiness.md) | Release evidence checklist |
 

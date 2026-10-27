@@ -15,5 +15,6 @@
 - [Performance](design/performance.md)
 - [Benchmark program](design/benchmark-plan.md)
 - [Competitive analysis](design/competitive-analysis.md)
+- [Benchmark dashboard](design/benchmark-dashboard.md)
 - [Feature decisions](design/feature-decisions.md)
 - [1.0 readiness](design/1.0-readiness.md)
