@@ -102,13 +102,25 @@ def build() -> None:
     )
 
 
-def make_fixtures() -> tuple[Path, Path]:
+def make_fixtures() -> tuple[Path, Path, Path]:
     FIXTURES.mkdir(parents=True, exist_ok=True)
     small = FIXTURES / "small.env"
     large = FIXTURES / "large.env"
+    mixed = FIXTURES / "mixed.env"
     small.write_text("".join(f"KEY_{i:03}=value_{i:03}\n" for i in range(128)))
     large.write_text("".join(f"KEY_{i:05}=value_{i:05}\n" for i in range(65_536)))
-    return small, large
+    lines = []
+    for i in range(4_096):
+        lines.append(f"PLAIN_{i:05}=value_{i:05}")
+        lines.append(f"SPACED_{i:05} = value_{i:05}")
+        lines.append(f'DOUBLE_{i:05}="value {i:05}"')
+        lines.append(f"SINGLE_{i:05}='value {i:05}'")
+        lines.append(f"EMPTY_{i:05}=empty")
+        lines.append(f"UNICODE_{i:05}=é")
+        lines.append("")
+        lines.append("# synthetic mixed fixture")
+    mixed.write_text("\n".join(lines) + "\n")
+    return small, large, mixed
 
 
 def main_binary() -> Path:
@@ -127,7 +139,22 @@ def rss(mode: str, fixture: Path) -> tuple[float, float]:
     return int(match.group(1)) / 1024, int(match.group(2)) / 1024
 
 
-def wall_time(mode: str, fixture: Path, iterations: int) -> float:
+def metric(result: dict, name: str) -> float | None:
+    summary = result.get("summary")
+    if summary is not None:
+        item = summary.get(name)
+        return None if item is None else item["value"]
+    if name == "time_wall_clock":
+        return result.get("median", result.get("mean"))
+    return None
+
+
+def timing(
+    mode: str,
+    fixture: Path,
+    iterations: int,
+    runs: int,
+) -> tuple[float, float | None]:
     export = TARGET / f"hyperfine-{mode}-{fixture.stem}.json"
     command = " ".join(
         shlex.quote(str(part))
@@ -139,7 +166,7 @@ def wall_time(mode: str, fixture: Path, iterations: int) -> float:
             "--warmup",
             "1",
             "--runs",
-            "5",
+            str(runs),
             "--export-json",
             str(export),
             command,
@@ -149,7 +176,12 @@ def wall_time(mode: str, fixture: Path, iterations: int) -> float:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    return json.loads(export.read_text())["results"][0]["median"] / iterations
+    result = json.loads(export.read_text())["results"][0]
+    wall = metric(result, "time_wall_clock")
+    cpu = metric(result, "time_cpu")
+    if wall is None:
+        raise RuntimeError(f"no wall time in {export}")
+    return wall / iterations, None if cpu is None else cpu / iterations
 
 
 def instructions(mode: str, fixture: Path) -> int:
@@ -191,33 +223,52 @@ def memory(megabytes: float) -> str:
 def make_report(
     small: Path,
     large: Path,
+    mixed: Path,
     *,
     include_instructions: bool,
+    runs: int,
 ) -> tuple[str, list[dict]]:
     small_iterations = 100
     large_iterations = 5
     base_rss, base_hwm = rss("noop", large)
+    mixed_base_rss, mixed_base_hwm = rss("noop", mixed)
     noop_instructions = instructions("noop", large) if include_instructions else 0
+    mixed_noop_instructions = instructions("noop", mixed) if include_instructions else 0
 
     rows = []
+    core_modes = {mode for mode, _ in MODES}
     for mode, label in MODES + LOAD_MODES:
-        small_time = wall_time(mode, small, small_iterations)
-        large_time = wall_time(mode, large, large_iterations)
+        small_time, small_cpu = timing(mode, small, small_iterations, runs)
+        large_time, large_cpu = timing(mode, large, large_iterations, runs)
         retained, peak = rss(mode, large)
         instruction_count = (
             instructions(mode, large) - noop_instructions
             if include_instructions
             else None
         )
+        mixed_time = mixed_cpu = mixed_peak = mixed_retained = None
+        mixed_instructions = None
+        if mode in core_modes:
+            mixed_time, mixed_cpu = timing(mode, mixed, 20, runs)
+            mixed_retained, mixed_peak = rss(mode, mixed)
+            if include_instructions:
+                mixed_instructions = instructions(mode, mixed) - mixed_noop_instructions
         rows.append(
             {
                 "mode": mode,
                 "label": label,
                 "small": small_time,
+                "small_cpu": small_cpu,
                 "large": large_time,
+                "large_cpu": large_cpu,
                 "instructions": instruction_count,
                 "peak": peak - base_hwm,
                 "retained": retained - base_rss,
+                "mixed": mixed_time,
+                "mixed_cpu": mixed_cpu,
+                "mixed_instructions": mixed_instructions,
+                "mixed_peak": None if mixed_peak is None else mixed_peak - mixed_base_hwm,
+                "mixed_retained": None if mixed_retained is None else mixed_retained - mixed_base_rss,
             }
         )
 
@@ -229,8 +280,8 @@ def make_report(
         "",
         "Per parse on the 65,536-entry fixture:",
         "",
-        "| Implementation | Wall time | Instructions | Peak RSS | Retained RSS |",
-        "|---|---:|---:|---:|---:|",
+        "| Implementation | Wall time | CPU time | Instructions | Peak RSS | Retained RSS |",
+        "|---|---:|---:|---:|---:|---:|",
     ]
     core_rows = rows[: len(MODES)]
     load_rows = rows[len(MODES) :]
@@ -242,6 +293,7 @@ def make_report(
         )
         lines.append(
             f"| {row['label']} | {duration(row['large'])} | "
+            f"{duration(row['large_cpu']) if row['large_cpu'] is not None else 'not measured'} | "
             f"{instructions_text} | {memory(row['peak'])} | "
             f"{memory(row['retained'])} |"
         )
@@ -256,12 +308,35 @@ def make_report(
         lines.append(f"| {row['label']} | {duration(row['small'])} |")
     lines += [
         "",
+        "### Mixed fixture",
+        "",
+        "Per parse on a 4,096-block mixed fixture with quoting, spacing, empty values, Unicode and comments:",
+        "",
+        "| Implementation | Wall time | CPU time | Instructions | Peak RSS | Retained RSS |",
+        "|---|---:|---:|---:|---:|---:|",
+    ]
+    for row in core_rows:
+        if row["mixed"] is None:
+            continue
+        instructions_text = (
+            f"{row['mixed_instructions'] / 1_000_000:.0f}M"
+            if row["mixed_instructions"] is not None
+            else "not measured"
+        )
+        lines.append(
+            f"| {row['label']} | {duration(row['mixed'])} | "
+            f"{duration(row['mixed_cpu']) if row['mixed_cpu'] is not None else 'not measured'} | "
+            f"{instructions_text} | {memory(row['mixed_peak'])} | "
+            f"{memory(row['mixed_retained'])} |"
+        )
+    lines += [
+        "",
         "### Loader profiles",
         "",
         "Per load on the 65,536-entry fixture:",
         "",
-        "| Profile | Wall time | Instructions | Peak RSS | Retained RSS |",
-        "|---|---:|---:|---:|---:|",
+        "| Profile | Wall time | CPU time | Instructions | Peak RSS | Retained RSS |",
+        "|---|---:|---:|---:|---:|---:|",
     ]
     for row in load_rows:
         instructions_text = (
@@ -271,6 +346,7 @@ def make_report(
         )
         lines.append(
             f"| {row['label']} | {duration(row['large'])} | "
+            f"{duration(row['large_cpu']) if row['large_cpu'] is not None else 'not measured'} | "
             f"{instructions_text} | {memory(row['peak'])} | "
             f"{memory(row['retained'])} |"
         )
@@ -321,6 +397,7 @@ def main() -> int:
     parser.add_argument("--smoke", action="store_true", help="small fixture, no instructions")
     parser.add_argument("--update-doc", action="store_true", help="replace the generated doc section")
     parser.add_argument("--check-budgets", action="store_true", help="fail when a budget is exceeded")
+    parser.add_argument("--runs", type=int, default=5, help="hyperfine process runs per measurement")
     args = parser.parse_args()
 
     TARGET.mkdir(parents=True, exist_ok=True)
@@ -331,14 +408,14 @@ def main() -> int:
         return 1
 
     build()
-    small, large = make_fixtures()
+    small, large, mixed = make_fixtures()
     if args.smoke:
         for mode, label in MODES:
             result = run([str(main_binary()), mode, "1", str(small)])
             print(f"{label}: {result.stdout.strip()}")
         return 0
 
-    report, rows = make_report(small, large, include_instructions=True)
+    report, rows = make_report(small, large, mixed, include_instructions=True, runs=args.runs)
     failed = check_budgets(rows) if args.check_budgets else 0
     REPORT.write_text(report + "\n")
     RESULTS.write_text(

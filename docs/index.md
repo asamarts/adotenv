@@ -66,6 +66,7 @@ assert_eq!(values.get("A").map(String::as_str), Some("2"));
 - [Integrations](design/integrations.md)
 - [Quality](design/quality.md)
 - [Performance](design/performance.md)
+- [Benchmark program](design/benchmark-plan.md)
 - [Competitive analysis](design/competitive-analysis.md)
 - [Feature decisions](design/feature-decisions.md)
 - [1.0 readiness](design/1.0-readiness.md)
