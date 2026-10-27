@@ -33,6 +33,7 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo fmt --manifest-path fuzz/Cargo.toml --all --check
       - run: cargo fmt --manifest-path conformance/rust/Cargo.toml --all --check
+      - run: python3 scripts/check_docs.py
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo clippy -p adotenv-config -p adotenv-figment --features load --all-targets --locked -- -D warnings
       - run: cargo clippy -p adotenv --features exec --all-targets --locked -- -D warnings

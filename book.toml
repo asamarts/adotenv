@@ -1,0 +1,19 @@
+[book]
+title = "adotenv"
+description = "Literal, lossless .env parsing and editing for Rust"
+authors = ["adotenv contributors"]
+language = "en"
+src = "docs"
+
+[output.html]
+site-url = "/adotenv/"
+git-repository-url = "https://github.com/asamarts/adotenv"
+edit-url-template = "https://github.com/asamarts/adotenv/edit/main/docs/{path}"
+default-theme = "rust"
+preferred-dark-theme = "rust"
+
+[output.html.search]
+enable = true
+
+[build]
+build-dir = "target/book"

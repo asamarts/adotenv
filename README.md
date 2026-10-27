@@ -6,6 +6,8 @@ A literal, lossless `.env` parser and editing library for Rust.
 [![docs.rs](https://img.shields.io/docsrs/adotenv)](https://docs.rs/adotenv)
 [![CI](https://github.com/asamarts/adotenv/actions/workflows/ci.yml/badge.svg)](https://github.com/asamarts/adotenv/actions/workflows/ci.yml)
 
+Documentation: <https://asamarts.github.io/adotenv/>
+
 adotenv is built for linters, formatters, editors, scanners and codebase maintenance
 tools. It keeps source text exactly as written, reports precise locations and
 verifies every edit before returning it.
