@@ -20,6 +20,7 @@ COMPARE = ROOT / "benchmarks" / "compare"
 TARGET = ROOT / "target" / "compare"
 CARGO_TARGET = TARGET / "cargo"
 FIXTURES = TARGET / "fixtures"
+REAL = COMPARE / "fixtures" / "real.env"
 RESULTS = COMPARE / "results.json"
 REPORT = TARGET / "report.md"
 DOC = ROOT / "docs" / "design" / "competitive-analysis.md"
@@ -119,11 +120,12 @@ def rustc_version() -> str:
     return result.stdout.strip()
 
 
-def make_fixtures() -> tuple[Path, Path, Path]:
+def make_fixtures() -> tuple[Path, Path, Path, Path]:
     FIXTURES.mkdir(parents=True, exist_ok=True)
     small = FIXTURES / "small.env"
     large = FIXTURES / "large.env"
     mixed = FIXTURES / "mixed.env"
+    real = REAL
     small.write_text("".join(f"KEY_{i:03}=value_{i:03}\n" for i in range(128)))
     large.write_text("".join(f"KEY_{i:05}=value_{i:05}\n" for i in range(65_536)))
     lines = []
@@ -137,7 +139,7 @@ def make_fixtures() -> tuple[Path, Path, Path]:
         lines.append("")
         lines.append("# synthetic mixed fixture")
     mixed.write_text("\n".join(lines) + "\n")
-    return small, large, mixed
+    return small, large, mixed, real
 
 
 def main_binary() -> Path:
@@ -243,6 +245,7 @@ def make_report(
     small: Path,
     large: Path,
     mixed: Path,
+    real: Path,
     *,
     include_instructions: bool,
     runs: int,
@@ -251,8 +254,10 @@ def make_report(
     large_iterations = 5
     base_rss, base_hwm = rss("noop", large)
     mixed_base_rss, mixed_base_hwm = rss("noop", mixed)
+    real_base_rss, real_base_hwm = rss("noop", real)
     noop_instructions = instructions("noop", large) if include_instructions else 0
     mixed_noop_instructions = instructions("noop", mixed) if include_instructions else 0
+    real_noop_instructions = instructions("noop", real) if include_instructions else 0
 
     rows = []
     core_modes = {mode for mode, _ in MODES}
@@ -267,11 +272,16 @@ def make_report(
         )
         mixed_time = mixed_cpu = mixed_peak = mixed_retained = None
         mixed_instructions = None
+        real_time = real_cpu = real_peak = real_retained = None
+        real_instructions = None
         if mode in core_modes:
             mixed_time, mixed_cpu = timing(mode, mixed, 20, runs)
             mixed_retained, mixed_peak = rss(mode, mixed)
+            real_time, real_cpu = timing(mode, real, 50, runs)
+            real_retained, real_peak = rss(mode, real)
             if include_instructions:
                 mixed_instructions = instructions(mode, mixed) - mixed_noop_instructions
+                real_instructions = instructions(mode, real) - real_noop_instructions
         rows.append(
             {
                 "mode": mode,
@@ -288,6 +298,11 @@ def make_report(
                 "mixed_instructions": mixed_instructions,
                 "mixed_peak": None if mixed_peak is None else mixed_peak - mixed_base_hwm,
                 "mixed_retained": None if mixed_retained is None else mixed_retained - mixed_base_rss,
+                "real": real_time,
+                "real_cpu": real_cpu,
+                "real_instructions": real_instructions,
+                "real_peak": None if real_peak is None else real_peak - real_base_hwm,
+                "real_retained": None if real_retained is None else real_retained - real_base_rss,
             }
         )
 
@@ -388,6 +403,29 @@ def make_report(
         )
     lines += [
         "",
+        "### Real-world corpus",
+        "",
+        "Per parse on the pinned public configuration corpus:",
+        "",
+        "| Implementation | Wall time | CPU time | Instructions | Peak RSS | Retained RSS |",
+        "|---|---:|---:|---:|---:|---:|",
+    ]
+    for row in core_rows:
+        if row["real"] is None:
+            continue
+        instructions_text = (
+            f"{row['real_instructions'] / 1_000_000:.0f}M"
+            if row["real_instructions"] is not None
+            else "not measured"
+        )
+        lines.append(
+            f"| {row['label']} | {duration(row['real'])} | "
+            f"{duration(row['real_cpu']) if row['real_cpu'] is not None else 'not measured'} | "
+            f"{instructions_text} | {memory(row['real_peak'])} | "
+            f"{memory(row['real_retained'])} |"
+        )
+    lines += [
+        "",
         "### Dialect matrix",
         "",
         "Per parse on the 65,536-entry simple fixture:",
@@ -465,14 +503,16 @@ def main() -> int:
         return 1
 
     build()
-    small, large, mixed = make_fixtures()
+    small, large, mixed, real = make_fixtures()
     if args.smoke:
         for mode, label in MODES + DIALECT_MODES:
             result = run([str(main_binary()), mode, "1", str(small)])
             print(f"{label}: {result.stdout.strip()}")
         return 0
 
-    report, rows, dialect_rows = make_report(small, large, mixed, include_instructions=True, runs=args.runs)
+    report, rows, dialect_rows = make_report(
+        small, large, mixed, real, include_instructions=True, runs=args.runs
+    )
     failed = check_budgets(rows) if args.check_budgets else 0
     REPORT.write_text(report + "\n")
     RESULTS.write_text(
@@ -487,6 +527,8 @@ def main() -> int:
                     "large_sha256": sha256(large),
                     "mixed": "target/compare/fixtures/mixed.env",
                     "mixed_sha256": sha256(mixed),
+                    "real": "benchmarks/compare/fixtures/real.env",
+                    "real_sha256": sha256(real),
                 },
                 "runs": args.runs,
                 "rows": rows,
