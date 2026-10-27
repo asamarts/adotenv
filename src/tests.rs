@@ -3,9 +3,9 @@ use alloc::{format, string::String, string::ToString, vec, vec::Vec};
 use proptest::prelude::*;
 
 use crate::{
-    encode_value, parse, parse_owned, parse_strict, parse_values, parse_values_with, parse_with,
-    AssignmentState, BareKeys, DiagnosticCode as Code, Dialect, Duplicates, EffectiveEntry,
-    ItemKind, LookupIndex, PositionError, Quote, Severity,
+    encode_value, parse, parse_owned, parse_strict, parse_strict_with, parse_values,
+    parse_values_with, parse_with, AssignmentState, BareKeys, DiagnosticCode as Code, Dialect,
+    Duplicates, EffectiveEntry, ItemKind, LookupIndex, PositionError, Quote, Severity,
 };
 
 #[test]
@@ -584,4 +584,12 @@ fn lookup_index_honors_duplicate_and_bare_lookup_policy() {
         index.get_entry("BARE").unwrap().state(),
         AssignmentState::Bare
     );
+}
+
+#[test]
+fn duplicate_flag_matches_strict_parse_for_empty_keys() {
+    let source = ":'A B'=x\n";
+    let (recovering, _) = parse_with(source, Dialect::COMPOSE);
+    let strict = parse_strict_with(source, Dialect::COMPOSE).unwrap();
+    assert_eq!(recovering.has_duplicate_keys, strict.has_duplicate_keys);
 }

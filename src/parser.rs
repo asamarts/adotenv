@@ -1065,7 +1065,9 @@ impl<const D: bool> Parser<'_, D> {
                 self.keys.insert(&self.source[range], first);
             }
             if let Some(previous) = self.keys.insert(key, index) {
-                self.has_duplicate_keys = true;
+                if !key.is_empty() {
+                    self.has_duplicate_keys = true;
+                }
                 if D {
                     let entry = &self.document.entries[previous];
                     let mut diagnostic = Diagnostic::new(DiagnosticCode::DuplicateKey, span, line);
