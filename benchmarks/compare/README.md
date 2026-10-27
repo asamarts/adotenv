@@ -22,5 +22,6 @@ The command writes `target/compare/report.md` and JSON results. Use
 `docs/design/competitive-analysis.md`.
 
 Use `--check-budgets` to fail when a measured profile exceeds the budgets in
-`scripts/compare.py`. Use `--smoke` for a quick local check that skips
+`scripts/compare.py`. Use `--check-baseline` to compare the current kbench run
+against `benchmarks/compare/baseline.json`. Use `--smoke` for a quick local check that skips
 instruction counts and only uses the small fixture. Do not run timing-sensitive comparisons on a busy host.
