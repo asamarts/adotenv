@@ -39,7 +39,7 @@ pub fn parse_with(source: &str, dialect: Dialect) -> (Document<'_>, Vec<Diagnost
 fn parse_impl<const D: bool>(source: &str, dialect: Dialect) -> (Document<'_>, Vec<Diagnostic>) {
     let mut parser = Parser::<D>::new(source, dialect, None);
     parser.run();
-    parser.document.has_duplicate_keys = parser.has_duplicate_keys;
+    parser.document.has_duplicate_keys = has_duplicate_entries(&parser.document);
     let diagnostics = if D
         && dialect.syntax == Syntax::Portable
         && dialect.line_breaks == LineBreaks::Universal
@@ -283,13 +283,22 @@ fn line_breaks(source: &str) -> usize {
         .count()
 }
 
+fn has_duplicate_entries(document: &Document<'_>) -> bool {
+    let mut keys: Vec<&str> = document
+        .entries()
+        .filter(|entry| entry.participates_in_lookup() && !entry.key().is_empty())
+        .map(crate::Entry::key)
+        .collect();
+    keys.sort_unstable();
+    keys.windows(2).any(|pair| pair[0] == pair[1])
+}
+
 struct Parser<'src, const D: bool> {
     source: &'src str,
     document: Document<'src>,
     diagnostics: Vec<Diagnostic>,
     keys: KeyIndex,
     first_key: Option<usize>,
-    has_duplicate_keys: bool,
     failed_quotes: [Option<usize>; 3],
     line: usize,
     projection: Option<Projection>,
@@ -374,7 +383,6 @@ impl<'src, const D: bool> Parser<'src, D> {
             diagnostics: Vec::new(),
             keys: KeyIndex::default(),
             first_key: None,
-            has_duplicate_keys: false,
             failed_quotes: [None; 3],
             line: 1,
             projection,
@@ -1051,7 +1059,6 @@ impl<const D: bool> Parser<'_, D> {
                 self.keys.insert(&self.source[range], first);
             }
             if let Some(previous) = self.keys.insert(key, index) {
-                self.has_duplicate_keys = true;
                 if D {
                     let entry = &self.document.entries[previous];
                     let mut diagnostic = Diagnostic::new(DiagnosticCode::DuplicateKey, span, line);
@@ -1118,7 +1125,7 @@ impl<const D: bool> Parser<'_, D> {
                 line,
             ));
         }
-        if participates && self.projection.is_none() {
+        if D && participates {
             self.duplicate_key(key, key_span.clone(), index, line);
         }
         let mut invalid = None;
