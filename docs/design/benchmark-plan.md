@@ -30,7 +30,7 @@ threshold.
 - [x] One-command report generation and optional document update.
 - [x] Budget check for selected profiles.
 - [x] Record fixture hashes and host metadata in the JSON result.
-- [ ] Add a real-world corpus from representative public `.env` files.
+- [x] Add a real-world corpus from representative public `.env` files.
 - [x] Add a per-dialect adotenv matrix.
 
 ### 2. Comparable output
