@@ -67,7 +67,7 @@ Small-file parsing, in microseconds per parse:
 
 ### Mixed fixture
 
-Per parse on a 4,096-block mixed fixture with quoting, spacing, empty values, Unicode and comments:
+Per parse on a 4,096-block mixed fixture with quoting, spacing, assigned values, Unicode and comments:
 
 | Implementation | Wall time | CPU time | Instructions | Peak RSS | Retained RSS |
 |---|---:|---:|---:|---:|---:|
