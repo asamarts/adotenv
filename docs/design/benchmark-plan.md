@@ -84,12 +84,12 @@ package and the normal workspace.
 
 Remaining work before the benchmark program is complete:
 
-- real-world fixture corpus;
-- per-dialect adotenv matrix;
 - clean build-time measurements;
 - compile-time and feature-size matrix;
-- benchmark dashboard page with raw JSON links;
-- previous-baseline comparison and regression owner assignment.
+- startup, edit, format and compare throughput;
+- CPU-cycle fields in the committed result schema;
+- previous-baseline comparison and regression owner assignment;
+- dedicated dashboard page with the summary and raw JSON links.
 
 ## Acceptance for 1.0
 
