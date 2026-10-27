@@ -42,6 +42,13 @@ LOAD_MODES = [
     ("adotenv_load_full", "full-report load"),
 ]
 
+DIALECT_MODES = [
+    ("adotenv_node", "Node"),
+    ("adotenv_python", "Python"),
+    ("adotenv_compose", "Compose"),
+    ("adotenv_docker", "Docker"),
+]
+
 BINS = {
     "adotenv_parse": "adotenv",
     "adotenv_parse_values": "adotenv",
@@ -239,7 +246,7 @@ def make_report(
     *,
     include_instructions: bool,
     runs: int,
-) -> tuple[str, list[dict]]:
+) -> tuple[str, list[dict], list[dict]]:
     small_iterations = 100
     large_iterations = 5
     base_rss, base_hwm = rss("noop", large)
@@ -362,6 +369,44 @@ def make_report(
             f"{instructions_text} | {memory(row['peak'])} | "
             f"{memory(row['retained'])} |"
         )
+    dialect_rows = []
+    for mode, label in DIALECT_MODES:
+        wall, cpu = timing(mode, large, large_iterations, runs)
+        retained, peak = rss(mode, large)
+        dialect_rows.append(
+            {
+                "mode": mode,
+                "label": label,
+                "large": wall,
+                "large_cpu": cpu,
+                "instructions": instructions(mode, large) - noop_instructions
+                if include_instructions
+                else None,
+                "peak": peak - base_hwm,
+                "retained": retained - base_rss,
+            }
+        )
+    lines += [
+        "",
+        "### Dialect matrix",
+        "",
+        "Per parse on the 65,536-entry simple fixture:",
+        "",
+        "| Dialect | Wall time | CPU time | Instructions | Peak RSS | Retained RSS |",
+        "|---|---:|---:|---:|---:|---:|",
+    ]
+    for row in dialect_rows:
+        instructions_text = (
+            f"{row['instructions'] / 1_000_000:.0f}M"
+            if row["instructions"] is not None
+            else "not measured"
+        )
+        lines.append(
+            f"| {row['label']} | {duration(row['large'])} | "
+            f"{duration(row['large_cpu']) if row['large_cpu'] is not None else 'not measured'} | "
+            f"{instructions_text} | {memory(row['peak'])} | "
+            f"{memory(row['retained'])} |"
+        )
     lines += [
         "",
         "### Parse-only binaries",
@@ -373,7 +418,7 @@ def make_report(
         size = binary(name).stat().st_size
         lines.append(f"| {name} | {size / 1024:.0f} KB |")
     lines += ["", END]
-    return "\n".join(lines), rows
+    return "\n".join(lines), rows, dialect_rows
 
 
 def check_budgets(rows: list[dict]) -> int:
@@ -422,12 +467,12 @@ def main() -> int:
     build()
     small, large, mixed = make_fixtures()
     if args.smoke:
-        for mode, label in MODES:
+        for mode, label in MODES + DIALECT_MODES:
             result = run([str(main_binary()), mode, "1", str(small)])
             print(f"{label}: {result.stdout.strip()}")
         return 0
 
-    report, rows = make_report(small, large, mixed, include_instructions=True, runs=args.runs)
+    report, rows, dialect_rows = make_report(small, large, mixed, include_instructions=True, runs=args.runs)
     failed = check_budgets(rows) if args.check_budgets else 0
     REPORT.write_text(report + "\n")
     RESULTS.write_text(
@@ -445,6 +490,7 @@ def main() -> int:
                 },
                 "runs": args.runs,
                 "rows": rows,
+                "dialects": dialect_rows,
             },
             indent=2,
         )

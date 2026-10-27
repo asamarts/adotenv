@@ -9,7 +9,7 @@ use std::{
 
 use adotenv::{
     load::{load_files, load_files_with_options, load_values, LoadOptions},
-    Dialect,
+    parse_with, Dialect,
 };
 
 struct Counting;
@@ -51,6 +51,14 @@ fn status_kb(field: &str) -> usize {
 
 fn rss_kb() -> usize {
     status_kb("VmRSS:")
+}
+
+fn dialect_map(source: &str, dialect: Dialect) -> BTreeMap<String, String> {
+    let (document, _) = parse_with(source, dialect);
+    document
+        .effective_entries()
+        .map(|entry| (entry.key().to_string(), entry.value().to_string()))
+        .collect()
 }
 
 fn main() {
@@ -136,6 +144,46 @@ fn main() {
                     .sequence(dotenv_ng_core::EnvSequence::InputOnly)
                     .load()
                     .unwrap();
+                println!(
+                    "{} rss_kb={} hwm_kb={} len={}",
+                    mode,
+                    rss_kb(),
+                    status_kb("VmHWM:"),
+                    map.len()
+                );
+            }
+            "rss_adotenv_node" => {
+                let map = dialect_map(&source, Dialect::NODE_DOTENV);
+                println!(
+                    "{} rss_kb={} hwm_kb={} len={}",
+                    mode,
+                    rss_kb(),
+                    status_kb("VmHWM:"),
+                    map.len()
+                );
+            }
+            "rss_adotenv_python" => {
+                let map = dialect_map(&source, Dialect::PYTHON_DOTENV);
+                println!(
+                    "{} rss_kb={} hwm_kb={} len={}",
+                    mode,
+                    rss_kb(),
+                    status_kb("VmHWM:"),
+                    map.len()
+                );
+            }
+            "rss_adotenv_compose" => {
+                let map = dialect_map(&source, Dialect::COMPOSE);
+                println!(
+                    "{} rss_kb={} hwm_kb={} len={}",
+                    mode,
+                    rss_kb(),
+                    status_kb("VmHWM:"),
+                    map.len()
+                );
+            }
+            "rss_adotenv_docker" => {
+                let map = dialect_map(&source, Dialect::DOCKER_RAW);
                 println!(
                     "{} rss_kb={} hwm_kb={} len={}",
                     mode,
@@ -247,6 +295,10 @@ fn main() {
                 black_box(map);
                 len
             }
+            "adotenv_node" => dialect_map(black_box(&source), Dialect::NODE_DOTENV).len(),
+            "adotenv_python" => dialect_map(black_box(&source), Dialect::PYTHON_DOTENV).len(),
+            "adotenv_compose" => dialect_map(black_box(&source), Dialect::COMPOSE).len(),
+            "adotenv_docker" => dialect_map(black_box(&source), Dialect::DOCKER_RAW).len(),
             "dotenv_parser" => {
                 let map = dotenv_parser::parse_dotenv(black_box(&source)).unwrap();
                 let len = map.len();
