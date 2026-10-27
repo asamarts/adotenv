@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc c048be11097ea0952e998f9ff8e3c19ac7d587b17b15ba777c8a62f70c29293f # shrinks to fragments = ["A: value\n", "A=\"x\\n\\q\"\n"], selection = 0
+cc c7c5727622d757e6403aacbb20b566faa9b67f095aaa603c00f29920a2e6b580 # shrinks to fragments = ["A: value\n", "A\n", "A"], selection = 0
