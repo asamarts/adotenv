@@ -123,7 +123,8 @@ coverage threshold and coverage alone does not block a release.
 Mutation testing runs weekly and on demand in four shards. It targets parser
 diagnostics, key validation, edit verification and formatting equivalence, with
 a bounded timeout and two jobs per shard. Survivors are triage input for
-targeted regression tests, not an automatic release blocker.
+targeted regression tests, not an automatic release blocker. Current edit
+verification survivors are tracked in issue #24.
 
 ```console
 cargo mutants --file src/parser.rs --file src/edit.rs --file src/format.rs \

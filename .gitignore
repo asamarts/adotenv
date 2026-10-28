@@ -7,3 +7,6 @@ benchmarks/compare/target/
 
 # Python bytecode
 __pycache__/
+
+# Mutation testing output
+/mutants.out

@@ -598,3 +598,37 @@ fn same_item(left: crate::Item<'_>, right: crate::Item<'_>, preserve_quote: bool
 fn trim_horizontal(text: &str) -> &str {
     text.trim_end_matches([' ', '\t'])
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{same_meaning, BlankLines};
+    use crate::parse_strict;
+
+    #[test]
+    fn same_meaning_rejects_different_items_with_equal_counts() {
+        let left = parse_strict("A=1\n").unwrap();
+        let right = parse_strict("A=2\n").unwrap();
+        assert!(!same_meaning(&left, &right, BlankLines::Preserve, true));
+    }
+
+    #[test]
+    fn same_meaning_rejects_different_nonblank_items_when_collapsing() {
+        let left = parse_strict("A=1\n\nB=2\n").unwrap();
+        let right = parse_strict("A=1\n\nB=3\n").unwrap();
+        assert!(!same_meaning(&left, &right, BlankLines::Collapse, true));
+    }
+
+    #[test]
+    fn same_meaning_rejects_group_count_changes_when_collapsing() {
+        let left = parse_strict("A=1\n\nB=2\n").unwrap();
+        let right = parse_strict("A=1\nB=2\n").unwrap();
+        assert!(!same_meaning(&left, &right, BlankLines::Collapse, true));
+    }
+
+    #[test]
+    fn same_meaning_rejects_consecutive_blank_items_when_collapsing() {
+        let left = parse_strict("A=1\n\nB=2\n").unwrap();
+        let right = parse_strict("A=1\n\n\nB=2\n").unwrap();
+        assert!(!same_meaning(&left, &right, BlankLines::Collapse, true));
+    }
+}
