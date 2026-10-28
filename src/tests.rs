@@ -593,3 +593,15 @@ fn duplicate_flag_matches_strict_parse_for_empty_keys() {
     let strict = parse_strict_with(source, Dialect::COMPOSE).unwrap();
     assert_eq!(recovering.has_duplicate_keys, strict.has_duplicate_keys);
 }
+
+#[test]
+fn lone_carriage_return_diagnostic_span_addresses_one_byte() {
+    let source = "A=x\rB=y\n";
+    let (_, diagnostics) = parse(source);
+    let carriage = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code() == Code::LoneCarriageReturn)
+        .unwrap();
+    assert_eq!(carriage.span(), 3..4);
+    assert_eq!(carriage.line(), 1);
+}

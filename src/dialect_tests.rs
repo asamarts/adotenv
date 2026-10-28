@@ -1121,3 +1121,16 @@ fn compose_quoted_keys_and_invalid_eof_boundaries_are_bounded() {
         assert_eq!(error.code(), Code::InvalidKey, "{source:?}");
     }
 }
+
+#[test]
+fn non_whitespace_and_compose_key_policies_reject_literal_spaces() {
+    let non_whitespace = Dialect {
+        keys: KeySyntax::NonWhitespace,
+        ..Dialect::PORTABLE
+    };
+    let error = parse_strict_with("A B=1\n", non_whitespace).unwrap_err();
+    assert_eq!(error.code(), Code::InvalidKey);
+
+    let error = parse_strict_with("A B=1\n", Dialect::COMPOSE).unwrap_err();
+    assert_eq!(error.code(), Code::InvalidKey);
+}

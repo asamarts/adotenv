@@ -24,7 +24,7 @@ a guide, not a release gate.
 Measured with `cargo llvm-cov --workspace --all-features --summary-only` after
 the issue #23 expansion:
 
-- Total: 95.05 percent regions and 95.35 percent lines.
+- Total: 95.09 percent regions and 95.45 percent lines.
 - Strong areas: compare, diagnostics, parser decode, Docker, position,
   encoding, editing and serde.
 - Module line coverage:

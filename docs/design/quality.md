@@ -128,7 +128,7 @@ targeted regression tests, not an automatic release blocker.
 ```console
 cargo mutants --file src/parser.rs --file src/edit.rs --file src/format.rs \
   --re 'in (merge_lone_cr|valid_key_in|verify_entry_region|same_meaning)' \
-  --shard 1/4 --timeout 90 --jobs 2
+  --shard 0/4 --timeout 90 --jobs 2
 ```
 
 ## Limits
