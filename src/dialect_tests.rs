@@ -1035,3 +1035,89 @@ fn escape_sets_and_multiline_flags_compose_predictably() {
     let backtick = Multiline::NONE.with_backtick(true);
     assert!(!backtick.single && !backtick.double && backtick.backtick);
 }
+
+#[test]
+fn node_export_retry_colon_and_cross_line_paths() {
+    let (doc, _) = parse_with("export =x\n", Dialect::NODE_DOTENV);
+    assert_eq!(doc.get("export"), Some("x"));
+
+    let (doc, diagnostics) = parse_with("A: value\nB:value\n", Dialect::NODE_DOTENV);
+    assert_eq!(doc.get("A"), Some("value"));
+    assert_eq!(doc.get("B"), None);
+    assert!(doc.entries().all(|entry| entry.key() != "B"));
+    assert!(diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code() == Code::IgnoredStatement));
+
+    let (doc, _) = parse_with("A= \n\"value\"\n", Dialect::NODE_DOTENV);
+    assert_eq!(doc.get("A"), Some("value"));
+
+    let source = "\u{2028}\u{2029}A=1\n";
+    let (doc, _) = parse_with(source, Dialect::NODE_DOTENV);
+    assert_eq!(doc.get("A"), Some("1"));
+    assert_eq!(doc.source(), source);
+}
+
+#[test]
+fn node_quoted_keys_and_invalid_headers_are_bounded() {
+    let quoted = Dialect {
+        quoted_keys: true,
+        ..Dialect::NODE_DOTENV
+    };
+    let (doc, _) = parse_with("'A B'=value\n", quoted);
+    assert_eq!(doc.get("A B"), Some("value"));
+
+    for source in ["''=value\n", "'A B'value\n"] {
+        let (doc, diagnostics) = parse_with(source, quoted);
+        assert!(doc.entries().next().is_none(), "{source:?}");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code() == Code::IgnoredStatement),
+            "{source:?}"
+        );
+    }
+    let (doc, diagnostics) = parse_with("BAD KEY=value\n", Dialect::NODE_DOTENV);
+    assert!(doc.entries().next().is_none());
+    assert!(diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code() == Code::IgnoredStatement));
+}
+
+#[test]
+fn compose_custom_whitespace_export_and_eof_quirks() {
+    let ascii = Dialect {
+        whitespace: Whitespace::Ascii,
+        ..Dialect::COMPOSE
+    };
+    let doc = parse_strict_with("export\tA=1\n", ascii).unwrap();
+    assert_eq!(doc.get("A"), Some("1"));
+
+    let doc = parse_strict_with("export A=1\n", Dialect::COMPOSE).unwrap();
+    assert_eq!(doc.get("A"), Some("1"));
+
+    for source in ["A", "A\r", "A B"] {
+        let (doc, _) = parse_with(source, Dialect::COMPOSE);
+        assert_eq!(
+            doc.get(""),
+            Some(source.trim_end_matches('\r')),
+            "{source:?}"
+        );
+        assert_eq!(doc.get("A"), None, "{source:?}");
+    }
+}
+
+#[test]
+fn compose_quoted_keys_and_invalid_eof_boundaries_are_bounded() {
+    let quoted = Dialect {
+        quoted_keys: true,
+        ..Dialect::COMPOSE
+    };
+    let doc = parse_strict_with("'A B'=value\n", quoted).unwrap();
+    assert_eq!(doc.get("A B"), Some("value"));
+
+    for source in ["'unterminated=value\n", "'A B'value\n"] {
+        let error = parse_strict_with(source, quoted).unwrap_err();
+        assert_eq!(error.code(), Code::InvalidKey, "{source:?}");
+    }
+}

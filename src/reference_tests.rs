@@ -417,3 +417,50 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn reference_rule_builders_and_defaults_are_complete() {
+    let defaults = ReferenceRules::default();
+    assert_eq!(defaults, ReferenceRules::PORTABLE);
+    let rules = defaults
+        .with_operators(OperatorSet::Compose)
+        .with_single_quotes(true)
+        .with_escaped_dollar(true)
+        .with_commands(true)
+        .with_backtick_quotes(true);
+    assert_eq!(rules.operators, OperatorSet::Compose);
+    assert!(rules.single_quotes);
+    assert!(rules.escaped_dollar);
+    assert!(rules.commands);
+    assert!(rules.backtick_quotes);
+}
+
+#[test]
+fn escaped_and_unclosed_containers_control_nested_eligibility() {
+    let source = "A=\"${B:-\\$C}\"\n";
+    let (doc, _) = parse(source);
+    let references = doc.unique("A").unwrap().references();
+    assert_eq!(references.len(), 2);
+    let nested = &references[1];
+    assert!(nested.escaped);
+    assert_eq!(nested.depth, 1);
+    assert!(!nested.is_eligible(ReferenceRules::COMPOSE));
+    let escaped = ReferenceRules {
+        escaped_dollar: true,
+        ..ReferenceRules::COMPOSE
+    };
+    assert!(nested.is_eligible(escaped));
+
+    let source = "A=${B:-$C\n";
+    let (doc, _) = parse(source);
+    let references = doc.unique("A").unwrap().references();
+    assert_eq!(references.len(), 2);
+    assert!(!references[0].closed);
+    assert!(!references[1].is_eligible(ReferenceRules::COMPOSE));
+
+    let source = "A=${:-$B}\n";
+    let (doc, _) = parse(source);
+    let references = doc.unique("A").unwrap().references();
+    assert_eq!(references.len(), 2);
+    assert!(!references[1].is_eligible(ReferenceRules::COMPOSE));
+}

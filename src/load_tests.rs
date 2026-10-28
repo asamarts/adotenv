@@ -739,3 +739,115 @@ fn reports_can_retain_origins_when_the_final_origin_map_is_disabled() {
     assert_eq!(resolved.get("A"), Some("three"));
     assert!(resolved.origin("A").is_none());
 }
+
+#[test]
+fn retention_options_and_compact_views_are_complete() {
+    let defaults = LoadOptions::default();
+    assert_eq!(defaults, LoadOptions::new(Dialect::PORTABLE));
+    let options = defaults
+        .with_dialect(Dialect::NODE_DOTENV)
+        .with_raw_tokens(false)
+        .with_reports(true)
+        .with_origins(false);
+    assert_eq!(options.dialect, Dialect::NODE_DOTENV);
+    assert!(!options.retain_raw_tokens);
+    assert!(options.retain_reports);
+    assert!(!options.retain_origins);
+
+    let dir = TempDir::new();
+    let empty = load_cascade_values(dir.path(), "").unwrap();
+    assert!(empty.is_empty());
+    assert_eq!(empty.len(), 0);
+    assert!(empty.values().is_empty());
+    assert_eq!(empty.get("missing"), None);
+    assert!(empty.into_values().is_empty());
+
+    dir.write(".env", "A=1\n");
+    let values = load_cascade_values(dir.path(), "").unwrap();
+    assert_eq!(values.len(), 1);
+    assert!(!values.is_empty());
+    assert_eq!(values.get("A"), Some("1"));
+    assert_eq!(values.values().get("A").map(String::as_str), Some("1"));
+    assert_eq!(values.into_values().get("A").map(String::as_str), Some("1"));
+}
+
+#[test]
+fn load_errors_have_stable_display_and_sources() {
+    let dir = TempDir::new();
+    let missing = dir.path().join("missing.env");
+    let io = load_files([&missing], Dialect::PORTABLE).unwrap_err();
+    assert!(io.to_string().contains("failed to read"));
+    assert!(std::error::Error::source(&io).is_some());
+
+    dir.write_bytes(".env", b"A=\xff\n");
+    let utf8 = load_cascade(dir.path(), "").unwrap_err();
+    assert!(utf8.to_string().contains("is not valid UTF-8"));
+    assert!(std::error::Error::source(&utf8).is_none());
+
+    dir.write(".env", "BAD KEY=value\n");
+    let invalid = load_cascade(dir.path(), "").unwrap_err();
+    assert!(invalid.to_string().contains("invalid-key"));
+    assert!(std::error::Error::source(&invalid).is_none());
+
+    let mode = load_cascade(dir.path(), "bad\0mode").unwrap_err();
+    assert_eq!(mode.to_string(), "mode must not contain path separators");
+    assert!(std::error::Error::source(&mode).is_none());
+}
+
+#[test]
+fn compact_cascade_rejects_invalid_modes_and_empty_inputs() {
+    let dir = TempDir::new();
+    for mode in ["..", "../prod", "prod/file", "prod\\file", "prod\0mode"] {
+        assert!(matches!(
+            load_cascade_values_with(dir.path(), mode, Dialect::PORTABLE),
+            Err(LoadError::InvalidMode)
+        ));
+    }
+    let empty = load_values(std::iter::empty::<PathBuf>(), Dialect::PORTABLE).unwrap();
+    assert!(empty.is_empty());
+}
+
+#[test]
+fn resolved_environment_and_errors_expose_origins() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=${MISSING}\n");
+    let loaded = load_cascade(dir.path(), "").unwrap();
+
+    let scope = loaded
+        .resolve_decoded(|_| None, &ExpandOptions::portable())
+        .unwrap_err();
+    assert_eq!(scope.key(), None);
+    assert!(scope.origin().is_none());
+    assert!(scope.message().contains("whole-file"));
+    assert!(!scope.to_string().contains(':'));
+
+    let options = ExpandOptions {
+        scope: ExpandScope::WholeFile,
+        unresolved: Unresolved::Error,
+        ..ExpandOptions::portable()
+    };
+    let error = loaded.resolve_decoded(|_| None, &options).unwrap_err();
+    assert_eq!(error.key(), Some("A"));
+    assert!(error.message().contains("MISSING"));
+    let origin = error.origin().unwrap();
+    assert_eq!(origin.path(), dir.path().join(".env"));
+    assert_eq!(&"A=${MISSING}\n"[origin.span().clone()], "${MISSING}");
+    assert_eq!(origin.line(), 1);
+    assert!(error
+        .to_string()
+        .starts_with(&format!("{}:1: ", dir.path().join(".env").display())));
+
+    let contextual = loaded.resolve_contextual(|_| None, &options).unwrap_err();
+    assert!(contextual.message().contains("MISSING"));
+    assert_eq!(contextual.key(), Some("A"));
+    assert!(contextual.origin().is_some());
+
+    dir.write(".env", "A=ok\n");
+    let loaded = load_cascade(dir.path(), "").unwrap();
+    let resolved = loaded.resolve_decoded(|_| None, &options).unwrap();
+    assert_eq!(resolved.values().get("A").map(String::as_str), Some("ok"));
+    assert_eq!(resolved.len(), 1);
+    assert!(!resolved.is_empty());
+    assert_eq!(resolved.get("missing"), None);
+    assert!(resolved.origin("A").is_some());
+}

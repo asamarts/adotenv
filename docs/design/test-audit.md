@@ -24,16 +24,16 @@ a guide, not a release gate.
 Measured with `cargo llvm-cov --workspace --all-features --summary-only` after
 the expansion below:
 
-- Total: 92.65 percent regions and 92.78 percent lines.
-- Strong areas: compare, diagnostics, structure, encoding, parser decode and
-  editing.
+- Total: 94.17 percent regions and 94.42 percent lines.
+- Strong areas: compare, diagnostics, encoding, parser decode, editing,
+  formatting, references and parser presets.
 - Lower areas:
   - `serde_support.rs`: 85.9 percent lines.
   - `resolve.rs`: 87.6 percent lines.
-  - `load.rs`: 86.5 percent lines.
-  - `format.rs`: 88.8 percent lines.
-  - `references.rs`: 86.9 percent lines.
-  - `parser/node.rs`: 89.8 percent lines.
+  - `position.rs`: 90.6 percent lines.
+  - `adotenv-cli`: 90.5 percent lines.
+  - `load.rs`: 92.8 percent lines.
+  - `parser/compose.rs`: 93.0 percent lines.
 
 ## Completed expansion
 
@@ -41,8 +41,22 @@ the expansion below:
   bare policies, records, non-string keys, loaded origins and stable display.
 - Resolution covers every structured error, command errors, retained calls,
   limits and option builders.
+- Loading covers compact and full retention, origin accessors, compact values,
+  resolved views, invalid modes, invalid UTF-8, read errors, report retention
+  and stable error display.
+- CLI integration covers usage errors, missing files, invalid documents,
+  invalid modes, child startup failures, multi-file formatting and every
+  existing output contract.
+- Formatting covers every option builder, result views, conservative quote
+  separation and idempotent normalization.
+- References cover every rule builder, escaped containers, unclosed containers
+  and empty-name containers.
 - Docker covers raw values, comments, EOF, quoted keys, invalid boundaries,
   export and colon overrides, and scanner limits.
+- Node covers export retry, colon spacing, cross-line quoted values, LS/PS
+  preservation, quoted-key bounds and ignored malformed headers.
+- Compose covers custom whitespace, export, EOF bare-key quirks, quoted keys
+  and invalid boundaries.
 - Adapters cover typed cascade loading through `config` and Figment, plus
   process validation for NUL keys and values.
 - Diagnostics cover every stable code, severity, message, span and secondary
@@ -54,20 +68,18 @@ the expansion below:
 
 ## Remaining gaps
 
-1. Loader error paths for invalid UTF-8, invalid modes, unreadable files and
-   report-retention combinations.
-2. Formatting and reference branch matrices that are still below the workspace
-   average.
-3. CLI error-path end-to-end cases for every command, output format and exit
-   code.
-4. Node and Compose parser branches that need either targeted regressions or
-   scheduled fuzzing evidence.
-5. A non-blocking coverage report and bounded mutation testing, tracked
+1. Serde conversion and structural-error branches that remain below the
+   workspace average.
+2. Resolution branch combinations, especially command and nested-container
+   error paths.
+3. Position and encoding edge branches.
+4. A non-blocking coverage report and bounded mutation testing, tracked
    separately in issue #20.
+5. Sustained scheduled fuzz evidence for the 1.0 gate.
 
 ## Suggested order
 
-1. Loader and CLI error-path tests.
-2. Formatting and reference branch tests.
-3. Node and Compose regressions.
-4. Coverage and mutation reporting.
+1. Serde and resolution branch coverage.
+2. Position and encoding edge branches.
+3. Coverage and mutation reporting.
+4. Complete the four scheduled fuzz runs and run the final 1.0 gate.

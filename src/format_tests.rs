@@ -1,6 +1,7 @@
 use alloc::{
     string::{String, ToString},
     vec,
+    vec::Vec,
 };
 use proptest::prelude::*;
 
@@ -376,4 +377,52 @@ proptest! {
             prop_assert!(again);
         }
     }
+}
+
+#[test]
+fn format_options_builders_and_result_views_are_complete() {
+    let defaults = FormatOptions::default();
+    assert_eq!(defaults.equals_spacing, EqualsSpacing::Preserve);
+    assert!(!defaults.trim_trailing_whitespace);
+    assert_eq!(defaults.blank_lines, BlankLines::Preserve);
+    assert_eq!(defaults.quote_style, QuoteStyle::Preserve);
+    assert_eq!(defaults.final_newline, FinalNewline::Preserve);
+
+    let options = defaults
+        .with_equals_spacing(EqualsSpacing::None)
+        .with_trim_trailing_whitespace(true)
+        .with_blank_lines(BlankLines::Collapse)
+        .with_quote_style(QuoteStyle::Single)
+        .with_final_newline(FinalNewline::Ensure);
+    assert_eq!(options.equals_spacing, EqualsSpacing::None);
+    assert!(options.trim_trailing_whitespace);
+    assert_eq!(options.blank_lines, BlankLines::Collapse);
+    assert_eq!(options.quote_style, QuoteStyle::Single);
+    assert_eq!(options.final_newline, FinalNewline::Ensure);
+
+    let doc = parse_strict("A=1\n").unwrap();
+    let unchanged = doc.format(&defaults).unwrap();
+    assert!(unchanged.edits().is_empty());
+    assert_eq!(unchanged.clone().into_edits(), Vec::new());
+    assert_eq!(unchanged.into_string(), "A=1\n");
+
+    let formatted = doc.format(&FormatOptions::normalize()).unwrap();
+    assert_eq!(formatted.as_str(), "A = 1\n");
+    assert_eq!(formatted.clone().into_edits(), formatted.edits().to_vec());
+    assert_eq!(formatted.into_string(), "A = 1\n");
+}
+
+#[test]
+fn unquoted_quote_style_does_not_mix_with_other_rewrites() {
+    let source = "A=\"simple\"\n";
+    let doc = parse_strict(source).unwrap();
+    let formatted = doc
+        .format(&FormatOptions {
+            equals_spacing: EqualsSpacing::Spaces,
+            quote_style: QuoteStyle::Unquoted,
+            ..FormatOptions::default()
+        })
+        .unwrap();
+    assert_eq!(formatted.as_str(), "A = \"simple\"\n");
+    assert!(formatted.as_str().contains("\"simple\""));
 }

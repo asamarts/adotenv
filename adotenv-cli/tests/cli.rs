@@ -922,3 +922,129 @@ fn exit_code_contract_is_frozen() {
         Some(2)
     );
 }
+
+#[test]
+fn usage_and_argument_errors_are_consistent() {
+    let cases: &[(&[&str], &str)] = &[
+        (&["get"], "usage: adotenv-cli get"),
+        (&["get", "one"], "usage: adotenv-cli get"),
+        (&["check"], "usage: adotenv-cli check"),
+        (
+            &["check", "--format"],
+            "--format requires human, json or github",
+        ),
+        (&["check", "--exclude"], "--exclude requires a path"),
+        (
+            &["check", "--exclude", "x", "file"],
+            "--exclude requires --recursive",
+        ),
+        (&["fmt"], "usage: adotenv-cli fmt"),
+        (&["fmt", "--exclude"], "--exclude requires a path"),
+        (
+            &["fmt", "--exclude", "x", "file"],
+            "--exclude requires --recursive",
+        ),
+        (&["diff"], "usage: adotenv-cli diff"),
+        (
+            &["diff", "--format"],
+            "--format requires human, matrix or json",
+        ),
+        (&["diff", "baseline"], "usage: adotenv-cli diff"),
+        (&["example"], "usage: adotenv-cli example"),
+        (&["load"], "usage: adotenv-cli load"),
+        (&["load", "a", "b", "c"], "usage: adotenv-cli load"),
+        (&["set"], "usage: adotenv-cli set"),
+        (&["set", "file", "key"], "usage: adotenv-cli set"),
+        (&["run"], "usage: adotenv-cli run"),
+        (&["run", "--"], "usage: adotenv-cli run"),
+        (&["run", "dir", "--"], "usage: adotenv-cli run"),
+        (&["run", "a", "b", "c", "--", "x"], "usage: adotenv-cli run"),
+        (&["unknown"], "unknown command"),
+    ];
+    for (args, needle) in cases {
+        let output = run(args);
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        assert!(
+            stderr(&output).contains(needle),
+            "{args:?}: {}",
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
+fn missing_files_and_invalid_documents_are_reported() {
+    let dir = TempDir::new();
+    let missing = dir.path().join("missing.env");
+    let missing = missing.to_str().unwrap();
+    for (args, code) in [
+        (vec!["get", missing, "A"], 2),
+        (vec!["fmt", missing], 1),
+        (vec!["example", missing], 2),
+        (vec!["set", missing, "A", "1"], 2),
+        (vec!["check", "--source", missing], 1),
+    ] {
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(code), "{args:?}");
+        assert!(stderr(&output).contains("missing.env"), "{args:?}");
+    }
+
+    let bad = dir.file("bad.env", "BAD KEY=value\n");
+    let bad = bad.to_str().unwrap();
+    for args in [vec!["get", bad, "BAD"], vec!["set", bad, "A", "1"]] {
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        assert!(stderr(&output).contains("invalid-key"), "{args:?}");
+    }
+
+    let duplicate = dir.file("duplicate.env", "A=1\nA=2\n");
+    let output = run(&["set", duplicate.to_str().unwrap(), "A", "3"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("duplicate"));
+
+    let output = run(&["fmt", "--write", dir.path().to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stderr(&output).contains("directory"));
+}
+
+#[test]
+fn run_and_load_report_invalid_modes_and_programs() {
+    let dir = TempDir::new();
+    let output = run(&["load", dir.path().to_str().unwrap(), "../bad"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("mode"));
+
+    let output = run(&["run", dir.path().to_str().unwrap(), "../bad", "--", "echo"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("mode"));
+
+    let output = run(&[
+        "run",
+        dir.path().to_str().unwrap(),
+        "--",
+        "adotenv-command-that-does-not-exist",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("failed to run"));
+}
+
+#[test]
+fn fmt_prints_file_headers_for_multiple_inputs() {
+    let dir = TempDir::new();
+    let first = dir.file("first.env", "A=1\n");
+    let second = dir.file("second.env", "B=2\n");
+    let output = run(&["fmt", first.to_str().unwrap(), second.to_str().unwrap()]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.contains("==> "));
+    assert!(text.contains("first.env <=="));
+    assert!(text.contains("second.env <=="));
+    assert!(text.contains("A = 1"));
+    assert!(text.contains("B = 2"));
+
+    let empty = dir.path().join("empty");
+    fs::create_dir(&empty).unwrap();
+    let output = run(&["fmt", "--recursive", empty.to_str().unwrap()]);
+    assert!(output.status.success());
+    assert!(stderr(&output).contains("no .env files found"));
+}
