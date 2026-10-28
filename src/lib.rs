@@ -183,6 +183,8 @@ pub use structure::{Group, Groups};
 #[cfg(test)]
 mod compare_tests;
 #[cfg(test)]
+mod diagnostic_tests;
+#[cfg(test)]
 mod dialect_tests;
 #[cfg(test)]
 mod edit_tests;

@@ -7,8 +7,8 @@ use alloc::{
 use proptest::prelude::*;
 
 use crate::{
-    parse_strict, parse_with, BareKeys, Dialect, ExpandOptions, ExpandScope, LookupOrder,
-    ReferenceOperator, ResolveError, ResolvedSegmentKind, Unresolved, ValueOrigin,
+    parse_strict, parse_with, BareKeys, CommandError, Dialect, ExpandOptions, ExpandScope,
+    LookupOrder, ReferenceOperator, ResolveError, ResolvedSegmentKind, Unresolved, ValueOrigin,
 };
 
 fn resolve(
@@ -754,4 +754,111 @@ proptest! {
             }
         }
     }
+}
+
+#[test]
+fn structured_errors_have_stable_display_text() {
+    let unresolved = parse_strict("A=${MISSING}\n")
+        .unwrap()
+        .resolve(
+            |_| None,
+            &ExpandOptions {
+                unresolved: Unresolved::Error,
+                ..ExpandOptions::portable()
+            },
+        )
+        .unwrap_err();
+    assert_eq!(
+        unresolved.to_string(),
+        "unresolved variable MISSING while resolving A"
+    );
+
+    let required = parse_strict("A=${MISSING:?boom}\n")
+        .unwrap()
+        .resolve(|_| None, &ExpandOptions::compose())
+        .unwrap_err();
+    assert_eq!(
+        required.to_string(),
+        "required variable MISSING is unset or empty while resolving A: boom"
+    );
+
+    let cycle = parse_strict("A=${B}\nB=${A}\n")
+        .unwrap()
+        .resolve(
+            |_| None,
+            &ExpandOptions {
+                scope: ExpandScope::WholeFile,
+                ..ExpandOptions::portable()
+            },
+        )
+        .unwrap_err();
+    let cycle_text = cycle.to_string();
+    assert!(cycle_text.starts_with("reference cycle while resolving "));
+    assert!(cycle_text.contains('A'));
+    assert!(cycle_text.contains('B'));
+
+    let depth = parse_strict("A=${B}\nB=${C}\nC=${D}\nD=x\n")
+        .unwrap()
+        .resolve(
+            |_| None,
+            &ExpandOptions {
+                scope: ExpandScope::WholeFile,
+                max_depth: 1,
+                ..ExpandOptions::portable()
+            },
+        )
+        .unwrap_err();
+    assert_eq!(
+        depth.to_string(),
+        "reference depth limit 1 exceeded while resolving C"
+    );
+
+    let large = parse_strict("A=${B}\nB=abcdef\n")
+        .unwrap()
+        .resolve(
+            |_| None,
+            &ExpandOptions {
+                max_value_bytes: 3,
+                ..ExpandOptions::portable()
+            },
+        )
+        .unwrap_err();
+    assert_eq!(large.to_string(), "resolved value for A exceeds 3 bytes");
+
+    let failure = parse_strict("A=$(cmd)\n")
+        .unwrap()
+        .resolve_with_commands(
+            |_| None,
+            |_| Err(CommandError::new("synthetic failure")),
+            None,
+            &ExpandOptions::dotenv_expand(),
+        )
+        .unwrap_err();
+    assert_eq!(
+        failure.error.to_string(),
+        "command callback failed while resolving A: synthetic failure"
+    );
+    assert_eq!(failure.to_string(), failure.error.to_string());
+    assert_eq!(failure.commands.len(), 1);
+}
+
+#[test]
+fn command_error_accessors_and_options_builders_are_explicit() {
+    let error = CommandError::new("failure");
+    assert_eq!(error.message(), "failure");
+    assert_eq!(error.to_string(), "failure");
+
+    let options = ExpandOptions::default();
+    assert_eq!(options, ExpandOptions::portable());
+    let customized = options
+        .with_scope(ExpandScope::WholeFile)
+        .with_lookup_order(LookupOrder::CallerFirst)
+        .with_unresolved(Unresolved::Empty)
+        .with_max_depth(7)
+        .with_max_value_bytes(9);
+    assert_eq!(customized.scope, ExpandScope::WholeFile);
+    assert_eq!(customized.lookup_order, LookupOrder::CallerFirst);
+    assert_eq!(customized.unresolved, Unresolved::Empty);
+    assert_eq!(customized.max_depth, 7);
+    assert_eq!(customized.max_value_bytes, 9);
 }

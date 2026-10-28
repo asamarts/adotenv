@@ -165,6 +165,38 @@ mod tests {
     }
 
     #[test]
+    fn validation_rejects_nul_keys_before_mutation() {
+        let dir = TempDir::new();
+        let key = "ADOTENV_PROCESS_NUL\0KEY";
+        fs::write(dir.path().join(".env"), format!("{key}=value\n")).unwrap();
+        let loaded =
+            adotenv::load::load_files([dir.path().join(".env")], adotenv::Dialect::DOCKER_RAW)
+                .unwrap();
+        assert_eq!(loaded.get(key), Some("value"));
+        assert!(matches!(
+            validate(&loaded),
+            Err(ApplyError::InvalidKey { ref key }) if key == "ADOTENV_PROCESS_NUL\0KEY"
+        ));
+        assert!(matches!(
+            unsafe { apply(&loaded) },
+            Err(ApplyError::InvalidKey { .. })
+        ));
+    }
+
+    #[test]
+    fn all_apply_errors_have_descriptive_messages() {
+        assert_eq!(ApplyError::EmptyKey.to_string(), "environment key is empty");
+        assert_eq!(
+            ApplyError::InvalidKey { key: "A=B".into() }.to_string(),
+            "environment key contains NUL or '=': \"A=B\""
+        );
+        assert_eq!(
+            ApplyError::InvalidValue { key: "A".into() }.to_string(),
+            "environment value for \"A\" contains NUL"
+        );
+    }
+
+    #[test]
     fn error_messages_include_the_key() {
         let error = ApplyError::InvalidKey { key: "A=B".into() };
         assert!(error.to_string().contains("A=B"));

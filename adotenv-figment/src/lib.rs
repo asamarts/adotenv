@@ -193,6 +193,29 @@ mod tests {
 
     #[cfg(feature = "load")]
     #[test]
+    fn environment_provider_drives_a_typed_cascade_figment() {
+        let dir =
+            std::env::temp_dir().join(format!("adotenv-figment-cascade-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(".env"), "host=localhost\nport=8080\n").unwrap();
+        std::fs::write(dir.join(".env.local"), "port=9090\n").unwrap();
+        let environment = adotenv::load::load_cascade(&dir, "").unwrap();
+        let config: Config = Figment::new()
+            .merge(AdotenvProvider::from_environment(&environment))
+            .extract()
+            .unwrap();
+        assert_eq!(
+            config,
+            Config {
+                host: "localhost".to_string(),
+                port: "9090".to_string(),
+            }
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(feature = "load")]
+    #[test]
     fn environment_provider_copies_final_values() {
         let path = std::env::temp_dir().join(format!(
             "adotenv-figment-environment-{}.env",

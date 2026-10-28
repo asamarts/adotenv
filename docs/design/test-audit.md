@@ -21,60 +21,53 @@ a guide, not a release gate.
 
 ## Coverage
 
-Measured with `cargo llvm-cov --workspace --all-features --summary-only`:
+Measured with `cargo llvm-cov --workspace --all-features --summary-only` after
+the expansion below:
 
-- Total: about 90 percent region coverage and 90 percent line coverage.
-- Strong areas: compare, property paths, structure, encoding, parser decode and
+- Total: 92.65 percent regions and 92.78 percent lines.
+- Strong areas: compare, diagnostics, structure, encoding, parser decode and
   editing.
 - Lower areas:
-  - `serde_support.rs`: about 55 percent lines.
-  - `parser/docker.rs`: about 78 percent lines.
-  - `resolve.rs`: about 80 percent lines.
-  - `diagnostic.rs`: about 66 percent lines.
-  - `dialect.rs`: about 27 percent lines, mostly trivial policy setters.
+  - `serde_support.rs`: 85.9 percent lines.
+  - `resolve.rs`: 87.6 percent lines.
+  - `load.rs`: 86.5 percent lines.
+  - `format.rs`: 88.8 percent lines.
+  - `references.rs`: 86.9 percent lines.
+  - `parser/node.rs`: 89.8 percent lines.
 
-## Highest-value gaps
+## Completed expansion
 
-1. Serde error paths:
-   - unsupported nested maps and sequences;
-   - enum layouts;
-   - invalid scalar conversion;
-   - duplicate and bare declarations under every policy;
-   - origin line reporting for loaded environments.
-2. Resolution error paths:
-   - each structured `ResolveError` variant;
-   - command failure and call retention;
-   - depth, size and required-variable limits;
-   - caller-first versus file-first cycles.
-3. Docker parser branches:
-   - malformed raw lines;
-   - trailing CR and EOF cases;
-   - scanner byte limits and key boundaries.
-4. Adapter end-to-end paths:
-   - `load` plus `config` and Figment constructors;
-   - process validation with repeated or unusual keys;
-   - loaded environment to serde to process application.
-5. Diagnostic accessors:
-   - secondary spans;
-   - severity and stable code accessors;
-   - one-based line and message access.
-6. Dialect builder matrix:
-   - every `with_*` policy switch and reparse equivalence;
-   - combinations that are easy to regress.
-7. Public documentation examples:
-   - compile-check selected design-doc snippets, not only the README.
+- Serde covers every scalar shape, structural and value errors, duplicate and
+  bare policies, records, non-string keys, loaded origins and stable display.
+- Resolution covers every structured error, command errors, retained calls,
+  limits and option builders.
+- Docker covers raw values, comments, EOF, quoted keys, invalid boundaries,
+  export and colon overrides, and scanner limits.
+- Adapters cover typed cascade loading through `config` and Figment, plus
+  process validation for NUL keys and values.
+- Diagnostics cover every stable code, severity, message, span and secondary
+  span.
+- Dialect tests cover every `with_*` builder plus multiline and escape-set
+  composition.
+- Selected design examples are compile-checked from `tests/design_docs.rs`,
+  including comparison, formatting, sorting and dialect builders.
 
-## Other improvements
+## Remaining gaps
 
-- Add a non-blocking coverage report to CI.
-- Consider mutation testing for parser and edit policy branches.
-- Add a daily or weekly code audit for `cargo audit`.
-- Keep Windows path and write-fallback jobs in the required matrix.
+1. Loader error paths for invalid UTF-8, invalid modes, unreadable files and
+   report-retention combinations.
+2. Formatting and reference branch matrices that are still below the workspace
+   average.
+3. CLI error-path end-to-end cases for every command, output format and exit
+   code.
+4. Node and Compose parser branches that need either targeted regressions or
+   scheduled fuzzing evidence.
+5. A non-blocking coverage report and bounded mutation testing, tracked
+   separately in issue #20.
 
 ## Suggested order
 
-1. Serde and resolution error-path tests.
-2. Adapter and cross-feature integration tests.
-3. Docker parser regression cases.
-4. Diagnostic and dialect accessor tests.
-5. Coverage and mutation reporting.
+1. Loader and CLI error-path tests.
+2. Formatting and reference branch tests.
+3. Node and Compose regressions.
+4. Coverage and mutation reporting.

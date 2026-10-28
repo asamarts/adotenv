@@ -18,8 +18,8 @@ use adotenv::{parse_strict, DifferenceKind};
 
 let left = parse_strict("A=1\nB=\nC=3\n").unwrap();
 let right = parse_strict("A=2\nB\nD=4\n").unwrap();
-let changes: Vec<_> = left
-    .compare(&right)
+let comparison = left.compare(&right);
+let changes: Vec<_> = comparison
     .differences()
     .iter()
     .map(|entry| (entry.key.as_str(), entry.kind))

@@ -8,8 +8,8 @@ use proptest::prelude::*;
 use crate::{
     parse_owned_with, parse_strict_with, parse_with, AssignmentState, BareKeys, BomPolicy,
     ColonSeparator, DiagnosticCode as Code, Dialect, DoubleEscapes, Duplicates, EditError,
-    InlineComments, InsertPosition, ItemKind, KeySyntax, LineBreaks, Multiline, Quote, QuotedTail,
-    Severity, SingleEscapes, UnknownEscapes,
+    InlineComments, InsertPosition, ItemKind, KeySyntax, LineBreaks, MalformedLines, Multiline,
+    Quote, QuotedTail, Severity, SingleEscapes, Syntax, UnknownEscapes, Whitespace,
 };
 
 const PRESETS: [Dialect; 5] = [
@@ -888,4 +888,150 @@ proptest! {
         dialect.quoted_comments = selection & (1 << 23) != 0;
         assert_document_invariants(&source, dialect);
     }
+}
+
+#[test]
+fn docker_grammar_keeps_raw_values_comments_and_eof_lines() {
+    let source = "   # comment\n\nA= value \nB=hash#literal\nC=\"quoted\"\nD=last";
+    let doc = parse_strict_with(source, Dialect::DOCKER_RAW).unwrap();
+    assert_eq!(doc.get("A"), Some(" value "));
+    assert_eq!(doc.get("B"), Some("hash#literal"));
+    assert_eq!(doc.get("C"), Some("\"quoted\""));
+    assert_eq!(doc.get("D"), Some("last"));
+    assert_eq!(doc.item(0).unwrap().kind(), ItemKind::Comment);
+    assert_eq!(doc.item(1).unwrap().kind(), ItemKind::Blank);
+}
+
+#[test]
+fn docker_quoted_keys_and_invalid_boundaries_are_reported() {
+    let dialect = Dialect {
+        quoted_keys: true,
+        ..Dialect::DOCKER_RAW
+    };
+    let doc = parse_strict_with("'A B'=value\nKEEP=ok\n", dialect).unwrap();
+    assert_eq!(doc.get("A B"), Some("value"));
+    assert_eq!(doc.get("KEEP"), Some("ok"));
+
+    for source in ["'unterminated=value\n", "'A B'value\n"] {
+        let error = parse_strict_with(source, dialect).unwrap_err();
+        assert_eq!(error.code(), Code::InvalidKey, "{source:?}");
+    }
+}
+
+#[test]
+fn docker_key_boundaries_and_empty_keys_are_rejected() {
+    for source in ["A B=value\n", "A =value\n", "=value\n", "BAD KEY\n"] {
+        let error = parse_strict_with(source, Dialect::DOCKER_RAW).unwrap_err();
+        assert_eq!(error.code(), Code::InvalidKey, "{source:?}");
+    }
+}
+
+#[test]
+fn docker_export_and_colon_overrides_keep_raw_values() {
+    let export = Dialect {
+        export: true,
+        ..Dialect::DOCKER_RAW
+    };
+    let doc = parse_strict_with(" export A= value \n", export).unwrap();
+    assert_eq!(doc.get("A"), Some(" value "));
+    assert_eq!(
+        doc.unique("A")
+            .unwrap()
+            .tokens()
+            .export
+            .as_ref()
+            .map(|span| &doc.source()[span.clone()]),
+        Some("export")
+    );
+
+    let any_colon = Dialect {
+        colon: ColonSeparator::Any,
+        ..Dialect::DOCKER_RAW
+    };
+    let doc = parse_strict_with("A:value\n", any_colon).unwrap();
+    assert_eq!(doc.get("A"), Some("value"));
+
+    let spaced_colon = Dialect {
+        colon: ColonSeparator::Whitespace,
+        ..Dialect::DOCKER_RAW
+    };
+    let doc = parse_strict_with("A: value\nB:value\n", spaced_colon).unwrap();
+    assert_eq!(doc.get("A"), Some(" value"));
+    assert_eq!(doc.get("B"), None);
+    assert_eq!(doc.unique("B:value").unwrap().key(), "B:value");
+}
+
+#[test]
+fn every_dialect_builder_sets_only_its_documented_field() {
+    let base = Dialect::PORTABLE;
+
+    let dialect = base.with_syntax(Syntax::Docker);
+    assert_eq!(dialect.syntax, Syntax::Docker);
+    assert_eq!(dialect.keys, base.keys);
+
+    let dialect = base.with_inline_comments(InlineComments::None);
+    assert_eq!(dialect.inline_comments, InlineComments::None);
+    let dialect = base.with_double_escapes(DoubleEscapes::NONE);
+    assert_eq!(dialect.double_escapes, DoubleEscapes::NONE);
+    let dialect = base.with_unknown_escapes(UnknownEscapes::Preserve);
+    assert_eq!(dialect.unknown_escapes, UnknownEscapes::Preserve);
+    let dialect = base.with_single_escapes(SingleEscapes::Quote);
+    assert_eq!(dialect.single_escapes, SingleEscapes::Quote);
+    let dialect = base.with_backticks(true);
+    assert!(dialect.backticks);
+    let dialect = base.with_colon(ColonSeparator::Any);
+    assert_eq!(dialect.colon, ColonSeparator::Any);
+    let dialect = base.with_keys(KeySyntax::Docker);
+    assert_eq!(dialect.keys, KeySyntax::Docker);
+    let dialect = base.with_bare_keys(BareKeys::Ignore);
+    assert_eq!(dialect.bare_keys, BareKeys::Ignore);
+    let dialect = base.with_raw_values(true);
+    assert!(dialect.raw_values);
+    let dialect = base.with_line_breaks(LineBreaks::Lf);
+    assert_eq!(dialect.line_breaks, LineBreaks::Lf);
+    let dialect = base.with_bom(BomPolicy::Keep);
+    assert_eq!(dialect.bom, BomPolicy::Keep);
+    let dialect = base.with_duplicates(Duplicates::First);
+    assert_eq!(dialect.duplicates, Duplicates::First);
+    let dialect = base.with_quoted_tail(QuotedTail::Append);
+    assert_eq!(dialect.quoted_tail, QuotedTail::Append);
+    let dialect = base.with_multiline(Multiline::NONE);
+    assert_eq!(dialect.multiline, Multiline::NONE);
+    let dialect = base.with_whitespace(Whitespace::Unicode);
+    assert_eq!(dialect.whitespace, Whitespace::Unicode);
+    let dialect = base.with_export(false);
+    assert!(!dialect.export);
+    let dialect = base.with_quoted_keys(true);
+    assert!(dialect.quoted_keys);
+    let dialect = base.with_quoted_comments(true);
+    assert!(dialect.quoted_comments);
+    let dialect = base.with_normalize_newlines(true);
+    assert!(dialect.normalize_newlines);
+    let dialect = base.with_malformed_lines(MalformedLines::Ignore);
+    assert_eq!(dialect.malformed_lines, MalformedLines::Ignore);
+    let dialect = base.with_node_object_keys(true);
+    assert!(dialect.node_object_keys);
+    let dialect = base.with_line_byte_limit(Some(10));
+    assert_eq!(dialect.line_byte_limit, Some(10));
+}
+
+#[test]
+fn escape_sets_and_multiline_flags_compose_predictably() {
+    assert!(DoubleEscapes::PORTABLE.contains(DoubleEscapes::LF));
+    assert!(!DoubleEscapes::NONE.contains(DoubleEscapes::LF));
+    let combined = DoubleEscapes::LF.union(DoubleEscapes::CR);
+    assert!(combined.contains(DoubleEscapes::LF));
+    assert!(combined.contains(DoubleEscapes::CR));
+    assert!(!combined.contains(DoubleEscapes::TAB));
+
+    let all = Multiline::ALL;
+    assert!(all.single && all.double && all.backtick);
+    let none = Multiline::NONE;
+    assert!(!none.single && !none.double && !none.backtick);
+    let single = Multiline::NONE.with_single(true);
+    assert!(single.single && !single.double && !single.backtick);
+    let double = Multiline::NONE.with_double(true);
+    assert!(!double.single && double.double && !double.backtick);
+    let backtick = Multiline::NONE.with_backtick(true);
+    assert!(!backtick.single && !backtick.double && backtick.backtick);
 }
