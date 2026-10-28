@@ -402,7 +402,7 @@ fn format_options_builders_and_result_views_are_complete() {
 
     let doc = parse_strict("A=1\n").unwrap();
     let unchanged = doc.format(&defaults).unwrap();
-    assert!(unchanged.edits().is_empty());
+    assert_eq!(unchanged.edits(), &[]);
     assert_eq!(unchanged.clone().into_edits(), Vec::new());
     assert_eq!(unchanged.into_string(), "A=1\n");
 
