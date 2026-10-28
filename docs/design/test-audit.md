@@ -24,7 +24,7 @@ a guide, not a release gate.
 Measured with `cargo llvm-cov --workspace --all-features --summary-only` after
 the issue #23 expansion:
 
-- Total: 95.00 percent regions and 95.30 percent lines.
+- Total: 95.06 percent regions and 95.37 percent lines.
 - Strong areas: compare, diagnostics, parser decode, Docker, position,
   encoding, editing and serde.
 - Module line coverage:
@@ -33,7 +33,7 @@ the issue #23 expansion:
   - `format.rs`: 95.2 percent.
   - `serde_support.rs`: 95.2 percent.
   - `parser/node.rs`: 95.2 percent.
-  - `adotenv-cli`: 94.2 percent.
+  - `adotenv-cli`: 94.8 percent.
   - `load.rs`: 92.8 percent.
   - `references.rs`: 91.7 percent.
   - `parser/compose.rs`: 93.0 percent.

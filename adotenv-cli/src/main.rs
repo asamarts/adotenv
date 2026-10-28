@@ -1526,8 +1526,13 @@ fn fail(message: String) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::{github_escape_data, github_escape_property, json_string, write_atomic, NEXT_TEMP};
-    use std::sync::atomic::Ordering;
+    use super::{
+        create_temporary, github_escape_data, github_escape_property, json_string, write_atomic,
+        NEXT_TEMP,
+    };
+    use std::sync::{atomic::Ordering, Mutex};
+
+    static WRITE_LOCK: Mutex<()> = Mutex::new(());
 
     #[cfg(not(unix))]
     #[test]
@@ -1595,6 +1600,7 @@ mod tests {
 
     #[test]
     fn write_atomic_creates_missing_files_without_leftovers() {
+        let _guard = WRITE_LOCK.lock().unwrap();
         let directory = std::env::temp_dir().join(format!(
             "adotenv-write-missing-{}-{}",
             std::process::id(),
@@ -1606,6 +1612,33 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "A=1\n");
         let leftovers: Vec<_> = std::fs::read_dir(&directory).unwrap().collect();
         assert_eq!(leftovers.len(), 1);
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn create_temporary_reports_exhaustion() {
+        let _guard = WRITE_LOCK.lock().unwrap();
+        let directory = std::env::temp_dir().join(format!(
+            "adotenv-write-exhaustion-{}-{}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let name = std::ffi::OsStr::new("app.env");
+        let start = NEXT_TEMP.load(Ordering::Relaxed);
+        for offset in 0..16 {
+            let candidate = directory.join(format!(
+                ".app.env.adotenv-{}-{}",
+                std::process::id(),
+                start + offset
+            ));
+            std::fs::write(candidate, "occupied").unwrap();
+        }
+        let error = create_temporary(&directory, name, "new").unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert!(error
+            .to_string()
+            .contains("could not create a temporary file"));
         std::fs::remove_dir_all(&directory).unwrap();
     }
 
