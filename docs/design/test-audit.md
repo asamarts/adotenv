@@ -24,7 +24,7 @@ a guide, not a release gate.
 Measured with `cargo llvm-cov --workspace --all-features --summary-only` after
 the issue #23 expansion:
 
-- Total: 94.99 percent regions and 95.31 percent lines.
+- Total: 95.00 percent regions and 95.30 percent lines.
 - Strong areas: compare, diagnostics, parser decode, Docker, position,
   encoding, editing and serde.
 - Module line coverage:
@@ -33,7 +33,7 @@ the issue #23 expansion:
   - `format.rs`: 95.2 percent.
   - `serde_support.rs`: 95.2 percent.
   - `parser/node.rs`: 95.2 percent.
-  - `adotenv-cli`: 94.1 percent.
+  - `adotenv-cli`: 94.2 percent.
   - `load.rs`: 92.8 percent.
   - `references.rs`: 91.7 percent.
   - `parser/compose.rs`: 93.0 percent.
@@ -50,8 +50,9 @@ average.
   structural and value errors, duplicate and bare policies, non-string keys,
   loaded origins and origins-disabled errors.
 - Resolution covers every operator, every structured error, command failures,
-  retained calls, limits, empty documents, bare-empty file bindings and rule
-  builders.
+  retained calls, limits, empty documents, bare-empty file bindings, caller
+  fallback to file bindings, empty operator arguments and zero-size limits, and
+  rule builders.
 - Loading covers compact and full retention, origin accessors, compact values,
   resolved views, invalid modes, invalid UTF-8, read errors, report retention
   and stable error display.
@@ -81,15 +82,17 @@ average.
 ## Remaining gaps
 
 1. Resolution metric lines that are generic bounds, closing braces or defensive
-   mapping fallbacks. Add only behaviorally meaningful cases.
-2. CLI helper branches for rare write, rename and temporary-file failures.
+   mapping fallbacks. These were reviewed; no public API path reaches the
+   defensive fallbacks without an invalid internal mapping.
+2. CLI helper branches for rare rename, permission and temporary-file
+   exhaustion failures. Testing these meaningfully requires platform error
+   injection and is deferred.
 3. A non-blocking coverage report and bounded mutation testing, tracked
    separately in issue #20.
 4. Sustained scheduled fuzz evidence for the 1.0 gate.
 
 ## Suggested order
 
-1. Resolution behavioral branch review.
-2. CLI filesystem-failure branch review.
-3. Coverage and mutation reporting.
-4. Complete the four scheduled fuzz runs and run the final 1.0 gate.
+1. CLI filesystem-failure branch review.
+2. Coverage and mutation reporting.
+3. Complete the four scheduled fuzz runs and run the final 1.0 gate.

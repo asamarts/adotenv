@@ -943,3 +943,50 @@ fn nested_argument_depth_limits_are_reported() {
         .unwrap_err();
     assert!(matches!(error, ResolveError::DepthExceeded { .. }));
 }
+
+#[test]
+fn caller_first_falls_back_to_the_file_binding() {
+    let doc = parse_strict("A=file\nB=${A}\n").unwrap();
+    let resolved = doc
+        .resolve(
+            |_| None,
+            &ExpandOptions {
+                lookup_order: LookupOrder::CallerFirst,
+                ..ExpandOptions::portable()
+            },
+        )
+        .unwrap();
+    assert_eq!(value(&resolved, 1), Some("file"));
+    assert!(matches!(
+        resolved.entries()[1].segments[0].kind,
+        ResolvedSegmentKind::Variable {
+            origin: Some(ValueOrigin::File { entry: 0, .. }),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn empty_operator_arguments_and_zero_limits_are_explicit() {
+    let doc = parse_strict("SET=value\nA=${MISSING:-}\nB=${SET:+}\nC=\n").unwrap();
+    let resolved = doc.resolve(|_| None, &ExpandOptions::compose()).unwrap();
+    assert_eq!(value(&resolved, 1), Some(""));
+    assert_eq!(value(&resolved, 2), Some(""));
+    assert_eq!(value(&resolved, 3), Some(""));
+
+    let zero = ExpandOptions {
+        max_value_bytes: 0,
+        ..ExpandOptions::compose()
+    };
+    let empty = parse_strict("A=${MISSING:-}\n").unwrap();
+    assert_eq!(value(&empty.resolve(|_| None, &zero).unwrap(), 0), Some(""));
+    let nonempty = parse_strict("A=x\n").unwrap();
+    assert!(matches!(
+        nonempty.resolve(|_| None, &zero),
+        Err(ResolveError::ValueTooLarge {
+            ref key,
+            limit: 0,
+            ..
+        }) if key == "A"
+    ));
+}

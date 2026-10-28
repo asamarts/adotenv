@@ -1526,7 +1526,8 @@ fn fail(message: String) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::{github_escape_data, github_escape_property, json_string};
+    use super::{github_escape_data, github_escape_property, json_string, write_atomic, NEXT_TEMP};
+    use std::sync::atomic::Ordering;
 
     #[cfg(not(unix))]
     #[test]
@@ -1590,6 +1591,22 @@ mod tests {
     fn github_workflow_values_are_escaped() {
         assert_eq!(github_escape_property("a,b:c%\n"), "a%2Cb%3Ac%25%0A");
         assert_eq!(github_escape_data("a,b:c%\r\n"), "a,b:c%25%0D%0A");
+    }
+
+    #[test]
+    fn write_atomic_creates_missing_files_without_leftovers() {
+        let directory = std::env::temp_dir().join(format!(
+            "adotenv-write-missing-{}-{}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let target = directory.join("new.env");
+        write_atomic(&target, "A=1\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "A=1\n");
+        let leftovers: Vec<_> = std::fs::read_dir(&directory).unwrap().collect();
+        assert_eq!(leftovers.len(), 1);
+        std::fs::remove_dir_all(&directory).unwrap();
     }
 
     #[test]
