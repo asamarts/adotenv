@@ -56,6 +56,7 @@ The current release provides:
 | [cli.md](docs/design/cli.md) | Command line tools and machine output |
 | [integrations.md](docs/design/integrations.md) | `config` and Figment adapters |
 | [quality.md](docs/design/quality.md) | Tests, fuzzing, conformance, MSRV |
+| [test-audit.md](docs/design/test-audit.md) | Coverage and integration test gaps |
 | [performance.md](docs/design/performance.md) | Benchmarks and memory |
 | [benchmark-plan.md](docs/design/benchmark-plan.md) | Benchmark program and acceptance criteria |
 | [competitive-analysis.md](docs/design/competitive-analysis.md) | Competitor metrics and gaps |
