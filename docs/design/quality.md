@@ -89,8 +89,47 @@ The comparison rules and current results are in [performance.md](performance.md)
 The MSRV is Rust 1.81. It rises only in a minor release.
 
 The public API follows semver. New variants and fields use non-exhaustive types
-and builders. A breaking release is announced with its compatibility details in the
-release notes.
+and builders. Pull requests run `cargo semver-checks check-release --package
+adotenv` against the latest published core version. A breaking release is
+announced with its compatibility details in the release notes.
+
+## Supply chain
+
+CI runs both advisory and license checks:
+
+```console
+cargo audit --deny warnings
+cargo deny check
+```
+
+`deny.toml` allows only Apache-2.0, MIT and Unicode-3.0 dependencies,
+denies unknown registries and Git sources, and reports duplicate versions as
+warnings. Add a
+reviewed exception to `deny.toml` only when the dependency or duplicate is
+intentional.
+
+## Coverage and mutation
+
+Coverage is a non-blocking CI artifact. CI runs:
+
+```console
+cargo llvm-cov --workspace --all-features --locked --lcov --output-path lcov.info
+cargo llvm-cov report --summary-only
+```
+
+The `lcov.info` file and text summary are uploaded for trend review. There is no
+coverage threshold and coverage alone does not block a release.
+
+Mutation testing runs weekly and on demand in four shards. It targets parser
+diagnostics, key validation, edit verification and formatting equivalence, with
+a bounded timeout and two jobs per shard. Survivors are triage input for
+targeted regression tests, not an automatic release blocker.
+
+```console
+cargo mutants --file src/parser.rs --file src/edit.rs --file src/format.rs \
+  --re 'in (merge_lone_cr|valid_key_in|verify_entry_region|same_meaning)' \
+  --shard 1/4 --timeout 90 --jobs 2
+```
 
 ## Limits
 
