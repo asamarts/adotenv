@@ -1048,3 +1048,288 @@ fn fmt_prints_file_headers_for_multiple_inputs() {
     assert!(output.status.success());
     assert!(stderr(&output).contains("no .env files found"));
 }
+
+#[test]
+fn check_json_keeps_unusual_paths_valid() {
+    let dir = TempDir::new();
+    let file = dir.file("50% done,comma.env", "A=1\n");
+    let output = run(&["check", "--json", file.to_str().unwrap()]);
+    assert!(output.status.success());
+    let json = stdout(&output);
+    assert!(json.contains("50% done,comma.env"));
+    assert!(json.starts_with("{\"version\":1,\"files\":["));
+}
+
+#[cfg(unix)]
+#[test]
+fn check_json_escapes_control_characters_in_paths() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let dir = TempDir::new();
+    let name = OsString::from_vec(b"line\nname\t.env".to_vec());
+    let path = dir.path().join(name);
+    fs::write(&path, "A=1\n").unwrap();
+    let output = run(&["check", "--json", path.to_str().unwrap()]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let json = stdout(&output);
+    assert!(json.contains("line\\nname\\t.env"), "{json}");
+    assert!(!json.contains('\n') || json.lines().count() == 1);
+}
+
+#[test]
+fn stdin_and_recursive_limits_are_enforced() {
+    let output = run(&[]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stdout(&output).contains("Commands:"));
+
+    let output = run(&["--dialect"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("requires a value"));
+
+    let output = run(&["fmt", "-", "-"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("at most once"));
+
+    let output = run(&["diff", "-", "-"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("at most once"));
+}
+
+#[test]
+fn check_json_includes_secondary_spans() {
+    let dir = TempDir::new();
+    let file = dir.file("duplicate.env", "A=1\nA=2\n");
+    let output = run(&["check", "--json", file.to_str().unwrap()]);
+    assert!(output.status.success());
+    let json = stdout(&output);
+    assert!(json.contains("\"secondary_span\":{\"start\":0,\"end\":1}"));
+    assert!(json.contains("\"code\":\"dotenv.duplicate-key\""));
+}
+
+#[test]
+fn diff_reports_missing_baselines_and_candidates() {
+    let dir = TempDir::new();
+    let base = dir.file("base.env", "A=1\n");
+    let candidate = dir.file("candidate.env", "A=2\n");
+    for args in [
+        vec!["diff", "--json", "missing.env", candidate.to_str().unwrap()],
+        vec![
+            "diff",
+            "--format=matrix",
+            "missing.env",
+            candidate.to_str().unwrap(),
+        ],
+        vec!["diff", "--json", base.to_str().unwrap(), "missing.env"],
+        vec![
+            "diff",
+            "--format=matrix",
+            base.to_str().unwrap(),
+            "missing.env",
+        ],
+    ] {
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        assert_eq!(stdout(&output), "", "{args:?}");
+        assert!(stderr(&output).contains("missing.env"), "{args:?}");
+    }
+}
+
+#[test]
+fn diff_matrix_escapes_control_characters_and_states() {
+    let dir = TempDir::new();
+    let base = dir.file("base.env", "A\nB=\nC=\"line\\nnext\"\n");
+    let candidate = dir.file("candidate.env", "A=1\nB=2\nC=x\n");
+    let output = run(&[
+        "diff",
+        "--format",
+        "matrix",
+        base.to_str().unwrap(),
+        candidate.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = stdout(&output);
+    assert!(text.contains("<bare>"), "{text}");
+    assert!(text.contains("\"\""), "{text}");
+    assert!(text.contains("line\\nnext"), "{text}");
+}
+
+#[test]
+fn run_rejects_invalid_docker_child_keys() {
+    let dir = TempDir::new();
+    fs::write(dir.path().join(".env"), "A\0B=value\n").unwrap();
+    let output = run(&[
+        "--dialect",
+        "docker",
+        "run",
+        dir.path().to_str().unwrap(),
+        "--",
+        "echo",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("invalid child environment key"));
+}
+
+#[cfg(unix)]
+#[test]
+fn recursive_roots_refuse_symlinks() {
+    use std::os::unix::fs::symlink;
+
+    let dir = TempDir::new();
+    let outside = TempDir::new();
+    outside.file_at(".env", "A=1\n");
+    let link = dir.path().join("linked");
+    symlink(outside.path(), &link).unwrap();
+
+    let output = run(&["check", "--recursive", link.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("refusing to follow symbolic links"));
+}
+
+#[test]
+fn recursive_stdin_and_file_roots_are_supported() {
+    let output = run_with_stdin(&["check", "--json", "--recursive", "-"], "A=1\n");
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("\"ok\":true"));
+
+    let dir = TempDir::new();
+    let file = dir.file("one.env", "A=1\n");
+    let output = run(&["check", "--json", "--recursive", file.to_str().unwrap()]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("one.env"));
+}
+
+#[test]
+fn fmt_reports_invalid_source_and_recursive_symlink_roots() {
+    let dir = TempDir::new();
+    let bad = dir.file("bad.env", "BAD KEY=value\n");
+    let output = run(&["fmt", bad.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stderr(&output).contains("invalid-key"));
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        let outside = TempDir::new();
+        outside.file_at(".env", "A=1\n");
+        let link = dir.path().join("linked");
+        symlink(outside.path(), &link).unwrap();
+        let output = run(&["fmt", "--recursive", link.to_str().unwrap()]);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(stderr(&output).contains("symbolic links"));
+    }
+}
+
+#[test]
+fn diff_reports_invalid_baselines_for_both_output_modes() {
+    let dir = TempDir::new();
+    let bad = dir.file("bad.env", "BAD KEY=value\n");
+    let good = dir.file("good.env", "A=1\n");
+    for args in [
+        vec![
+            "diff",
+            "--json",
+            bad.to_str().unwrap(),
+            good.to_str().unwrap(),
+        ],
+        vec![
+            "diff",
+            "--format=matrix",
+            bad.to_str().unwrap(),
+            good.to_str().unwrap(),
+        ],
+    ] {
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        assert!(stderr(&output).contains("invalid-key"), "{args:?}");
+        assert_eq!(stdout(&output), "", "{args:?}");
+    }
+}
+
+#[test]
+fn recursive_excludes_absolute_and_file_roots() {
+    let dir = TempDir::new();
+    dir.file_at(".env", "A=1\n");
+    let file = dir.file("one.env", "A=1\n");
+
+    let output = run(&[
+        "check",
+        "--json",
+        "--recursive",
+        "--exclude",
+        dir.path().to_str().unwrap(),
+        dir.path().to_str().unwrap(),
+    ]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stderr(&output).contains("no .env files found"));
+
+    let output = run(&[
+        "check",
+        "--json",
+        "--recursive",
+        "--exclude",
+        file.to_str().unwrap(),
+        file.to_str().unwrap(),
+    ]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stderr(&output).contains("no .env files found"));
+}
+
+#[test]
+fn example_reports_diagnostics_and_still_succeeds() {
+    let dir = TempDir::new();
+    let file = dir.file("bad.env", "A=1\nBAD KEY=secret\n");
+    let output = run(&["example", file.to_str().unwrap()]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stderr(&output).contains("invalid-key"));
+    assert!(!stdout(&output).contains("secret"));
+}
+
+#[test]
+fn empty_excludes_are_ignored() {
+    let dir = TempDir::new();
+    dir.file_at(".env", "A=1\n");
+    let output = run(&[
+        "check",
+        "--json",
+        "--recursive",
+        "--exclude",
+        "",
+        dir.path().to_str().unwrap(),
+    ]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("\"ok\":true"));
+}
+
+#[cfg(unix)]
+#[test]
+fn recursive_roots_reject_non_regular_files() {
+    use std::os::unix::net::UnixListener;
+
+    let dir = TempDir::new();
+    let socket = dir.path().join("socket");
+    let _listener = UnixListener::bind(&socket).unwrap();
+    let output = run(&["check", "--recursive", socket.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("not a regular file or directory"));
+}
+
+#[test]
+fn diff_matrix_handles_empty_keys_and_escaped_cells() {
+    let dir = TempDir::new();
+    let base = dir.file("base.env", "=value\nA=\"tab\\there\"\nB=a|b\n");
+    let candidate = dir.file("candidate.env", "=other\nA=plain\nB=c|d\n");
+    let output = run(&[
+        "--dialect",
+        "compose",
+        "diff",
+        "--format",
+        "matrix",
+        base.to_str().unwrap(),
+        candidate.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = stdout(&output);
+    assert!(text.contains("tab\\there"), "{text}");
+    assert!(text.contains("a\\|b"), "{text}");
+}

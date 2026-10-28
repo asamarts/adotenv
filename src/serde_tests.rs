@@ -271,3 +271,96 @@ fn non_string_keys_report_value_context() {
     assert_eq!(error.key(), Some(""));
     assert!(error.message().contains("u16"));
 }
+
+#[derive(Debug, Deserialize, PartialEq)]
+struct ByteConfig {
+    bytes: Bytes,
+    byte_buf: ByteBuf,
+    identifier: Identifier,
+    unit: Unit,
+}
+
+#[derive(Debug, PartialEq)]
+struct Bytes(Vec<u8>);
+
+impl<'de> Deserialize<'de> for Bytes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct Visitor;
+        impl serde::de::Visitor<'_> for Visitor {
+            type Value = Bytes;
+            fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                formatter.write_str("bytes")
+            }
+            fn visit_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E> {
+                Ok(Bytes(value.to_vec()))
+            }
+            fn visit_byte_buf<E>(self, value: Vec<u8>) -> Result<Self::Value, E> {
+                Ok(Bytes(value))
+            }
+        }
+        deserializer.deserialize_bytes(Visitor)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+struct ByteBuf(Vec<u8>);
+
+impl<'de> Deserialize<'de> for ByteBuf {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct Visitor;
+        impl serde::de::Visitor<'_> for Visitor {
+            type Value = ByteBuf;
+            fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                formatter.write_str("byte buffer")
+            }
+            fn visit_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E> {
+                Ok(ByteBuf(value.to_vec()))
+            }
+            fn visit_byte_buf<E>(self, value: Vec<u8>) -> Result<Self::Value, E> {
+                Ok(ByteBuf(value))
+            }
+        }
+        deserializer.deserialize_byte_buf(Visitor)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+struct Identifier(String);
+
+impl<'de> Deserialize<'de> for Identifier {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct Visitor;
+        impl serde::de::Visitor<'_> for Visitor {
+            type Value = Identifier;
+            fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                formatter.write_str("identifier")
+            }
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E> {
+                Ok(Identifier(value.to_string()))
+            }
+        }
+        deserializer.deserialize_identifier(Visitor)
+    }
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+struct Unit;
+
+#[test]
+fn bytes_byte_buffers_identifiers_and_unit_structs_deserialize() {
+    let doc = parse_strict("bytes=é\nbyte_buf=value\nidentifier=name\nunit=\n").unwrap();
+    let values: ByteConfig = doc.deserialize().unwrap();
+    assert_eq!(values.bytes, Bytes("é".as_bytes().to_vec()));
+    assert_eq!(values.byte_buf, ByteBuf(b"value".to_vec()));
+    assert_eq!(values.identifier, Identifier("name".to_string()));
+    assert_eq!(values.unit, Unit);
+}

@@ -851,3 +851,27 @@ fn resolved_environment_and_errors_expose_origins() {
     assert_eq!(resolved.get("missing"), None);
     assert!(resolved.origin("A").is_some());
 }
+
+#[cfg(feature = "serde")]
+#[test]
+fn serde_errors_without_origins_have_no_line_number() {
+    #[derive(Debug, serde::Deserialize)]
+    #[allow(dead_code)]
+    struct Config {
+        port: u16,
+    }
+
+    let dir = TempDir::new();
+    dir.write(".env", "port=not-a-number\n");
+    let loaded = load_cascade_with_options(
+        dir.path(),
+        "",
+        LoadOptions::new(Dialect::PORTABLE).with_origins(false),
+    )
+    .unwrap();
+    let error = loaded.deserialize::<Config>().unwrap_err();
+    assert_eq!(error.line(), 0);
+    assert_eq!(error.key(), Some("port"));
+    assert!(!error.to_string().starts_with("line "));
+    assert!(error.to_string().contains("u16"));
+}

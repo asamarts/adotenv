@@ -22,31 +22,43 @@ a guide, not a release gate.
 ## Coverage
 
 Measured with `cargo llvm-cov --workspace --all-features --summary-only` after
-the expansion below:
+the issue #23 expansion:
 
-- Total: 94.17 percent regions and 94.42 percent lines.
-- Strong areas: compare, diagnostics, encoding, parser decode, editing,
-  formatting, references and parser presets.
-- Lower areas:
-  - `serde_support.rs`: 85.9 percent lines.
-  - `resolve.rs`: 87.6 percent lines.
-  - `position.rs`: 90.6 percent lines.
-  - `adotenv-cli`: 90.5 percent lines.
-  - `load.rs`: 92.8 percent lines.
-  - `parser/compose.rs`: 93.0 percent lines.
+- Total: 94.99 percent regions and 95.31 percent lines.
+- Strong areas: compare, diagnostics, parser decode, Docker, position,
+  encoding, editing and serde.
+- Module line coverage:
+  - `position.rs`: 97.9 percent.
+  - `encode.rs`: 97.5 percent.
+  - `format.rs`: 95.2 percent.
+  - `serde_support.rs`: 95.2 percent.
+  - `parser/node.rs`: 95.2 percent.
+  - `adotenv-cli`: 94.1 percent.
+  - `load.rs`: 92.8 percent.
+  - `references.rs`: 91.7 percent.
+  - `parser/compose.rs`: 93.0 percent.
+  - `resolve.rs`: 89.2 percent.
+
+The resolution percentage includes many generic bounds, closing braces and
+defensive mapping fallbacks that are not independently executable. The
+behavioral error paths are covered; the metric remains below the workspace
+average.
 
 ## Completed expansion
 
-- Serde covers every scalar shape, structural and value errors, duplicate and
-  bare policies, records, non-string keys, loaded origins and stable display.
-- Resolution covers every structured error, command errors, retained calls,
-  limits and option builders.
+- Serde covers scalar, byte, byte-buffer, identifier and unit-struct shapes,
+  structural and value errors, duplicate and bare policies, non-string keys,
+  loaded origins and origins-disabled errors.
+- Resolution covers every operator, every structured error, command failures,
+  retained calls, limits, empty documents, bare-empty file bindings and rule
+  builders.
 - Loading covers compact and full retention, origin accessors, compact values,
   resolved views, invalid modes, invalid UTF-8, read errors, report retention
   and stable error display.
 - CLI integration covers usage errors, missing files, invalid documents,
-  invalid modes, child startup failures, multi-file formatting and every
-  existing output contract.
+  invalid modes, child startup failures, multi-file formatting, recursive
+  stdin and file roots, absolute and empty excludes, symlink and non-regular
+  roots, invalid baselines, matrix escaping and JSON control-character paths.
 - Formatting covers every option builder, result views, conservative quote
   separation and idempotent normalization.
 - References cover every rule builder, escaped containers, unclosed containers
@@ -68,18 +80,16 @@ the expansion below:
 
 ## Remaining gaps
 
-1. Serde conversion and structural-error branches that remain below the
-   workspace average.
-2. Resolution branch combinations, especially command and nested-container
-   error paths.
-3. Position and encoding edge branches.
-4. A non-blocking coverage report and bounded mutation testing, tracked
+1. Resolution metric lines that are generic bounds, closing braces or defensive
+   mapping fallbacks. Add only behaviorally meaningful cases.
+2. CLI helper branches for rare write, rename and temporary-file failures.
+3. A non-blocking coverage report and bounded mutation testing, tracked
    separately in issue #20.
-5. Sustained scheduled fuzz evidence for the 1.0 gate.
+4. Sustained scheduled fuzz evidence for the 1.0 gate.
 
 ## Suggested order
 
-1. Serde and resolution branch coverage.
-2. Position and encoding edge branches.
+1. Resolution behavioral branch review.
+2. CLI filesystem-failure branch review.
 3. Coverage and mutation reporting.
 4. Complete the four scheduled fuzz runs and run the final 1.0 gate.

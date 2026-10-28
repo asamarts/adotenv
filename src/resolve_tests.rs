@@ -862,3 +862,84 @@ fn command_error_accessors_and_options_builders_are_explicit() {
     assert_eq!(customized.max_depth, 7);
     assert_eq!(customized.max_value_bytes, 9);
 }
+
+#[test]
+fn resolved_document_views_and_rule_customization_are_complete() {
+    let empty = parse_strict("")
+        .unwrap()
+        .resolve(|_| None, &ExpandOptions::portable())
+        .unwrap();
+    assert!(empty.is_empty());
+    assert_eq!(empty.len(), 0);
+    assert_eq!(empty.entries(), &[]);
+    assert_eq!(empty.commands(), &[]);
+
+    let options = ExpandOptions::portable().with_rules(crate::ReferenceRules::NONE);
+    assert_eq!(options.rules, crate::ReferenceRules::NONE);
+
+    let mut dialect = Dialect::PORTABLE;
+    dialect.bare_keys = BareKeys::Empty;
+    let (doc, _) = parse_with("A\nB=${A}\n", dialect);
+    let resolved = doc.resolve(|_| None, &ExpandOptions::portable()).unwrap();
+    assert_eq!(resolved.len(), 2);
+    assert!(!resolved.is_empty());
+    assert_eq!(value(&resolved, 1), Some(""));
+    assert!(matches!(
+        resolved.entries()[1].segments[0].kind,
+        ResolvedSegmentKind::Variable {
+            origin: Some(ValueOrigin::File { entry: 0, .. }),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn required_messages_use_decoded_arguments() {
+    let doc = parse_strict("A=\"${MISSING:?line\\nmessage}\"\n").unwrap();
+    let error = doc
+        .resolve(|_| None, &ExpandOptions::compose())
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        ResolveError::Required {
+            ref message,
+            ..
+        } if message == "line\nmessage"
+    ));
+}
+
+#[test]
+fn nonempty_required_operator_accepts_set_values_and_rejects_missing_ones() {
+    let doc = parse_strict("SET=value\nEMPTY=\nA=${SET?message}\nB=${EMPTY?message}\n").unwrap();
+    let resolved = doc.resolve(|_| None, &ExpandOptions::compose()).unwrap();
+    assert_eq!(value(&resolved, 2), Some("value"));
+    assert_eq!(value(&resolved, 3), Some(""));
+
+    let doc = parse_strict("A=${MISSING?message}\n").unwrap();
+    let error = doc
+        .resolve(|_| None, &ExpandOptions::compose())
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        ResolveError::Required {
+            ref name,
+            ref message,
+            ..
+        } if name == "MISSING" && message == "message"
+    ));
+}
+
+#[test]
+fn nested_argument_depth_limits_are_reported() {
+    let doc = parse_strict("A=${B:-${C:-${D}}}\n").unwrap();
+    let error = doc
+        .resolve(
+            |_| None,
+            &ExpandOptions {
+                max_depth: 1,
+                ..ExpandOptions::compose()
+            },
+        )
+        .unwrap_err();
+    assert!(matches!(error, ResolveError::DepthExceeded { .. }));
+}

@@ -1,4 +1,4 @@
-use alloc::string::String;
+use alloc::string::{String, ToString};
 
 use crate::{ColumnEncoding, LineIndex, Position, PositionError};
 
@@ -286,4 +286,29 @@ fn display_coordinates_require_explicit_checked_conversion() {
     assert_eq!(raw, position(1, 0));
     assert_eq!(raw.one_based(), Ok(position(2, 1)));
     assert_eq!(index.to_offset(raw, ColumnEncoding::Scalar), Ok(2));
+}
+
+#[test]
+fn position_errors_have_stable_display_text() {
+    let cases = [
+        (
+            PositionError::OutOfBounds,
+            "source position is out of bounds",
+        ),
+        (
+            PositionError::InvalidUtf8Boundary,
+            "source offset is not a UTF-8 character boundary",
+        ),
+        (
+            PositionError::SplitSurrogate,
+            "UTF-16 column splits a surrogate pair",
+        ),
+        (
+            PositionError::InsideCrLf,
+            "source offset lies inside a CRLF line ending",
+        ),
+    ];
+    for (error, message) in cases {
+        assert_eq!(error.to_string(), message);
+    }
 }

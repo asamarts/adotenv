@@ -1,4 +1,9 @@
-use alloc::{format, string::String, vec, vec::Vec};
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 
 use crate::{
     encode_value, encode_value_with, parse_with, Dialect, DoubleEscapes, EditError, EncodeError,
@@ -991,5 +996,13 @@ fn capped_next_statement_insertion_can_add_a_physical_separator() {
             .map(|entry| (entry.key(), entry.value()))
             .collect::<Vec<_>>(),
         [("A", Some("x")), ("B", Some("123456"))]
+    );
+}
+
+#[test]
+fn encode_error_has_stable_display_text() {
+    assert_eq!(
+        EncodeError::Unrepresentable.to_string(),
+        "value cannot be represented exactly in the selected dialect and context"
     );
 }
