@@ -5,12 +5,6 @@ name: Fuzz
 on:
   schedule:
     - cron: "23 4 * * 1"
-    # Temporary 1.0 evidence cadence for 2026-10-29:
-    # 09:00, 10:00, 11:00 and 12:00 UTC = 05:00, 06:00, 07:00 and 08:00 EDT.
-    - cron: "0 9 29 10 *"
-    - cron: "0 10 29 10 *"
-    - cron: "0 11 29 10 *"
-    - cron: "0 12 29 10 *"
   workflow_dispatch:
 
 permissions: {}
