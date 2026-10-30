@@ -16,21 +16,23 @@ The current release provides:
 
 ## Current status
 
-The project is at 0.10.4. The 1.0 evidence set is complete: release gates,
-conformance, performance, four controlled fuzz runs and the external alint
-adopter. What remains is the final release gate, the 1.0 tag and publication
-verification.
+The project is at 0.10.4. The 1.0 evidence set was completed on 0.10.4, but a
+pre-release audit found defects in behavior that 1.0 would freeze. They are
+fixed in 0.11.0, as listed in [1.0-fix-round.md](docs/design/1.0-fix-round.md).
+The 1.0 evidence is then collected again on the fixed code.
 
 ## Near-term work
 
-1. Run the final 1.0 release gate, tag 1.0 and verify crates.io, docs.rs and the
-   GitHub Release.
-2. Keep the public API stable. Additive changes use non-exhaustive types and
+1. Complete the fix round and release 0.11.0.
+2. Collect the 1.0 evidence again, tag 1.0 for `adotenv`, `adotenv-process` and
+   `adotenv-cli`, and verify crates.io, docs.rs and the GitHub Release.
+   `adotenv-config` and `adotenv-figment` stay on their own 0.x line.
+3. Keep the public API stable. Additive changes use non-exhaustive types and
    builders.
-3. Start the optional linter and LSP prototypes in #14 after 1.0.
-4. Expand conformance cases only when a real upstream behavior is pinned and
+4. Start the optional linter and LSP prototypes in #14 after 1.0.
+5. Expand conformance cases only when a real upstream behavior is pinned and
    reproducible.
-5. Keep the core dependency-free. New I/O, process or third-party behavior
+6. Keep the core dependency-free. New I/O, process or third-party behavior
    belongs in opt-in features or companion crates.
 
 ## 1.0 criteria
@@ -70,5 +72,6 @@ verification.
 | [benchmark-dashboard.md](docs/design/benchmark-dashboard.md) | Reference results and engineering metrics |
 | [feature-decisions.md](docs/design/feature-decisions.md) | Adopt, defer and reject decisions |
 | [1.0-readiness.md](docs/design/1.0-readiness.md) | Release evidence checklist |
+| [1.0-fix-round.md](docs/design/1.0-fix-round.md) | Pre-1.0 audit fixes and decisions |
 
 Published site: <https://asamarts.github.io/adotenv/>

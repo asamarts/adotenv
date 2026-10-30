@@ -71,6 +71,7 @@ assert_eq!(values.get("A").map(String::as_str), Some("2"));
 - [Benchmark dashboard](design/benchmark-dashboard.md)
 - [Feature decisions](design/feature-decisions.md)
 - [1.0 readiness](design/1.0-readiness.md)
+- [1.0 fix round](design/1.0-fix-round.md)
 
 Source code and issues:
 [github.com/asamarts/adotenv](https://github.com/asamarts/adotenv).

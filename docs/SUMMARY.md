@@ -18,3 +18,4 @@
 - [Benchmark dashboard](design/benchmark-dashboard.md)
 - [Feature decisions](design/feature-decisions.md)
 - [1.0 readiness](design/1.0-readiness.md)
+- [1.0 fix round](design/1.0-fix-round.md)
