@@ -44,8 +44,8 @@ The workspace has five scheduled fuzz targets:
 - formatting.
 
 Each target has a public seed corpus. Scheduled runs use bounded time and memory.
-Manual campaigns are useful during development but do not replace the scheduled
-coverage used for release evidence.
+Host-scheduled timer runs count as release evidence when their run IDs and
+timestamps are recorded. Ad hoc manual campaigns remain development checks.
 
 The fuzz crate also has a local differential target for the simple Portable
 subset against dotenv-compat:
