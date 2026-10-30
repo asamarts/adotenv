@@ -35,7 +35,7 @@ Diagnostic codes and spans are stable. Message text may change.
 
 ## Fuzzing
 
-The workspace has five scheduled fuzz targets:
+The workspace has five bounded fuzz targets:
 
 - parser;
 - edits;
@@ -43,7 +43,7 @@ The workspace has five scheduled fuzz targets:
 - resolution;
 - formatting.
 
-Each target has a public seed corpus. Scheduled runs use bounded time and memory.
+Each target has a public seed corpus. Runs use bounded time and memory.
 Host-scheduled timer runs count as release evidence when their run IDs and
 timestamps are recorded. `scripts/dispatch_fuzz.sh` dispatches one workflow run
 and waits for its conclusion. Ad hoc manual campaigns remain development checks.
@@ -57,7 +57,7 @@ cargo +nightly fuzz run --target x86_64-unknown-linux-gnu differential
 ```
 
 This target is for local investigation and is not part of the five-target
-scheduled evidence.
+controlled evidence.
 
 Run one target with:
 
@@ -105,8 +105,7 @@ cargo deny check
 
 `deny.toml` allows only Apache-2.0, MIT and Unicode-3.0 dependencies,
 denies unknown registries and Git sources, and reports duplicate versions as
-warnings. Add a
-reviewed exception to `deny.toml` only when the dependency or duplicate is
+warnings. Add a reviewed exception to `deny.toml` only when the dependency or duplicate is
 intentional.
 
 ## Coverage and mutation
@@ -124,8 +123,8 @@ coverage threshold and coverage alone does not block a release.
 Mutation testing runs weekly and on demand in four shards. It targets parser
 diagnostics, key validation, edit verification and formatting equivalence, with
 a bounded timeout and two jobs per shard. Survivors are triage input for
-targeted regression tests, not an automatic release blocker. Current edit
-verification survivors are tracked in issue #24.
+targeted regression tests, not an automatic release blocker. Edit
+verification survivors are documented as defensive branches.
 
 ```console
 cargo mutants --file src/parser.rs --file src/edit.rs --file src/format.rs \

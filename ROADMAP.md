@@ -14,22 +14,32 @@ The current release provides:
 - optional file loading with values, origins and reports;
 - optional serde, process, CLI and `config`/Figment adapters.
 
+## Current status
+
+The project is at 0.10.4. The 1.0 evidence set is complete: release gates,
+conformance, performance, four controlled fuzz runs and the external alint
+adopter. What remains is the final release gate, the 1.0 tag and publication
+verification.
+
 ## Near-term work
 
-1. Complete the 1.0 evidence: sustained scheduled fuzz runs, a current
-   performance record and at least one external project using a published crate.
+1. Run the final 1.0 release gate, tag 1.0 and verify crates.io, docs.rs and the
+   GitHub Release.
 2. Keep the public API stable. Additive changes use non-exhaustive types and
    builders.
-3. Expand conformance cases only when a real upstream behavior is pinned and
+3. Decide whether the differential parser fuzz target joins the recurring suite
+   in #22.
+4. Start the optional linter and LSP prototypes in #14 after 1.0.
+5. Expand conformance cases only when a real upstream behavior is pinned and
    reproducible.
-4. Keep the core dependency-free. New I/O, process or third-party behavior
+6. Keep the core dependency-free. New I/O, process or third-party behavior
    belongs in opt-in features or companion crates.
 
 ## 1.0 criteria
 
 - The workspace release gate passes.
 - The conformance corpus passes for every preset.
-- Four consecutive scheduled fuzz runs pass for all five targets.
+- Four consecutive controlled fuzz runs pass for all five targets.
 - A manual performance run is recorded and reviewed.
 - At least one external project confirms use of a published crate.
 - CLI schemas and library contracts are documented and frozen.

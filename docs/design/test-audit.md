@@ -87,12 +87,9 @@ average.
 2. CLI helper branches for rare rename, permission and temporary-file
    exhaustion failures. Testing these meaningfully requires platform error
    injection and is deferred.
-3. A non-blocking coverage report and bounded mutation testing, tracked
-   separately in issue #20.
-4. Sustained scheduled fuzz evidence for the 1.0 gate.
+3. Mutation survivor review for defensive edit-verification branches.
 
 ## Suggested order
 
 1. CLI filesystem-failure branch review.
-2. Coverage and mutation reporting.
-3. Complete the four scheduled fuzz runs and run the final 1.0 gate.
+2. Final 1.0 release gate and publication verification.
