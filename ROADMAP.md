@@ -27,12 +27,10 @@ verification.
    GitHub Release.
 2. Keep the public API stable. Additive changes use non-exhaustive types and
    builders.
-3. Decide whether the differential parser fuzz target joins the recurring suite
-   in #22.
-4. Start the optional linter and LSP prototypes in #14 after 1.0.
-5. Expand conformance cases only when a real upstream behavior is pinned and
+3. Start the optional linter and LSP prototypes in #14 after 1.0.
+4. Expand conformance cases only when a real upstream behavior is pinned and
    reproducible.
-6. Keep the core dependency-free. New I/O, process or third-party behavior
+5. Keep the core dependency-free. New I/O, process or third-party behavior
    belongs in opt-in features or companion crates.
 
 ## 1.0 criteria
@@ -69,7 +67,6 @@ verification.
 | [test-audit.md](docs/design/test-audit.md) | Coverage and integration test gaps |
 | [performance.md](docs/design/performance.md) | Benchmarks and memory |
 | [benchmark-plan.md](docs/design/benchmark-plan.md) | Benchmark program and acceptance criteria |
-| [competitive-analysis.md](docs/design/competitive-analysis.md) | Competitor metrics and gaps |
 | [benchmark-dashboard.md](docs/design/benchmark-dashboard.md) | Reference results and engineering metrics |
 | [feature-decisions.md](docs/design/feature-decisions.md) | Adopt, defer and reject decisions |
 | [1.0-readiness.md](docs/design/1.0-readiness.md) | Release evidence checklist |

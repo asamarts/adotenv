@@ -4,12 +4,12 @@ These are local reference measurements, not CI thresholds.
 
 ## Method
 
-- Reference host: kbench, Intel Core i7-6700HQ, 4 cores and 8 threads, 2.6 GHz,
+- Reference host: Intel Core i7-6700HQ, 4 cores and 8 threads, 2.6 GHz,
   Linux x86_64, rustc 1.97.0. The benchmark process was pinned to one CPU.
 - Release build with a fixed fixture generator.
 - `cargo bench -p adotenv --bench core --locked -- --sample-size 20 --measurement-time 2`
 - The host was otherwise idle. Wall time is recorded; instruction counts are the
-  stable CPU comparison for cross-library work.
+  stable CPU measure.
 
 ## Core workloads
 
@@ -60,12 +60,8 @@ per key. This removes two per-key maps from the retained loader.
 
 ## Budgets
 
-The comparison harness is the source of these budgets. Reference results are
-recorded on the kbench host. Run the full check with:
-
-```console
-python3 scripts/compare.py --check-budgets
-```
+Budgets are checked on the reference host before a release, with the same
+fixtures as the tables above.
 
 | Profile | Instructions | Peak RSS | Retained RSS |
 |---|---:|---:|---:|
@@ -92,25 +88,6 @@ For three 65,536-entry files:
 
 Matrix output retains one row per key because every column is needed. Two-file
 diff streams candidates and buffers output until all candidates validate.
-
-## Comparison with other parsers
-
-The closest comparison is `adotenv::parse` followed by collecting effective
-values. Other crates return maps or load into the environment directly.
-
-Fixture: 65,536 compatible declarations, 1.8 MB source.
-
-| Implementation | Instructions | Live memory | Peak |
-|---|---:|---:|---:|
-| adotenv parse | 272M | 23.6 MB | 32.0 MB |
-| adotenv parse + map | 377M | 4.6 MB | 32.0 MB |
-| dotenvy iterator + Vec | 373M | 5.0 MB | 15.7 MB |
-| dotenv-compat parse | 307M | 9.5 MB | 18.6 MB |
-| dotenv-ng input-only load | 406M | 7.9 MB | 20.4 MB |
-| dotenv-parser map | 1,488M | 7.1 MB | 50.1 MB |
-
-adotenv retains more syntax than the other parsers, including spans, items and
-diagnostics. Values-only loading removes that overhead when it is not needed.
 
 ## Budget
 

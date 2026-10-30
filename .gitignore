@@ -2,9 +2,6 @@
 /conformance/rust/target
 Cargo.lock.bak
 
-# Standalone comparison harness build output
-benchmarks/compare/target/
-
 # Python bytecode
 __pycache__/
 

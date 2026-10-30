@@ -48,17 +48,6 @@ Host-scheduled timer runs count as release evidence when their run IDs and
 timestamps are recorded. `scripts/dispatch_fuzz.sh` dispatches one workflow run
 and waits for its conclusion. Ad hoc manual campaigns remain development checks.
 
-The fuzz crate also has a local differential target for the simple Portable
-subset against dotenv-compat:
-
-```console
-cd fuzz
-cargo +nightly fuzz run --target x86_64-unknown-linux-gnu differential
-```
-
-This target is for local investigation and is not part of the five-target
-controlled evidence.
-
 Run one target with:
 
 ```console

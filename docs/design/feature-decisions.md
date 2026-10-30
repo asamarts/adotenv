@@ -14,7 +14,7 @@ Feature decisions use these rules:
 | Area | Decision | Reason |
 |---|---|---|
 | Values-only parsing | Adopt | Added `parse_values` and `parse_values_with`; no document metadata is retained. |
-| Linter rules and fixes | Incubate as a companion crate | dotenv-linter has 14 opinionated checks. Lint policy does not belong in the parser core. |
+| Linter rules and fixes | Incubate as a companion crate | Lint checks are opinionated policy. Lint policy does not belong in the parser core. |
 | LSP and editor support | Incubate as a companion crate | adotenv already has spans, diagnostics and edits. An LSP needs editor protocol work, not parser changes. |
 | Encryption and vault files | Reject for the core | Crypto, key handling and secret distribution are a different product. Keep adotenv usable as a literal parser. |
 | Implicit file search | Reject | Loading is explicit by directory, mode or ordered file list. Hidden search changes behavior by working directory. |
@@ -28,7 +28,7 @@ Feature decisions use these rules:
 
 ## Linter companion
 
-dotenv-linter demonstrates demand for checks such as duplicate keys, unordered
+Useful checks include duplicate keys, unordered
 keys, lowercase keys, quote style, whitespace, leading characters and schema
 rules. adotenv should not add those policies to the parser.
 
@@ -38,8 +38,8 @@ parsing.
 
 ## LSP companion
 
-Editor demand is visible in ecolog-lsp, which provides completion, definition,
-hover, references, rename, diagnostics and value masking across many languages.
+An editor integration needs completion, definition, hover, references, rename,
+diagnostics and value masking.
 
 A future `adotenv-lsp` crate can reuse `Document` spans and `VerifiedEdits`.
 It should keep value masking opt-in and avoid ambient environment lookup by

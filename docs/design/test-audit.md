@@ -16,8 +16,7 @@ a guide, not a release gate.
 - Adapter tests cover `adotenv-process`, `adotenv-config` and
   `adotenv-figment`.
 - Conformance covers 80 pinned cases and 20 profiles.
-- Six fuzz targets cover parser, edits, encoding, resolution, format and a local
-  differential parser path.
+- Five fuzz targets cover parser, edits, encoding, resolution and format.
 
 ## Coverage
 

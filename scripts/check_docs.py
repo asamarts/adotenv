@@ -12,7 +12,6 @@ FILES = [
     ROOT / "README.md",
     ROOT / "ROADMAP.md",
     ROOT / "RELEASING.md",
-    ROOT / "benchmarks" / "compare" / "README.md",
     *sorted(ROOT.glob("adotenv-*/README.md")),
     *sorted((ROOT / "docs").rglob("*.md")),
 ]

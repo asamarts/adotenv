@@ -1,19 +1,19 @@
 # Benchmark program
 
-The goal is to measure adotenv against the main Rust `.env` parsers with
-reproducible evidence and to keep adotenv at the front of the comparison on
-material metrics.
+The goal is reproducible performance evidence for adotenv: parse, values-only,
+map building, loading, editing and formatting throughput, memory and binary
+size, with budgets that block regressions.
 
 ## Quiet host
 
-Use `kbench` through SSH for the reference run.
+Use a dedicated reference host for release measurements.
 
 - Intel Core i7-6700HQ, 4 cores and 8 threads, 2.6 GHz
 - 15 GiB RAM
 - Linux x86_64
 - rustc and cargo from the stable toolchain
 - hyperfine and valgrind installed
-- Record load average, hostname, rustc version and fixture hashes with every run
+- Record load average, rustc version and fixture hashes with every run
 
 Run on an otherwise idle host. Do not use shared-runner wall time as a release
 threshold.
@@ -22,31 +22,26 @@ threshold.
 
 ### 1. Harness and reproducibility
 
-- [x] Standalone comparison crate with pinned competitor versions.
 - [x] Simple 128-entry and 65,536-entry fixtures.
 - [x] Mixed fixture with quoting, spacing, Unicode, comments and assigned values.
 - [x] Wall time, CPU time, callgrind instructions, peak RSS, retained RSS and
   stripped binary size.
-- [x] One-command report generation and optional document update.
 - [x] Budget check for selected profiles.
-- [x] Record fixture hashes and host metadata in the JSON result.
+- [x] Record fixture hashes and host metadata with every result.
 - [x] Add a real-world corpus from representative public `.env` files.
-- [x] Add a per-dialect adotenv matrix.
+- [x] Add a per-dialect matrix.
 
-### 2. Comparable output
+### 2. Output profiles
 
 - [x] Report native-map and values-only paths separately.
-- [x] Record hash-map versus ordered-map costs as an API tradeoff: adotenv exposes ordered maps; competitors expose unordered maps.
-- [x] Add loader profiles where the competitors expose them; comparable stream profiles do not exist.
-- [x] Exclude or clearly label non-comparable APIs.
+- [x] Record the cost of ordered maps as an API tradeoff.
+- [x] Add default, values-only and full-report loader profiles.
 
 ### 3. Engineering metrics
 
-- [x] Measure clean release build time for each parser demo.
-- [x] Record binary size per feature set.
-- [x] Record dependency count, MSRV and build-script requirements.
-- [x] Record edit, format, sort and compare throughput for adotenv-only
-  workloads where no competitor equivalent exists.
+- [x] Measure clean release build time.
+- [x] Record library size per feature set.
+- [x] Record edit, format, sort and compare throughput.
 
 ### 4. Optimization
 
@@ -59,18 +54,17 @@ threshold.
 
 ### 5. Reporting
 
-- [x] Generate a benchmark page for the documentation site.
-- [x] Include method, host, versions, raw JSON links and budgets.
-- [x] Record repeated runs and median; raw hyperfine JSON retains the sample set.
-- [x] Keep historical results out of the current docs; store raw artifacts
-  separately.
+- [x] Publish a benchmark page on the documentation site.
+- [x] Include method, host and budgets.
+- [x] Record repeated runs and the median.
+- [x] Keep historical results out of the current docs.
 
 ### 6. Release gates
 
 - [x] Normal CI runs benchmark smoke only.
 - [x] Manual budget check exists.
-- [x] Run the complete comparison on kbench before a performance claim or a 1.0
-  release.
+- [x] Run the complete reference measurement before a performance claim or a
+  1.0 release.
 - [x] Compare against the previous accepted baseline and require an explanation
   for a 1.5x to 2x regression.
 - [x] Block above 2x until fixed or explicitly accepted.
@@ -78,27 +72,23 @@ threshold.
 ## Current reference run
 
 The current reference run uses the simple 128-entry and 65,536-entry
-fixtures, the mixed fixture, CPU time, callgrind instructions, RSS and
-parse-only binary sizes. The comparison crate remains outside the published
-package and the normal workspace.
+fixtures, the mixed fixture, the real-world corpus, CPU time, callgrind
+instructions, RSS and parse-only binary size. Results are on the
+[benchmark dashboard](benchmark-dashboard.md).
 
-The benchmark matrix is complete. Two performance gaps remain accepted for
-now:
+Two performance gaps remain accepted for now:
 
-- mixed and real-world map building is slower than dotenv-compat because
-  adotenv returns an ordered map and retains the lossless document;
-- the parse-only binary is about 24 percent larger than the smallest measured
-  parser.
+- mixed and real-world map building pays for the ordered map and the retained
+  lossless document;
+- the parse-only binary is larger than a values-only parser would need.
 
-Both gaps are recorded in the competitive analysis and remain candidates for
-later optimization.
+Both remain candidates for later optimization.
 
 ## Acceptance for 1.0
 
-- The comparison covers simple, mixed and real-world fixtures.
-- All compared parsers use the same input and output definition.
+- The measurement covers simple, mixed and real-world fixtures.
 - Wall time, CPU time, instructions, RSS and binary size are recorded.
-- Results are reproducible with one command on kbench.
+- Results are reproducible on the reference host.
 - The docs site publishes the current results and method.
 - Performance budgets pass.
 - Any remaining gap is documented with a reason.
