@@ -45,7 +45,8 @@ The workspace has five scheduled fuzz targets:
 
 Each target has a public seed corpus. Scheduled runs use bounded time and memory.
 Host-scheduled timer runs count as release evidence when their run IDs and
-timestamps are recorded. Ad hoc manual campaigns remain development checks.
+timestamps are recorded. `scripts/dispatch_fuzz.sh` dispatches one workflow run
+and waits for its conclusion. Ad hoc manual campaigns remain development checks.
 
 The fuzz crate also has a local differential target for the simple Portable
 subset against dotenv-compat:

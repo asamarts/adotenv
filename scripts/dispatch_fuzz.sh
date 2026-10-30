@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Dispatch one controlled fuzz evidence run and wait for its conclusion.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
