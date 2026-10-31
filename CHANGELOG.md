@@ -21,6 +21,15 @@ The 1.0 fix round. See [1.0-fix-round.md](docs/design/1.0-fix-round.md).
   declarations frees the key.
 - **Breaking:** `sort` keeps two keys connected by a one-way reference in their
   source order, so resolved values never change. Other keys still sort by name.
+- **Breaking:** in the Node and Python presets, each blank or whitespace-only
+  line is its own `Blank` item instead of leading text of the next item. Groups,
+  leading comments, removal, sorting, blank-line collapsing and portability
+  checks now agree with the other presets. Parsed values do not change.
+- **Breaking:** in the Compose preset, and in dialects with
+  `QuotedTail::NextStatement`, a quoted entry's item includes the trailing
+  whitespace, inline comment and line ending when no other statement follows on
+  that line. `Entry::inline_comment` returns that comment. Parsed values do not
+  change.
 - **Breaking (CLI):** every read or write failure exits with `2`, including in
   `check` and `fmt`. Multi-file `check` and `fmt` exit with the highest code
   across files.
@@ -38,6 +47,10 @@ The 1.0 fix round. See [1.0-fix-round.md](docs/design/1.0-fix-round.md).
 
 ### Fixed
 
+- Parsing stays linear when many statements share one physical line in Compose
+  and Node, including with a line byte limit.
+- Diagnostics for an unterminated quoted key count line breaks in the leading
+  whitespace.
 - `sort` handles a last group without a final line ending.
 - Trimming keeps a whitespace-only last line that has no line ending, and
   `FinalNewline::Ensure` no longer adds a second line ending after collapsed
@@ -48,6 +61,7 @@ The 1.0 fix round. See [1.0-fix-round.md](docs/design/1.0-fix-round.md).
 
 ### Documentation
 
+- `DoubleEscapes` rustdoc shows single backslashes.
 - Text edits apply in reverse order of the returned slice. Edits that start at
   the same offset are ordered for that.
 - `cli.md` documents every JSON field, and a test keeps it in sync.
