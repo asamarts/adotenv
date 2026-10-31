@@ -729,6 +729,7 @@ fn resolve_error_key(error: &ResolveError) -> &str {
         | ResolveError::Cycle { key, .. }
         | ResolveError::DepthExceeded { key, .. }
         | ResolveError::ValueTooLarge { key, .. }
+        | ResolveError::OutputTooLarge { key, .. }
         | ResolveError::Command { key, .. } => key,
     }
 }

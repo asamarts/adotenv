@@ -47,7 +47,7 @@ Caller values are literal and are not expanded again.
 | Scope | sequential or whole-file |
 | Unresolved variables | empty, kept literal or error |
 | Quote and escape rules | single quotes, escaped dollars, backticks |
-| Limits | nesting depth and expanded bytes per value |
+| Limits | nesting depth, expanded bytes per value and total output bytes |
 
 Sequential scope uses the latest earlier binding. Whole-file scope uses the final
 binding. With no caller seed, `A=base` followed by `A=${A}x` gives `basex` in
@@ -58,6 +58,14 @@ Nested file provenance is retained.
 
 Resolution reports required variables, cycles, depth and size limits as
 structured errors. It never loops on cycles.
+
+Nested provenance copies the referenced value's segments, so references that
+repeat each other can make the output grow much faster than the file.
+`max_output_bytes` bounds the whole output of one resolution: every resolved
+value and every segment counts, nested parts included, with a fixed overhead
+per segment. The budget is checked before each copy is made. Presets allow
+64 MiB, several times what a 65,536-entry file needs. Exceeding it returns
+`ResolveError::OutputTooLarge` with the entry being resolved and the limit.
 
 ## Commands
 

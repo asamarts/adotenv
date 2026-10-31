@@ -4,6 +4,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write as _;
 use proptest::prelude::*;
 
 use crate::{
@@ -989,4 +990,121 @@ fn empty_operator_arguments_and_zero_limits_are_explicit() {
             ..
         }) if key == "A"
     ));
+}
+
+fn doubling_chain(base: &str, lines: usize) -> String {
+    let mut source = alloc::format!("L0={base}\n");
+    for line in 1..=lines {
+        writeln!(
+            source,
+            "L{line}=${{L{previous}}}${{L{previous}}}",
+            previous = line - 1
+        )
+        .unwrap();
+    }
+    source
+}
+
+#[test]
+fn doubling_references_stop_at_the_output_budget() {
+    let defaults = ExpandOptions::portable();
+    assert_eq!(defaults.max_output_bytes, 67_108_864);
+    for (base, lines) in [("", 40), ("x", 19)] {
+        let source = doubling_chain(base, lines);
+        let error = resolve(&source, |_| None, &defaults).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ResolveError::OutputTooLarge { limit, ref key, .. }
+                    if limit == defaults.max_output_bytes && key.starts_with('L')
+            ),
+            "{error:?}"
+        );
+    }
+    let compose = resolve(&doubling_chain("", 40), |_| None, &ExpandOptions::compose());
+    assert!(matches!(compose, Err(ResolveError::OutputTooLarge { .. })));
+}
+
+#[test]
+fn repeated_copies_of_a_large_value_count_against_the_output_budget() {
+    let mut source = alloc::format!("A={}\n", "x".repeat(65_536));
+    for index in 0..1_000 {
+        writeln!(source, "B{index}=${{A}}").unwrap();
+    }
+    let error = resolve(&source, |_| None, &ExpandOptions::portable()).unwrap_err();
+    assert!(
+        matches!(error, ResolveError::OutputTooLarge { .. }),
+        "{error:?}"
+    );
+    let raised = ExpandOptions::portable().with_max_output_bytes(usize::MAX);
+    let resolved = resolve(&source, |_| None, &raised).unwrap();
+    assert_eq!(resolved.len(), 1_001);
+}
+
+#[test]
+fn output_budget_errors_name_the_entry_and_limit() {
+    let options = ExpandOptions::portable().with_max_output_bytes(2_000);
+    let source = "A=xxxxxxxxxx\nB=$A$A$A$A$A$A$A$A$A$A\n";
+    let error = resolve(source, |_| None, &options).unwrap_err();
+    let ResolveError::OutputTooLarge { key, limit, span } = &error else {
+        panic!("expected an output budget error, got {error:?}");
+    };
+    assert_eq!(key, "B");
+    assert_eq!(*limit, 2_000);
+    assert_eq!(&source[span.clone()], "$A$A$A$A$A$A$A$A$A$A");
+    assert_eq!(
+        error.to_string(),
+        "resolution output exceeds 2000 bytes while resolving B"
+    );
+    let resolved = resolve(source, |_| None, &options.with_max_output_bytes(100_000)).unwrap();
+    assert_eq!(value(&resolved, 1).map(str::len), Some(100));
+
+    let zero = ExpandOptions::portable().with_max_output_bytes(0);
+    assert!(matches!(
+        resolve("A=x\n", |_| None, &zero),
+        Err(ResolveError::OutputTooLarge { ref key, limit: 0, .. }) if key == "A"
+    ));
+}
+
+#[test]
+fn output_budget_covers_lookup_and_command_values() {
+    let options = ExpandOptions::portable().with_max_output_bytes(10_000);
+    let source = "A=$X$X$X$X\n";
+    let large = |_: &str| Some("y".repeat(4_000));
+    assert!(matches!(
+        resolve(source, large, &options),
+        Err(ResolveError::OutputTooLarge { .. })
+    ));
+    assert!(resolve(source, |_| Some("y".to_string()), &options).is_ok());
+
+    let doc = parse_strict("A=$(one)$(two)$(three)\n").unwrap();
+    let failure = doc
+        .resolve_with_commands(
+            |_| None,
+            |_| Ok("z".repeat(4_000)),
+            None,
+            &ExpandOptions::dotenv_expand().with_max_output_bytes(10_000),
+        )
+        .unwrap_err();
+    assert!(matches!(failure.error, ResolveError::OutputTooLarge { .. }));
+    assert_eq!(failure.commands.len(), 2);
+}
+
+#[test]
+fn default_output_budget_resolves_large_documents() {
+    let mut source = String::new();
+    for index in 0..65_536 {
+        match index % 4 {
+            0 => writeln!(source, "K{index}=literal-${{UNCHANGED}} # comment"),
+            1 => writeln!(source, "export K{index}='Unicode: café'"),
+            2 => writeln!(source, "K{index}=\"escaped\\nline\\tand\\\\slash\""),
+            _ => writeln!(source, "K{index}=${{K{}}}/x", index - 1),
+        }
+        .unwrap();
+    }
+    for options in [ExpandOptions::portable(), ExpandOptions::compose()] {
+        let resolved =
+            resolve(&source, |key| Some(alloc::format!("bench-{key}")), &options).unwrap();
+        assert_eq!(resolved.len(), 65_536);
+    }
 }

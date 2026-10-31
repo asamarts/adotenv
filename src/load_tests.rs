@@ -356,6 +356,39 @@ fn loaded_resolution_reports_scope_and_origin_failures() {
 }
 
 #[test]
+fn loaded_resolution_applies_the_output_budget() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=xxxxxxxxxx\n");
+    dir.write(".env.local", "B=$A$A$A$A$A$A$A$A$A$A\n");
+    let loaded = load_cascade(dir.path(), "").unwrap();
+    let options = ExpandOptions::portable()
+        .with_scope(ExpandScope::WholeFile)
+        .with_max_output_bytes(2_000);
+    for error in [
+        loaded.resolve_decoded(|_| None, &options).unwrap_err(),
+        loaded.resolve_contextual(|_| None, &options).unwrap_err(),
+    ] {
+        assert_eq!(error.key(), Some("B"));
+        assert!(error
+            .message()
+            .contains("resolution output exceeds 2000 bytes"));
+        assert_eq!(
+            error.origin().unwrap().path(),
+            dir.path().join(".env.local")
+        );
+    }
+    let options = options.with_max_output_bytes(100_000);
+    assert_eq!(
+        loaded
+            .resolve_decoded(|_| None, &options)
+            .unwrap()
+            .get("B")
+            .map(str::len),
+        Some(100)
+    );
+}
+
+#[test]
 fn contextual_resolution_preserves_quote_and_escape_context() {
     let dir = TempDir::new();
     dir.write(".env", "A='${B}'\nB=value\nC=\"\\$B\"\nD=${B}\n");

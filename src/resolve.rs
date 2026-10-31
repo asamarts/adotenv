@@ -66,6 +66,13 @@ pub struct ExpandOptions {
     pub max_depth: usize,
     /// Maximum resolved bytes for one entry value.
     pub max_value_bytes: usize,
+    /// Maximum approximate bytes of one resolution's output.
+    ///
+    /// Resolved values and every provenance segment count, nested parts
+    /// included, so each copy of a referenced value is charged again. Each
+    /// segment and entry also counts a fixed overhead for its structure. The
+    /// budget is checked before a copy is made. Presets use 64 MiB.
+    pub max_output_bytes: usize,
 }
 
 impl ExpandOptions {
@@ -105,6 +112,12 @@ impl ExpandOptions {
         self.max_value_bytes = value;
         self
     }
+    /// Set the maximum approximate size of one resolution's output.
+    #[must_use]
+    pub const fn with_max_output_bytes(mut self, value: usize) -> Self {
+        self.max_output_bytes = value;
+        self
+    }
 }
 impl ExpandOptions {
     /// Portable-style basic variables with file-first sequential bindings.
@@ -117,6 +130,7 @@ impl ExpandOptions {
             unresolved: Unresolved::Keep,
             max_depth: 64,
             max_value_bytes: 1_048_576,
+            max_output_bytes: 67_108_864,
         }
     }
     /// Compose-style operators and nesting with file-first sequential bindings.
@@ -400,6 +414,15 @@ pub enum ResolveError {
         /// Entry value or line span.
         span: Range<usize>,
     },
+    /// The resolution output exceeded the configured byte budget.
+    OutputTooLarge {
+        /// Entry being resolved.
+        key: String,
+        /// Configured limit.
+        limit: usize,
+        /// Entry value or line span.
+        span: Range<usize>,
+    },
     /// A command callback failed.
     Command {
         /// Entry being resolved.
@@ -445,6 +468,12 @@ impl fmt::Display for ResolveError {
             Self::ValueTooLarge { key, limit, .. } => {
                 write!(formatter, "resolved value for {key} exceeds {limit} bytes")
             }
+            Self::OutputTooLarge { key, limit, .. } => {
+                write!(
+                    formatter,
+                    "resolution output exceeds {limit} bytes while resolving {key}"
+                )
+            }
             Self::Command { key, message, .. } => {
                 write!(
                     formatter,
@@ -489,18 +518,7 @@ impl Document<'_> {
     where
         F: Fn(&str) -> Option<String>,
     {
-        let mut resolver = Resolver {
-            document: self,
-            lookup,
-            options: *options,
-            bindings: BTreeMap::new(),
-            cache: BTreeMap::new(),
-            stack: Vec::new(),
-            commands: None,
-            source_identity: None,
-            command_calls: Vec::new(),
-        };
-        resolver.resolve_document()
+        Resolver::new(self, lookup, options, None, None).resolve_document()
     }
 
     /// Resolve with an explicit command-substitution callback.
@@ -525,17 +543,13 @@ impl Document<'_> {
         F: Fn(&str) -> Option<String>,
         C: FnMut(CommandContext<'_>) -> Result<String, CommandError>,
     {
-        let mut resolver = Resolver {
-            document: self,
+        let mut resolver = Resolver::new(
+            self,
             lookup,
-            options: *options,
-            bindings: BTreeMap::new(),
-            cache: BTreeMap::new(),
-            stack: Vec::new(),
-            commands: Some(&mut commands),
-            source_identity: source_identity.map(str::to_string),
-            command_calls: Vec::new(),
-        };
+            options,
+            Some(&mut commands),
+            source_identity.map(str::to_string),
+        );
         match resolver.resolve_document() {
             Ok(mut document) => {
                 document.commands = core::mem::take(&mut resolver.command_calls);
@@ -551,43 +565,97 @@ impl Document<'_> {
 
 type CommandCallback<'a> = dyn FnMut(CommandContext<'_>) -> Result<String, CommandError> + 'a;
 
+/// Fixed charge for one segment against [`ExpandOptions::max_output_bytes`].
+const SEGMENT_BYTES: usize = core::mem::size_of::<ResolvedSegment>();
+/// Fixed charge for one entry against [`ExpandOptions::max_output_bytes`].
+const ENTRY_BYTES: usize = core::mem::size_of::<ResolvedEntry>();
+/// Fixed charge for one recorded command call.
+const COMMAND_BYTES: usize = core::mem::size_of::<CommandCall>();
+
 struct Resolver<'a, 'src, F> {
     document: &'a Document<'src>,
     lookup: F,
     options: ExpandOptions,
     bindings: BTreeMap<&'a str, usize>,
-    cache: BTreeMap<usize, ResolvedEntry>,
+    /// Resolved entries by entry id. Entries move into the output at the end.
+    cache: Vec<Option<Cached>>,
     stack: Vec<usize>,
     commands: Option<&'a mut CommandCallback<'a>>,
     source_identity: Option<String>,
     command_calls: Vec<CommandCall>,
+    /// Bytes charged against [`ExpandOptions::max_output_bytes`].
+    output_bytes: usize,
 }
 
+struct Cached {
+    entry: ResolvedEntry,
+    /// Charged size of `entry.segments`, nested parts included.
+    weight: usize,
+}
+
+/// Segments with their charged size, nested parts included.
+#[derive(Default)]
+struct Parts {
+    segments: Vec<ResolvedSegment>,
+    weight: usize,
+}
+
+impl Parts {
+    fn one(segment: ResolvedSegment, weight: usize) -> Self {
+        Self {
+            segments: vec![segment],
+            weight,
+        }
+    }
+}
+
+/// A variable binding found by lookup. File bindings stay in the cache until
+/// a segment actually needs a copy of their provenance.
 enum Bound {
     Unset,
-    Value {
-        text: String,
-        parts: Vec<ResolvedSegment>,
-        origin: ValueOrigin,
-    },
+    Lookup(String),
+    /// A bare declaration read as empty under [`BareKeys::Empty`].
+    Empty(usize),
+    /// A resolved, cached file binding.
+    File(usize),
 }
 
-impl<'a, F> Resolver<'a, '_, F>
+impl<'a, 'src, F> Resolver<'a, 'src, F>
 where
     F: Fn(&str) -> Option<String>,
 {
+    fn new(
+        document: &'a Document<'src>,
+        lookup: F,
+        options: &ExpandOptions,
+        commands: Option<&'a mut CommandCallback<'a>>,
+        source_identity: Option<String>,
+    ) -> Self {
+        Self {
+            document,
+            lookup,
+            options: *options,
+            bindings: BTreeMap::new(),
+            cache: core::iter::repeat_with(|| None)
+                .take(document.entries.len())
+                .collect(),
+            stack: Vec::new(),
+            commands,
+            source_identity,
+            command_calls: Vec::new(),
+            output_bytes: 0,
+        }
+    }
+
     fn resolve_document(&mut self) -> Result<ResolvedDocument, ResolveError> {
-        let entries = match self.options.scope {
+        match self.options.scope {
             ExpandScope::Sequential => {
-                let mut entries = Vec::new();
                 for entry in self.document.entries() {
-                    let entry_result = self.resolve_entry(entry.id())?;
+                    self.resolve_entry(entry.id())?;
                     if entry.participates_in_lookup() {
                         self.bindings.insert(entry.key(), entry.id());
                     }
-                    entries.push(entry_result);
                 }
-                entries
             }
             ExpandScope::WholeFile => {
                 for entry in self.document.entries() {
@@ -595,22 +663,38 @@ where
                         self.bindings.insert(entry.key(), entry.id());
                     }
                 }
-                let mut entries = Vec::new();
                 for entry in self.document.entries() {
-                    entries.push(self.resolve_entry(entry.id())?);
+                    self.resolve_entry(entry.id())?;
                 }
-                entries
             }
-        };
+        }
+        let entries = self
+            .cache
+            .iter_mut()
+            .map(|cached| cached.take().expect("every entry was resolved").entry)
+            .collect();
         Ok(ResolvedDocument {
             entries,
             commands: Vec::new(),
         })
     }
 
-    fn resolve_entry(&mut self, id: usize) -> Result<ResolvedEntry, ResolveError> {
-        if let Some(cached) = self.cache.get(&id) {
-            return Ok(cached.clone());
+    /// Charge `bytes` against the output budget for the entry being resolved.
+    fn charge(&mut self, entry: Entry<'_>, bytes: usize) -> Result<(), ResolveError> {
+        self.output_bytes = self.output_bytes.saturating_add(bytes);
+        if self.output_bytes > self.options.max_output_bytes {
+            return Err(ResolveError::OutputTooLarge {
+                key: entry.key().to_string(),
+                limit: self.options.max_output_bytes,
+                span: entry.value_span().unwrap_or_else(|| entry.line_span()),
+            });
+        }
+        Ok(())
+    }
+
+    fn resolve_entry(&mut self, id: usize) -> Result<(), ResolveError> {
+        if self.cache[id].is_some() {
+            return Ok(());
         }
         let entry = self
             .document
@@ -643,27 +727,35 @@ where
         self.stack.push(id);
         let result = self.resolve_entry_value(entry);
         self.stack.pop();
-        let resolved = result?;
-        self.cache.insert(id, resolved.clone());
-        Ok(resolved)
+        self.cache[id] = Some(result?);
+        Ok(())
     }
 
-    fn resolve_entry_value(&mut self, entry: Entry<'a>) -> Result<ResolvedEntry, ResolveError> {
+    fn resolve_entry_value(&mut self, entry: Entry<'a>) -> Result<Cached, ResolveError> {
         let key = entry.key().to_string();
         let state = entry.state();
         let Some(value) = entry.value() else {
-            return Ok(ResolvedEntry {
-                entry: entry.id(),
-                key,
-                state,
-                value: None,
-                effective_value: effective_binding(entry, None),
-                segments: Vec::new(),
+            let effective_value = effective_binding(entry, None);
+            self.charge(
+                entry,
+                ENTRY_BYTES + key.len() + effective_value.as_ref().map_or(0, String::len),
+            )?;
+            return Ok(Cached {
+                entry: ResolvedEntry {
+                    entry: entry.id(),
+                    key,
+                    state,
+                    value: None,
+                    effective_value,
+                    segments: Vec::new(),
+                },
+                weight: 0,
             });
         };
         let references = entry.references();
-        let segments = self.resolve_segments(entry, value, 0..value.len(), None, &references)?;
-        let resolved = segments
+        let parts = self.resolve_segments(entry, value, 0..value.len(), None, &references)?;
+        let resolved = parts
+            .segments
             .iter()
             .map(|segment| segment.value.as_str())
             .collect::<String>();
@@ -674,13 +766,24 @@ where
                 span: entry.value_span().unwrap_or_else(|| entry.line_span()),
             });
         }
-        Ok(ResolvedEntry {
-            entry: entry.id(),
-            effective_value: effective_binding(entry, Some(&resolved)),
-            key,
-            state,
-            value: Some(resolved),
-            segments,
+        let effective_value = effective_binding(entry, Some(&resolved));
+        self.charge(
+            entry,
+            ENTRY_BYTES
+                + key.len()
+                + resolved.len()
+                + effective_value.as_ref().map_or(0, String::len),
+        )?;
+        Ok(Cached {
+            entry: ResolvedEntry {
+                entry: entry.id(),
+                effective_value,
+                key,
+                state,
+                value: Some(resolved),
+                segments: parts.segments,
+            },
+            weight: parts.weight,
         })
     }
 
@@ -691,8 +794,8 @@ where
         range: Range<usize>,
         parent: Option<&Reference>,
         references: &[Reference],
-    ) -> Result<Vec<ResolvedSegment>, ResolveError> {
-        let mut segments = Vec::new();
+    ) -> Result<Parts, ResolveError> {
+        let mut parts = Parts::default();
         let mut length = 0usize;
         let mut cursor = range.start;
         for reference in references {
@@ -728,9 +831,8 @@ where
                 continue;
             }
             if start > cursor {
-                let literal = literal_segment(entry, decoded, cursor..start);
-                account(&mut length, &literal, self.options.max_value_bytes, entry)?;
-                segments.push(literal);
+                let literal = self.literal(entry, decoded, cursor..start)?;
+                self.append(&mut parts, &mut length, literal, entry)?;
             }
             let replacement = match reference.kind {
                 ReferenceKind::Variable => {
@@ -738,25 +840,48 @@ where
                 }
                 ReferenceKind::Command => self.run_command(entry, reference)?,
             };
-            for segment in replacement {
-                account(&mut length, &segment, self.options.max_value_bytes, entry)?;
-                segments.push(segment);
-            }
+            self.append(&mut parts, &mut length, replacement, entry)?;
             cursor = end;
         }
         if cursor < range.end {
-            let literal = literal_segment(entry, decoded, cursor..range.end);
-            account(&mut length, &literal, self.options.max_value_bytes, entry)?;
-            segments.push(literal);
+            let literal = self.literal(entry, decoded, cursor..range.end)?;
+            self.append(&mut parts, &mut length, literal, entry)?;
         }
-        Ok(segments)
+        Ok(parts)
+    }
+
+    /// Append already charged segments, enforcing the per-value byte limit.
+    fn append(
+        &self,
+        parts: &mut Parts,
+        length: &mut usize,
+        replacement: Parts,
+        entry: Entry<'_>,
+    ) -> Result<(), ResolveError> {
+        for segment in &replacement.segments {
+            account(length, segment, self.options.max_value_bytes, entry)?;
+        }
+        parts.segments.extend(replacement.segments);
+        parts.weight = parts.weight.saturating_add(replacement.weight);
+        Ok(())
+    }
+
+    fn literal(
+        &mut self,
+        entry: Entry<'a>,
+        decoded: &str,
+        range: Range<usize>,
+    ) -> Result<Parts, ResolveError> {
+        let weight = SEGMENT_BYTES + range.len();
+        self.charge(entry, weight)?;
+        Ok(Parts::one(literal_segment(entry, decoded, range), weight))
     }
 
     fn run_command(
         &mut self,
         entry: Entry<'a>,
         reference: &Reference,
-    ) -> Result<Vec<ResolvedSegment>, ResolveError> {
+    ) -> Result<Parts, ResolveError> {
         let payload = reference
             .command
             .clone()
@@ -785,14 +910,20 @@ where
                     source: source.clone(),
                     outcome: CommandOutcome::Output(output.clone()),
                 });
-                Ok(vec![ResolvedSegment {
-                    value: output,
-                    kind: ResolvedSegmentKind::Command {
-                        reference: reference_span,
-                        payload,
-                        source,
+                let identity = source.as_ref().map_or(0, String::len);
+                let weight = SEGMENT_BYTES + output.len() + identity;
+                self.charge(entry, weight + COMMAND_BYTES + output.len() + identity)?;
+                Ok(Parts::one(
+                    ResolvedSegment {
+                        value: output,
+                        kind: ResolvedSegmentKind::Command {
+                            reference: reference_span,
+                            payload,
+                            source,
+                        },
                     },
-                }])
+                    weight,
+                ))
             }
             Err(error) => {
                 let message = error.message().to_string();
@@ -818,51 +949,32 @@ where
         decoded: &str,
         decoded_span: Range<usize>,
         references: &[Reference],
-    ) -> Result<Vec<ResolvedSegment>, ResolveError> {
+    ) -> Result<Parts, ResolveError> {
         let name_span = reference
             .name
             .as_ref()
             .expect("eligible variable has a name");
         let name = self.document.source()[name_span.clone()].to_string();
         let bound = self.lookup_variable(&name)?;
-        let (set, empty, text, parts, origin) = match bound {
-            Some(Bound::Value {
-                text,
-                parts,
-                origin,
-            }) => (true, text.is_empty(), text, parts, Some(origin)),
-            _ => (false, true, String::new(), Vec::new(), None),
-        };
-        let variable = |text: String, parts: Vec<ResolvedSegment>, origin: Option<ValueOrigin>| {
-            ResolvedSegment {
-                value: text,
-                kind: ResolvedSegmentKind::Variable {
-                    name: name.clone(),
-                    reference: reference.span.clone(),
-                    operator: reference.operator,
-                    origin,
-                    parts,
-                },
-            }
-        };
+        let (set, empty) = self.bound_state(bound.as_ref());
         match reference.operator {
             None => {
                 if set {
-                    Ok(vec![variable(text, parts, origin)])
+                    self.variable(entry, reference, name, bound)
                 } else {
-                    self.unresolved(reference, decoded, decoded_span, &name)
+                    self.unresolved(entry, reference, decoded, decoded_span, &name)
                 }
             }
             Some(ReferenceOperator::DefaultIfUnset) => {
                 if set {
-                    Ok(vec![variable(text, parts, origin)])
+                    self.variable(entry, reference, name, bound)
                 } else {
                     self.argument(entry, reference, decoded, references)
                 }
             }
             Some(ReferenceOperator::DefaultIfUnsetOrEmpty) => {
                 if set && !empty {
-                    Ok(vec![variable(text, parts, origin)])
+                    self.variable(entry, reference, name, bound)
                 } else {
                     self.argument(entry, reference, decoded, references)
                 }
@@ -871,26 +983,26 @@ where
                 if set {
                     self.argument(entry, reference, decoded, references)
                 } else {
-                    Ok(Vec::new())
+                    Ok(Parts::default())
                 }
             }
             Some(ReferenceOperator::AlternativeIfSetAndNonEmpty) => {
                 if set && !empty {
                     self.argument(entry, reference, decoded, references)
                 } else {
-                    Ok(Vec::new())
+                    Ok(Parts::default())
                 }
             }
             Some(ReferenceOperator::ErrorIfUnset) => {
                 if set {
-                    Ok(vec![variable(text, parts, origin)])
+                    self.variable(entry, reference, name, bound)
                 } else {
                     Err(self.required(entry, reference, decoded, name))
                 }
             }
             Some(ReferenceOperator::ErrorIfUnsetOrEmpty) => {
                 if set && !empty {
-                    Ok(vec![variable(text, parts, origin)])
+                    self.variable(entry, reference, name, bound)
                 } else {
                     Err(self.required(entry, reference, decoded, name))
                 }
@@ -898,30 +1010,118 @@ where
         }
     }
 
+    /// Whether a binding is set and whether its value is empty.
+    fn bound_state(&self, bound: Option<&Bound>) -> (bool, bool) {
+        match bound {
+            None | Some(Bound::Unset) => (false, true),
+            Some(Bound::Lookup(text)) => (true, text.is_empty()),
+            Some(Bound::Empty(_)) => (true, true),
+            Some(Bound::File(id)) => (
+                true,
+                self.cached(*id)
+                    .entry
+                    .value
+                    .as_deref()
+                    .map_or(true, str::is_empty),
+            ),
+        }
+    }
+
+    fn cached(&self, id: usize) -> &Cached {
+        self.cache[id]
+            .as_ref()
+            .expect("a file binding is resolved before use")
+    }
+
+    /// Build the substituted segment, charging a copy of any file provenance
+    /// before it is made.
+    fn variable(
+        &mut self,
+        entry: Entry<'a>,
+        reference: &Reference,
+        name: String,
+        bound: Option<Bound>,
+    ) -> Result<Parts, ResolveError> {
+        let (value, origin, parts, weight) = match bound {
+            Some(Bound::Lookup(text)) => {
+                let weight = SEGMENT_BYTES + name.len() + text.len();
+                self.charge(entry, weight)?;
+                (text, ValueOrigin::Lookup, Vec::new(), weight)
+            }
+            Some(Bound::Empty(id)) => {
+                let binding = self
+                    .document
+                    .entry(id)
+                    .expect("binding id belongs to the document");
+                let weight = SEGMENT_BYTES + name.len() + binding.key().len();
+                self.charge(entry, weight)?;
+                (String::new(), file_origin(binding), Vec::new(), weight)
+            }
+            Some(Bound::File(id)) => {
+                let binding = self
+                    .document
+                    .entry(id)
+                    .expect("binding id belongs to the document");
+                let cached = self.cached(id);
+                let weight = (SEGMENT_BYTES + name.len() + binding.key().len())
+                    .saturating_add(cached.entry.value.as_ref().map_or(0, String::len))
+                    .saturating_add(cached.weight);
+                self.charge(entry, weight)?;
+                let cached = self.cached(id);
+                (
+                    cached.entry.value.clone().unwrap_or_default(),
+                    file_origin(binding),
+                    cached.entry.segments.clone(),
+                    weight,
+                )
+            }
+            None | Some(Bound::Unset) => unreachable!("only set bindings are substituted"),
+        };
+        Ok(Parts::one(
+            ResolvedSegment {
+                value,
+                kind: ResolvedSegmentKind::Variable {
+                    name,
+                    reference: reference.span.clone(),
+                    operator: reference.operator,
+                    origin: Some(origin),
+                    parts,
+                },
+            },
+            weight,
+        ))
+    }
+
     fn unresolved(
-        &self,
+        &mut self,
+        entry: Entry<'a>,
         reference: &Reference,
         decoded: &str,
         decoded_span: Range<usize>,
         name: &str,
-    ) -> Result<Vec<ResolvedSegment>, ResolveError> {
-        Ok(match self.options.unresolved {
-            Unresolved::Keep => vec![ResolvedSegment {
-                value: decoded[decoded_span].to_string(),
-                kind: ResolvedSegmentKind::Unresolved {
-                    name: name.to_string(),
-                    reference: reference.span.clone(),
-                },
-            }],
-            Unresolved::Empty => Vec::new(),
-            Unresolved::Error => {
-                return Err(ResolveError::Unresolved {
-                    key: self.current_key(),
-                    name: name.to_string(),
-                    span: reference.span.clone(),
-                });
+    ) -> Result<Parts, ResolveError> {
+        match self.options.unresolved {
+            Unresolved::Keep => {
+                let weight = SEGMENT_BYTES + name.len() + decoded_span.len();
+                self.charge(entry, weight)?;
+                Ok(Parts::one(
+                    ResolvedSegment {
+                        value: decoded[decoded_span].to_string(),
+                        kind: ResolvedSegmentKind::Unresolved {
+                            name: name.to_string(),
+                            reference: reference.span.clone(),
+                        },
+                    },
+                    weight,
+                ))
             }
-        })
+            Unresolved::Empty => Ok(Parts::default()),
+            Unresolved::Error => Err(ResolveError::Unresolved {
+                key: self.current_key(),
+                name: name.to_string(),
+                span: reference.span.clone(),
+            }),
+        }
     }
 
     fn required(
@@ -956,38 +1156,33 @@ where
         reference: &Reference,
         decoded: &str,
         references: &[Reference],
-    ) -> Result<Vec<ResolvedSegment>, ResolveError> {
+    ) -> Result<Parts, ResolveError> {
         let Some(argument) = reference.argument.as_ref() else {
-            return Ok(Vec::new());
+            return Ok(Parts::default());
         };
-        let Some(start) = decoded_start_for_raw(entry, argument.start) else {
-            return Ok(vec![ResolvedSegment {
-                value: self.document.source()[argument.clone()].to_string(),
-                kind: ResolvedSegmentKind::Literal {
-                    span: argument.clone(),
+        let decoded_range = decoded_start_for_raw(entry, argument.start)
+            .and_then(|start| decoded_end_for_raw(entry, argument.end).map(|end| start..end));
+        let Some(range) = decoded_range else {
+            let weight = SEGMENT_BYTES + argument.len();
+            self.charge(entry, weight)?;
+            return Ok(Parts::one(
+                ResolvedSegment {
+                    value: self.document.source()[argument.clone()].to_string(),
+                    kind: ResolvedSegmentKind::Literal {
+                        span: argument.clone(),
+                    },
                 },
-            }]);
+                weight,
+            ));
         };
-        let Some(end) = decoded_end_for_raw(entry, argument.end) else {
-            return Ok(vec![ResolvedSegment {
-                value: self.document.source()[argument.clone()].to_string(),
-                kind: ResolvedSegmentKind::Literal {
-                    span: argument.clone(),
-                },
-            }]);
-        };
-        self.resolve_segments(entry, decoded, start..end, Some(reference), references)
+        self.resolve_segments(entry, decoded, range, Some(reference), references)
     }
 
     fn lookup_variable(&mut self, name: &str) -> Result<Option<Bound>, ResolveError> {
         match self.options.lookup_order {
             LookupOrder::CallerFirst => {
                 if let Some(value) = (self.lookup)(name) {
-                    return Ok(Some(Bound::Value {
-                        text: value,
-                        parts: Vec::new(),
-                        origin: ValueOrigin::Lookup,
-                    }));
+                    return Ok(Some(Bound::Lookup(value)));
                 }
                 self.file_binding(name)
             }
@@ -996,11 +1191,7 @@ where
                 if file.is_some() {
                     return Ok(file);
                 }
-                Ok((self.lookup)(name).map(|value| Bound::Value {
-                    text: value,
-                    parts: Vec::new(),
-                    origin: ValueOrigin::Lookup,
-                }))
+                Ok((self.lookup)(name).map(Bound::Lookup))
             }
         }
     }
@@ -1017,20 +1208,12 @@ where
             if entry.state() == AssignmentState::Bare
                 && self.document.dialect().bare_keys == BareKeys::Empty
             {
-                return Ok(Some(Bound::Value {
-                    text: String::new(),
-                    parts: Vec::new(),
-                    origin: file_origin(entry),
-                }));
+                return Ok(Some(Bound::Empty(id)));
             }
             return Ok(Some(Bound::Unset));
         }
-        let resolved = self.resolve_entry(id)?;
-        Ok(Some(Bound::Value {
-            text: resolved.value.unwrap_or_default(),
-            parts: resolved.segments,
-            origin: file_origin(entry),
-        }))
+        self.resolve_entry(id)?;
+        Ok(Some(Bound::File(id)))
     }
 
     fn current_key(&self) -> String {
