@@ -15,7 +15,7 @@ use alloc::{
 };
 
 use crate::{
-    AssignmentState, Document, Entry, FormatError, FormatResult, Item, ItemKind, Quote,
+    AssignmentState, Document, Entry, FormatError, FormatResult, Item, ItemKind, LineEnding, Quote,
     ReferenceKind, TextEdit,
 };
 
@@ -54,7 +54,13 @@ impl Document<'_> {
     /// constraints.
     ///
     /// Groups with empty/duplicate keys, malformed or ignored items, a
-    /// self-reference or a reference cycle are left byte-for-byte unchanged.
+    /// self-reference or a reference cycle are left byte-for-byte unchanged, as
+    /// are groups where a declaration shares its physical line with the next
+    /// statement.
+    ///
+    /// Sorting never adds or removes a final line ending. When the file ends
+    /// without one and its last declaration moves up, that declaration takes
+    /// the line ending of the declaration that becomes last.
     ///
     /// The result is reparsed and verified before it is returned.
     ///
@@ -71,6 +77,9 @@ impl Document<'_> {
     /// let doc = parse_strict("D=4\nB=${A}\nC=3\nA=1\n").unwrap();
     /// let sorted = doc.sort().unwrap();
     /// assert_eq!(sorted.as_str(), "B=${A}\nA=1\nC=3\nD=4\n");
+    ///
+    /// let doc = parse_strict("B=2\nA=1").unwrap();
+    /// assert_eq!(doc.sort().unwrap().as_str(), "A=1\nB=2");
     /// ```
     pub fn sort(&self) -> Result<FormatResult, FormatError> {
         let mut plans = Vec::new();
@@ -153,49 +162,47 @@ impl Document<'_> {
             let item = items[position];
             chunks.push(&source[start..item.span().end]);
         }
-
-        // (dependent, dependency) pairs between entries of this group, by
-        // source ordinal. Every reference candidate counts, eligible or not,
-        // so the order is safe under any reference rules.
-        let mut references = Vec::new();
-        for (index, entry) in entries.iter().enumerate() {
-            for reference in entry.references() {
-                if reference.kind != ReferenceKind::Variable {
-                    continue;
-                }
-                let Some(name) = reference.name else {
-                    continue;
-                };
-                let Some(&dependency) = key_index.get(&source[name]) else {
-                    continue;
-                };
-                if dependency == index {
-                    return None;
-                }
-                references.push((index, dependency));
-            }
-        }
-        // Reordering a referencing pair changes which declaration a sequential
-        // reference sees, so each pair keeps its source order. Those edges all
-        // point forward in source order, so a constrained order always exists.
-        // Reference cycles still leave the group unchanged.
-        let mut dependencies = vec![Vec::new(); entries.len()];
-        let mut constraints = vec![Vec::new(); entries.len()];
-        for &(dependent, dependency) in &references {
-            dependencies[dependency].push(dependent);
-            constraints[dependent.min(dependency)].push(dependent.max(dependency));
-        }
-        if topological_order(&dependencies, &keys).len() != entries.len() {
+        // A declaration that shares its physical line with the next statement
+        // cannot move without joining lines. Only the group's last declaration
+        // may lack a line ending, and only at the end of the file.
+        let endings: Vec<_> = entry_positions
+            .iter()
+            .map(|&position| items[position].line_ending())
+            .collect();
+        let last = entries.len() - 1;
+        if endings[..last].contains(&LineEnding::None) {
             return None;
         }
-        let order = topological_order(&constraints, &keys);
+        let open_end = endings[last] == LineEnding::None;
+        if open_end && items[last_entry].span().end != source.len() {
+            return None;
+        }
+
+        let order = reference_order(&entries, &keys, &key_index, source)?;
 
         let header = &source[group.span().start..items[first_entry].span().start];
         let trailing = &source[items[last_entry].span().end..group.span().end];
+        // When the file ends without a line ending and its last declaration
+        // moves up, that declaration takes the line ending of the declaration
+        // that becomes last, so the file still has no final line ending.
+        let moved_ending = order
+            .last()
+            .filter(|&&final_entry| open_end && final_entry != last)
+            .map(|&final_entry| endings[final_entry].as_str());
         let mut text = String::new();
         text.push_str(header);
-        for &entry in &order {
-            text.push_str(chunks[entry]);
+        for (position, &entry) in order.iter().enumerate() {
+            let chunk = chunks[entry];
+            match moved_ending {
+                Some(ending) if position + 1 == order.len() => {
+                    text.push_str(&chunk[..chunk.len() - ending.len()]);
+                }
+                Some(ending) if entry == last => {
+                    text.push_str(chunk);
+                    text.push_str(ending);
+                }
+                _ => text.push_str(chunk),
+            }
         }
         text.push_str(trailing);
         if text == source[group.span()] {
@@ -208,6 +215,51 @@ impl Document<'_> {
             keys: order.into_iter().map(|entry| keys[entry].clone()).collect(),
         })
     }
+}
+
+// The sorted order of a group's entries by source ordinal, or `None` for a
+// self-reference or a reference cycle.
+fn reference_order(
+    entries: &[Entry<'_>],
+    keys: &[String],
+    key_index: &BTreeMap<String, usize>,
+    source: &str,
+) -> Option<Vec<usize>> {
+    // (dependent, dependency) pairs between entries of this group, by
+    // source ordinal. Every reference candidate counts, eligible or not,
+    // so the order is safe under any reference rules.
+    let mut references = Vec::new();
+    for (index, entry) in entries.iter().enumerate() {
+        for reference in entry.references() {
+            if reference.kind != ReferenceKind::Variable {
+                continue;
+            }
+            let Some(name) = reference.name else {
+                continue;
+            };
+            let Some(&dependency) = key_index.get(&source[name]) else {
+                continue;
+            };
+            if dependency == index {
+                return None;
+            }
+            references.push((index, dependency));
+        }
+    }
+    // Reordering a referencing pair changes which declaration a sequential
+    // reference sees, so each pair keeps its source order. Those edges all
+    // point forward in source order, so a constrained order always exists.
+    // Reference cycles still leave the group unchanged.
+    let mut dependencies = vec![Vec::new(); entries.len()];
+    let mut constraints = vec![Vec::new(); entries.len()];
+    for &(dependent, dependency) in &references {
+        dependencies[dependency].push(dependent);
+        constraints[dependent.min(dependency)].push(dependent.max(dependency));
+    }
+    if topological_order(&dependencies, keys).len() != entries.len() {
+        return None;
+    }
+    Some(topological_order(&constraints, keys))
 }
 
 // Kahn's algorithm, always taking the smallest ready key. A result shorter

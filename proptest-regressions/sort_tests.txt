@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 25fdc1296a8efa8ce63b3bdd6aa07ea39f4d45466f4f4bc46708e26fa589c8ae # shrinks to lines = ["D=${B:-$A}", "A=1", ""]
+cc b91162c6028815755d57007378616ff067e348efdceccea4e0adc63c2831dbe8 # shrinks to lines = ["C=1", "A=1"], crlf = false

@@ -193,6 +193,71 @@ fn sorting_keeps_sequential_and_whole_file_resolution() {
     }
 }
 
+#[test]
+fn a_last_group_without_a_final_line_ending_sorts() {
+    for (source, expected) in [
+        ("B=2\nA=1", "A=1\nB=2"),
+        ("B=2\r\nA=1", "A=1\r\nB=2"),
+        (
+            "C=3\nB=2 # note\n# A note\nA=1",
+            "# A note\nA=1\nB=2 # note\nC=3",
+        ),
+        ("X=1\n\nB=2\nA='multi\nline'", "X=1\n\nA='multi\nline'\nB=2"),
+        ("B=2\nA=1\n# bottom", "A=1\nB=2\n# bottom"),
+        ("A=1\nC=${A}\nB=2", "A=1\nB=2\nC=${A}"),
+    ] {
+        let doc = parse_strict(source).unwrap();
+        let sorted = doc.sort().unwrap();
+        assert_eq!(sorted.as_str(), expected, "{source:?}");
+        replay(doc.source(), sorted.as_str(), sorted.edits());
+        let after = parse_strict(sorted.as_str()).unwrap();
+        assert!(!after.has_final_newline());
+        for entry in doc.entries() {
+            assert_eq!(after.get(entry.key()), doc.get(entry.key()));
+        }
+    }
+}
+
+#[test]
+fn a_declaration_that_shares_its_line_with_the_next_statement_keeps_its_group() {
+    let source = "B=\"2\" A=1\nC=3\n";
+    let (doc, _) = crate::parse_with(source, crate::Dialect::COMPOSE);
+    assert_eq!(doc.entries().len(), 3);
+    let sorted = doc.sort().unwrap();
+    assert_eq!(sorted.as_str(), source);
+    assert!(sorted.is_empty());
+}
+
+fn simple_line() -> impl Strategy<Value = String> {
+    let key = prop::sample::select(["A", "B", "C", "D"].as_slice());
+    let value = prop::sample::select(["1", "", "two words", "'q'", "\"d\"", "${A}"].as_slice());
+    prop_oneof![
+        1 => Just(String::new()),
+        1 => Just("# note".to_string()),
+        6 => (key, value).prop_map(|(key, value)| format!("{key}={value}")),
+    ]
+}
+
+proptest! {
+    #[test]
+    fn sorting_keeps_a_missing_final_newline_missing(
+        lines in prop::collection::vec(simple_line(), 1..10),
+        crlf in any::<bool>(),
+    ) {
+        let source = lines.join(if crlf { "\r\n" } else { "\n" });
+        let (doc, _) = parse(&source);
+        let sorted = doc.sort().unwrap();
+        prop_assert_eq!(
+            sorted.as_str().ends_with(['\n', '\r']),
+            source.ends_with(['\n', '\r'])
+        );
+        let (after, _) = parse(sorted.as_str());
+        prop_assert_eq!(after.entries().len(), doc.entries().len());
+        let again = after.sort().unwrap();
+        prop_assert!(again.is_empty());
+    }
+}
+
 fn reference_line() -> impl Strategy<Value = String> {
     let key = || prop::sample::select(["A", "B", "C", "D", "E"].as_slice());
     let value = prop_oneof![
@@ -216,9 +281,12 @@ proptest! {
     #[test]
     fn sorting_never_changes_resolved_values(
         lines in prop::collection::vec(reference_line(), 0..16),
+        final_newline in any::<bool>(),
     ) {
         let mut source = lines.join("\n");
-        source.push('\n');
+        if final_newline {
+            source.push('\n');
+        }
         let (doc, _) = parse(&source);
         let sorted = doc.sort().unwrap();
         let (after, _) = parse(sorted.as_str());

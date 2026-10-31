@@ -45,7 +45,11 @@ lone-CR boundaries are preserved.
   sequential or whole-file scope.
 - References to keys in other groups do not constrain the order.
 - Duplicate keys, empty keys, malformed items, self-references and reference
-  cycles leave the group unchanged.
+  cycles leave the group unchanged. So does a declaration that shares its
+  physical line with the next statement.
+- Sorting never adds or removes a final line ending. When the file ends without
+  one and its last declaration moves up, that declaration takes the line ending
+  of the declaration that becomes last: `B=2\nA=1` sorts to `A=1\nB=2`.
 
 ```rust
 let source = "# header\nC=3\nB=${A}\n# A note\nA=1\n# bottom\n";
