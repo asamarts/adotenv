@@ -72,8 +72,8 @@ fn valid_key(key: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
 }
 
-// Whether a declaration of `key` survives the batch. Insertion requires a key
-// that the output does not otherwise declare; removal frees a key.
+// Whether a declaration of `key` survives the batch. Insertions and renames
+// require a key that the output does not otherwise declare; removal frees a key.
 fn key_survives(document: &Document<'_>, operations: &[Edit<'_>], key: &str) -> bool {
     document.get_all(key).any(|entry| {
         !operations
@@ -674,6 +674,17 @@ fuzz_target!(|bytes: &[u8]| {
         assert!(
             result.is_err(),
             "insertion duplicated an existing key: {operations:?}"
+        );
+    }
+    if operations.iter().any(|operation| match *operation {
+        Edit::Rename { entry, key } => document
+            .entry(entry)
+            .is_some_and(|entry| entry.key() != key && key_survives(&document, &operations, key)),
+        _ => false,
+    }) {
+        assert!(
+            result.is_err(),
+            "rename duplicated an existing key: {operations:?}"
         );
     }
     if known_safe(&document, &operations) {

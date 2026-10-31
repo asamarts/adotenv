@@ -679,7 +679,7 @@ fn batch_rename_collisions_do_not_reject_unmodified_duplicate_names() {
                 key: "FRESH"
             },
         ]),
-        Err(EditError::WouldChangeMeaning)
+        Err(EditError::Duplicate(2))
     );
     let result = doc
         .edit(&[
@@ -695,6 +695,60 @@ fn batch_rename_collisions_do_not_reject_unmodified_duplicate_names() {
         ])
         .unwrap();
     assert_eq!(result.as_str(), "A=1\nA=2\nNEW_B=3\nNEW_C=4\n");
+}
+
+#[test]
+fn renames_free_and_claim_keys_like_insertions() {
+    let (doc, _) = parse("A=1\nB=2\n# B=old\n");
+    let rename = |entry, key| Edit::Rename { entry, key };
+    let ok = |operations: &[Edit<'_>]| doc.edit(operations).map(|v| v.as_str().to_string());
+    // Removing, commenting out or renaming away the old key frees it.
+    assert_eq!(
+        ok(&[Edit::Remove { item: 1 }, rename(0, "B")]),
+        Ok("B=1\n# B=old\n".to_string())
+    );
+    assert_eq!(
+        ok(&[Edit::Comment { item: 1 }, rename(0, "B")]),
+        Ok("B=1\n# B=2\n# B=old\n".to_string())
+    );
+    assert_eq!(
+        ok(&[rename(0, "B"), rename(1, "A")]),
+        Ok("B=1\nA=2\n# B=old\n".to_string())
+    );
+    assert_eq!(
+        ok(&[rename(1, "C"), rename(0, "B")]),
+        Ok("B=1\nC=2\n# B=old\n".to_string())
+    );
+    // Any second declaration of the new key in the output collides.
+    assert_eq!(ok(&[rename(0, "B")]), Err(EditError::Duplicate(2)));
+    assert_eq!(doc.rename("A", "B"), Err(EditError::Duplicate(2)));
+    assert_eq!(
+        ok(&[rename(0, "C"), rename(1, "C")]),
+        Err(EditError::Duplicate(2))
+    );
+    assert_eq!(
+        ok(&[
+            Edit::Insert {
+                key: "C",
+                value: Some("3"),
+                position: InsertPosition::End,
+            },
+            rename(0, "C"),
+        ]),
+        Err(EditError::Duplicate(2))
+    );
+    assert_eq!(
+        ok(&[Edit::Uncomment { item: 2 }, rename(0, "C"), rename(1, "D")]),
+        Ok("C=1\nD=2\nB=old\n".to_string())
+    );
+    assert_eq!(
+        ok(&[
+            Edit::Uncomment { item: 2 },
+            Edit::Remove { item: 1 },
+            rename(0, "B")
+        ]),
+        Err(EditError::Duplicate(2))
+    );
 }
 
 #[test]

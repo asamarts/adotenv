@@ -112,9 +112,13 @@ pub enum Edit<'a> {
     },
     /// Rename one declaration.
     ///
-    /// The batch fails with [`EditError::Duplicate`] when the document already
-    /// declares the new key and with [`EditError::WouldChangeMeaning`] when two
-    /// renames choose the same new key.
+    /// The new key follows the same rule as [`Edit::Insert`]: it must name
+    /// exactly one declaration of the output. The batch fails with
+    /// [`EditError::Duplicate`] when the document keeps another declaration of
+    /// the new key or when another rename, insertion or uncommented line in the
+    /// same batch declares it. Removing, commenting out or renaming away every
+    /// existing declaration of the key in the same batch frees it, so a batch
+    /// can swap two keys.
     Rename {
         /// The snapshot-local declaration identity.
         entry: usize,
@@ -226,16 +230,14 @@ impl<'doc> KeyLookup<'doc> {
     fn new(document: &'doc Document<'doc>, operations: &[Edit<'_>]) -> Self {
         let lookups = operations
             .iter()
-            .copied()
-            .filter(|operation| match *operation {
-                Edit::Rename { entry, key } => document
-                    .entry(entry)
-                    .is_some_and(|entry| entry.key() != key),
-                Edit::Insert {
-                    position: InsertPosition::Sorted | InsertPosition::AfterKey(_),
-                    ..
-                } => true,
-                _ => false,
+            .filter(|operation| {
+                matches!(
+                    **operation,
+                    Edit::Insert {
+                        position: InsertPosition::Sorted | InsertPosition::AfterKey(_),
+                        ..
+                    }
+                )
             })
             .count();
         let mut entries: Vec<_> = if lookups > 1 {
@@ -272,14 +274,6 @@ impl<'doc> KeyLookup<'doc> {
     fn bounds(&self, key: &str) -> Range<usize> {
         self.entries.partition_point(|entry| entry.key() < key)
             ..self.entries.partition_point(|entry| entry.key() <= key)
-    }
-
-    fn count(&self, key: &str) -> usize {
-        if self.entries.is_empty() {
-            self.document.get_all(key).count()
-        } else {
-            self.bounds(key).len()
-        }
     }
 
     fn unique(&self, key: &str) -> Result<crate::Entry<'doc>, EditError> {
@@ -464,11 +458,11 @@ fn verify_entry_region<'a>(
     }
     Ok(())
 }
-// An inserted key must name exactly one declaration of the verified output.
-// Counting the output covers existing declarations that the batch keeps, other
-// insertions, renames and uncommented lines, while declarations that the batch
-// removes, comments out or renames away no longer collide.
-fn verify_inserted_keys(parsed: &Document<'_>, mut keys: Vec<&str>) -> Result<(), EditError> {
+// An inserted or renamed key must name exactly one declaration of the verified
+// output. Counting the output covers existing declarations that the batch keeps,
+// other insertions, renames and uncommented lines, while declarations that the
+// batch removes, comments out or renames away no longer collide.
+fn verify_new_keys(parsed: &Document<'_>, mut keys: Vec<&str>) -> Result<(), EditError> {
     if keys.is_empty() {
         return Ok(());
     }
@@ -582,7 +576,6 @@ impl Document<'_> {
         for operation in operations {
             self.plan_operation(*operation, &mut plans, &mut edits, &mut insertions, &keys)?;
         }
-        self.validate_renames(&plans)?;
         insertions.sort_by_key(|insertion| insertion.offset);
         // The dominant line ending scans the whole source; compute it once per
         // batch, and only when a new line can be added.
@@ -599,16 +592,13 @@ impl Document<'_> {
             &mut end_insertions,
             ending,
         )?;
-        let inserted_keys = insertions
-            .iter()
-            .map(|insertion| insertion.desired.key)
-            .collect();
+        let new_keys = self.new_keys(&plans, &insertions);
         let groups =
             self.plan_insertions(insertions, &plans, &mut edits, &mut end_insertions, ending)?;
         let edits = Self::normalize_edits(edits)?;
         let output = Self::apply_edits(self.source(), &edits);
         let regions = self.expected_regions(&plans, &end_insertions, &edits, groups)?;
-        self.verify_regions(&output, regions, ending, inserted_keys)?;
+        self.verify_regions(&output, regions, ending, new_keys)?;
         Ok(VerifiedEdits { edits, output })
     }
 
@@ -624,7 +614,7 @@ impl Document<'_> {
             Edit::Set { entry, value } => {
                 self.plan_set(entry, value, plans)?;
             }
-            Edit::Rename { entry, key } => self.plan_rename(entry, key, plans, edits, keys)?,
+            Edit::Rename { entry, key } => self.plan_rename(entry, key, plans, edits)?,
             Edit::Export { entry, enabled } => self.plan_export(entry, enabled, plans, edits)?,
             Edit::Remove { item } => {
                 let source_item = self.item(item).ok_or(EditError::InvalidTarget)?;
@@ -993,15 +983,8 @@ impl Document<'_> {
         key: &'a str,
         plans: &mut [ItemPlan<'a>],
         edits: &mut Vec<TextEdit>,
-        keys: &KeyLookup<'a>,
     ) -> Result<(), EditError> {
         let entry = self.entry(id).ok_or(EditError::InvalidTarget)?;
-        if key != entry.key() {
-            let existing = keys.count(key);
-            if existing != 0 {
-                return Err(EditError::Duplicate(existing + 1));
-            }
-        }
         let plan = &mut plans[entry.item_id()];
         claim(plan, 2)?;
         let (range, replacement) =
@@ -1090,10 +1073,10 @@ impl Document<'_> {
         Ok(())
     }
 
-    fn validate_renames(&self, plans: &[ItemPlan<'_>]) -> Result<(), EditError> {
-        // Original-name collisions are checked while planning. Only two newly
-        // renamed declarations can now collide, so index just their new names.
-        let mut renamed = plans.iter().enumerate().filter_map(|(index, plan)| {
+    /// Keys that the batch newly declares: inserted keys and the new names of
+    /// renamed declarations. The verified output must declare each only once.
+    fn new_keys<'a>(&self, plans: &[ItemPlan<'a>], insertions: &[Insertion<'a>]) -> Vec<&'a str> {
+        let renamed = plans.iter().enumerate().filter_map(|(index, plan)| {
             if plan.fields & 2 == 0 {
                 return None;
             }
@@ -1101,19 +1084,11 @@ impl Document<'_> {
             let original = self.item(index)?.entry()?;
             (original.key() != desired.key).then_some(desired.key)
         });
-        let Some(first) = renamed.next() else {
-            return Ok(());
-        };
-        let Some(second) = renamed.next() else {
-            return Ok(());
-        };
-        let mut keys = Vec::from([first, second]);
-        keys.extend(renamed);
-        keys.sort_unstable();
-        if keys.windows(2).any(|pair| pair[0] == pair[1]) {
-            return Err(EditError::WouldChangeMeaning);
-        }
-        Ok(())
+        insertions
+            .iter()
+            .map(|insertion| insertion.desired.key)
+            .chain(renamed)
+            .collect()
     }
 
     fn last_retained_item(&self, plans: &[ItemPlan<'_>]) -> Option<crate::Item<'_>> {
@@ -1376,7 +1351,7 @@ impl Document<'_> {
         output: &str,
         mut regions: Vec<Region<'_>>,
         ending: &str,
-        inserted_keys: Vec<&str>,
+        new_keys: Vec<&str>,
     ) -> Result<(), EditError> {
         let parsed = crate::parser::parse_document(output, self.dialect());
         if parsed.has_bom() != self.has_bom() {
@@ -1467,7 +1442,7 @@ impl Document<'_> {
         if actual.next().is_some() {
             return Err(EditError::WouldChangeMeaning);
         }
-        verify_inserted_keys(&parsed, inserted_keys)
+        verify_new_keys(&parsed, new_keys)
     }
 
     /// Set a uniquely named declaration's exact literal value.
