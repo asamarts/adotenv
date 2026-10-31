@@ -334,7 +334,7 @@ fn check_json_uses_a_versioned_schema() {
     assert!(json.contains("\"span\":{\"start\":0,"));
 
     let output = run(&["check", "--json", "definitely-missing.env"]);
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(2));
     let json = stdout(&output);
     assert!(json.contains("\"ok\":false"));
     assert!(json.contains("\"error\":"));
@@ -495,7 +495,7 @@ fn check_source_is_an_explicit_human_only_opt_in() {
 #[test]
 fn github_format_annotates_read_failures() {
     let output = run(&["check", "--format", "github", "definitely-missing.env"]);
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(2));
     let text = stdout(&output);
     assert!(text.contains("::error file=definitely-missing.env,title=adotenv::"));
     assert!(text.contains("definitely-missing.env"));
@@ -1002,40 +1002,226 @@ fn diff_json_wire_format_is_frozen() {
     assert_eq!(alias.status.code(), Some(1));
 }
 
-#[test]
-fn exit_code_contract_is_frozen() {
+/// Files shared by the exit code contract tests.
+fn exit_code_fixture() -> TempDir {
     let dir = TempDir::new();
     dir.file_at("good.env", "A = 1\n");
     dir.file_at("bad.env", "BAD KEY=value\n");
+    dir.file_at("unformatted.env", "A=1\n");
     dir.file_at("base.env", "A=1\n");
+    dir.file_at("other.env", "A=2\n");
+    dir.file_at("cascade/.env", "A=1\n");
+    fs::write(dir.path().join("binary.env"), b"A=\xff\n").unwrap();
+    fs::create_dir(dir.path().join("broken")).unwrap();
+    fs::write(dir.path().join("broken/.env"), b"A=\xff\n").unwrap();
+    dir.file_at("invalid/.env", "BAD KEY=value\n");
+    dir
+}
 
-    assert!(run_in(dir.path(), &["check", "good.env"]).status.success());
-    assert_eq!(
-        run_in(dir.path(), &["check", "bad.env"]).status.code(),
-        Some(1)
+fn assert_exit_codes(dir: &Path, cases: &[(Vec<&str>, i32)]) {
+    for (args, code) in cases {
+        let output = run_in(dir, args);
+        assert_eq!(
+            output.status.code(),
+            Some(*code),
+            "{args:?}: {}",
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
+fn exit_code_contract_is_frozen() {
+    let dir = exit_code_fixture();
+    let cli = env!("CARGO_BIN_EXE_adotenv-cli");
+    dir.file_at("writable.env", "A=1\n");
+    assert_exit_codes(
+        dir.path(),
+        &[
+            // 0: success.
+            (vec!["check", "good.env"], 0),
+            (vec!["fmt", "good.env"], 0),
+            (vec!["fmt", "--check", "good.env"], 0),
+            (vec!["fmt", "--write", "good.env"], 0),
+            (vec!["diff", "base.env", "base.env"], 0),
+            (vec!["example", "good.env"], 0),
+            (vec!["get", "good.env", "A"], 0),
+            (vec!["load", "cascade"], 0),
+            (vec!["set", "writable.env", "A", "2"], 0),
+            (vec!["run", "cascade", "--", cli, "--version"], 0),
+            // 1: findings.
+            (vec!["check", "bad.env"], 1),
+            (vec!["check", "good.env", "bad.env"], 1),
+            (vec!["fmt", "bad.env"], 1),
+            (vec!["fmt", "--check", "unformatted.env"], 1),
+            (vec!["diff", "base.env", "other.env"], 1),
+            (vec!["get", "good.env", "MISSING"], 1),
+            // 2: usage errors.
+            (vec!["check", "--format", "nope", "good.env"], 2),
+            (vec!["fmt", "--write", "--check", "good.env"], 2),
+            // 2: read failures, for every command.
+            (vec!["check", "missing.env"], 2),
+            (vec!["check", "--format", "json", "missing.env"], 2),
+            (vec!["check", "--format", "github", "missing.env"], 2),
+            (vec!["check", "binary.env"], 2),
+            (vec!["fmt", "missing.env"], 2),
+            (vec!["fmt", "binary.env"], 2),
+            (vec!["fmt", "--check", "missing.env"], 2),
+            (vec!["fmt", "--write", "missing.env"], 2),
+            (vec!["fmt", "--write", "cascade"], 2),
+            (vec!["diff", "base.env", "missing.env"], 2),
+            (vec!["diff", "missing.env", "base.env"], 2),
+            (
+                vec!["diff", "--format", "json", "base.env", "missing.env"],
+                2,
+            ),
+            (
+                vec!["diff", "--format", "matrix", "base.env", "missing.env"],
+                2,
+            ),
+            (vec!["example", "missing.env"], 2),
+            (vec!["get", "missing.env", "A"], 2),
+            (vec!["load", "broken"], 2),
+            (vec!["set", "missing.env", "A", "1"], 2),
+            (vec!["run", "broken", "--", cli, "--version"], 2),
+            // 2: inputs that a command cannot process.
+            (vec!["diff", "base.env", "bad.env"], 2),
+            (vec!["get", "bad.env", "A"], 2),
+            (vec!["load", "invalid"], 2),
+            (vec!["set", "bad.env", "A", "1"], 2),
+            (vec!["run", "invalid", "--", cli, "--version"], 2),
+            (
+                vec![
+                    "run",
+                    "cascade",
+                    "--",
+                    "adotenv-command-that-does-not-exist",
+                ],
+                2,
+            ),
+            // 2 wins over 1 when one file has findings and another fails.
+            (vec!["check", "bad.env", "missing.env"], 2),
+            (vec!["check", "missing.env", "bad.env"], 2),
+            (
+                vec!["check", "--format", "json", "bad.env", "missing.env"],
+                2,
+            ),
+            (vec!["fmt", "--check", "unformatted.env", "missing.env"], 2),
+            (vec!["fmt", "bad.env", "missing.env"], 2),
+        ],
     );
     assert_eq!(
-        run_in(dir.path(), &["check", "missing.env"]).status.code(),
-        Some(1)
+        fs::read_to_string(dir.path().join("writable.env")).unwrap(),
+        "A=2\n"
+    );
+}
+
+/// Makes a directory read-only and restores it when dropped.
+#[cfg(unix)]
+struct ReadOnlyDirectory(PathBuf);
+
+#[cfg(unix)]
+impl ReadOnlyDirectory {
+    fn new(path: PathBuf) -> Self {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o555)).unwrap();
+        Self(path)
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ReadOnlyDirectory {
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o755));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn exit_code_contract_covers_write_failures() {
+    let dir = exit_code_fixture();
+    dir.file_at("locked/app.env", "A=1\n");
+    let locked = ReadOnlyDirectory::new(dir.path().join("locked"));
+    if fs::File::create(locked.0.join("probe")).is_ok() {
+        eprintln!("skipping write failure cases: permissions are not enforced");
+        return;
+    }
+    assert_exit_codes(
+        dir.path(),
+        &[
+            (vec!["fmt", "--write", "locked/app.env"], 2),
+            (vec!["fmt", "--write", "bad.env", "locked/app.env"], 2),
+            (vec!["set", "locked/app.env", "A", "2"], 2),
+        ],
     );
     assert_eq!(
-        run_in(dir.path(), &["check", "--format", "nope", "good.env"])
-            .status
-            .code(),
-        Some(2)
+        fs::read_to_string(locked.0.join("app.env")).unwrap(),
+        "A=1\n"
     );
-    assert_eq!(
-        run_in(dir.path(), &["diff", "base.env", "missing.env"],)
-            .status
-            .code(),
-        Some(2)
-    );
-    assert_eq!(
-        run_in(dir.path(), &["diff", "base.env", "bad.env"])
-            .status
-            .code(),
-        Some(2)
-    );
+}
+
+#[cfg(unix)]
+#[test]
+fn exit_code_contract_rejects_non_utf8_arguments() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let output = Command::new(env!("CARGO_BIN_EXE_adotenv-cli"))
+        .arg("check")
+        .arg(OsStr::from_bytes(b"\xff.env"))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
+    assert!(stderr(&output).contains("UTF-8"), "{}", stderr(&output));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn exit_code_contract_covers_standard_output_failures() {
+    let dir = exit_code_fixture();
+    let cases: &[(&[&str], i32)] = &[
+        (&["--help"], 2),
+        (&["--version"], 2),
+        (&["check", "good.env"], 0),
+        (&["check", "bad.env"], 2),
+        (&["check", "--format", "json", "good.env"], 2),
+        (&["check", "--format", "github", "bad.env"], 2),
+        (&["fmt", "good.env"], 2),
+        (&["fmt", "--check", "good.env"], 0),
+        (&["fmt", "--check", "unformatted.env"], 2),
+        (&["diff", "base.env", "other.env"], 2),
+        (&["diff", "--format", "json", "base.env", "base.env"], 2),
+        (&["diff", "--format", "matrix", "base.env", "other.env"], 2),
+        (&["example", "good.env"], 2),
+        (&["get", "good.env", "A"], 2),
+        (&["load", "cascade"], 2),
+    ];
+    for (args, code) in cases {
+        let full = fs::OpenOptions::new()
+            .write(true)
+            .open("/dev/full")
+            .unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_adotenv-cli"))
+            .current_dir(dir.path())
+            .args(*args)
+            .stdout(full)
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(*code),
+            "{args:?}: {}",
+            stderr(&output)
+        );
+        if *code == 2 {
+            assert!(
+                stderr(&output).contains("failed to write standard output"),
+                "{args:?}: {}",
+                stderr(&output)
+            );
+        }
+    }
 }
 
 #[test]
@@ -1094,10 +1280,10 @@ fn missing_files_and_invalid_documents_are_reported() {
     let missing = missing.to_str().unwrap();
     for (args, code) in [
         (vec!["get", missing, "A"], 2),
-        (vec!["fmt", missing], 1),
+        (vec!["fmt", missing], 2),
         (vec!["example", missing], 2),
         (vec!["set", missing, "A", "1"], 2),
-        (vec!["check", "--source", missing], 1),
+        (vec!["check", "--source", missing], 2),
     ] {
         let output = run(&args);
         assert_eq!(output.status.code(), Some(code), "{args:?}");
@@ -1118,7 +1304,7 @@ fn missing_files_and_invalid_documents_are_reported() {
     assert!(stderr(&output).contains("duplicate"));
 
     let output = run(&["fmt", "--write", dir.path().to_str().unwrap()]);
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(2));
     assert!(!stderr(&output).is_empty());
 }
 

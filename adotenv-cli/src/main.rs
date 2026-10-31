@@ -2,11 +2,13 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    env, fs,
+    env,
+    ffi::OsString,
+    fmt, fs,
     io::{self, Read, Write},
     path::{Path, PathBuf},
     process::{Command, ExitCode},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 use std::fmt::Write as _;
@@ -17,9 +19,78 @@ use adotenv::{
     DifferenceKind, Document, FormatOptions, Severity,
 };
 
+/// Exit code: the command succeeded.
+const SUCCESS: u8 = 0;
+/// Exit code: diagnostics, differences, a required formatting change or a
+/// missing key.
+const FINDINGS: u8 = 1;
+/// Exit code: a usage error, a read or write failure, or an input the command
+/// cannot process. It takes precedence over [`FINDINGS`].
+const FAILURE: u8 = 2;
+
+/// Set once writing standard output failed; later output is skipped.
+static STDOUT_FAILED: AtomicBool = AtomicBool::new(false);
+/// Set once writing standard error failed.
+static STDERR_FAILED: AtomicBool = AtomicBool::new(false);
+
+/// Write to standard output without panicking; a failure makes the run exit 2.
+macro_rules! out {
+    ($($arg:tt)*) => {
+        write_stdout(format_args!($($arg)*))
+    };
+}
+
+/// Write a line to standard output without panicking.
+macro_rules! outln {
+    ($($arg:tt)*) => {
+        write_stdout(format_args!("{}\n", format_args!($($arg)*)))
+    };
+}
+
+/// Write a line to standard error without panicking.
+macro_rules! errln {
+    ($($arg:tt)*) => {
+        write_stderr(format_args!("{}\n", format_args!($($arg)*)))
+    };
+}
+
+fn write_stdout(arguments: fmt::Arguments<'_>) {
+    if STDOUT_FAILED.load(Ordering::Relaxed) {
+        return;
+    }
+    if let Err(error) = io::stdout().lock().write_fmt(arguments) {
+        stdout_failed(&error);
+    }
+}
+
+fn write_stderr(arguments: fmt::Arguments<'_>) {
+    if io::stderr().lock().write_fmt(arguments).is_err() {
+        STDERR_FAILED.store(true, Ordering::Relaxed);
+    }
+}
+
+fn stdout_failed(error: &io::Error) {
+    if !STDOUT_FAILED.swap(true, Ordering::Relaxed) {
+        errln!("failed to write standard output: {error}");
+    }
+}
+
 fn main() -> ExitCode {
-    let args: Vec<String> = env::args().skip(1).collect();
-    ExitCode::from(run(&args))
+    let args: Result<Vec<String>, OsString> =
+        env::args_os().skip(1).map(OsString::into_string).collect();
+    let code = match args {
+        Ok(args) => run(&args),
+        Err(_) => {
+            errln!("arguments must be valid UTF-8");
+            FAILURE
+        }
+    };
+    if let Err(error) = io::stdout().flush() {
+        stdout_failed(&error);
+    }
+    let output_failed =
+        STDOUT_FAILED.load(Ordering::Relaxed) || STDERR_FAILED.load(Ordering::Relaxed);
+    ExitCode::from(if output_failed { FAILURE } else { code })
 }
 
 fn run(args: &[String]) -> u8 {
@@ -30,16 +101,16 @@ fn run(args: &[String]) -> u8 {
     };
     let Some(command) = args.first().map(String::as_str) else {
         usage();
-        return 2;
+        return FAILURE;
     };
     match command {
         "-h" | "--help" | "help" => {
             usage();
-            0
+            SUCCESS
         }
         "--version" | "version" => {
-            println!("adotenv-cli {}", env!("CARGO_PKG_VERSION"));
-            0
+            outln!("adotenv-cli {}", env!("CARGO_PKG_VERSION"));
+            SUCCESS
         }
         "get" => get(&args[1..], dialect),
         "check" => check(&args[1..], dialect),
@@ -50,9 +121,9 @@ fn run(args: &[String]) -> u8 {
         "set" => set(&args[1..], dialect),
         "run" => run_command(&args[1..], dialect),
         _ => {
-            eprintln!("unknown command: {command}");
+            errln!("unknown command: {command}");
             usage();
-            2
+            FAILURE
         }
     }
 }
@@ -66,7 +137,7 @@ fn extract_dialect(args: &mut Vec<String>) -> Result<Dialect, ()> {
         return Ok(Dialect::PORTABLE);
     };
     if position + 1 >= limit {
-        eprintln!("--dialect requires a value");
+        errln!("--dialect requires a value");
         return Err(());
     }
     let dialect = match args[position + 1].as_str() {
@@ -76,7 +147,7 @@ fn extract_dialect(args: &mut Vec<String>) -> Result<Dialect, ()> {
         "compose" => Dialect::COMPOSE,
         "docker" | "docker-raw" => Dialect::DOCKER_RAW,
         other => {
-            eprintln!("unknown dialect: {other}");
+            errln!("unknown dialect: {other}");
             return Err(());
         }
     };
@@ -109,13 +180,13 @@ not enabled.
 "#;
 
 fn usage() {
-    print!("{USAGE}");
+    out!("{USAGE}");
 }
 
 fn get(args: &[String], dialect: Dialect) -> u8 {
     if args.len() != 2 {
-        eprintln!("usage: adotenv-cli get <file> <key>");
-        return 2;
+        errln!("usage: adotenv-cli get <file> <key>");
+        return FAILURE;
     }
     let path = &args[0];
     let source = match read_text(path) {
@@ -128,12 +199,12 @@ fn get(args: &[String], dialect: Dialect) -> u8 {
     };
     match doc.get(&args[1]) {
         Some(value) => {
-            println!("{value}");
-            0
+            outln!("{value}");
+            SUCCESS
         }
         None => {
-            eprintln!("missing key: {}", args[1]);
-            1
+            errln!("missing key: {}", args[1]);
+            FINDINGS
         }
     }
 }
@@ -381,35 +452,35 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
     } = match parse_check_args(args) {
         Ok(parsed) => parsed,
         Err(error) => {
-            eprintln!("{error}");
-            return 2;
+            errln!("{error}");
+            return FAILURE;
         }
     };
     if raw_paths.is_empty() && !recursive {
-        eprintln!(
+        errln!(
             "usage: adotenv-cli check [--format human|json|github] [--json] [--source] [--recursive] [--exclude <path>] <file-or-dir>..."
         );
-        return 2;
+        return FAILURE;
     }
     let paths = match expand_paths(&raw_paths, recursive, &excludes) {
         Ok(paths) => paths,
         Err(error) => {
-            eprintln!("{error}");
-            return 2;
+            errln!("{error}");
+            return FAILURE;
         }
     };
     if paths.is_empty() {
-        eprintln!("no .env files found");
+        errln!("no .env files found");
         if format == CheckFormat::Json {
-            println!("{{\"version\":1,\"files\":[]}}");
+            outln!("{{\"version\":1,\"files\":[]}}");
         }
-        return 0;
+        return SUCCESS;
     }
     if paths.iter().filter(|path| is_stdin_path(path)).count() > 1 {
-        eprintln!("standard input may be used at most once");
-        return 2;
+        errln!("standard input may be used at most once");
+        return FAILURE;
     }
-    let mut failed = false;
+    let mut code = SUCCESS;
     let mut files = Vec::new();
     let mut errors = 0usize;
     let mut warnings = 0usize;
@@ -420,7 +491,7 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
         let source = match read_text(path) {
             Ok(source) => source,
             Err(error) => {
-                failed = true;
+                code = code.max(FAILURE);
                 errors += 1;
                 affected_files += 1;
                 match format {
@@ -429,9 +500,9 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
                         json_string(&path_label),
                         json_string(&error)
                     )),
-                    CheckFormat::Human => eprintln!("{error}"),
+                    CheckFormat::Human => errln!("{error}"),
                     CheckFormat::Github => {
-                        println!("{}", github_read_error(&path_label, &error));
+                        outln!("{}", github_read_error(&path_label, &error));
                     }
                 }
                 continue;
@@ -452,18 +523,18 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
             match format {
                 CheckFormat::Json => rendered.push(render_json_diagnostic(diagnostic)),
                 CheckFormat::Human => {
-                    println!(
+                    outln!(
                         "{}",
                         render_human(&path_label, &source, diagnostic, show_source)
                     );
                 }
                 CheckFormat::Github => {
-                    println!("{}", github_annotation(&path_label, &source, diagnostic));
+                    outln!("{}", github_annotation(&path_label, &source, diagnostic));
                 }
             }
         }
         if file_has_error {
-            failed = true;
+            code = code.max(FINDINGS);
         }
         if !diagnostics.is_empty() {
             affected_files += 1;
@@ -478,8 +549,8 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
         }
     }
     match format {
-        CheckFormat::Json => println!("{{\"version\":1,\"files\":[{}]}}", files.join(",")),
-        CheckFormat::Human if affected_files > 0 => println!(
+        CheckFormat::Json => outln!("{{\"version\":1,\"files\":[{}]}}", files.join(",")),
+        CheckFormat::Human if affected_files > 0 => outln!(
             "{} error{}, {} warning{}, {} info in {} file{}",
             errors,
             if errors == 1 { "" } else { "s" },
@@ -491,7 +562,7 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
         ),
         CheckFormat::Human | CheckFormat::Github => {}
     }
-    u8::from(failed)
+    code
 }
 
 fn render_json_diagnostic(diagnostic: &Diagnostic) -> String {
@@ -708,46 +779,45 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
     } = match parse_fmt_args(args) {
         Ok(parsed) => parsed,
         Err(error) => {
-            eprintln!("{error}");
-            return 2;
+            errln!("{error}");
+            return FAILURE;
         }
     };
     if raw_paths.is_empty() && !recursive {
-        eprintln!(
+        errln!(
             "usage: adotenv-cli fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <file-or-dir>..."
         );
-        return 2;
+        return FAILURE;
     }
     let paths = match expand_paths(&raw_paths, recursive, &excludes) {
         Ok(paths) => paths,
         Err(error) => {
-            eprintln!("{error}");
-            return 2;
+            errln!("{error}");
+            return FAILURE;
         }
     };
     if paths.is_empty() {
-        eprintln!("no .env files found");
-        return 0;
+        errln!("no .env files found");
+        return SUCCESS;
     }
     if write && check {
-        eprintln!("--write and --check are mutually exclusive");
-        return 2;
+        errln!("--write and --check are mutually exclusive");
+        return FAILURE;
     }
     if paths.iter().filter(|path| is_stdin_path(path)).count() > 1 {
-        eprintln!("standard input may be used at most once");
-        return 2;
+        errln!("standard input may be used at most once");
+        return FAILURE;
     }
     if write && paths.iter().any(|path| is_stdin_path(path)) {
-        eprintln!("--write cannot write standard input");
-        return 2;
+        errln!("--write cannot write standard input");
+        return FAILURE;
     }
-    let mut failed = false;
+    let mut code = SUCCESS;
     for path in &paths {
         let source = match read_text(path) {
             Ok(source) => source,
             Err(error) => {
-                fail(error);
-                failed = true;
+                code = code.max(fail(error));
                 continue;
             }
         };
@@ -756,7 +826,7 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
             .iter()
             .any(|diagnostic| diagnostic.severity() == Severity::Error);
         for diagnostic in diagnostics {
-            eprintln!("{}: {diagnostic}", path.display());
+            errln!("{}: {diagnostic}", path.display());
         }
         let formatting_source;
         let formatting_doc;
@@ -764,8 +834,7 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
             let sorted = match doc.sort() {
                 Ok(sorted) => sorted,
                 Err(error) => {
-                    fail(format!("{}: {error}", path.display()));
-                    failed = true;
+                    code = code.max(fail(format!("{}: {error}", path.display())));
                     continue;
                 }
             };
@@ -773,8 +842,7 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
             formatting_doc = match parse_strict_with(&formatting_source, dialect) {
                 Ok(doc) => doc,
                 Err(error) => {
-                    fail(format!("{}: {error}", path.display()));
-                    failed = true;
+                    code = code.max(fail(format!("{}: {error}", path.display())));
                     continue;
                 }
             };
@@ -785,32 +853,30 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
         let formatted = match doc_ref.format(&FormatOptions::normalize_groups()) {
             Ok(formatted) => formatted,
             Err(error) => {
-                fail(format!("{}: {error}", path.display()));
-                failed = true;
+                code = code.max(fail(format!("{}: {error}", path.display())));
                 continue;
             }
         };
         if check {
             if formatted.as_str() != source {
-                println!("{}: would reformat", path.display());
-                failed = true;
+                outln!("{}: would reformat", path.display());
+                code = code.max(FINDINGS);
             }
         } else if write {
             if let Err(error) = write_atomic(path, formatted.as_str()) {
-                fail(format!("{}: {error}", path.display()));
-                failed = true;
+                code = code.max(fail(format!("{}: {error}", path.display())));
             }
         } else if paths.len() > 1 {
-            println!("==> {} <==", path.display());
-            print!("{}", formatted.as_str());
+            outln!("==> {} <==", path.display());
+            out!("{}", formatted.as_str());
         } else {
-            print!("{}", formatted.as_str());
+            out!("{}", formatted.as_str());
         }
         if has_errors {
-            failed = true;
+            code = code.max(FINDINGS);
         }
     }
-    u8::from(failed)
+    code
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -874,19 +940,19 @@ fn diff(args: &[String], dialect: Dialect) -> u8 {
     let DiffArgs { paths, format } = match parse_diff_args(args) {
         Ok(parsed) => parsed,
         Err(error) => {
-            eprintln!("{error}");
-            return 2;
+            errln!("{error}");
+            return FAILURE;
         }
     };
     if paths.len() < 2 {
-        eprintln!(
+        errln!(
             "usage: adotenv-cli diff [--format human|matrix|json] [--json] <baseline> <file>..."
         );
-        return 2;
+        return FAILURE;
     }
     if paths.iter().filter(|path| is_stdin(path)).count() > 1 {
-        eprintln!("standard input may be used at most once");
-        return 2;
+        errln!("standard input may be used at most once");
+        return FAILURE;
     }
     if format != DiffFormat::Matrix {
         return diff_streaming(&paths, format, dialect);
@@ -961,8 +1027,12 @@ fn diff_streaming(paths: &[String], format: DiffFormat, dialect: Dialect) -> u8 
     if format == DiffFormat::Json {
         output.push_str("]}\n");
     }
-    print!("{output}");
-    u8::from(differs)
+    out!("{output}");
+    if differs {
+        FINDINGS
+    } else {
+        SUCCESS
+    }
 }
 
 struct MatrixRows {
@@ -1030,7 +1100,11 @@ fn diff_matrix_files(paths: &[String], dialect: Dialect) -> u8 {
         matrix.push(&document);
     }
     print_matrix(paths, &matrix);
-    u8::from(differs)
+    if differs {
+        FINDINGS
+    } else {
+        SUCCESS
+    }
 }
 
 fn matrix_column(document: &Document<'_>) -> (Vec<String>, BTreeMap<String, String>) {
@@ -1095,7 +1169,7 @@ fn print_matrix(paths: &[String], matrix: &MatrixRows) {
     header.push("key".to_string());
     header.extend(paths.iter().cloned());
     print_table_row(&header, &widths);
-    println!(
+    outln!(
         "{}",
         widths
             .iter()
@@ -1120,7 +1194,7 @@ fn print_table_row(cells: &[String], widths: &[usize]) {
         let escaped = escape_table(cell);
         line.push_str(&format!("{escaped:<width$}", width = widths[index]));
     }
-    println!("{line}");
+    outln!("{line}");
 }
 
 fn escape_table(value: &str) -> String {
@@ -1191,8 +1265,8 @@ fn difference_kind_name(kind: DifferenceKind) -> &'static str {
 
 fn example(args: &[String], dialect: Dialect) -> u8 {
     if args.len() != 1 {
-        eprintln!("usage: adotenv-cli example <file>");
-        return 2;
+        errln!("usage: adotenv-cli example <file>");
+        return FAILURE;
     }
     let source = match read_text(&args[0]) {
         Ok(source) => source,
@@ -1200,16 +1274,16 @@ fn example(args: &[String], dialect: Dialect) -> u8 {
     };
     let (doc, diagnostics) = parse_with(&source, dialect);
     for diagnostic in diagnostics {
-        eprintln!("{}: {diagnostic}", args[0]);
+        errln!("{}: {diagnostic}", args[0]);
     }
-    print!("{}", doc.example());
-    0
+    out!("{}", doc.example());
+    SUCCESS
 }
 
 fn load(args: &[String], dialect: Dialect) -> u8 {
     if args.is_empty() || args.len() > 2 {
-        eprintln!("usage: adotenv-cli load <directory> [mode]");
-        return 2;
+        errln!("usage: adotenv-cli load <directory> [mode]");
+        return FAILURE;
     }
     let mode = args.get(1).map_or("", String::as_str);
     let loaded = match load_cascade_with(&args[0], mode, dialect) {
@@ -1217,19 +1291,19 @@ fn load(args: &[String], dialect: Dialect) -> u8 {
         Err(error) => return fail(error.to_string()),
     };
     for (key, value) in loaded.values() {
-        println!("{key}={value}");
+        outln!("{key}={value}");
     }
-    0
+    SUCCESS
 }
 
 fn set(args: &[String], dialect: Dialect) -> u8 {
     if args.len() != 3 {
-        eprintln!("usage: adotenv-cli set <file> <key> <value>");
-        return 2;
+        errln!("usage: adotenv-cli set <file> <key> <value>");
+        return FAILURE;
     }
     if is_stdin(&args[0]) {
-        eprintln!("set cannot write standard input");
-        return 2;
+        errln!("set cannot write standard input");
+        return FAILURE;
     }
     let source = match read_text(&args[0]) {
         Ok(source) => source,
@@ -1246,17 +1320,17 @@ fn set(args: &[String], dialect: Dialect) -> u8 {
     if let Err(error) = write_atomic(Path::new(&args[0]), edited.as_str()) {
         return fail(format!("{}: {error}", args[0]));
     }
-    0
+    SUCCESS
 }
 
 fn run_command(args: &[String], dialect: Dialect) -> u8 {
     let Some(separator) = args.iter().position(|arg| arg == "--") else {
-        eprintln!("usage: adotenv-cli run <directory> [mode] -- <program> [args...]");
-        return 2;
+        errln!("usage: adotenv-cli run <directory> [mode] -- <program> [args...]");
+        return FAILURE;
     };
     if separator == 0 || separator + 1 >= args.len() || separator > 2 {
-        eprintln!("usage: adotenv-cli run <directory> [mode] -- <program> [args...]");
-        return 2;
+        errln!("usage: adotenv-cli run <directory> [mode] -- <program> [args...]");
+        return FAILURE;
     }
     let directory = &args[0];
     let mode = args
@@ -1627,9 +1701,10 @@ fn read_text<P: AsRef<Path>>(path: P) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|_| format!("{}: invalid UTF-8", path.display()))
 }
 
+/// Report an error and return [`FAILURE`].
 fn fail(message: String) -> u8 {
-    eprintln!("{message}");
-    2
+    errln!("{message}");
+    FAILURE
 }
 
 #[cfg(test)]
