@@ -1290,10 +1290,40 @@ fn load(args: &[String], dialect: Dialect) -> u8 {
         Ok(loaded) => loaded,
         Err(error) => return fail(error.to_string()),
     };
-    for (key, value) in loaded.values() {
-        outln!("{key}={value}");
+    match render_portable(&loaded) {
+        Ok(output) => {
+            out!("{output}");
+            SUCCESS
+        }
+        Err(error) => fail(error),
     }
-    SUCCESS
+}
+
+/// Render loaded values as Portable `KEY=value` lines that parse back to the
+/// same keys and values.
+///
+/// Values are encoded with [`adotenv::encode_value`], which quotes and escapes
+/// as needed and has no spelling for control characters other than tab, CR
+/// and LF. The whole output is built first, so nothing is printed when one
+/// key or value has no exact Portable spelling.
+fn render_portable(loaded: &LoadedEnvironment) -> Result<String, String> {
+    let mut output = String::new();
+    for (key, value) in loaded.values() {
+        let token = adotenv::encode_value(value).ok_or_else(|| {
+            format!("cannot print {key:?}: the value has no exact Portable spelling")
+        })?;
+        let line = format!("{key}={token}\n");
+        let exact = parse_strict_with(&line, Dialect::PORTABLE).is_ok_and(|document| {
+            document.entries().count() == 1 && document.get(key) == Some(value)
+        });
+        if !exact {
+            return Err(format!(
+                "cannot print {key:?}: the key is not a Portable key"
+            ));
+        }
+        output.push_str(&line);
+    }
+    Ok(output)
 }
 
 fn set(args: &[String], dialect: Dialect) -> u8 {

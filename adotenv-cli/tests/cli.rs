@@ -167,6 +167,85 @@ fn example_and_load_commands_work() {
 }
 
 #[test]
+fn load_output_parses_back_to_the_loaded_values() {
+    let dir = TempDir::new();
+    fs::write(
+        dir.path().join(".env"),
+        concat!(
+            "FORGED=\"x\\nB=forged\"\n",
+            "CRLF=\"a\\r\\nb\"\n",
+            "TAB=\"a\\tb\"\n",
+            "DOUBLE='say \"hi\"'\n",
+            "SINGLE=\"'q'\"\n",
+            "HASH=\"#x\"\n",
+            "INLINE=\"a #b\"\n",
+            "DOLLAR='$HOME ${A} $(cmd) `cmd`'\n",
+            "LEAD=\" lead\"\n",
+            "TRAIL=\"trail \"\n",
+            "BACKSLASH='back\\slash \\n'\n",
+            "UNICODE=\u{e9}\n",
+            "EQUALS=a=b\n",
+            "EMPTY=x\n",
+        ),
+    )
+    .unwrap();
+    fs::write(dir.path().join(".env.local"), "EMPTY=\nPLAIN=1\n").unwrap();
+
+    let output = run(&["load", dir.path().to_str().unwrap()]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let text = stdout(&output);
+    assert!(!text.lines().any(|line| line.starts_with("B=")), "{text}");
+
+    let loaded = adotenv::load::load_cascade(dir.path(), "").unwrap();
+    let expected: Vec<(&str, &str)> = loaded.values().collect();
+    assert_eq!(text.lines().count(), expected.len(), "{text}");
+    let printed = adotenv::parse_strict(&text).unwrap();
+    let actual: Vec<(&str, &str)> = printed
+        .entries()
+        .map(|entry| (entry.key(), printed.get(entry.key()).unwrap()))
+        .collect();
+    assert_eq!(actual, expected);
+    assert_eq!(printed.get("FORGED"), Some("x\nB=forged"));
+    assert_eq!(printed.get("CRLF"), Some("a\r\nb"));
+    assert_eq!(printed.get("DOUBLE"), Some("say \"hi\""));
+    assert_eq!(printed.get("HASH"), Some("#x"));
+    assert_eq!(printed.get("DOLLAR"), Some("$HOME ${A} $(cmd) `cmd`"));
+    assert_eq!(printed.get("LEAD"), Some(" lead"));
+    assert_eq!(printed.get("TRAIL"), Some("trail "));
+    assert_eq!(printed.get("BACKSLASH"), Some("back\\slash \\n"));
+    assert_eq!(printed.get("EMPTY"), Some(""));
+    assert_eq!(printed.get("PLAIN"), Some("1"));
+
+    let node = run(&["--dialect", "node", "load", dir.path().to_str().unwrap()]);
+    assert!(node.status.success(), "{}", stderr(&node));
+    adotenv::parse_strict(&stdout(&node)).unwrap();
+}
+
+#[test]
+fn load_fails_without_output_when_a_key_or_value_cannot_be_printed() {
+    let cases: &[(&str, &str, &str)] = &[
+        ("portable", "A=1\nCONTROL=s3cret\u{1}\nZ=1\n", "\"CONTROL\""),
+        (
+            "portable",
+            "A=1\nESCAPE=\u{1b}[31ms3cret\nZ=1\n",
+            "\"ESCAPE\"",
+        ),
+        ("python", "A=1\nA~B=s3cret\nZ=1\n", "\"A~B\""),
+        ("compose", "A=1\n\u{f1}=s3cret\nZ=1\n", "\"\u{f1}\""),
+        ("docker", "A=1\nA\0B=s3cret\nZ=1\n", "\"A\\0B\""),
+    ];
+    for (dialect, source, needle) in cases {
+        let dir = TempDir::new();
+        fs::write(dir.path().join(".env"), source).unwrap();
+        let output = run(&["--dialect", dialect, "load", dir.path().to_str().unwrap()]);
+        assert_eq!(output.status.code(), Some(2), "{source:?}");
+        assert_eq!(stdout(&output), "", "{source:?}");
+        assert!(stderr(&output).contains(needle), "{}", stderr(&output));
+        assert!(!stderr(&output).contains("s3cret"), "{}", stderr(&output));
+    }
+}
+
+#[test]
 fn set_updates_a_unique_key() {
     let dir = TempDir::new();
     let file = dir.file(".env", "A=1\n");
