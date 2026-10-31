@@ -1,4 +1,4 @@
-use alloc::{string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 use proptest::prelude::*;
 
 use crate::{parse, ItemKind};
@@ -148,5 +148,94 @@ fn blank_lines_separate_groups_and_comments_in_every_preset() {
             .map(crate::Item::raw)
             .collect();
         assert_eq!(notes, ["# B note\n"], "{:?}", dialect.syntax);
+    }
+}
+
+const PRESETS: [crate::Dialect; 5] = [
+    crate::Dialect::PORTABLE,
+    crate::Dialect::NODE_DOTENV,
+    crate::Dialect::PYTHON_DOTENV,
+    crate::Dialect::COMPOSE,
+    crate::Dialect::DOCKER_RAW,
+];
+
+/// One physical line that most presets read the same way.
+fn common_line() -> impl Strategy<Value = String> {
+    let key = "[A-D]";
+    let value = "[a-z0-9]{0,3}";
+    let quoted = "[a-z0-9 ]{0,3}";
+    let space = "[ \t]{0,2}";
+    let comment = "[a-z ]{0,4}";
+    prop_oneof![
+        4 => (space, key, value, space)
+            .prop_map(|(indent, k, v, tail)| format!("{indent}{k}={v}{tail}")),
+        2 => (key, quoted, space).prop_map(|(k, v, tail)| format!("{k}=\"{v}\"{tail}")),
+        1 => (key, quoted, space).prop_map(|(k, v, tail)| format!("{k}='{v}'{tail}")),
+        1 => (key, value, comment).prop_map(|(k, v, c)| format!("{k}={v} #{c}")),
+        2 => (key, quoted, space, comment)
+            .prop_map(|(k, v, gap, c)| format!("{k}=\"{v}\"{gap} #{c}")),
+        2 => (space, comment).prop_map(|(indent, c)| format!("{indent}#{c}")),
+        4 => "[ \t]{0,3}",
+    ]
+}
+
+type Reading = Vec<(String, Option<String>, crate::AssignmentState)>;
+
+fn reading(doc: &crate::Document<'_>) -> Reading {
+    doc.entries()
+        .map(|entry| {
+            (
+                entry.key().into(),
+                entry.value().map(Into::into),
+                entry.state(),
+            )
+        })
+        .collect()
+}
+
+fn group_layout(doc: &crate::Document<'_>) -> Vec<(core::ops::Range<usize>, Vec<String>)> {
+    doc.groups()
+        .map(|group| {
+            let keys = group.entries().map(|entry| entry.key().into()).collect();
+            (group.span(), keys)
+        })
+        .collect()
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(96))]
+    #[test]
+    fn blank_line_groups_agree_wherever_presets_read_the_same_entries(
+        lines in prop::collection::vec((common_line(), any::<bool>()), 0..10),
+        final_newline in any::<bool>(),
+    ) {
+        let mut source = String::new();
+        for (index, (line, crlf)) in lines.iter().enumerate() {
+            source.push_str(line);
+            if final_newline || index + 1 != lines.len() {
+                source.push_str(if *crlf { "\r\n" } else { "\n" });
+            }
+        }
+        let documents: Vec<_> = PRESETS
+            .iter()
+            .map(|dialect| crate::parse_with(&source, *dialect).0)
+            .collect();
+        for (left, right) in documents
+            .iter()
+            .enumerate()
+            .flat_map(|(index, left)| documents[index + 1..].iter().map(move |right| (left, right)))
+        {
+            if reading(left) != reading(right) {
+                continue;
+            }
+            prop_assert_eq!(
+                group_layout(left),
+                group_layout(right),
+                "{:?} and {:?} read {:?} the same way",
+                left.dialect().syntax,
+                right.dialect().syntax,
+                source
+            );
+        }
     }
 }
