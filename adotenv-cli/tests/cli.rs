@@ -1732,3 +1732,297 @@ fn diff_matrix_handles_empty_keys_and_escaped_cells() {
     assert!(text.contains("tab\\there"), "{text}");
     assert!(text.contains("a\\|b"), "{text}");
 }
+
+/// A parsed JSON value. Objects keep their fields in output order.
+#[derive(Debug)]
+enum Json {
+    Null,
+    Bool,
+    Number,
+    String,
+    Array(Vec<Json>),
+    Object(Vec<(String, Json)>),
+}
+
+/// Parse one complete JSON document, panicking on invalid input.
+fn parse_json(text: &str) -> Json {
+    struct Reader<'a> {
+        bytes: &'a [u8],
+        position: usize,
+    }
+    impl Reader<'_> {
+        fn skip_whitespace(&mut self) {
+            while matches!(self.peek(), Some(b' ' | b'\t' | b'\r' | b'\n')) {
+                self.position += 1;
+            }
+        }
+        fn peek(&self) -> Option<u8> {
+            self.bytes.get(self.position).copied()
+        }
+        fn expect(&mut self, byte: u8) {
+            self.skip_whitespace();
+            assert_eq!(self.peek(), Some(byte), "at byte {}", self.position);
+            self.position += 1;
+        }
+        fn literal(&mut self, word: &str) {
+            assert!(self.bytes[self.position..].starts_with(word.as_bytes()));
+            self.position += word.len();
+        }
+        fn string(&mut self) -> String {
+            self.expect(b'"');
+            let mut output = String::new();
+            loop {
+                let rest = std::str::from_utf8(&self.bytes[self.position..]).unwrap();
+                let character = rest.chars().next().expect("unterminated string");
+                self.position += character.len_utf8();
+                match character {
+                    '"' => return output,
+                    '\\' => {
+                        let escape = self.bytes[self.position];
+                        self.position += 1;
+                        match escape {
+                            b'"' => output.push('"'),
+                            b'\\' => output.push('\\'),
+                            b'/' => output.push('/'),
+                            b'b' => output.push('\u{8}'),
+                            b'f' => output.push('\u{c}'),
+                            b'n' => output.push('\n'),
+                            b'r' => output.push('\r'),
+                            b't' => output.push('\t'),
+                            b'u' => {
+                                let hex = std::str::from_utf8(
+                                    &self.bytes[self.position..self.position + 4],
+                                )
+                                .unwrap();
+                                self.position += 4;
+                                let code = u32::from_str_radix(hex, 16).unwrap();
+                                output.push(char::from_u32(code).unwrap_or('\u{fffd}'));
+                            }
+                            other => panic!("invalid escape {other}"),
+                        }
+                    }
+                    character => {
+                        assert!(u32::from(character) >= 0x20, "raw control in string");
+                        output.push(character);
+                    }
+                }
+            }
+        }
+        fn value(&mut self) -> Json {
+            self.skip_whitespace();
+            match self.peek().expect("unexpected end") {
+                b'{' => {
+                    self.position += 1;
+                    let mut fields = Vec::new();
+                    self.skip_whitespace();
+                    if self.peek() == Some(b'}') {
+                        self.position += 1;
+                        return Json::Object(fields);
+                    }
+                    loop {
+                        self.skip_whitespace();
+                        let key = self.string();
+                        self.expect(b':');
+                        fields.push((key, self.value()));
+                        self.skip_whitespace();
+                        match self.peek() {
+                            Some(b',') => self.position += 1,
+                            Some(b'}') => {
+                                self.position += 1;
+                                return Json::Object(fields);
+                            }
+                            other => panic!("unexpected {other:?} in object"),
+                        }
+                    }
+                }
+                b'[' => {
+                    self.position += 1;
+                    let mut items = Vec::new();
+                    self.skip_whitespace();
+                    if self.peek() == Some(b']') {
+                        self.position += 1;
+                        return Json::Array(items);
+                    }
+                    loop {
+                        items.push(self.value());
+                        self.skip_whitespace();
+                        match self.peek() {
+                            Some(b',') => self.position += 1,
+                            Some(b']') => {
+                                self.position += 1;
+                                return Json::Array(items);
+                            }
+                            other => panic!("unexpected {other:?} in array"),
+                        }
+                    }
+                }
+                b'"' => {
+                    self.string();
+                    Json::String
+                }
+                b't' => {
+                    self.literal("true");
+                    Json::Bool
+                }
+                b'f' => {
+                    self.literal("false");
+                    Json::Bool
+                }
+                b'n' => {
+                    self.literal("null");
+                    Json::Null
+                }
+                _ => {
+                    let start = self.position;
+                    while matches!(
+                        self.peek(),
+                        Some(b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')
+                    ) {
+                        self.position += 1;
+                    }
+                    assert!(self.position > start, "invalid value at byte {start}");
+                    Json::Number
+                }
+            }
+        }
+    }
+    let mut reader = Reader {
+        bytes: text.as_bytes(),
+        position: 0,
+    };
+    let value = reader.value();
+    reader.skip_whitespace();
+    assert_eq!(reader.position, text.len(), "trailing data");
+    value
+}
+
+/// Field lists observed per object role, in output order.
+type Observed = std::collections::BTreeMap<&'static str, Vec<Vec<String>>>;
+
+fn observe<'a>(
+    observed: &mut Observed,
+    role: &'static str,
+    value: &'a Json,
+) -> &'a [(String, Json)] {
+    let Json::Object(fields) = value else {
+        panic!("{role} is not an object: {value:?}");
+    };
+    observed
+        .entry(role)
+        .or_default()
+        .push(fields.iter().map(|(name, _)| name.clone()).collect());
+    fields
+}
+
+fn field<'a>(fields: &'a [(String, Json)], name: &str) -> &'a Json {
+    &fields.iter().find(|(key, _)| key == name).unwrap().1
+}
+
+fn items(value: &Json) -> &[Json] {
+    let Json::Array(items) = value else {
+        panic!("not an array: {value:?}");
+    };
+    items
+}
+
+/// Field names per object from the tables in `docs/design/cli.md`.
+fn documented_fields(text: &str) -> std::collections::BTreeMap<String, Vec<String>> {
+    let mut documented = std::collections::BTreeMap::<String, Vec<String>>::new();
+    for line in text.lines() {
+        let cells: Vec<&str> = line.split('|').map(str::trim).collect();
+        if cells.len() < 5 || !cells[0].is_empty() {
+            continue;
+        }
+        let Some(name) = cells[2]
+            .strip_prefix('`')
+            .and_then(|cell| cell.strip_suffix('`'))
+        else {
+            continue;
+        };
+        documented
+            .entry(cells[1].to_string())
+            .or_default()
+            .push(name.to_string());
+    }
+    documented
+}
+
+#[test]
+fn json_fields_match_the_documented_schema() {
+    let docs = Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/design/cli.md");
+    let Ok(docs) = fs::read_to_string(docs) else {
+        eprintln!("skipping schema test: docs/design/cli.md is not available");
+        return;
+    };
+    let documented = documented_fields(&docs);
+
+    let dir = TempDir::new();
+    dir.file_at("good.env", "A=1\n");
+    dir.file_at("findings.env", "A=1\nA=2\nBAD KEY=value\n");
+    dir.file_at("base.env", "A\nB=\nC=1\nexport D=1\nE=1\n");
+    dir.file_at("candidate.env", "A=1\nB\nC=2\nD=1\nF=1\n");
+    let mut observed = Observed::new();
+
+    let output = run_in(
+        dir.path(),
+        &["check", "--json", "good.env", "findings.env", "missing.env"],
+    );
+    assert_eq!(output.status.code(), Some(2));
+    let json = parse_json(&stdout(&output));
+    let report = observe(&mut observed, "check report", &json);
+    for file in items(field(report, "files")) {
+        let file = observe(&mut observed, "check file", file);
+        for diagnostic in items(field(file, "diagnostics")) {
+            let diagnostic = observe(&mut observed, "diagnostic", diagnostic);
+            observe(&mut observed, "span", field(diagnostic, "span"));
+            if let Json::Object(_) = field(diagnostic, "secondary_span") {
+                observe(&mut observed, "span", field(diagnostic, "secondary_span"));
+            }
+        }
+    }
+
+    let output = run_in(
+        dir.path(),
+        &["diff", "--json", "base.env", "candidate.env", "base.env"],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let json = parse_json(&stdout(&output));
+    let report = observe(&mut observed, "diff report", &json);
+    for file in items(field(report, "files")) {
+        let file = observe(&mut observed, "diff file", file);
+        for difference in items(field(file, "differences")) {
+            let difference = observe(&mut observed, "difference", difference);
+            for side in ["left", "right"] {
+                if let Json::Object(_) = field(difference, side) {
+                    observe(&mut observed, "value", field(difference, side));
+                }
+            }
+        }
+    }
+
+    for (role, lists) in &observed {
+        let expected = documented
+            .get(*role)
+            .unwrap_or_else(|| panic!("cli.md documents no fields for {role}"));
+        let mut seen: Vec<&String> = lists.iter().flatten().collect();
+        seen.sort();
+        seen.dedup();
+        let mut listed: Vec<&String> = expected.iter().collect();
+        listed.sort();
+        assert_eq!(seen, listed, "{role}: emitted and documented fields differ");
+        for fields in lists {
+            let ordered: Vec<&String> = expected
+                .iter()
+                .filter(|name| fields.contains(name))
+                .collect();
+            assert_eq!(
+                fields.iter().collect::<Vec<_>>(),
+                ordered,
+                "{role}: fields are not in documented order"
+            );
+        }
+    }
+    let documented_roles: Vec<&String> = documented.keys().collect();
+    let observed_roles: Vec<&str> = observed.keys().copied().collect();
+    assert_eq!(documented_roles, observed_roles, "documented objects");
+}
