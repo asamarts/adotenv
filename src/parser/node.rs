@@ -205,12 +205,14 @@ fn header<const D: bool>(
 /// them. Use this only for headers/recovery/comments, never unquoted values.
 pub(super) fn anchored_line<const D: bool>(parser: &Parser<'_, D>, at: usize) -> PhysicalLine {
     let physical = parser.physical(at);
-    match parser.source[at..physical.content_end].find(['\u{2028}', '\u{2029}']) {
-        Some(relative) => PhysicalLine {
-            content_end: at + relative,
-            end: at + relative,
+    let anchor = parser.anchor(at);
+    if anchor < physical.content_end {
+        PhysicalLine {
+            content_end: anchor,
+            end: anchor,
             ending: LineEnding::None,
-        },
-        None => physical,
+        }
+    } else {
+        physical
     }
 }

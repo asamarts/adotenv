@@ -1361,3 +1361,35 @@ fn double_escape_docs_show_the_escape_sequences_verbatim() {
     }
     assert_eq!(wrong, []);
 }
+
+#[test]
+fn statements_sharing_one_physical_line_scan_each_byte_a_bounded_number_of_times() {
+    let next_statement = Dialect {
+        quoted_tail: QuotedTail::NextStatement,
+        ..Dialect::NODE_DOTENV
+    };
+    let limited = |dialect: Dialect| Dialect {
+        line_byte_limit: Some(65_535),
+        ..dialect
+    };
+    let mut excessive = vec::Vec::new();
+    for (statement, dialect) in [
+        ("A=\"x\"", Dialect::COMPOSE),
+        ("A=\"x\"", limited(Dialect::COMPOSE)),
+        ("A=\"x\"\u{2028}", limited(Dialect::NODE_DOTENV)),
+        ("A=\"x\" ", Dialect::COMPOSE),
+        ("A=\"x\"\u{2028}", Dialect::NODE_DOTENV),
+        ("A=1 #\u{2028}", Dialect::NODE_DOTENV),
+        ("A=\"x\"", next_statement),
+        ("A=\"x\"\n", Dialect::PORTABLE),
+        ("A=\"x\"\n", Dialect::PYTHON_DOTENV),
+        ("A=x\n", Dialect::DOCKER_RAW),
+    ] {
+        let source = statement.repeat(4_000);
+        let scanned = crate::parser::scanned_bytes(&source, dialect);
+        if scanned > 4 * source.len() {
+            excessive.push((dialect.syntax, statement, scanned, source.len()));
+        }
+    }
+    assert_eq!(excessive, []);
+}

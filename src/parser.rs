@@ -5,7 +5,7 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use core::ops::Range;
+use core::{cell::Cell, ops::Range};
 
 use crate::dialect::{
     BareKeys, BomPolicy, ColonSeparator, Dialect, Duplicates, InlineComments, KeySyntax,
@@ -307,6 +307,23 @@ struct Parser<'src, const D: bool> {
     failed_quotes: [Option<usize>; 3],
     line: usize,
     projection: Option<Projection>,
+    /// The physical line found by the latest scan, and where that scan began.
+    /// It answers every lookup from that start up to the line's content end.
+    line_cache: Cell<(usize, PhysicalLine)>,
+    /// The latest LS/PS anchor scan: where it began and the anchor it found,
+    /// or the physical line's content end. Node uses it for regex anchors.
+    anchor_cache: Cell<(usize, usize)>,
+    /// Bytes examined while locating line ends and LS/PS anchors.
+    #[cfg(test)]
+    scanned: Cell<usize>,
+}
+
+/// Count the bytes that line-end and anchor scans examine while parsing.
+#[cfg(test)]
+pub(crate) fn scanned_bytes(source: &str, dialect: Dialect) -> usize {
+    let mut parser = Parser::<true>::new(source, dialect, None);
+    parser.run();
+    parser.scanned.get()
 }
 
 struct Projection {
@@ -392,6 +409,17 @@ impl<'src, const D: bool> Parser<'src, D> {
             failed_quotes: [None; 3],
             line: 1,
             projection,
+            line_cache: Cell::new((
+                usize::MAX,
+                PhysicalLine {
+                    content_end: 0,
+                    end: 0,
+                    ending: LineEnding::None,
+                },
+            )),
+            anchor_cache: Cell::new((usize::MAX, 0)),
+            #[cfg(test)]
+            scanned: Cell::new(0),
         }
     }
 
@@ -483,9 +511,44 @@ impl<const D: bool> Parser<'_, D> {
             dialect.whitespace
         }
     }
+    /// The physical line containing `at`, from `at` to its end.
+    ///
+    /// Compose and Node can place many statements on one physical line. A
+    /// scan from any position up to the line's content end finds the same
+    /// line end, so reuse the latest result instead of scanning again. This
+    /// keeps parsing linear in the input length.
     fn physical(&self, at: usize) -> PhysicalLine {
-        physical_line(self.source, at, self.dialect().line_breaks)
+        let (from, line) = self.line_cache.get();
+        if from <= at && at <= line.content_end {
+            return line;
+        }
+        let line = physical_line(self.source, at, self.dialect().line_breaks);
+        self.record_scan(line.end - at);
+        self.line_cache.set((at, line));
+        line
     }
+    /// The first LS/PS anchor at or after `at` on its physical line, or the
+    /// line's content end. Like [`Self::physical`], it reuses the latest scan.
+    fn anchor(&self, at: usize) -> usize {
+        let (from, anchor) = self.anchor_cache.get();
+        if from <= at && at <= anchor {
+            return anchor;
+        }
+        let physical = self.physical(at);
+        let anchor = self.source[at..physical.content_end]
+            .find(['\u{2028}', '\u{2029}'])
+            .map_or(physical.content_end, |relative| at + relative);
+        self.record_scan(anchor - at);
+        self.anchor_cache.set((at, anchor));
+        anchor
+    }
+    #[cfg(test)]
+    fn record_scan(&self, bytes: usize) {
+        self.scanned.set(self.scanned.get() + bytes);
+    }
+    #[cfg(not(test))]
+    #[allow(clippy::unused_self)]
+    fn record_scan(&self, _bytes: usize) {}
     fn over_limit(&self, start: usize, physical: PhysicalLine) -> bool {
         self.dialect().line_byte_limit.is_some_and(|limit| {
             let len = physical.end
@@ -512,7 +575,14 @@ impl<const D: bool> Parser<'_, D> {
                     physical,
                 ));
             }
-            line += line_breaks(&self.source[cursor..physical.end]);
+            if physical.end >= end {
+                // The rest of a shared line may hold many more statements.
+                // Its line breaks matter only for a later line of this item.
+                break;
+            }
+            let scanned = &self.source[cursor..physical.end];
+            self.record_scan(scanned.len());
+            line += line_breaks(scanned);
             cursor = physical.end;
         }
         None
