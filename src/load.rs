@@ -19,8 +19,8 @@ use std::{
 };
 
 use crate::{
-    encode_value, parse_strict, parse_strict_with, parse_with, Diagnostic, Dialect, ExpandOptions,
-    ExpandScope, ResolveError, Severity,
+    encode_value, parse_strict_with, parse_with, Diagnostic, Dialect, ExpandOptions, ExpandScope,
+    KeySyntax, ResolveError, Severity,
 };
 
 /// A borrowed file, source span and one-based line identifying a loaded value.
@@ -584,10 +584,16 @@ impl LoadedEnvironment {
     /// order. Command substitutions remain literal unless the caller supplies a
     /// context-aware document callback.
     ///
+    /// Keys take part exactly as loaded, whatever dialect read them, so a
+    /// braced reference such as `${A B}` finds a quoted key `A B`. A key is
+    /// never reinterpreted as a different key: one that the synthetic source
+    /// cannot represent, such as a key that contains both an apostrophe and
+    /// whitespace, is an error naming that key.
+    ///
     /// # Errors
-    /// Returns [`LoadedResolveError`] for unsupported sequential scope, values
-    /// that cannot be encoded, or resolution failures. The error retains the
-    /// winning declaration origin when available.
+    /// Returns [`LoadedResolveError`] for unsupported sequential scope, keys or
+    /// values that cannot be represented exactly, or resolution failures. The
+    /// error retains the winning declaration origin when available.
     pub fn resolve_decoded<F>(
         &self,
         lookup: F,
@@ -603,23 +609,41 @@ impl LoadedEnvironment {
                 "loaded environments require whole-file resolution scope",
             ));
         }
+        let unrepresentable = |key: &str, message: &str| {
+            LoadedResolveError::new(Some(key.to_string()), self.owned_origin(key), message)
+        };
         let mut source = String::new();
         for (key, record) in &self.records {
-            let token = encode_value(record.value.as_ref()).ok_or_else(|| {
-                LoadedResolveError::new(
-                    Some(key.to_string()),
-                    self.owned_origin(key),
-                    "value cannot be represented exactly",
-                )
-            })?;
-            source.push_str(key.as_ref());
+            let key_token = synthetic_key(key)
+                .ok_or_else(|| unrepresentable(key, "key cannot be represented exactly"))?;
+            let token = encode_value(record.value.as_ref())
+                .ok_or_else(|| unrepresentable(key, "value cannot be represented exactly"))?;
+            source.push_str(&key_token);
             source.push('=');
             source.push_str(&token);
             source.push('\n');
         }
-        let document = parse_strict(&source).map_err(|error| {
+        let document = parse_strict_with(&source, SYNTHETIC_DIALECT).map_err(|error| {
             LoadedResolveError::new(None, None, format!("cannot prepare resolution: {error}"))
         })?;
+        // Every loaded key must come back exactly, with its exact value, so
+        // resolution can never bind a different key.
+        let mut entries = document.entries();
+        for (key, record) in &self.records {
+            let Some(entry) = entries.next().filter(|entry| entry.key() == key.as_ref()) else {
+                return Err(unrepresentable(key, "key cannot be represented exactly"));
+            };
+            if entry.value() != Some(record.value.as_ref()) {
+                return Err(unrepresentable(key, "value cannot be represented exactly"));
+            }
+        }
+        if entries.next().is_some() {
+            return Err(LoadedResolveError::new(
+                None,
+                None,
+                "cannot prepare resolution: unexpected declaration",
+            ));
+        }
         let mut options = *options;
         // The synthetic document must treat decoded text as unquoted text. Any
         // quoting introduced by the exact encoder must not change eligibility.
@@ -720,6 +744,30 @@ impl LoadedEnvironment {
             files: self.files.clone(),
         })
     }
+}
+
+/// Dialect of the synthetic source built by
+/// [`LoadedEnvironment::resolve_decoded`]: Portable values, single-quoted keys
+/// taken literally, and bare keys that may hold any character except
+/// whitespace and `=`.
+const SYNTHETIC_DIALECT: Dialect = Dialect::PORTABLE
+    .with_quoted_keys(true)
+    .with_keys(KeySyntax::NonWhitespace);
+
+/// Spell `key` so [`SYNTHETIC_DIALECT`] reads back exactly `key` on one line.
+fn synthetic_key(key: &str) -> Option<String> {
+    let line_break = |c: char| c == '\n' || c == '\r';
+    if key.is_empty() || key.contains(line_break) {
+        return None;
+    }
+    if !key.contains('\'') {
+        return Some(format!("'{key}'"));
+    }
+    // An apostrophe cannot appear inside a quoted key, so the key must stand
+    // bare: no whitespace or `=`, and no leading `#` that starts a comment.
+    let bare =
+        !key.starts_with(['\'', '#']) && !key.contains(|c: char| c == '=' || c.is_whitespace());
+    bare.then(|| key.to_string())
 }
 
 fn resolve_error_key(error: &ResolveError) -> &str {

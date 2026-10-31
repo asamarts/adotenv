@@ -76,8 +76,12 @@ table. Reports do not duplicate final values.
 load dialect and resolves references. Quote, escape and dialect context survive
 the merge. It requires raw-token retention.
 
-`resolve_decoded` treats every final value as unquoted decoded text. It requires
-whole-file resolution scope.
+`resolve_decoded` treats every final value as unquoted decoded text. Keys take
+part exactly as loaded, whatever dialect read them, so `${A B}` finds a Python
+key written `'A B'`. A key that the synthetic source cannot spell, such as one
+that contains both an apostrophe and whitespace, is an error naming that key. It
+is never read as a different key.
+It requires whole-file resolution scope.
 
 Both methods return `ResolvedEnvironment`. Origins are available through
 `origin(key)`. Command substitution remains literal unless a caller callback is

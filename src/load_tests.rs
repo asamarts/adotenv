@@ -908,3 +908,66 @@ fn serde_errors_without_origins_have_no_line_number() {
     assert!(!error.to_string().starts_with("line "));
     assert!(error.to_string().contains("u16"));
 }
+
+fn whole_file() -> ExpandOptions {
+    ExpandOptions::portable().with_scope(ExpandScope::WholeFile)
+}
+
+#[test]
+fn decoded_resolution_keeps_loaded_keys_exactly() {
+    let dir = TempDir::new();
+    dir.write(".env", "'export A=evil'=1\n'#A'=3\n");
+    let loaded = load_cascade_with(dir.path(), "", Dialect::PYTHON_DOTENV).unwrap();
+    let resolved = loaded.resolve_decoded(|_| None, &whole_file()).unwrap();
+    assert_eq!(resolved.get("A"), None);
+    assert_eq!(resolved.get("export A=evil"), Some("1"));
+    assert_eq!(resolved.get("#A"), Some("3"));
+    assert_eq!(resolved.len(), 2);
+
+    dir.write(
+        ".env",
+        "'export A=evil'=1\n'export A'=2\n'#A'=3\n'A B'=4\n\"A\"=5\nC=${A B}\nD=${#A}\n",
+    );
+    let loaded = load_cascade_with(dir.path(), "", Dialect::PYTHON_DOTENV).unwrap();
+    let keys: Vec<_> = loaded.values().map(|(key, _)| key.to_string()).collect();
+    assert_eq!(
+        keys,
+        ["\"A\"", "#A", "A B", "C", "D", "export A", "export A=evil"]
+    );
+    let resolved = loaded.resolve_decoded(|_| None, &whole_file()).unwrap();
+    let expected: BTreeMap<String, String> = [
+        ("\"A\"", "5"),
+        ("#A", "3"),
+        ("A B", "4"),
+        ("C", "4"),
+        ("D", "3"),
+        ("export A", "2"),
+        ("export A=evil", "1"),
+    ]
+    .into_iter()
+    .map(|(key, value)| (key.to_string(), value.to_string()))
+    .collect();
+    assert_eq!(resolved.values(), &expected);
+    assert_eq!(resolved.origin("#A").unwrap().line(), 3);
+
+    dir.write(".env", "A#B=1\nC=${A#B}\nD'E=2\n");
+    let loaded = load_cascade_with(dir.path(), "", Dialect::DOCKER_RAW).unwrap();
+    let resolved = loaded.resolve_decoded(|_| None, &whole_file()).unwrap();
+    assert_eq!(resolved.get("A#B"), Some("1"));
+    assert_eq!(resolved.get("C"), Some("1"));
+    assert_eq!(resolved.get("D'E"), Some("2"));
+    assert_eq!(resolved.len(), 3);
+}
+
+#[test]
+fn decoded_resolution_names_a_key_it_cannot_represent() {
+    let dir = TempDir::new();
+    dir.write(".env", "OK=1\n'A=1\n");
+    let loaded = load_cascade_with(dir.path(), "", Dialect::DOCKER_RAW).unwrap();
+    assert_eq!(loaded.get("'A"), Some("1"));
+    let error = loaded.resolve_decoded(|_| None, &whole_file()).unwrap_err();
+    assert_eq!(error.key(), Some("'A"));
+    assert_eq!(error.message(), "key cannot be represented exactly");
+    assert_eq!(error.origin().unwrap().line(), 2);
+    assert_eq!(error.origin().unwrap().path(), dir.path().join(".env"));
+}
