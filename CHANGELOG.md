@@ -90,6 +90,32 @@ The 1.0 fix round. See [1.0-fix-round.md](docs/design/1.0-fix-round.md).
 - The README notes that `Debug` output includes values.
 - Restored this changelog.
 
+### Breaking changes and migration
+
+Parsed values and Portable item boundaries are unchanged. Resolution returns
+the same values unless it exceeds the new output budget. Code that moves from
+0.10 needs to check these points:
+
+- `insert` of a key the document already declares now fails with
+  `EditError::Duplicate`. Use `Edit::Set` to change the existing declaration,
+  or remove or rename it in the same batch.
+- `sort` output can differ from 0.10 where one key references another in the
+  same group. Re-run formatting checks that compare against stored output.
+- Code that walks `Document::items` for Node, Python or Compose files sees
+  blank lines as separate `Blank` items and trailing comments of quoted Compose
+  entries as inline comments.
+- Pass `ExpandScope::WholeFile` to `LoadedEnvironment::resolve_contextual`.
+- A resolution whose output exceeds 64 MiB fails with
+  `ResolveError::OutputTooLarge`. Raise the limit with
+  `ExpandOptions::with_max_output_bytes` where large outputs are expected.
+- CLI scripts: a read or write failure exits with `2` in every command, and
+  `run` reports a child killed by a signal as `128 + N`. `load` prints Portable
+  assignments, quoted where needed, instead of raw `KEY=value` lines.
+- `adotenv-config` requires `config` 0.15 and Rust 1.88, and `config` 0.15 keys
+  are case-sensitive: read `A.B` with the case it has in the file. Depend on the
+  adapters by their own version, which no longer follows the core version after
+  0.11.
+
 ## [0.10.4] - 2026-10-27
 
 ### Performance
