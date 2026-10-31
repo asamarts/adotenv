@@ -192,7 +192,10 @@ pub enum QuotedTail {
     LiteralFallback,
     /// Ignore the complete statement with a warning.
     Skip,
-    /// End the item at the quote and parse the remainder as another statement.
+    /// Parse the text after the quote as another statement on the same line.
+    ///
+    /// When only whitespace or a comment follows, it stays with the quoted
+    /// declaration's item together with the line ending.
     NextStatement,
 }
 /// Independently enabled multiline quote forms.
