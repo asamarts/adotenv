@@ -150,8 +150,8 @@ contain NUL, are rejected before the program starts.
 root. With no path they use `.`.
 
 `--exclude` is repeatable and relative to each root. Discovery skips `.git`,
-`target`, `node_modules` and symbolic links. A root that is a symbolic link is
-refused.
+`target`, `node_modules` and symbolic links. A recursive root that is a symbolic
+link is refused.
 
 ## Input and output
 
@@ -190,11 +190,12 @@ Every command except `run` exits with one of these codes:
   a file that would change, `diff` found a difference, or `get` did not find the
   key.
 - `2`: the command could not complete. This covers usage errors, files that
-  cannot be read or are not UTF-8, failed writes, including writes to standard
-  output and standard error, and input the command cannot process: an invalid
-  document for `get`, `diff`, `set`, `load` or `run`, an edit that `set` cannot
-  apply, `load` output that has no Portable spelling, or a `fmt` change that
-  would alter meaning.
+  cannot be read or are not UTF-8, failed writes, and input the command cannot
+  process: an invalid document for `get`, `diff`, `set`, `load` or `run`, an
+  edit that `set` cannot apply, `load` output that has no Portable spelling, or
+  a `fmt` change that would alter meaning. Failed writes include writes to
+  standard output and standard error. A closed output pipe also exits `2`,
+  without a message.
 
 `check` and `fmt` process every file and exit with the highest code, so a file
 that fails takes precedence over findings in other files. `fmt` still prints or

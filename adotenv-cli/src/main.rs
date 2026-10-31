@@ -70,7 +70,8 @@ fn write_stderr(arguments: fmt::Arguments<'_>) {
 }
 
 fn stdout_failed(error: &io::Error) {
-    if !STDOUT_FAILED.swap(true, Ordering::Relaxed) {
+    // A reader that closed the pipe early, as `head` does, already knows.
+    if !STDOUT_FAILED.swap(true, Ordering::Relaxed) && error.kind() != io::ErrorKind::BrokenPipe {
         errln!("failed to write standard output: {error}");
     }
 }

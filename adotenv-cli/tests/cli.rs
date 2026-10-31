@@ -1261,6 +1261,24 @@ fn exit_code_contract_covers_write_failures() {
 
 #[cfg(unix)]
 #[test]
+fn exit_code_contract_covers_a_closed_output_pipe() {
+    let dir = TempDir::new();
+    let source: String = (0..20_000).map(|index| format!("K{index}=v\n")).collect();
+    fs::write(dir.path().join(".env"), source).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_adotenv-cli"))
+        .args(["load", dir.path().to_str().unwrap()])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stdout.take());
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
+    assert_eq!(stderr(&output), "");
+}
+
+#[cfg(unix)]
+#[test]
 fn exit_code_contract_rejects_non_utf8_arguments() {
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
