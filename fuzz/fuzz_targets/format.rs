@@ -311,11 +311,59 @@ fn check_result(source: &str, document: &adotenv::Document<'_>, options: &Format
     }
 }
 
+// One option combination derived from the input, so a run covers every
+// combination of the five policies without formatting each input with all of
+// them. FNV-1a keeps the choice stable for a given input.
+fn derived_options(bytes: &[u8]) -> FormatOptions {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for &byte in bytes {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    let mut pick = |choices: u64| {
+        let choice = hash % choices;
+        hash /= choices;
+        usize::try_from(choice).expect("choice is below the choice count")
+    };
+    FormatOptions::default()
+        .with_equals_spacing(
+            [
+                EqualsSpacing::Preserve,
+                EqualsSpacing::Spaces,
+                EqualsSpacing::None,
+            ][pick(3)],
+        )
+        .with_trim_trailing_whitespace(pick(2) == 1)
+        .with_blank_lines([BlankLines::Preserve, BlankLines::Collapse][pick(2)])
+        .with_quote_style(
+            [
+                QuoteStyle::Preserve,
+                QuoteStyle::Double,
+                QuoteStyle::Single,
+                QuoteStyle::Unquoted,
+            ][pick(4)],
+        )
+        .with_final_newline(
+            [
+                FinalNewline::Preserve,
+                FinalNewline::Ensure,
+                FinalNewline::Remove,
+            ][pick(3)],
+        )
+}
+
 fuzz_target!(|bytes: &[u8]| {
     let Ok(source) = std::str::from_utf8(bytes) else {
         return;
     };
     let options = [
+        derived_options(bytes),
+        // Trimming while the final newline is left as is.
+        FormatOptions::default().with_trim_trailing_whitespace(true),
+        // Blank-line collapsing with a quote style.
+        FormatOptions::normalize_groups().with_quote_style(QuoteStyle::Double),
+        // Unquoting runs only when no other trivia rule is selected.
+        FormatOptions::default().with_quote_style(QuoteStyle::Unquoted),
         FormatOptions::normalize(),
         FormatOptions::normalize_groups(),
         FormatOptions::normalize().with_quote_style(QuoteStyle::Double),

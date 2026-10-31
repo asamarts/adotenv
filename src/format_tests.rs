@@ -7,7 +7,7 @@ use proptest::prelude::*;
 
 use crate::{
     parse, parse_strict, parse_with, BlankLines, Dialect, EqualsSpacing, FinalNewline, FormatError,
-    FormatOptions, QuoteStyle,
+    FormatOptions, FormatResult, QuoteStyle,
 };
 
 fn options(
@@ -420,6 +420,101 @@ fn collapsing_trailing_blank_lines_does_not_add_another_line_ending() {
         assert_eq!(formatted.as_str(), expected, "{source:?}");
         let (after, _) = parse(formatted.as_str());
         assert!(after.format(&options).unwrap().is_empty(), "{source:?}");
+    }
+}
+
+fn any_format_options() -> impl Strategy<Value = FormatOptions> {
+    (
+        0..3usize,
+        any::<bool>(),
+        any::<bool>(),
+        0..4usize,
+        0..3usize,
+    )
+        .prop_map(|(equals, trim, collapse, quote, final_newline)| {
+            FormatOptions::default()
+                .with_equals_spacing(
+                    [
+                        EqualsSpacing::Preserve,
+                        EqualsSpacing::Spaces,
+                        EqualsSpacing::None,
+                    ][equals],
+                )
+                .with_trim_trailing_whitespace(trim)
+                .with_blank_lines(if collapse {
+                    BlankLines::Collapse
+                } else {
+                    BlankLines::Preserve
+                })
+                .with_quote_style(
+                    [
+                        QuoteStyle::Preserve,
+                        QuoteStyle::Double,
+                        QuoteStyle::Single,
+                        QuoteStyle::Unquoted,
+                    ][quote],
+                )
+                .with_final_newline(
+                    [
+                        FinalNewline::Preserve,
+                        FinalNewline::Ensure,
+                        FinalNewline::Remove,
+                    ][final_newline],
+                )
+        })
+}
+
+proptest! {
+    #[test]
+    fn every_option_set_preserves_declarations_and_is_idempotent(
+        chars in prop::collection::vec(
+            prop_oneof![
+                Just('A'), Just('B'), Just('='), Just('1'), Just('#'), Just(' '),
+                Just('\t'), Just('\n'), Just('\r'), Just('"'), Just('\''),
+                Just('\\'), Just('$'), any::<char>(),
+            ],
+            0..160,
+        ),
+        options in any_format_options(),
+        dialect in prop::sample::select(vec![
+            Dialect::PORTABLE,
+            Dialect::NODE_DOTENV,
+            Dialect::PYTHON_DOTENV,
+            Dialect::COMPOSE,
+            Dialect::DOCKER_RAW,
+        ]),
+    ) {
+        let source: String = chars.into_iter().collect();
+        let (doc, _) = parse_with(&source, dialect);
+        if let Ok(formatted) = doc.format(&options) {
+            let (after, _) = parse_with(formatted.as_str(), dialect);
+            prop_assert_eq!(doc.entries().len(), after.entries().len());
+            for (left, right) in doc.entries().zip(after.entries()) {
+                prop_assert_eq!(left.key(), right.key());
+                prop_assert_eq!(left.value(), right.value());
+                prop_assert_eq!(left.state(), right.state());
+                if options.quote_style == QuoteStyle::Preserve {
+                    prop_assert_eq!(left.quote(), right.quote());
+                }
+                prop_assert_eq!(left.exported(), right.exported());
+                prop_assert_eq!(left.participates_in_lookup(), right.participates_in_lookup());
+            }
+            let mut reversed = source.clone();
+            for edit in formatted.edits().iter().rev() {
+                reversed.replace_range(edit.range.clone(), &edit.replacement);
+            }
+            prop_assert_eq!(reversed.as_str(), formatted.as_str());
+            if options.final_newline != FinalNewline::Remove {
+                let again = after.format(&options);
+                prop_assert!(
+                    again.as_ref().is_ok_and(FormatResult::is_empty),
+                    "{:?} formatted to {:?}, then {:?}",
+                    source,
+                    formatted.as_str(),
+                    again.map(FormatResult::into_string)
+                );
+            }
+        }
     }
 }
 
