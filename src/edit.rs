@@ -550,19 +550,27 @@ impl Document<'_> {
         }
         self.validate_renames(&plans)?;
         insertions.sort_by_key(|insertion| insertion.offset);
+        // The dominant line ending scans the whole source; compute it once per
+        // batch, and only when a new line can be added.
+        let ending = if insertions.is_empty() {
+            ""
+        } else {
+            self.preferred_ending()
+        };
         self.finish_sets(
             operations,
             &mut plans,
             &mut edits,
             &insertions,
             &mut end_insertions,
+            ending,
         )?;
         let inserted_keys = insertions
             .iter()
             .map(|insertion| insertion.desired.key)
             .collect();
-        let (groups, ending) =
-            self.plan_insertions(insertions, &plans, &mut edits, &mut end_insertions)?;
+        let groups =
+            self.plan_insertions(insertions, &plans, &mut edits, &mut end_insertions, ending)?;
         let edits = Self::normalize_edits(edits)?;
         let output = Self::apply_edits(self.source(), &edits);
         let regions = self.expected_regions(&plans, &end_insertions, &edits, groups)?;
@@ -650,6 +658,7 @@ impl Document<'_> {
         edits: &mut Vec<TextEdit>,
         insertions: &[Insertion<'_>],
         end_insertions: &mut [usize],
+        ending: &'static str,
     ) -> Result<(), EditError> {
         // Header and whole-item edits are complete before choosing value
         // spellings. Sets on different physical capped lines are independent;
@@ -698,7 +707,8 @@ impl Document<'_> {
                         targets: &targets,
                         sets: &set_edits,
                     };
-                    match self.finish_set(&targets[index], plans, context_edits, insertions) {
+                    match self.finish_set(&targets[index], plans, context_edits, insertions, ending)
+                    {
                         Ok((edit, item, ending_field)) => {
                             set_edits[index] = Some(edit);
                             ending_items[index] = ending_field.then_some(item);
@@ -762,6 +772,7 @@ impl Document<'_> {
         plans: &mut [ItemPlan<'a>],
         edits: ContextEdits<'_, 'a>,
         insertions: &[Insertion<'_>],
+        preferred_ending: &'static str,
     ) -> Result<(TextEdit, usize, bool), EditError> {
         let entry = self.entry(target.entry).ok_or(EditError::InvalidTarget)?;
         let item = self.item(entry.item_id()).ok_or(EditError::InvalidTarget)?;
@@ -802,7 +813,7 @@ impl Document<'_> {
             .ok_or(EditError::InvalidTarget)?
             .quote;
         let mut preferred = original_quote;
-        let mut ending = self.following_separator(item, insertions, plans);
+        let mut ending = self.following_separator(item, insertions, plans, preferred_ending);
         let mut chosen = None;
         for _ in 0..4 {
             let (candidate, actual_quote) = encode(ending, preferred)?;
@@ -811,7 +822,7 @@ impl Document<'_> {
                 .as_mut()
                 .ok_or(EditError::InvalidTarget)?
                 .quote = actual_quote;
-            let actual_ending = self.following_separator(item, insertions, plans);
+            let actual_ending = self.following_separator(item, insertions, plans, preferred_ending);
             plans[item.id()]
                 .desired
                 .as_mut()
@@ -925,19 +936,21 @@ impl Document<'_> {
         item: crate::Item<'_>,
         insertions: &[Insertion<'_>],
         plans: &[ItemPlan<'_>],
+        ending: &'static str,
     ) -> &'static str {
         let next = insertions.partition_point(|insertion| insertion.offset < item.span().end);
         let Some(insertion) = insertions.get(next) else {
             return "";
         };
-        let intervening = self
-            .items()
-            .skip(item.id() + 1)
+        // Index from this item rather than skipping an iterator from the
+        // first item, which would make a batch of sets quadratic.
+        let intervening = (item.id() + 1..plans.len())
+            .filter_map(|index| self.item(index))
             .find(|next| plans[next.id()].retains(*next));
         if intervening.is_some_and(|next| next.span().end <= insertion.offset) {
             return "";
         }
-        self.insertion_separator(Some(item), self.preferred_ending(), plans)
+        self.insertion_separator(Some(item), ending, plans)
     }
 
     fn plan_rename<'a>(
@@ -1146,12 +1159,12 @@ impl Document<'_> {
         plans: &[ItemPlan<'_>],
         edits: &mut Vec<TextEdit>,
         end_insertions: &mut [usize],
-    ) -> Result<(Vec<InsertGroup<'a>>, &'static str), EditError> {
+        ending: &'static str,
+    ) -> Result<Vec<InsertGroup<'a>>, EditError> {
         Self::merge_boundary_fields(&mut insertions, edits, end_insertions);
         if insertions.is_empty() {
-            return Ok((Vec::new(), ""));
+            return Ok(Vec::new());
         }
-        let ending = self.preferred_ending();
         let last_retained = self.last_retained_item(plans);
         let mut retained = self
             .items()
@@ -1220,7 +1233,7 @@ impl Document<'_> {
         // Ending fields now belong to their insertion groups; groups precede
         // any remaining fields belonging to the following item at that offset.
         edits.rotate_right(groups.len());
-        Ok((groups, ending))
+        Ok(groups)
     }
 
     fn normalize_edits(mut edits: Vec<TextEdit>) -> Result<Vec<TextEdit>, EditError> {

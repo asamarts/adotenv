@@ -26,6 +26,52 @@ fn public_values_parsing_and_verified_edit_flow() {
     assert_eq!(reparsed.get("C"), Some("three"));
 }
 
+#[test]
+fn setting_and_inserting_after_every_entry_stays_linear() {
+    use std::{
+        fmt::Write as _,
+        time::{Duration, Instant},
+    };
+
+    const COUNT: usize = 40_000;
+    let mut source = String::with_capacity(COUNT * 10);
+    for index in 0..COUNT {
+        writeln!(source, "K{index:06}=x").unwrap();
+    }
+    let doc = parse_strict(&source).unwrap();
+    let keys: Vec<String> = (0..COUNT).map(|index| format!("N{index:06}")).collect();
+    let mut operations = Vec::with_capacity(COUNT * 2);
+    for (entry, key) in keys.iter().enumerate() {
+        operations.push(Edit::Set { entry, value: "y" });
+        operations.push(Edit::Insert {
+            key,
+            value: Some("z"),
+            position: InsertPosition::AfterEntry(entry),
+        });
+    }
+    let started = Instant::now();
+    let edited = doc.edit(&operations).unwrap();
+    let elapsed = started.elapsed();
+    // A per-operation scan of the whole source made this batch quadratic:
+    // more than 20 seconds even in an optimized build. Linear planning takes
+    // a small fraction of the bound in an unoptimized build.
+    assert!(
+        elapsed < Duration::from_secs(20),
+        "{COUNT}-entry set and insert batch took {elapsed:?}"
+    );
+    let after = parse_strict(edited.as_str()).unwrap();
+    assert_eq!(after.entries().len(), COUNT * 2);
+    for (index, entry) in after.entries().enumerate() {
+        let (prefix, value) = if index % 2 == 0 {
+            ('K', "y")
+        } else {
+            ('N', "z")
+        };
+        assert_eq!(entry.key(), format!("{prefix}{:06}", index / 2));
+        assert_eq!(entry.value(), Some(value));
+    }
+}
+
 #[cfg(feature = "load")]
 #[test]
 fn public_loading_and_origin_flow() {
