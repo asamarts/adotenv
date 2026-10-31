@@ -666,6 +666,30 @@ fn writes_replace_existing_files_without_leftovers() {
     assert_eq!(entries, vec!["app.env"]);
 }
 
+#[cfg(unix)]
+#[test]
+fn writes_keep_the_existing_file_mode() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new();
+    for mode in [0o600, 0o640, 0o644, 0o400] {
+        let file = dir.file("app.env", "B=2\nA=1\n");
+        fs::set_permissions(&file, fs::Permissions::from_mode(mode)).unwrap();
+        let output = run(&["set", file.to_str().unwrap(), "A", "3"]);
+        assert!(output.status.success(), "{}", stderr(&output));
+        let metadata = fs::metadata(&file).unwrap();
+        assert_eq!(metadata.permissions().mode() & 0o7777, mode, "set {mode:o}");
+
+        let output = run(&["fmt", "--write", "--sort", file.to_str().unwrap()]);
+        assert!(output.status.success(), "{}", stderr(&output));
+        assert_eq!(fs::read_to_string(&file).unwrap(), "A = 3\nB = 2\n");
+        let metadata = fs::metadata(&file).unwrap();
+        assert_eq!(metadata.permissions().mode() & 0o7777, mode, "fmt {mode:o}");
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::remove_file(&file).unwrap();
+    }
+}
+
 #[test]
 fn recursive_defaults_to_current_directory_and_normalizes_dot_excludes() {
     let dir = TempDir::new();

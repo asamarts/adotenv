@@ -1335,19 +1335,32 @@ fn describe(value: Option<&ComparedValue>) -> String {
 
 static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
 
+/// Replace `path` with `contents` through a temporary file in the same directory.
+///
+/// The temporary file is created private on Unix (mode `0600`) and receives the
+/// existing file's permissions only after the contents are written. A file that
+/// does not exist yet stays private.
 fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
-    if fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_dir()) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "path is a directory",
-        ));
-    }
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let existing = match fs::metadata(path) {
+        Ok(metadata) if metadata.is_dir() => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "path is a directory",
+            ));
+        }
+        Ok(metadata) => Some(metadata),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error),
+    };
+    let parent = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
     let name = path
         .file_name()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
-    let temporary = create_temporary(parent, name, contents)?;
-    if let Err(error) = copy_permissions(path, &temporary) {
+    let (temporary, file) = create_temporary(parent, name)?;
+    if let Err(error) = fill_temporary(file, &temporary, contents, existing.as_ref()) {
         let _ = fs::remove_file(&temporary);
         return Err(error);
     }
@@ -1357,6 +1370,7 @@ fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
             let _ = fs::remove_file(&temporary);
             return Err(error);
         }
+        sync_directory(parent);
         Ok(())
     }
     #[cfg(not(unix))]
@@ -1376,7 +1390,11 @@ fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
     }
 }
 
-fn create_temporary(parent: &Path, name: &std::ffi::OsStr, contents: &str) -> io::Result<PathBuf> {
+/// Create a new, empty temporary file next to the target.
+///
+/// On Unix the file is created with mode `0600` (further narrowed by the
+/// umask), so no other user can read it while it is being filled.
+fn create_temporary(parent: &Path, name: &std::ffi::OsStr) -> io::Result<(PathBuf, fs::File)> {
     for _ in 0..16 {
         let candidate = parent.join(format!(
             ".{}.adotenv-{}-{}",
@@ -1384,21 +1402,15 @@ fn create_temporary(parent: &Path, name: &std::ffi::OsStr, contents: &str) -> io
             std::process::id(),
             NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
         ));
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&candidate)
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
         {
-            Ok(mut file) => {
-                if let Err(error) = file
-                    .write_all(contents.as_bytes())
-                    .and_then(|()| file.sync_all())
-                {
-                    let _ = fs::remove_file(&candidate);
-                    return Err(error);
-                }
-                return Ok(candidate);
-            }
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(&candidate) {
+            Ok(file) => return Ok((candidate, file)),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),
         }
@@ -1409,11 +1421,45 @@ fn create_temporary(parent: &Path, name: &std::ffi::OsStr, contents: &str) -> io
     ))
 }
 
-fn copy_permissions(path: &Path, temporary: &Path) -> io::Result<()> {
-    match fs::metadata(path) {
-        Ok(metadata) => fs::set_permissions(temporary, metadata.permissions()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error),
+/// Write and flush the temporary file, then give it the existing file's permissions.
+#[cfg(unix)]
+fn fill_temporary(
+    mut file: fs::File,
+    _temporary: &Path,
+    contents: &str,
+    existing: Option<&fs::Metadata>,
+) -> io::Result<()> {
+    file.write_all(contents.as_bytes())?;
+    if let Some(metadata) = existing {
+        file.set_permissions(metadata.permissions())?;
+    }
+    file.sync_all()
+}
+
+/// Write and flush the temporary file, then give it the existing file's permissions.
+#[cfg(not(unix))]
+fn fill_temporary(
+    mut file: fs::File,
+    temporary: &Path,
+    contents: &str,
+    existing: Option<&fs::Metadata>,
+) -> io::Result<()> {
+    file.write_all(contents.as_bytes())?;
+    file.sync_all()?;
+    drop(file);
+    match existing {
+        Some(metadata) => fs::set_permissions(temporary, metadata.permissions()),
+        None => Ok(()),
+    }
+}
+
+/// Flush a directory entry change to disk. This is best effort: the
+/// replacement has already happened, and some file systems cannot sync
+/// directories.
+#[cfg(unix)]
+fn sync_directory(directory: &Path) {
+    if let Ok(directory) = fs::File::open(directory) {
+        let _ = directory.sync_all();
     }
 }
 
@@ -1607,6 +1653,28 @@ mod tests {
         let leftovers: Vec<_> = std::fs::read_dir(&directory).unwrap().collect();
         assert_eq!(leftovers.len(), 1);
         std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn temporary_files_are_private_before_content_is_written() {
+        use super::create_temporary;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = std::env::temp_dir().join(format!(
+            "adotenv-write-mode-{}-{}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let (temporary, file) =
+            create_temporary(&directory, std::ffi::OsStr::new("app.env")).unwrap();
+        let mode = file.metadata().unwrap().permissions().mode() & 0o777;
+        assert_eq!(file.metadata().unwrap().len(), 0);
+        drop(file);
+        std::fs::remove_dir_all(&directory).unwrap();
+        assert!(!temporary.exists());
+        assert_eq!(mode, 0o600, "temporary file mode {mode:o}");
     }
 
     #[test]
