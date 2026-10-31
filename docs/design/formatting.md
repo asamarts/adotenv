@@ -27,6 +27,11 @@ changes declarations, comment attachment, item kinds or malformed statements.
 Options include `EqualsSpacing`, `BlankLines`, `QuoteStyle`, `FinalNewline` and
 `FormatOptions::normalize_groups`.
 
+Trimming never removes a line. A whitespace-only last line without a line
+ending stays as is unless `FinalNewline::Ensure` turns it into an empty blank
+line. `FinalNewline::Ensure` adds nothing when collapsing a trailing blank-line
+run already leaves the output ending in a line break.
+
 Quote changes are accepted only when the decoded value remains exact. Empty
 assigned values keep their quote style. Raw-value dialects, multiline bodies,
 invalid statements, empty assignments that could become indentation and mixed

@@ -380,6 +380,50 @@ proptest! {
 }
 
 #[test]
+fn trimming_keeps_a_whitespace_only_last_line_without_a_line_ending() {
+    let trim = FormatOptions::default().with_trim_trailing_whitespace(true);
+    for dialect in [Dialect::PORTABLE, Dialect::COMPOSE, Dialect::DOCKER_RAW] {
+        for (source, expected) in [
+            (" ", " "),
+            ("A=1\n   ", "A=1\n   "),
+            ("# c   \n\t", "# c\n\t"),
+            (" \n ", "\n "),
+        ] {
+            let (doc, _) = parse_with(source, dialect);
+            for options in [trim, trim.with_final_newline(FinalNewline::Remove)] {
+                let formatted = doc.format(&options).unwrap();
+                assert_eq!(formatted.as_str(), expected, "{source:?} {dialect:?}");
+                let (after, _) = parse_with(formatted.as_str(), dialect);
+                assert!(after.format(&trim).unwrap().is_empty());
+            }
+        }
+        // A final newline turns that line into an empty blank line instead.
+        let (doc, _) = parse_with("A=1\n   ", dialect);
+        let ensured = doc
+            .format(&trim.with_final_newline(FinalNewline::Ensure))
+            .unwrap();
+        assert_eq!(ensured.as_str(), "A=1\n\n");
+    }
+}
+
+#[test]
+fn collapsing_trailing_blank_lines_does_not_add_another_line_ending() {
+    let options = FormatOptions::normalize_groups();
+    for (source, expected) in [
+        ("A=1\n\n\n   ", "A = 1\n\n"),
+        (" \n ", "\n"),
+        (" \r ", " \r"),
+        ("A=1\n\n ", "A = 1\n\n"),
+    ] {
+        let (doc, _) = parse(source);
+        let formatted = doc.format(&options).unwrap();
+        assert_eq!(formatted.as_str(), expected, "{source:?}");
+        let (after, _) = parse(formatted.as_str());
+        assert!(after.format(&options).unwrap().is_empty(), "{source:?}");
+    }
+}
+
+#[test]
 fn format_options_builders_and_result_views_are_complete() {
     let defaults = FormatOptions::default();
     assert_eq!(defaults.equals_spacing, EqualsSpacing::Preserve);

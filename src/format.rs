@@ -28,7 +28,8 @@ pub enum EqualsSpacing {
 pub enum FinalNewline {
     /// Leave the existing end-of-file bytes untouched.
     Preserve,
-    /// Ensure a final LF when the source does not already end in a line break.
+    /// Ensure a final LF when the output does not already end in a line break,
+    /// including a line break exposed by collapsing a trailing blank-line run.
     Ensure,
     /// Remove one final LF, CRLF or lone CR.
     Remove,
@@ -67,7 +68,9 @@ pub struct FormatOptions {
     /// Remove trailing spaces and tabs from blank, comment and final entry lines.
     ///
     /// Whitespace inside multiline quoted values and invalid/ignored statements
-    /// is never changed.
+    /// is never changed. A whitespace-only last line without a line ending is
+    /// kept as is unless [`FinalNewline::Ensure`] is selected, because trimming
+    /// it would remove the line.
     pub trim_trailing_whitespace: bool,
     /// Blank-line grouping policy.
     pub blank_lines: BlankLines,
@@ -236,9 +239,13 @@ impl Document<'_> {
         self.plan_quotes(*options, &mut edits);
         let removed = self.plan_blank_lines(*options, &mut edits);
         if options.trim_trailing_whitespace {
-            self.plan_trailing_whitespace(&removed, &mut edits);
+            self.plan_trailing_whitespace(
+                &removed,
+                options.final_newline == FinalNewline::Ensure,
+                &mut edits,
+            );
         }
-        self.plan_final_newline(*options, &mut edits);
+        self.plan_final_newline(*options, &removed, &mut edits);
         edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
         if edits
             .windows(2)
@@ -388,7 +395,12 @@ impl Document<'_> {
         removed
     }
 
-    fn plan_trailing_whitespace(&self, removed: &[bool], edits: &mut Vec<TextEdit>) {
+    fn plan_trailing_whitespace(
+        &self,
+        removed: &[bool],
+        ensure_final_newline: bool,
+        edits: &mut Vec<TextEdit>,
+    ) {
         let kept: Vec<_> = self
             .items()
             .enumerate()
@@ -433,6 +445,16 @@ impl Document<'_> {
                 ItemKind::Blank | ItemKind::Comment | ItemKind::Entry => {
                     let content = item.content_span();
                     let trimmed = trim_end(self.source(), content.clone());
+                    if item.kind() == ItemKind::Blank
+                        && ending == crate::LineEnding::None
+                        && trimmed == content.start
+                        && !ensure_final_newline
+                    {
+                        // A whitespace-only last line without a line ending
+                        // would disappear entirely. Keep the line unless a
+                        // final newline turns it into an empty blank line.
+                        continue;
+                    }
                     if trimmed != content.end {
                         push(self.source(), edits, trimmed..content.end, String::new());
                     }
@@ -442,15 +464,29 @@ impl Document<'_> {
         }
     }
 
-    fn plan_final_newline(&self, options: FormatOptions, edits: &mut Vec<TextEdit>) {
+    fn plan_final_newline(
+        &self,
+        options: FormatOptions,
+        removed: &[bool],
+        edits: &mut Vec<TextEdit>,
+    ) {
         let source = self.source();
         match options.final_newline {
             FinalNewline::Preserve => {}
             FinalNewline::Ensure => {
+                // Collapsing a trailing blank run can expose an earlier line
+                // ending at the end of the output; adding another one would
+                // add a blank line or join a lone CR into a CRLF.
+                let end = self
+                    .items()
+                    .rev()
+                    .find(|item| !removed.get(item.id()).copied().unwrap_or(false))
+                    .map_or(source.len(), |item| item.span().end);
+                let output_end = &source[..end];
                 if !source.is_empty()
                     && self.items().next().is_some()
-                    && !source.ends_with('\n')
-                    && !source.ends_with('\r')
+                    && !output_end.ends_with('\n')
+                    && !output_end.ends_with('\r')
                 {
                     push(source, edits, source.len()..source.len(), "\n".into());
                 }
