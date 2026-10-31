@@ -640,8 +640,10 @@ fn full_loader_options_drop_raw_tokens_or_reports() {
     assert_eq!(loaded.skipped().count(), 0);
     assert!(loaded.origin("A").is_some());
     assert!(loaded
-        .resolve_contextual(|_| None, &ExpandOptions::portable())
-        .is_err());
+        .resolve_contextual(|_| None, &whole_file())
+        .unwrap_err()
+        .message()
+        .contains("raw token context was not retained"));
     assert!(loaded
         .resolve_decoded(
             |_| None,
@@ -668,8 +670,10 @@ fn full_loader_options_drop_raw_tokens_or_reports() {
     assert_ne!(loaded.entries().count(), 0);
     assert!(loaded.origin("A").is_some());
     assert!(loaded
-        .resolve_contextual(|_| None, &ExpandOptions::portable())
-        .is_err());
+        .resolve_contextual(|_| None, &whole_file())
+        .unwrap_err()
+        .message()
+        .contains("raw token context was not retained"));
     assert!(loaded
         .resolve_decoded(
             |_| None,
@@ -970,4 +974,31 @@ fn decoded_resolution_names_a_key_it_cannot_represent() {
     assert_eq!(error.message(), "key cannot be represented exactly");
     assert_eq!(error.origin().unwrap().line(), 2);
     assert_eq!(error.origin().unwrap().path(), dir.path().join(".env"));
+}
+
+#[test]
+fn contextual_resolution_requires_whole_file_scope() {
+    let dir = TempDir::new();
+    dir.write(".env", "B=1\nA=${B}/x\n");
+    dir.write(".env.local", "B=2\n");
+    let loaded = load_cascade(dir.path(), "").unwrap();
+    for options in [ExpandOptions::portable(), ExpandOptions::compose()] {
+        let error = loaded.resolve_contextual(|_| None, &options).unwrap_err();
+        assert_eq!(error.key(), None);
+        assert!(error.origin().is_none());
+        assert_eq!(
+            error.message(),
+            "loaded environments require whole-file resolution scope"
+        );
+    }
+    for options in [ExpandOptions::portable(), ExpandOptions::compose()] {
+        let options = options
+            .with_scope(ExpandScope::WholeFile)
+            .with_unresolved(Unresolved::Error);
+        let resolved = loaded.resolve_contextual(|_| None, &options).unwrap();
+        assert_eq!(resolved.get("A"), Some("2/x"));
+        assert_eq!(resolved.get("B"), Some("2"));
+        let decoded = loaded.resolve_decoded(|_| None, &options).unwrap();
+        assert_eq!(decoded.values(), resolved.values());
+    }
 }

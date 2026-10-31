@@ -81,7 +81,12 @@ part exactly as loaded, whatever dialect read them, so `${A B}` finds a Python
 key written `'A B'`. A key that the synthetic source cannot spell, such as one
 that contains both an apostrophe and whitespace, is an error naming that key. It
 is never read as a different key.
-It requires whole-file resolution scope.
+
+Both methods require whole-file resolution scope and return an error for
+sequential scope. The winning declarations come from different files, so no
+single declaration order gives sequential scope a meaning. With `B=1` and
+`A=${B}/x` in `.env` and `B=2` in `.env.local`, a sequential reference from `A`
+would see no earlier `B`. Whole-file scope resolves `A` to `2/x`.
 
 Both methods return `ResolvedEnvironment`. Origins are available through
 `origin(key)`. Command substitution remains literal unless a caller callback is

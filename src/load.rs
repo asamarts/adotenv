@@ -603,11 +603,7 @@ impl LoadedEnvironment {
         F: Fn(&str) -> Option<String>,
     {
         if options.scope != ExpandScope::WholeFile {
-            return Err(LoadedResolveError::new(
-                None,
-                None,
-                "loaded environments require whole-file resolution scope",
-            ));
+            return Err(whole_file_required());
         }
         let unrepresentable = |key: &str, message: &str| {
             LoadedResolveError::new(Some(key.to_string()), self.owned_origin(key), message)
@@ -686,9 +682,16 @@ impl LoadedEnvironment {
     /// the environment was loaded with raw-token retention disabled; use
     /// [`Self::resolve_decoded`] in that case.
     ///
+    /// Only [`ExpandScope::WholeFile`] is accepted, as for
+    /// [`Self::resolve_decoded`]. The winning declarations come from different
+    /// files, so no single declaration order gives sequential scope its
+    /// meaning: a reference to a key that a later file overrides would see no
+    /// earlier binding.
+    ///
     /// # Errors
-    /// Returns [`LoadedResolveError`] if raw tokens were not retained, if the
-    /// reconstructed source cannot be parsed, or if resolution fails.
+    /// Returns [`LoadedResolveError`] for unsupported sequential scope, if raw
+    /// tokens were not retained, if the reconstructed source cannot be parsed,
+    /// or if resolution fails.
     pub fn resolve_contextual<F>(
         &self,
         lookup: F,
@@ -697,6 +700,9 @@ impl LoadedEnvironment {
     where
         F: Fn(&str) -> Option<String>,
     {
+        if options.scope != ExpandScope::WholeFile {
+            return Err(whole_file_required());
+        }
         if !self.raw_tokens {
             return Err(LoadedResolveError::new(
                 None,
@@ -744,6 +750,14 @@ impl LoadedEnvironment {
             files: self.files.clone(),
         })
     }
+}
+
+fn whole_file_required() -> LoadedResolveError {
+    LoadedResolveError::new(
+        None,
+        None,
+        "loaded environments require whole-file resolution scope",
+    )
 }
 
 /// Dialect of the synthetic source built by
