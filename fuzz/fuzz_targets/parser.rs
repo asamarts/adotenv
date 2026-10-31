@@ -6,7 +6,8 @@ use std::{ops::Range, vec::Vec};
 use adotenv::{
     parse, parse_owned, parse_owned_with, parse_strict, parse_strict_with, parse_with,
     AssignmentState, BareKeys, BomPolicy, ColumnEncoding, Dialect, Document, Entry, EntryTokens,
-    Item, PositionError, Quote, QuotedTail, ReferenceKind, ReferenceRules, Severity,
+    Item, ItemKind, LineBreaks, LineEnding, PositionError, Quote, QuotedTail, ReferenceKind,
+    ReferenceRules, Severity,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -235,8 +236,33 @@ fn check_references(source: &str, entry: Entry<'_>) {
     }
 }
 
+fn check_line_structure(doc: &Document<'_>) {
+    let items: Vec<_> = doc.items().collect();
+    for (index, item) in items.iter().enumerate() {
+        // Blank and whitespace-only lines are blank items in every dialect, so
+        // no comment or declaration begins with one.
+        if matches!(item.kind(), ItemKind::Entry | ItemKind::Comment) {
+            let content = item.raw().trim_start_matches([' ', '\t']);
+            assert!(!content.starts_with('\n') && !content.starts_with("\r\n"));
+            if doc.dialect().line_breaks == LineBreaks::Universal {
+                assert!(!content.starts_with('\r'));
+            }
+        }
+        // A declaration that ends inside a physical line is followed on that
+        // line by another statement or a Node anchor, never by trailing
+        // whitespace or a comment that the declaration could own.
+        if item.kind() == ItemKind::Entry && item.line_ending() == LineEnding::None {
+            if let Some(next) = items.get(index + 1) {
+                let anchored = next.raw().starts_with(['\u{2028}', '\u{2029}']);
+                assert!(anchored || !matches!(next.kind(), ItemKind::Blank | ItemKind::Comment));
+            }
+        }
+    }
+}
+
 fn check_selected(source: &str, dialect: Dialect) {
     let (doc, diagnostics) = parse_with(source, dialect);
+    check_line_structure(&doc);
     let mut end = doc.bom_span().map_or(0, |span| span.end);
     for item in doc.items() {
         let span = item.span();
