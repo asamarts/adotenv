@@ -473,6 +473,16 @@ impl<const D: bool> Parser<'_, D> {
     fn dialect(&self) -> Dialect {
         self.document.dialect
     }
+    /// Whitespace that statement scanning skips before a statement and trims
+    /// after an unquoted value. Compose trims more than its key scanner skips.
+    fn statement_whitespace(&self) -> Whitespace {
+        let dialect = self.dialect();
+        if dialect.syntax == Syntax::Compose && dialect.whitespace == Whitespace::Compose {
+            Whitespace::Unicode
+        } else {
+            dialect.whitespace
+        }
+    }
     fn physical(&self, at: usize) -> PhysicalLine {
         physical_line(self.source, at, self.dialect().line_breaks)
     }
@@ -823,14 +833,7 @@ impl<const D: bool> Parser<'_, D> {
         } else {
             first
         };
-        let mode = if self.dialect().syntax == Syntax::Compose
-            && self.dialect().whitespace == Whitespace::Compose
-        {
-            Whitespace::Unicode
-        } else {
-            self.dialect().whitespace
-        };
-        let end = trim_whitespace(self.source, at, comment, mode);
+        let end = trim_whitespace(self.source, at, comment, self.statement_whitespace());
         tokens.value = Some(at..end);
         tokens.body = Some(at..end);
         tokens.trailing_space = end..comment;
@@ -903,6 +906,20 @@ impl<const D: bool> Parser<'_, D> {
         tokens.value = Some(at..close + 1);
         tokens.body = Some(at + 1..close);
         if self.dialect().quoted_tail == QuotedTail::NextStatement {
+            // Another statement may begin right after the closing quote. When
+            // the rest of the line would only be a blank or comment item, it
+            // stays with this entry, as trailing trivia does in other presets.
+            let tail = skip_whitespace(
+                self.source,
+                close + 1,
+                last.content_end,
+                self.statement_whitespace(),
+            );
+            if tail == last.content_end || self.source.as_bytes()[tail] == b'#' {
+                tokens.trailing_space = close + 1..tail;
+                tokens.inline_comment = (tail < last.content_end).then_some(tail..last.content_end);
+                return self.entry(start, last, tokens, quote);
+            }
             tokens.trailing_space = close + 1..close + 1;
             let boundary = PhysicalLine {
                 content_end: close + 1,

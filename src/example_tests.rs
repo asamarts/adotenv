@@ -49,11 +49,10 @@ fn compose_inline_comments_keep_an_empty_quoted_placeholder() {
     let example = doc.example();
     assert_eq!(example, "B= \"\"   # note\n");
     let (after, _) = parse_with(&example, Dialect::COMPOSE);
-    assert_eq!(after.unique("B").unwrap().value(), Some(""));
-    assert!(after
-        .items()
-        .filter(|item| item.kind() == ItemKind::Comment)
-        .any(|item| item.raw().contains("# note")));
+    let entry = after.unique("B").unwrap();
+    assert_eq!(entry.value(), Some(""));
+    assert_eq!(entry.inline_comment(), Some("# note"));
+    assert_eq!(after.items().count(), 1);
 }
 
 #[test]
@@ -61,13 +60,12 @@ fn compose_quoted_trailing_comments_are_retained_as_comments() {
     let source = "B=\"value\"   # note\n";
     let (doc, _) = parse_with(source, Dialect::COMPOSE);
     let example = doc.example();
-    assert_eq!(example, "B=\"\"\n   # note\n");
+    assert_eq!(example, "B=\"\"   # note\n");
     let (after, _) = parse_with(&example, Dialect::COMPOSE);
-    assert_eq!(after.unique("B").unwrap().value(), Some(""));
-    assert!(after
-        .items()
-        .filter(|item| item.kind() == ItemKind::Comment)
-        .any(|item| item.raw().contains("# note")));
+    let entry = after.unique("B").unwrap();
+    assert_eq!(entry.value(), Some(""));
+    assert_eq!(entry.inline_comment(), Some("# note"));
+    assert_eq!(after.items().count(), 1);
 }
 
 #[test]

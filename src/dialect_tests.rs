@@ -1222,3 +1222,77 @@ fn blank_lines_keep_edits_sorting_and_portability_consistent() {
         assert!(doc.portability(&PRESETS).is_empty(), "{:?}", dialect.syntax);
     }
 }
+
+#[test]
+fn compose_quoted_entries_own_the_rest_of_their_physical_line() {
+    assert_eq!(
+        item_layout("A=\"1\"\n", Dialect::COMPOSE),
+        [(ItemKind::Entry, "A=\"1\"\n")]
+    );
+    let source = "B=\"2\" # note\nA='1'  \nC=\"3\"D=\"4\" # d\nE=\"5\"  F=6\nG=\"7\"#g\r\n";
+    assert_eq!(
+        item_layout(source, Dialect::COMPOSE),
+        [
+            (ItemKind::Entry, "B=\"2\" # note\n"),
+            (ItemKind::Entry, "A='1'  \n"),
+            (ItemKind::Entry, "C=\"3\""),
+            (ItemKind::Entry, "D=\"4\" # d\n"),
+            (ItemKind::Entry, "E=\"5\""),
+            (ItemKind::Entry, "  F=6\n"),
+            (ItemKind::Entry, "G=\"7\"#g\r\n"),
+        ]
+    );
+    let doc = parse_strict_with(source, Dialect::COMPOSE).unwrap();
+    for (key, value) in [
+        ("A", "1"),
+        ("B", "2"),
+        ("C", "3"),
+        ("D", "4"),
+        ("E", "5"),
+        ("F", "6"),
+        ("G", "7"),
+    ] {
+        assert_eq!(doc.get(key), Some(value), "{key}");
+    }
+    assert_eq!(doc.unique("B").unwrap().inline_comment(), Some("# note"));
+    assert_eq!(doc.unique("D").unwrap().inline_comment(), Some("# d"));
+    assert_eq!(doc.unique("G").unwrap().inline_comment(), Some("#g"));
+    assert_eq!(doc.unique("C").unwrap().inline_comment(), None);
+    let a = doc.unique("A").unwrap();
+    assert_eq!(&source[a.tokens().trailing_space.clone()], "  ");
+    assert_eq!(a.inline_comment(), None);
+
+    let multiline = "A=\"1\n2\" # c\r\nB=x\n";
+    assert_eq!(
+        item_layout(multiline, Dialect::COMPOSE),
+        [
+            (ItemKind::Entry, "A=\"1\n2\" # c\r\n"),
+            (ItemKind::Entry, "B=x\n")
+        ]
+    );
+}
+
+#[test]
+fn compose_quoted_entries_keep_line_structure_under_edits() {
+    let doc = parse_strict_with(
+        "B=\"2\" # note for B\nA=\"1\" # note for A\n",
+        Dialect::COMPOSE,
+    )
+    .unwrap();
+    assert_eq!(
+        doc.sort().unwrap().as_str(),
+        "A=\"1\" # note for A\nB=\"2\" # note for B\n"
+    );
+
+    let doc = parse_strict_with("A=\"1\" # c\nB=2\n", Dialect::COMPOSE).unwrap();
+    let inserted = doc
+        .insert("C", Some("z"), InsertPosition::AfterKey("A"))
+        .unwrap();
+    assert_eq!(inserted.as_str(), "A=\"1\" # c\nC=z\nB=2\n");
+
+    let doc = parse_strict_with("A=\"1\"\nB=2\n", Dialect::COMPOSE).unwrap();
+    assert_eq!(doc.remove("A").unwrap().as_str(), "B=2\n");
+
+    let doc = parse_strict_with("A=\"1\" # c\nB=\"2\"\n", Dialect::COMPOSE).unwrap();
+    assert_eq!(doc.example(), "A=\"\" # c\nB=\n");
+}

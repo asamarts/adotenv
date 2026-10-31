@@ -15,12 +15,12 @@ pub(super) fn statement<const D: bool>(
     let dialect = parser.dialect();
     let bytes = source.as_bytes();
     // Compose's statement trim differs deliberately from its horizontal scanner.
-    let trim_mode = if dialect.whitespace == Whitespace::Compose {
-        Whitespace::Unicode
-    } else {
-        dialect.whitespace
-    };
-    let mut at = skip_whitespace(source, start, first.content_end, trim_mode);
+    let mut at = skip_whitespace(
+        source,
+        start,
+        first.content_end,
+        parser.statement_whitespace(),
+    );
     let indent = start..at;
     if at == first.content_end {
         return parser.plain_item(ItemKind::Blank, start..first.end, first.ending, None);
