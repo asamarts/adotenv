@@ -1298,6 +1298,16 @@ fn compose_quoted_entries_keep_line_structure_under_edits() {
 }
 
 #[test]
+fn compose_quoted_entries_keep_blank_line_groups_when_formatting() {
+    let doc = parse_strict_with("A=\"1\"   \n\n\nB=\"2\" # b  \n", Dialect::COMPOSE).unwrap();
+    let options = crate::FormatOptions::default()
+        .with_trim_trailing_whitespace(true)
+        .with_blank_lines(crate::BlankLines::Collapse);
+    let formatted = doc.format(&options).unwrap();
+    assert_eq!(formatted.as_str(), "A=\"1\"\n\nB=\"2\" # b\n");
+}
+
+#[test]
 fn quoted_key_diagnostics_count_line_breaks_in_leading_whitespace() {
     let mut wrong = vec::Vec::new();
     for preset in PRESETS {
