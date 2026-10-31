@@ -5,10 +5,6 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
-    ignore:
-      # config 0.15 requires Rust 1.88 and edition 2024; the workspace MSRV is 1.81.
-      - dependency-name: "config"
-        versions: ["0.15.x"]
   - package-ecosystem: cargo
     directory: /fuzz
     schedule:

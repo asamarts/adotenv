@@ -8,6 +8,11 @@ name: Release
 # publish of each new crate needs a temporary CARGO_REGISTRY_TOKEN secret.
 # See RELEASING.md for the one-time bootstrap and verification steps.
 #
+# `adotenv`, `adotenv-process` and `adotenv-cli` share one version, which must
+# match the tag. `adotenv-config` and `adotenv-figment` keep their own 0.x
+# versions; each one is published when its declared version is not on
+# crates.io yet.
+#
 # Manual dispatch runs the same checks without publishing.
 on:
   push:
@@ -59,6 +64,7 @@ jobs:
               "adotenv-figment",
               "adotenv-cli",
           ]
+          lockstep = ["adotenv", "adotenv-process", "adotenv-cli"]
           metadata = json.loads(
               subprocess.check_output(
                   ["cargo", "metadata", "--no-deps", "--format-version", "1"],
@@ -74,28 +80,32 @@ jobs:
               raise SystemExit(f"tag {tag} does not match adotenv version {version}")
           for name in expected:
               package = packages[name]
-              if package["version"] != version:
+              if name in lockstep and package["version"] != version:
                   raise SystemExit(
                       f"{name} is version {package['version']}, expected {version}"
                   )
               if package.get("publish") is not None:
                   raise SystemExit(f"{name} is not publishable")
-          print(f"all workspace packages are publishable at {version}")
+              print(f"{name} {package['version']}")
+          print(f"tag {tag} matches the lockstep version {version}")
           PY
 
       - name: plan crates.io publishes
         id: plan
         env:
-          TAG: ${{ github.ref_name }}
           BOOTSTRAP_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           set -euo pipefail
-          version="${TAG#v}"
           packages="adotenv adotenv-process adotenv-config adotenv-figment adotenv-cli"
+          metadata="$(cargo metadata --no-deps --format-version 1)"
+          package_version() {
+            python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == sys.argv[1]))' "$1" <<<"$metadata"
+          }
           pending=""
           oidc_packages=""
           new_packages=""
           for package in $packages; do
+            version="$(package_version "$package")"
             code="$(curl -sS -o /dev/null -w '%{http_code}' -H 'User-Agent: adotenv-release' \
               "https://crates.io/api/v1/crates/$package/$version")"
             case "$code" in
@@ -160,12 +170,14 @@ jobs:
           PACKAGES: ${{ steps.plan.outputs.packages }}
           OIDC_PACKAGES: ${{ steps.plan.outputs.oidc_packages }}
           NEW_PACKAGES: ${{ steps.plan.outputs.new_packages }}
-          TAG: ${{ github.ref_name }}
           BOOTSTRAP_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           OIDC_TOKEN: ${{ steps.crates-auth.outputs.token }}
         run: |
           set -euo pipefail
-          version="${TAG#v}"
+          metadata="$(cargo metadata --no-deps --format-version 1)"
+          package_version() {
+            python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == sys.argv[1]))' "$1" <<<"$metadata"
+          }
 
           wait_for_index() {
             local package="$1"
@@ -201,6 +213,7 @@ jobs:
           fi
 
           for package in $PACKAGES; do
+            version="$(package_version "$package")"
             case " $NEW_PACKAGES " in
               *" $package "*)
                 token="$BOOTSTRAP_TOKEN"
@@ -218,3 +231,41 @@ jobs:
             wait_for_index "$package" "$version"
             echo "::endgroup::"
           done
+
+  github-release:
+    name: GitHub Release
+    needs: publish
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: create the release from the changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::notice::release $TAG already exists"
+            exit 0
+          fi
+          python3 - "${TAG#v}" > notes.md <<'PY'
+          import re
+          import sys
+
+          version = sys.argv[1]
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          match = re.search(
+              rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)",
+              text,
+              re.MULTILINE | re.DOTALL,
+          )
+          if match is None or not match.group(1).strip():
+              raise SystemExit(f"CHANGELOG.md has no section for {version}")
+          print(match.group(1).strip())
+          PY
+          gh release create "$TAG" --verify-tag --title "adotenv ${TAG#v}" --notes-file notes.md

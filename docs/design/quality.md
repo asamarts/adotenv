@@ -76,7 +76,8 @@ The comparison rules and current results are in [performance.md](performance.md)
 
 ## MSRV and semver
 
-The MSRV is Rust 1.81. It rises only in a minor release.
+The MSRV is Rust 1.81. `adotenv-config` follows the MSRV of `config`, currently
+Rust 1.88. An MSRV rises only in a minor release.
 
 The public API follows semver. New variants and fields use non-exhaustive types
 and builders. Pull requests run `cargo semver-checks check-release --package

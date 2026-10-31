@@ -477,12 +477,12 @@ let config = config::Config::builder()
   for untrusted input.
 - Windows writes use a direct replace when possible and a backup swap otherwise.
   The fallback is not crash-atomic.
-- The `config` integration uses `config` 0.14.
+- The `config` integration uses `config` 0.15 and requires Rust 1.88.
 
 ## Rust version
 
-Rust 1.81, edition 2021. Development and fuzz dependencies may require a newer
-toolchain.
+Rust 1.81, edition 2021. `adotenv-config` requires Rust 1.88 because `config`
+0.15 does. Development and fuzz dependencies may require a newer toolchain.
 
 ## License
 

@@ -2,7 +2,7 @@
 name = "adotenv-config"
 version = "0.10.4"
 edition = "2021"
-rust-version = "1.81"
+rust-version = "1.88"
 description = "config crate source adapter for adotenv documents."
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/asamarts/adotenv"
@@ -20,7 +20,7 @@ all-features = true
 
 [dependencies]
 adotenv = { path = "..", version = "0.10.4" }
-config = { version = "0.14", default-features = false }
+config = { version = "0.15", default-features = false }
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }

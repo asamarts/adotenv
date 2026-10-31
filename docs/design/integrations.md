@@ -13,8 +13,8 @@ let config = config::Config::builder()
     .build()?;
 ```
 
-The adapter follows `config` key rules: names are case-insensitive and dots
-create nested paths. Its `load` feature adds `from_environment` for
+The adapter targets `config` 0.15 and requires Rust 1.88. It follows `config`
+key rules: names keep their case and dots create nested paths. Its `load` feature adds `from_environment` for
 `LoadedEnvironment`.
 
 `config` can deserialize typed structures with its own scalar coercion.

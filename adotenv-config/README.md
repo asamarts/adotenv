@@ -35,12 +35,14 @@ for `LoadedEnvironment`.
 
 ## Keys
 
-`config` lowercases names and treats `.` as a nested path separator. Keys `A.B`
-and `a.b` therefore collide. The adapter does not rewrite keys. Use `from_values`
-when keys are already normalized for `config`.
+The adapter implements the `config` 0.15 `Source` trait and requires Rust 1.88.
+
+`config` keeps key case and treats `.` as a nested path separator, so `A.B` is
+key `B` inside table `A`, and `A.B` and `a.b` are different keys. Typed
+extraction matches field names exactly: `HOST=localhost` does not fill a `host`
+field. The adapter does not rewrite keys. Use `from_values` to supply keys that
+are already normalized for `config`.
 
 Values are decoded literals. Duplicate policy, lookup participation and
 `BareKeys::Empty` follow the source document or loaded environment. The adapter
 performs no expansion, command execution or file access.
-
-The crate is built against `config` 0.14 and supports Rust 1.81.

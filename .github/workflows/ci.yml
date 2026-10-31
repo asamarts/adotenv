@@ -68,7 +68,6 @@ jobs:
 
   semver:
     name: public API semver
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -83,7 +82,7 @@ jobs:
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2
         with:
           tool: cargo-semver-checks@0.51.0
-      - run: cargo semver-checks check-release --package adotenv
+      - run: cargo semver-checks check-release --package adotenv --package adotenv-process --package adotenv-config --package adotenv-figment
 
   coverage:
     name: coverage report
@@ -165,10 +164,24 @@ jobs:
       - run: cargo build -p adotenv --lib --no-default-features --features serde --locked
       - run: cargo build -p adotenv-process --locked
       - run: cargo build -p adotenv-cli --locked
-      - run: cargo build -p adotenv-config --locked
-      - run: cargo build -p adotenv-config --features load --locked
       - run: cargo build -p adotenv-figment --locked
       - run: cargo build -p adotenv-figment --features load --locked
+
+  msrv-config:
+    name: MSRV adotenv-config (1.88)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: "1.88"
+      # config 0.15 requires Rust 1.88; the rest of the workspace stays on 1.81.
+      - run: cargo build -p adotenv-config --locked
+      - run: cargo build -p adotenv-config --features load --locked
 
   package:
     name: package
@@ -187,6 +200,7 @@ jobs:
         run: |
           files="$(cargo package -p adotenv --locked --list)"
           grep -qx 'README.md' <<<"$files"
+          grep -qx 'CHANGELOG.md' <<<"$files"
           grep -qx 'ROADMAP.md' <<<"$files"
           grep -qx 'docs/design/1.0-readiness.md' <<<"$files"
           grep -qx 'docs/design/loading.md' <<<"$files"

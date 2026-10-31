@@ -5,9 +5,8 @@
 //! and lookup participation follow the document or environment being wrapped.
 //! With the `load` feature it also accepts a [`LoadedEnvironment`].
 //!
-//! Key names are handed to `config` unchanged; `config` applies its own
-//! case-insensitive and dotted-path semantics. See the crate documentation for
-//! those native key rules.
+//! Key names are handed to `config` unchanged. `config` 0.15 keeps key case
+//! and treats `.` as a nested path separator.
 
 use std::collections::BTreeMap;
 
@@ -131,10 +130,12 @@ mod tests {
             ])))
             .build()
             .unwrap();
-        assert_eq!(config.get_string("a.b").unwrap(), "dotted");
         assert_eq!(config.get_string("A.B").unwrap(), "dotted");
-        assert_eq!(config.get_string("upper").unwrap(), "upper");
+        assert!(config.get_string("a.b").is_err());
         assert_eq!(config.get_string("UPPER").unwrap(), "upper");
+        assert!(config.get_string("upper").is_err());
+        let table = config.get_table("A").unwrap();
+        assert_eq!(table.keys().collect::<Vec<_>>(), ["B"]);
     }
 
     #[test]
