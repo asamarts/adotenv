@@ -1,8 +1,41 @@
-use alloc::{collections::BTreeMap, format, string::String, vec::Vec};
+use alloc::{
+    collections::BTreeMap,
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 
 use proptest::prelude::*;
 
-use crate::{parse, parse_strict};
+use crate::{parse, parse_strict, Document, ExpandOptions, ExpandScope};
+
+type GroupValues = BTreeMap<(usize, String), Vec<(Option<String>, Option<String>)>>;
+
+// Resolved values keyed by blank-line group and key. Sorting moves entries
+// only within their group, so this identifies each declaration across a sort.
+fn resolved_by_group(document: &Document<'_>, options: &ExpandOptions) -> Option<GroupValues> {
+    let resolved = document.resolve(|_| None, options).ok()?;
+    let mut values = GroupValues::new();
+    for (group, items) in document.groups().enumerate() {
+        for entry in items.entries() {
+            let resolved = &resolved.entries()[entry.id()];
+            values
+                .entry((group, entry.key().to_string()))
+                .or_default()
+                .push((resolved.value.clone(), resolved.effective_value.clone()));
+        }
+    }
+    Some(values)
+}
+
+fn resolution_options() -> [ExpandOptions; 4] {
+    [
+        ExpandOptions::portable(),
+        ExpandOptions::portable().with_scope(ExpandScope::WholeFile),
+        ExpandOptions::compose(),
+        ExpandOptions::compose().with_scope(ExpandScope::WholeFile),
+    ]
+}
 
 #[test]
 fn sorts_keys_without_comments() {
@@ -51,10 +84,10 @@ fn inline_and_leading_comments_move_with_entries() {
 }
 
 #[test]
-fn dependencies_order_before_dependents() {
-    let doc = parse_strict("C=${B}\nB=${A}\nA=1\n").unwrap();
+fn reference_chains_keep_their_source_order() {
+    let doc = parse_strict("D=4\nC=${B}\nB=${A}\nA=1\n").unwrap();
     let sorted = doc.sort().unwrap();
-    assert_eq!(sorted.as_str(), "A=1\nB=${A}\nC=${B}\n");
+    assert_eq!(sorted.as_str(), "C=${B}\nB=${A}\nA=1\nD=4\n");
 }
 
 #[test]
@@ -101,12 +134,12 @@ fn unsortable_groups_do_not_block_later_groups() {
 
 #[test]
 fn dependencies_keep_comments_attached() {
-    let source = "# header\nB=${A} # B note\n# A note\nA=1 # A note\n";
+    let source = "# header\nC=${A} # C note\n# B note\nB=2\n# A note\nA=1 # A note\n";
     let doc = parse_strict(source).unwrap();
     let sorted = doc.sort().unwrap();
     assert_eq!(
         sorted.as_str(),
-        "# header\n# A note\nA=1 # A note\nB=${A} # B note\n"
+        "# header\n# B note\nB=2\nC=${A} # C note\n# A note\nA=1 # A note\n"
     );
 }
 
@@ -124,6 +157,82 @@ fn no_dependency_on_a_key_outside_the_group() {
     let doc = parse_strict(source).unwrap();
     let sorted = doc.sort().unwrap();
     assert_eq!(sorted.as_str(), source);
+}
+
+#[test]
+fn referencing_pairs_keep_their_relative_order() {
+    for source in ["B=${A}\nA=1\n", "A=1\nB=${A}\n", "C=${B}\nB=${A}\nA=1\n"] {
+        let doc = parse_strict(source).unwrap();
+        let sorted = doc.sort().unwrap();
+        assert_eq!(sorted.as_str(), source);
+        assert!(sorted.is_empty());
+    }
+    let doc = parse_strict("D=4\nB=${A}\nC=3\nA=1\n").unwrap();
+    assert_eq!(doc.sort().unwrap().as_str(), "B=${A}\nA=1\nC=3\nD=4\n");
+}
+
+#[test]
+fn sorting_keeps_sequential_and_whole_file_resolution() {
+    for source in [
+        "B=${A}\nA=1\n",
+        "A=old\n\nB=${A}\nA=new\n",
+        "A=old\n\nC=$A\nB=${A:-unset}\nA=new\n",
+        "Z=${A}\nY=${B}\nB=2\nA=1\n",
+    ] {
+        let doc = parse_strict(source).unwrap();
+        let sorted = doc.sort().unwrap();
+        let after = parse_strict(sorted.as_str()).unwrap();
+        for options in resolution_options() {
+            assert_eq!(
+                resolved_by_group(&doc, &options),
+                resolved_by_group(&after, &options),
+                "{source:?} sorted to {:?}",
+                sorted.as_str()
+            );
+        }
+    }
+}
+
+fn reference_line() -> impl Strategy<Value = String> {
+    let key = || prop::sample::select(["A", "B", "C", "D", "E"].as_slice());
+    let value = prop_oneof![
+        Just("1".to_string()),
+        Just(String::new()),
+        key().prop_map(|key| format!("${{{key}}}")),
+        key().prop_map(|key| format!("x${key}y")),
+        (key(), key()).prop_map(|(left, right)| format!("${{{left}:-${right}}}")),
+        (key(), key()).prop_map(|(left, right)| format!("${{{left}:+${{{right}}}}}")),
+        key().prop_map(|key| format!("\"${{{key}}}\"")),
+        key().prop_map(|key| format!("'${{{key}}}'")),
+    ];
+    prop_oneof![
+        1 => Just(String::new()),
+        1 => Just("# note".to_string()),
+        8 => (key(), value).prop_map(|(key, value)| format!("{key}={value}")),
+    ]
+}
+
+proptest! {
+    #[test]
+    fn sorting_never_changes_resolved_values(
+        lines in prop::collection::vec(reference_line(), 0..16),
+    ) {
+        let mut source = lines.join("\n");
+        source.push('\n');
+        let (doc, _) = parse(&source);
+        let sorted = doc.sort().unwrap();
+        let (after, _) = parse(sorted.as_str());
+        for options in resolution_options() {
+            prop_assert_eq!(
+                resolved_by_group(&doc, &options),
+                resolved_by_group(&after, &options),
+                "{:?} sorted to {:?} under {:?}",
+                source,
+                sorted.as_str(),
+                options.scope
+            );
+        }
+    }
 }
 
 proptest! {

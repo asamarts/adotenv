@@ -232,15 +232,16 @@ assert!(parse_strict(formatted.as_str()).is_ok());
 ```
 
 `Document::sort` orders declarations inside blank-line-separated groups and
-keeps comments and multiline entries intact. References inside a group are
-placed before their dependents. Groups with duplicates, empty keys, malformed
-items or dependency cycles are left unchanged.
+keeps comments and multiline entries intact. When one key references another in
+the same group, the two keep their current relative order, so resolved values
+do not change. Groups with duplicates, empty keys, malformed items or reference
+cycles are left unchanged.
 
 ```rust
-let doc = adotenv::parse_strict("# header\nB=${A}\n# A note\nA=1\n# bottom\n").unwrap();
+let doc = adotenv::parse_strict("# header\nC=3\nB=${A}\n# A note\nA=1\n# bottom\n").unwrap();
 assert_eq!(
     doc.sort().unwrap().as_str(),
-    "# header\n# A note\nA=1\nB=${A}\n# bottom\n"
+    "# header\nB=${A}\n# A note\nA=1\nC=3\n# bottom\n"
 );
 ```
 

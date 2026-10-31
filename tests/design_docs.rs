@@ -36,11 +36,11 @@ fn formatting_guide_example() {
 
 #[test]
 fn sorting_guide_example() {
-    let source = "# header\nB=${A}\n# A note\nA=1\n# bottom\n";
+    let source = "# header\nC=3\nB=${A}\n# A note\nA=1\n# bottom\n";
     let doc = parse_strict(source).unwrap();
     assert_eq!(
         doc.sort().unwrap().as_str(),
-        "# header\n# A note\nA=1\nB=${A}\n# bottom\n"
+        "# header\nB=${A}\n# A note\nA=1\nC=3\n# bottom\n"
     );
 }
 

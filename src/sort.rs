@@ -1,9 +1,11 @@
-//! Comment-aware, dependency-respecting key sorting within blank-line groups.
+//! Comment-aware key sorting within blank-line groups that keeps resolved
+//! values unchanged.
 //!
 //! Sorting is a separate verified transformation from trivia formatting. It
 //! reorders whole group chunks so leading comments and inline comments travel
-//! with their entries. A group is left untouched when it contains malformed
-//! data, duplicate or empty keys, or a dependency cycle.
+//! with their entries. Keys that reference each other keep their relative
+//! order. A group is left untouched when it contains malformed data, duplicate
+//! or empty keys, a self-reference or a reference cycle.
 
 use alloc::{
     collections::{BTreeMap, BTreeSet},
@@ -42,11 +44,17 @@ impl Document<'_> {
     /// Comments after the last entry stay at the bottom. Inline comments are part
     /// of the moved entry.
     ///
-    /// `${VAR}` dependencies between keys in the same group are respected: a
-    /// referenced key is placed before the key that references it. Groups with
-    /// empty/duplicate keys, malformed or ignored items, or dependency cycles are
-    /// left byte-for-byte unchanged. Dependencies on keys outside the group are
-    /// not ordering constraints.
+    /// When one key's value references another key of the same group (`$VAR`
+    /// or `${VAR...}`, including nested and quoted forms), the two keys keep
+    /// their current relative order. Every other key is ordered by key, so the
+    /// result is the key order that respects those pairs. Which declaration a
+    /// reference sees does not change, and [`Document::resolve`] returns the
+    /// same values before and after sorting under sequential and whole-file
+    /// scope. References to keys outside the group are not ordering
+    /// constraints.
+    ///
+    /// Groups with empty/duplicate keys, malformed or ignored items, a
+    /// self-reference or a reference cycle are left byte-for-byte unchanged.
     ///
     /// The result is reparsed and verified before it is returned.
     ///
@@ -59,9 +67,10 @@ impl Document<'_> {
     /// ```
     /// use adotenv::parse_strict;
     ///
-    /// let doc = parse_strict("B=${A}\nA=1\n").unwrap();
+    /// // B references A and stays above it; the other keys are sorted.
+    /// let doc = parse_strict("D=4\nB=${A}\nC=3\nA=1\n").unwrap();
     /// let sorted = doc.sort().unwrap();
-    /// assert_eq!(sorted.as_str(), "A=1\nB=${A}\n");
+    /// assert_eq!(sorted.as_str(), "B=${A}\nA=1\nC=3\nD=4\n");
     /// ```
     pub fn sort(&self) -> Result<FormatResult, FormatError> {
         let mut plans = Vec::new();
@@ -145,8 +154,10 @@ impl Document<'_> {
             chunks.push(&source[start..item.span().end]);
         }
 
-        let mut edges = vec![Vec::new(); entries.len()];
-        let mut indegree = vec![0usize; entries.len()];
+        // (dependent, dependency) pairs between entries of this group, by
+        // source ordinal. Every reference candidate counts, eligible or not,
+        // so the order is safe under any reference rules.
+        let mut references = Vec::new();
         for (index, entry) in entries.iter().enumerate() {
             for reference in entry.references() {
                 if reference.kind != ReferenceKind::Variable {
@@ -161,30 +172,23 @@ impl Document<'_> {
                 if dependency == index {
                     return None;
                 }
-                edges[dependency].push(index);
-                indegree[index] += 1;
+                references.push((index, dependency));
             }
         }
-
-        let mut ready = BTreeSet::new();
-        for (index, degree) in indegree.iter().enumerate() {
-            if *degree == 0 {
-                ready.insert((keys[index].clone(), index));
-            }
+        // Reordering a referencing pair changes which declaration a sequential
+        // reference sees, so each pair keeps its source order. Those edges all
+        // point forward in source order, so a constrained order always exists.
+        // Reference cycles still leave the group unchanged.
+        let mut dependencies = vec![Vec::new(); entries.len()];
+        let mut constraints = vec![Vec::new(); entries.len()];
+        for &(dependent, dependency) in &references {
+            dependencies[dependency].push(dependent);
+            constraints[dependent.min(dependency)].push(dependent.max(dependency));
         }
-        let mut order = Vec::with_capacity(entries.len());
-        while let Some((_, index)) = ready.pop_first() {
-            order.push(index);
-            for &dependent in &edges[index] {
-                indegree[dependent] -= 1;
-                if indegree[dependent] == 0 {
-                    ready.insert((keys[dependent].clone(), dependent));
-                }
-            }
-        }
-        if order.len() != entries.len() {
+        if topological_order(&dependencies, &keys).len() != entries.len() {
             return None;
         }
+        let order = topological_order(&constraints, &keys);
 
         let header = &source[group.span().start..items[first_entry].span().start];
         let trailing = &source[items[last_entry].span().end..group.span().end];
@@ -204,6 +208,34 @@ impl Document<'_> {
             keys: order.into_iter().map(|entry| keys[entry].clone()).collect(),
         })
     }
+}
+
+// Kahn's algorithm, always taking the smallest ready key. A result shorter
+// than `keys` means the edges contain a cycle.
+fn topological_order(edges: &[Vec<usize>], keys: &[String]) -> Vec<usize> {
+    let mut indegree = vec![0usize; keys.len()];
+    for targets in edges {
+        for &target in targets {
+            indegree[target] += 1;
+        }
+    }
+    let mut ready = BTreeSet::new();
+    for (index, degree) in indegree.iter().enumerate() {
+        if *degree == 0 {
+            ready.insert((keys[index].as_str(), index));
+        }
+    }
+    let mut order = Vec::with_capacity(keys.len());
+    while let Some((_, index)) = ready.pop_first() {
+        order.push(index);
+        for &target in &edges[index] {
+            indegree[target] -= 1;
+            if indegree[target] == 0 {
+                ready.insert((keys[target].as_str(), target));
+            }
+        }
+    }
+    order
 }
 
 fn facts(entry: Entry<'_>) -> EntryFacts {

@@ -1,11 +1,58 @@
 #![no_main]
 #![forbid(unsafe_code)]
 
+use std::collections::BTreeMap;
+
 use adotenv::{
-    parse_with, BlankLines, Dialect, EqualsSpacing, FinalNewline, FormatOptions, InlineComments,
-    ItemKind, QuoteStyle, TextEdit,
+    parse_with, BlankLines, Dialect, EqualsSpacing, ExpandOptions, ExpandScope, FinalNewline,
+    FormatOptions, InlineComments, ItemKind, QuoteStyle, TextEdit,
 };
 use libfuzzer_sys::fuzz_target;
+
+type GroupValues = BTreeMap<(usize, String), Vec<Option<String>>>;
+
+// Resolved values keyed by group and key; sorting moves entries only within
+// their group.
+fn resolved_by_group(
+    document: &adotenv::Document<'_>,
+    options: &ExpandOptions,
+) -> Result<GroupValues, adotenv::ResolveError> {
+    let resolved = document.resolve(|_| None, options)?;
+    let mut values = GroupValues::new();
+    for (group, items) in document.groups().enumerate() {
+        for entry in items.entries() {
+            values
+                .entry((group, entry.key().to_owned()))
+                .or_default()
+                .push(resolved.entries()[entry.id()].value.clone());
+        }
+    }
+    Ok(values)
+}
+
+// Sorting must not change which declaration a reference sees. Whole-file
+// resolution caches dependencies in source order, so only its successful
+// results are compared: a depth limit can depend on that order.
+fn check_sort_resolution(document: &adotenv::Document<'_>, after: &adotenv::Document<'_>) {
+    for base in [ExpandOptions::portable(), ExpandOptions::compose()] {
+        for scope in [ExpandScope::Sequential, ExpandScope::WholeFile] {
+            let options = base
+                .with_scope(scope)
+                .with_max_depth(8)
+                .with_max_value_bytes(1024);
+            match (
+                resolved_by_group(document, &options),
+                resolved_by_group(after, &options),
+            ) {
+                (Ok(before), Ok(sorted)) => assert_eq!(before, sorted, "{scope:?}"),
+                (before, sorted) if scope == ExpandScope::Sequential => {
+                    assert_eq!(before.is_ok(), sorted.is_ok(), "{scope:?}");
+                }
+                _ => {}
+            }
+        }
+    }
+}
 
 fn trim_horizontal(text: &str) -> &str {
     text.trim_end_matches([' ', '\t'])
@@ -155,6 +202,9 @@ fn check_sort(document: &adotenv::Document<'_>) {
         left_comments.sort_unstable();
         right_comments.sort_unstable();
         assert_eq!(left_comments, right_comments);
+    }
+    if !sorted.is_empty() {
+        check_sort_resolution(document, &after);
     }
     let again = after.sort().expect("verified sort is representable again");
     assert!(again.is_empty());

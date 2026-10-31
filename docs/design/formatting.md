@@ -39,18 +39,25 @@ lone-CR boundaries are preserved.
 - Comments above the first entry stay as a group header.
 - Comments above later entries move with those entries.
 - Inline comments and multiline values move intact.
-- References inside a group are ordered before their dependents.
-- Duplicate keys, empty keys, malformed items and dependency cycles leave the
-  group unchanged.
+- When one key references another in the same group, the two keep their
+  current relative order. Other keys are ordered by key. A reference sees the
+  same declaration after sorting, so resolved values do not change under
+  sequential or whole-file scope.
+- References to keys in other groups do not constrain the order.
+- Duplicate keys, empty keys, malformed items, self-references and reference
+  cycles leave the group unchanged.
 
 ```rust
-let source = "# header\nB=${A}\n# A note\nA=1\n# bottom\n";
+let source = "# header\nC=3\nB=${A}\n# A note\nA=1\n# bottom\n";
 let doc = adotenv::parse_strict(source).unwrap();
 assert_eq!(
     doc.sort().unwrap().as_str(),
-    "# header\n# A note\nA=1\nB=${A}\n# bottom\n"
+    "# header\nB=${A}\n# A note\nA=1\nC=3\n# bottom\n"
 );
 ```
+
+Moving `A=1` above `B=${A}` would change the value of `B` under sequential
+resolution, so `B` stays above `A`.
 
 Sorting does not format spacing, expand values, read files or inspect the
 environment. Use `format` separately when both changes are wanted.
