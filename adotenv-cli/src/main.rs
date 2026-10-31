@@ -1351,9 +1351,39 @@ fn run_command(args: &[String], dialect: Dialect) -> u8 {
         .envs(loaded.values())
         .status();
     match status {
-        Ok(status) => status.code().unwrap_or(1).clamp(0, 255) as u8,
+        Ok(status) => child_exit_code(status),
         Err(error) => fail(format!("failed to run {program}: {error}")),
     }
+}
+
+/// Exit code for a child status that has no exact 8-bit equivalent.
+const CHILD_UNREPRESENTABLE: u8 = 255;
+
+/// The exit code that reports a child's status.
+fn child_exit_code(status: std::process::ExitStatus) -> u8 {
+    #[cfg(unix)]
+    let signal = {
+        use std::os::unix::process::ExitStatusExt;
+        status.signal()
+    };
+    #[cfg(not(unix))]
+    let signal = None;
+    exit_code_for(status.code(), signal)
+}
+
+/// Map a child's exit code or terminating signal to an 8-bit exit code.
+///
+/// Codes `0` to `255` are kept. A Unix signal `N` becomes `128 + N`, as in
+/// POSIX shells. Anything else, such as a negative Windows `NTSTATUS` or a code
+/// above `255`, becomes `255`, so a failure is never reported as success.
+fn exit_code_for(code: Option<i32>, signal: Option<i32>) -> u8 {
+    if let Some(code) = code {
+        return u8::try_from(code).unwrap_or(CHILD_UNREPRESENTABLE);
+    }
+    signal
+        .filter(|signal| (1..128).contains(signal))
+        .and_then(|signal| u8::try_from(128 + signal).ok())
+        .unwrap_or(CHILD_UNREPRESENTABLE)
 }
 
 fn validate_child_environment(loaded: &LoadedEnvironment) -> Result<(), String> {
@@ -1825,6 +1855,37 @@ mod tests {
         for mode in [0o640, 0o620, 0o610, 0o660, 0o100_640] {
             assert!(grants_group_access(mode), "{mode:o}");
         }
+    }
+
+    #[test]
+    fn child_statuses_map_to_exit_codes() {
+        use super::exit_code_for;
+
+        for code in [0, 1, 7, 128, 255] {
+            assert_eq!(i32::from(exit_code_for(Some(code), None)), code);
+        }
+        // Windows reports crashes as NTSTATUS values, which are negative as i32.
+        let access_violation = i32::from_ne_bytes(0xC000_0005_u32.to_ne_bytes());
+        let stack_overflow = i32::from_ne_bytes(0xC000_00FD_u32.to_ne_bytes());
+        for code in [
+            256,
+            1 << 16,
+            i32::MAX,
+            -1,
+            i32::MIN,
+            access_violation,
+            stack_overflow,
+        ] {
+            assert_eq!(exit_code_for(Some(code), None), 255, "{code}");
+        }
+        assert_eq!(exit_code_for(None, Some(1)), 129);
+        assert_eq!(exit_code_for(None, Some(9)), 137);
+        assert_eq!(exit_code_for(None, Some(15)), 143);
+        assert_eq!(exit_code_for(None, Some(127)), 255);
+        for signal in [0, -1, 128, i32::MAX, i32::MIN] {
+            assert_eq!(exit_code_for(None, Some(signal)), 255, "{signal}");
+        }
+        assert_eq!(exit_code_for(None, None), 255);
     }
 
     #[test]

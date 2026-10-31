@@ -226,6 +226,25 @@ fn run_propagates_the_child_exit_code() {
     assert_eq!(output.status.code(), Some(7));
 }
 
+#[cfg(unix)]
+#[test]
+fn run_reports_a_signaled_child_like_a_shell() {
+    let dir = TempDir::new();
+    fs::write(dir.path().join(".env"), "A=1\n").unwrap();
+    for (signal, code) in [("TERM", 143), ("KILL", 137)] {
+        let script = format!("kill -{signal} $$");
+        let output = run(&[
+            "run",
+            dir.path().to_str().unwrap(),
+            "--",
+            "sh",
+            "-c",
+            &script,
+        ]);
+        assert_eq!(output.status.code(), Some(code), "SIG{signal}");
+    }
+}
+
 #[test]
 fn run_rejects_nul_environment_values_before_spawning() {
     let dir = TempDir::new();
