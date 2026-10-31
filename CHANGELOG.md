@@ -82,6 +82,8 @@ The 1.0 fix round. See [1.0-fix-round.md](docs/design/1.0-fix-round.md).
 - Batches that set entries and insert after them run in linear time.
 - CLI: failed output writes and closed pipes exit with `2` instead of
   panicking, and arguments that are not UTF-8 are usage errors.
+- The `adotenv-process`, `adotenv-cli`, `adotenv-config` and `adotenv-figment`
+  packages include the license texts.
 
 ### Documentation
 

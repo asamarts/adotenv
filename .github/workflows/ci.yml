@@ -204,6 +204,11 @@ jobs:
           grep -qx 'ROADMAP.md' <<<"$files"
           grep -qx 'docs/design/1.0-readiness.md' <<<"$files"
           grep -qx 'docs/design/loading.md' <<<"$files"
+          for package in adotenv adotenv-process adotenv-config adotenv-figment adotenv-cli; do
+            files="$(cargo package -p "$package" --locked --list)"
+            grep -qx 'LICENSE-APACHE' <<<"$files"
+            grep -qx 'LICENSE-MIT' <<<"$files"
+          done
       - name: package companion crates
         run: |
           version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "adotenv"))')"
