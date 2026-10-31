@@ -464,3 +464,59 @@ fn escaped_and_unclosed_containers_control_nested_eligibility() {
     assert_eq!(references.len(), 2);
     assert!(!references[1].is_eligible(ReferenceRules::COMPOSE));
 }
+
+/// Fail when `run` takes longer than `limit`. The bounds below are far above
+/// the linear cost and far below the quadratic cost of the same inputs.
+fn assert_completes_within(limit: core::time::Duration, run: impl FnOnce()) {
+    extern crate std;
+    let started = std::time::Instant::now();
+    run();
+    let elapsed = started.elapsed();
+    assert!(elapsed < limit, "took {elapsed:?}, limit {limit:?}");
+}
+
+#[test]
+fn long_compose_dollar_runs_scan_in_linear_time() {
+    assert_completes_within(core::time::Duration::from_secs(30), || {
+        for dollars in [200_000, 200_001] {
+            let source = alloc::format!("A={}{{B}}\n", "$".repeat(dollars));
+            let (doc, _) = parse_with(&source, Dialect::COMPOSE);
+            let references = doc.unique("A").unwrap().references();
+            assert_eq!(references.len(), 1);
+            assert_eq!(text(&source, &references[0].span), "${B}");
+            // The final dollar is escaped when an odd number of dollars precede it.
+            assert_eq!(references[0].escaped, dollars % 2 == 0);
+        }
+    });
+}
+
+#[test]
+fn deep_nesting_scans_each_level_once() {
+    let depth = 2_000;
+    let filler = "x".repeat(2_000_000);
+    assert_completes_within(core::time::Duration::from_secs(30), || {
+        for (open, escaped) in [("${X:-", false), ("${X:-\\", true), ("${X:-\"", false)] {
+            let mut source = String::from("A=");
+            for _ in 0..depth {
+                source.push_str(open);
+            }
+            source.push_str(&filler);
+            for _ in 0..depth {
+                source.push('}');
+            }
+            source.push('\n');
+            let (doc, _) = parse(&source);
+            let references = doc.unique("A").unwrap().references();
+            assert_eq!(references.len(), depth);
+            for (level, reference) in references.iter().enumerate() {
+                assert_eq!(reference.depth, level);
+                assert_eq!(reference.containers.len(), level);
+                assert_eq!(
+                    reference.operator,
+                    Some(ReferenceOperator::DefaultIfUnsetOrEmpty)
+                );
+                assert_eq!(reference.escaped, escaped && level > 0);
+            }
+        }
+    });
+}
