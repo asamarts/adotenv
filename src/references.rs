@@ -354,11 +354,18 @@ impl Entry<'_> {
         };
         let dialect = self.document.dialect;
         let source = self.document.source();
+        let tail = tokens
+            .quoted_tail
+            .clone()
+            .filter(|_| dialect.quoted_tail == QuotedTail::Append);
+        // Every candidate starts at a `$`, so most values need no scan.
+        let has_dollar = |range: &Range<usize>| source.as_bytes()[range.clone()].contains(&b'$');
+        if !has_dollar(&body) && !tail.as_ref().is_some_and(has_dollar) {
+            return Vec::new();
+        }
         let mut pending = vec![(body, self.quote(), Level::TOP)];
-        if dialect.quoted_tail == QuotedTail::Append {
-            if let Some(tail) = tokens.quoted_tail.clone() {
-                pending.push((tail, Quote::None, Level::TOP));
-            }
+        if let Some(tail) = tail {
+            pending.push((tail, Quote::None, Level::TOP));
         }
         let mut scanner = Scanner {
             source,
@@ -378,11 +385,17 @@ impl Entry<'_> {
 /// Sort candidates by start, end and depth, and point each parent index at
 /// its container's sorted position.
 fn in_source_order(references: Vec<Reference>) -> Vec<Reference> {
+    let key = |reference: &Reference| (reference.span.start, reference.span.end, reference.depth);
+    // Without nesting the scan already yields source order, and the stable
+    // sort below would keep every index, so skip the reordering.
+    if references
+        .windows(2)
+        .all(|pair| key(&pair[0]) <= key(&pair[1]))
+    {
+        return references;
+    }
     let mut order: Vec<usize> = (0..references.len()).collect();
-    order.sort_by_key(|&index| {
-        let reference = &references[index];
-        (reference.span.start, reference.span.end, reference.depth)
-    });
+    order.sort_by_key(|&index| key(&references[index]));
     let mut position = vec![0; references.len()];
     for (sorted, &index) in order.iter().enumerate() {
         position[index] = sorted;
