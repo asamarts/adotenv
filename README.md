@@ -284,7 +284,9 @@ assert_eq!(
 ## Edit a snapshot
 
 Every edit method returns `VerifiedEdits`. Ranges refer to the original source.
-Apply them from the highest offset to the lowest.
+The edits are sorted by start offset and do not overlap. Apply them in reverse
+order of the returned slice, from the last edit to the first. Two edits can
+start at the same offset, so do not re-sort them by offset.
 
 ```rust
 use adotenv::{parse_strict, Edit, InsertPosition};
@@ -301,7 +303,12 @@ let verified = doc
 let (after, _) = adotenv::parse(verified.as_str());
 assert_eq!(after.get("A"), Some("changed"));
 assert_eq!(after.get_entry("B").unwrap().value(), None);
-assert!(!verified.edits().is_empty());
+
+let mut text = doc.source().to_string();
+for edit in verified.edits().iter().rev() {
+    text.replace_range(edit.range.clone(), &edit.replacement);
+}
+assert_eq!(text, verified.as_str());
 ```
 
 `set`, `remove`, `rename`, `insert`, `comment`, `uncomment`, `set_export` and

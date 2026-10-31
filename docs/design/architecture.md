@@ -68,7 +68,12 @@ for changes to unrelated declarations, comments, item kinds and invalid
 statements. If a change cannot be verified, the edit fails.
 
 `VerifiedEdits` exposes borrowed text edits, the verified output and optional
-metadata. Apply edits from the highest offset to the lowest.
+metadata. The edits are sorted by start offset and do not overlap. When an
+insertion and a replacement start at the same offset, the insertion comes
+first. Apply the edits in reverse order of the returned slice, from the last
+edit to the first. A sort by start offset alone can swap edits that share a
+start, so clients must not re-sort them. Formatting and sorting results follow
+the same order.
 
 `Edit::Insert` adds a declaration of a new key. It fails with
 `EditError::Duplicate` when the verified output would declare that key more

@@ -9,6 +9,14 @@ use core::{error::Error, fmt, ops::Range};
 use crate::{encode::encode_native, AssignmentState, Dialect, Document, ItemKind, Quote, Severity};
 
 /// A native byte-range replacement against the original document snapshot.
+///
+/// Edit and formatting results return their edits as a slice sorted by
+/// `range.start`, with ranges that do not overlap. Edits can start at the same
+/// offset: an insertion (an empty range) then comes before the replacement
+/// that starts there. Apply the edits in reverse order of the slice, from its
+/// last element to its first, so each range still addresses unchanged text.
+/// Do not re-sort them by offset: a sort by start offset alone can swap edits
+/// that share a start and corrupt the result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextEdit {
     /// Original UTF-8 byte range to replace.
@@ -24,7 +32,33 @@ pub struct VerifiedEdits {
     output: String,
 }
 impl VerifiedEdits {
-    /// Replacements in ascending, non-overlapping source order.
+    /// Replacements sorted by start offset, without overlaps.
+    ///
+    /// Apply them in reverse order of this slice; see [`TextEdit`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::{parse_strict, Edit};
+    ///
+    /// let doc = parse_strict("A=1\n").unwrap();
+    /// let verified = doc
+    ///     .edit(&[
+    ///         Edit::Export { entry: 0, enabled: true },
+    ///         Edit::Rename { entry: 0, key: "B" },
+    ///     ])
+    ///     .unwrap();
+    /// // Both edits start at offset 0; the insertion comes first.
+    /// assert_eq!(verified.edits()[0].range, 0..0);
+    /// assert_eq!(verified.edits()[1].range, 0..1);
+    ///
+    /// let mut text = doc.source().to_string();
+    /// for edit in verified.edits().iter().rev() {
+    ///     text.replace_range(edit.range.clone(), &edit.replacement);
+    /// }
+    /// assert_eq!(text, "export B=1\n");
+    /// assert_eq!(text, verified.as_str());
+    /// ```
     #[must_use]
     pub fn edits(&self) -> &[TextEdit] {
         &self.edits

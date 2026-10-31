@@ -160,7 +160,9 @@ impl FormatResult {
         Self { edits, output }
     }
 
-    /// Text edits referring to the original source snapshot.
+    /// Text edits referring to the original source snapshot, sorted by start
+    /// offset without overlaps. Apply them in reverse order of this slice; see
+    /// [`TextEdit`].
     #[must_use]
     pub fn edits(&self) -> &[TextEdit] {
         &self.edits
