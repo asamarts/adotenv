@@ -6,7 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-The 1.0 fix round. See [1.0-fix-round.md](docs/design/1.0-fix-round.md).
+## [0.11.0] - 2026-10-31
+
+The 1.0 fix round. See
+[1.0-fix-round.md](https://github.com/asamarts/adotenv/blob/v0.11.0/docs/design/1.0-fix-round.md).
 
 ### Security
 
