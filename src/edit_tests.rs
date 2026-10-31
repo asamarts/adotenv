@@ -716,3 +716,122 @@ fn large_interleaved_set_rename_batch_keeps_sorted_native_edits() {
         assert_eq!(entry.value(), Some(values[index].as_str()));
     }
 }
+
+#[test]
+fn insertion_rejects_keys_that_exist_or_that_the_batch_creates() {
+    let (doc, _) = parse("A=1\nB=2\n");
+    assert_eq!(
+        doc.insert("A", Some("evil"), InsertPosition::End),
+        Err(EditError::Duplicate(2))
+    );
+    assert_eq!(
+        doc.edit(&[
+            Edit::Rename { entry: 1, key: "C" },
+            Edit::Insert {
+                key: "C",
+                value: None,
+                position: InsertPosition::End,
+            },
+        ]),
+        Err(EditError::Duplicate(2))
+    );
+    assert_eq!(
+        doc.edit(&[
+            Edit::Insert {
+                key: "C",
+                value: Some("1"),
+                position: InsertPosition::End,
+            },
+            Edit::Insert {
+                key: "C",
+                value: Some("2"),
+                position: InsertPosition::Sorted,
+            },
+        ]),
+        Err(EditError::Duplicate(2))
+    );
+
+    // Duplicates and bare declarations count; a commented-out one does not,
+    // unless the same batch uncomments it.
+    let (doc, _) = parse("A=1\nA=2\nBARE\n# C=old\n");
+    assert_eq!(
+        doc.insert("A", None, InsertPosition::End),
+        Err(EditError::Duplicate(3))
+    );
+    assert_eq!(
+        doc.insert("BARE", Some("x"), InsertPosition::Sorted),
+        Err(EditError::Duplicate(2))
+    );
+    let result = doc.insert("C", Some("new"), InsertPosition::End).unwrap();
+    assert_eq!(result.as_str(), "A=1\nA=2\nBARE\n# C=old\nC=new\n");
+    replay(doc.source(), &result);
+    assert_eq!(
+        doc.edit(&[
+            Edit::Uncomment { item: 3 },
+            Edit::Insert {
+                key: "C",
+                value: Some("new"),
+                position: InsertPosition::End,
+            },
+        ]),
+        Err(EditError::Duplicate(2))
+    );
+}
+
+#[test]
+fn removing_commenting_or_renaming_a_declaration_frees_its_key_for_insertion() {
+    let (doc, _) = parse("A=1\nA=2\nBARE\n# C=old\n");
+    // Every existing declaration must go, not just one of them.
+    assert_eq!(
+        doc.edit(&[
+            Edit::Remove { item: 0 },
+            Edit::Insert {
+                key: "A",
+                value: Some("3"),
+                position: InsertPosition::End,
+            },
+        ]),
+        Err(EditError::Duplicate(2))
+    );
+    let result = doc
+        .edit(&[
+            Edit::Remove { item: 0 },
+            Edit::Remove { item: 1 },
+            Edit::Insert {
+                key: "A",
+                value: Some("3"),
+                position: InsertPosition::End,
+            },
+        ])
+        .unwrap();
+    assert_eq!(result.as_str(), "BARE\n# C=old\nA=3\n");
+    replay(doc.source(), &result);
+    let (after, _) = parse(result.as_str());
+    assert_eq!(after.get_all("A").count(), 1);
+    assert_eq!(after.get("A"), Some("3"));
+
+    // Commenting out or renaming the declaration also leaves the key free.
+    let (doc, _) = parse("A=1\nB=2\n");
+    let result = doc
+        .edit(&[
+            Edit::Comment { item: 0 },
+            Edit::Insert {
+                key: "A",
+                value: Some("3"),
+                position: InsertPosition::AfterEntry(1),
+            },
+        ])
+        .unwrap();
+    assert_eq!(result.as_str(), "# A=1\nB=2\nA=3\n");
+    let result = doc
+        .edit(&[
+            Edit::Rename { entry: 0, key: "Z" },
+            Edit::Insert {
+                key: "A",
+                value: Some("3"),
+                position: InsertPosition::End,
+            },
+        ])
+        .unwrap();
+    assert_eq!(result.as_str(), "Z=1\nB=2\nA=3\n");
+}

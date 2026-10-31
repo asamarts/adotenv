@@ -72,6 +72,16 @@ fn valid_key(key: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
 }
 
+// Whether a declaration of `key` survives the batch. Insertion requires a key
+// that the output does not otherwise declare; removal frees a key.
+fn key_survives(document: &Document<'_>, operations: &[Edit<'_>], key: &str) -> bool {
+    document.get_all(key).any(|entry| {
+        !operations
+            .iter()
+            .any(|operation| matches!(*operation, Edit::Remove { item } if item == entry.item_id()))
+    })
+}
+
 fn valid_value(value: &str) -> bool {
     value
         .chars()
@@ -111,6 +121,7 @@ fn known_safe(document: &Document<'_>, operations: &[Edit<'_>]) -> bool {
         } => {
             valid_key(key)
                 && value.is_none_or(valid_value)
+                && !key_survives(document, operations, key)
                 && insertion_anchor(document, key, position).is_some_and(|(offset, _)| {
                     document.source().as_bytes().get(offset) != Some(&b'\n')
                 })
@@ -649,6 +660,15 @@ fuzz_target!(|bytes: &[u8]| {
     let result = document.edit(&operations);
     if invalid_target {
         assert!(result.is_err());
+    }
+    if insertion
+        .as_ref()
+        .is_some_and(|(inserted, _)| key_survives(&document, &operations, &inserted.key))
+    {
+        assert!(
+            result.is_err(),
+            "insertion duplicated an existing key: {operations:?}"
+        );
     }
     if known_safe(&document, &operations) {
         assert!(

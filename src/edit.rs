@@ -77,13 +77,25 @@ pub enum Edit<'a> {
         item: usize,
     },
     /// Rename one declaration.
+    ///
+    /// The batch fails with [`EditError::Duplicate`] when the document already
+    /// declares the new key and with [`EditError::WouldChangeMeaning`] when two
+    /// renames choose the same new key.
     Rename {
         /// The snapshot-local declaration identity.
         entry: usize,
         /// The new literal key name.
         key: &'a str,
     },
-    /// Insert an assigned or bare declaration.
+    /// Insert an assigned or bare declaration of a new key.
+    ///
+    /// The key must not already be declared in the output. The batch fails
+    /// with [`EditError::Duplicate`] when the document declares the key (any
+    /// occurrence, including duplicates and bare declarations) or when another
+    /// insertion, rename or uncommented line in the same batch declares it.
+    /// Removing, commenting out or renaming every existing declaration of the
+    /// key in the same batch frees it. Commented-out declarations are comments
+    /// and never collide.
     Insert {
         /// The new literal key name.
         key: &'a str,
@@ -117,7 +129,8 @@ pub enum Edit<'a> {
 pub enum EditError {
     /// No valid declaration has the requested key.
     Missing,
-    /// A key-only selector matched this many declarations.
+    /// A key-only selector matched this many declarations, or a rename or
+    /// insertion would leave its key with this many declarations.
     Duplicate(usize),
     /// A snapshot-local identity or item kind is unsuitable.
     InvalidTarget,
@@ -135,7 +148,10 @@ impl fmt::Display for EditError {
         match self {
             Self::Missing => f.write_str("no declaration has the requested key"),
             Self::Duplicate(count) => {
-                write!(f, "key has {count} declarations; select an occurrence")
+                write!(
+                    f,
+                    "key has {count} declarations; select one occurrence or use another key"
+                )
             }
             Self::InvalidTarget => f.write_str("invalid snapshot-local edit target"),
             Self::InvalidKey => f.write_str("key cannot be represented by the selected dialect"),
@@ -414,6 +430,27 @@ fn verify_entry_region<'a>(
     }
     Ok(())
 }
+// An inserted key must name exactly one declaration of the verified output.
+// Counting the output covers existing declarations that the batch keeps, other
+// insertions, renames and uncommented lines, while declarations that the batch
+// removes, comments out or renames away no longer collide.
+fn verify_inserted_keys(parsed: &Document<'_>, mut keys: Vec<&str>) -> Result<(), EditError> {
+    if keys.is_empty() {
+        return Ok(());
+    }
+    keys.sort_unstable();
+    keys.dedup();
+    let mut counts = vec![0usize; keys.len()];
+    for entry in parsed.entries() {
+        if let Ok(index) = keys.binary_search(&entry.key()) {
+            counts[index] += 1;
+        }
+    }
+    match counts.into_iter().find(|count| *count > 1) {
+        Some(count) => Err(EditError::Duplicate(count)),
+        None => Ok(()),
+    }
+}
 struct InsertGroup<'a> {
     offset: usize,
     len: usize,
@@ -520,12 +557,16 @@ impl Document<'_> {
             &insertions,
             &mut end_insertions,
         )?;
+        let inserted_keys = insertions
+            .iter()
+            .map(|insertion| insertion.desired.key)
+            .collect();
         let (groups, ending) =
             self.plan_insertions(insertions, &plans, &mut edits, &mut end_insertions)?;
         let edits = Self::normalize_edits(edits)?;
         let output = Self::apply_edits(self.source(), &edits);
         let regions = self.expected_regions(&plans, &end_insertions, &edits, groups)?;
-        self.verify_regions(&output, regions, ending)?;
+        self.verify_regions(&output, regions, ending, inserted_keys)?;
         Ok(VerifiedEdits { edits, output })
     }
 
@@ -1288,6 +1329,7 @@ impl Document<'_> {
         output: &str,
         mut regions: Vec<Region<'_>>,
         ending: &str,
+        inserted_keys: Vec<&str>,
     ) -> Result<(), EditError> {
         let parsed = crate::parser::parse_document(output, self.dialect());
         if parsed.has_bom() != self.has_bom() {
@@ -1378,7 +1420,7 @@ impl Document<'_> {
         if actual.next().is_some() {
             return Err(EditError::WouldChangeMeaning);
         }
-        Ok(())
+        verify_inserted_keys(&parsed, inserted_keys)
     }
 
     /// Set a uniquely named declaration's exact literal value.
@@ -1410,10 +1452,26 @@ impl Document<'_> {
             key: new_key,
         }])
     }
-    /// Insert an assigned or bare declaration.
+    /// Insert an assigned or bare declaration of a key the document does not
+    /// declare.
     ///
     /// # Errors
-    /// Returns a selector, key, encoding or verification error.
+    /// Returns a selector, key, encoding or verification error, or
+    /// [`EditError::Duplicate`] when the document already declares `key`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::{parse_strict, EditError, InsertPosition};
+    ///
+    /// let doc = parse_strict("A=1\nB=2\n").unwrap();
+    /// let inserted = doc.insert("C", Some("3"), InsertPosition::End).unwrap();
+    /// assert_eq!(inserted.as_str(), "A=1\nB=2\nC=3\n");
+    /// assert_eq!(
+    ///     doc.insert("A", Some("other"), InsertPosition::End),
+    ///     Err(EditError::Duplicate(2))
+    /// );
+    /// ```
     pub fn insert(
         &self,
         key: &str,

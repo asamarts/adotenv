@@ -70,6 +70,14 @@ statements. If a change cannot be verified, the edit fails.
 `VerifiedEdits` exposes borrowed text edits, the verified output and optional
 metadata. Apply edits from the highest offset to the lowest.
 
+`Edit::Insert` adds a declaration of a new key. It fails with
+`EditError::Duplicate` when the verified output would declare that key more
+than once: the document already declares it (duplicates and bare declarations
+included), or another insertion, rename or uncommented line in the batch
+declares it. Removing, commenting out or renaming every existing declaration in
+the same batch frees the key. Commented-out declarations are comments and never
+collide. `Edit::Rename` rejects a new key that the document already declares.
+
 ## Features and safety
 
 The core has no runtime dependencies and no I/O. `load` enables filesystem
