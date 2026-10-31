@@ -179,7 +179,9 @@ fn check_references(source: &str, entry: Entry<'_>) {
     let references = entry.references();
     let value_span = entry.value_span();
     let mut previous_start = 0;
-    for reference in &references {
+    // Forms whose spans contain the current start, innermost last.
+    let mut open: Vec<usize> = Vec::new();
+    for (index, reference) in references.iter().enumerate() {
         assert!(reference.span.start >= previous_start);
         previous_start = reference.span.start;
         assert!(reference.span.start < reference.span.end);
@@ -218,7 +220,31 @@ fn check_references(source: &str, entry: Entry<'_>) {
             reference.kind == ReferenceKind::Variable,
             reference.name.is_some()
         );
-        assert_eq!(reference.containers.len(), reference.depth);
+        match reference.parent {
+            None => assert_eq!(reference.depth, 0),
+            Some(parent) => {
+                let container = &references[parent];
+                assert!(parent < index);
+                assert_eq!(reference.depth, container.depth + 1);
+                let inner = container
+                    .argument
+                    .as_ref()
+                    .or(container.command.as_ref())
+                    .unwrap();
+                assert!(inner.start <= reference.span.start);
+                assert!(reference.span.end <= inner.end);
+            }
+        }
+        // The innermost earlier form whose span contains this start is the
+        // parent, so a form's nested candidates directly follow it.
+        while open
+            .last()
+            .is_some_and(|&form| references[form].span.end <= reference.span.start)
+        {
+            open.pop();
+        }
+        assert_eq!(reference.parent, open.last().copied());
+        open.push(index);
         if reference.kind == ReferenceKind::Variable && !reference.braced {
             assert!(!reference.name.as_ref().unwrap().is_empty());
         }
