@@ -121,3 +121,32 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn blank_lines_separate_groups_and_comments_in_every_preset() {
+    let source = "# detached\n\nA=1\n\n# B note\nB=2\nC=3\n";
+    for dialect in [
+        crate::Dialect::PORTABLE,
+        crate::Dialect::NODE_DOTENV,
+        crate::Dialect::PYTHON_DOTENV,
+        crate::Dialect::COMPOSE,
+        crate::Dialect::DOCKER_RAW,
+    ] {
+        let (doc, _) = crate::parse_with(source, dialect);
+        let groups: Vec<_> = doc.groups().map(|group| &source[group.span()]).collect();
+        assert_eq!(
+            groups,
+            ["# detached\n", "A=1\n", "# B note\nB=2\nC=3\n"],
+            "{:?}",
+            dialect.syntax
+        );
+        assert_eq!(doc.unique("A").unwrap().leading_comments().count(), 0);
+        let notes: Vec<_> = doc
+            .unique("B")
+            .unwrap()
+            .leading_comments()
+            .map(crate::Item::raw)
+            .collect();
+        assert_eq!(notes, ["# B note\n"], "{:?}", dialect.syntax);
+    }
+}

@@ -629,14 +629,22 @@ fn a_plain_node_item_rejects_the_whole_original_oversized_line() {
     let source = "\n#x\u{2028}A=1\n";
     let (doc, diagnostics) = parse_with(source, dialect);
     assert_eq!(doc.get("A"), None);
-    assert_eq!(doc.items().count(), 1);
-    let item = doc.items().next().unwrap();
+    // The leading blank line is its own item. The oversized line is rejected
+    // whole, although its comment alone would end at the LS anchor.
+    assert_eq!(
+        item_layout(source, dialect),
+        [
+            (ItemKind::Blank, "\n"),
+            (ItemKind::Invalid, "#x\u{2028}A=1\n")
+        ]
+    );
+    let item = doc.item(1).unwrap();
+    assert_eq!(item.invalid_code(), Some(Code::LineTooLong));
     let error = diagnostics
         .iter()
         .find(|error| error.code() == Code::LineTooLong)
         .unwrap();
     assert!(item.span().start <= error.span().start && item.span().end >= error.span().end);
-    assert_eq!(item.raw(), source);
 }
 
 #[test]
@@ -1133,4 +1141,84 @@ fn non_whitespace_and_compose_key_policies_reject_literal_spaces() {
 
     let error = parse_strict_with("A B=1\n", Dialect::COMPOSE).unwrap_err();
     assert_eq!(error.code(), Code::InvalidKey);
+}
+
+fn item_layout(source: &str, dialect: Dialect) -> vec::Vec<(ItemKind, &str)> {
+    let (doc, _) = parse_with(source, dialect);
+    doc.items()
+        .map(|item| (item.kind(), &source[item.span()]))
+        .collect()
+}
+
+#[test]
+fn blank_and_whitespace_only_lines_are_blank_items_in_every_preset() {
+    for source in [
+        "B=2\n\nA=1\n",
+        "B=2\n  \t\n\n  A=1\n",
+        "B=2\r\n\r\n \r\nA=1\r\n",
+        "\n\n# c\n\nA=1\n\n\n",
+        "A=1\n \n",
+        "A=1\n\n  ",
+    ] {
+        let expected = item_layout(source, Dialect::PORTABLE);
+        for dialect in PRESETS {
+            assert_eq!(
+                item_layout(source, dialect),
+                expected,
+                "{:?} {source:?}",
+                dialect.syntax
+            );
+        }
+    }
+    let expected = [
+        (ItemKind::Entry, "B=2\n"),
+        (ItemKind::Blank, "  \t\n"),
+        (ItemKind::Blank, "\n"),
+        (ItemKind::Entry, "  A=1\n"),
+    ];
+    for dialect in [Dialect::NODE_DOTENV, Dialect::PYTHON_DOTENV] {
+        let source = "B=2\n  \t\n\n  A=1\n";
+        assert_eq!(item_layout(source, dialect), expected);
+        let doc = parse_strict_with(source, dialect).unwrap();
+        let entry = doc.unique("A").unwrap();
+        assert_eq!(&source[entry.tokens().indent.clone()], "  ");
+        assert_eq!(entry.line(), 4);
+    }
+}
+
+#[test]
+fn blank_lines_keep_edits_sorting_and_portability_consistent() {
+    let source = "B=2\nA=1\n\n# section\nD=4\nC=3\n";
+    for dialect in PRESETS {
+        let name = dialect.syntax;
+        let doc = parse_strict_with(source, dialect).unwrap();
+        assert_eq!(
+            doc.sort().unwrap().as_str(),
+            "A=1\nB=2\n\n# section\nC=3\nD=4\n",
+            "{name:?}"
+        );
+        assert_eq!(
+            doc.remove("D").unwrap().as_str(),
+            "B=2\nA=1\n\n# section\nC=3\n",
+            "{name:?}"
+        );
+        assert_eq!(
+            doc.remove("A").unwrap().as_str(),
+            "B=2\n\n# section\nD=4\nC=3\n",
+            "{name:?}"
+        );
+        let collapsed = parse_strict_with("A=1\n\n  \n\nB=2\n", dialect)
+            .unwrap()
+            .format(
+                &crate::FormatOptions::default()
+                    .with_trim_trailing_whitespace(true)
+                    .with_blank_lines(crate::BlankLines::Collapse),
+            )
+            .unwrap();
+        assert_eq!(collapsed.as_str(), "A=1\n\nB=2\n", "{name:?}");
+    }
+    for dialect in PRESETS {
+        let (doc, _) = parse_with(source, dialect);
+        assert!(doc.portability(&PRESETS).is_empty(), "{:?}", dialect.syntax);
+    }
 }

@@ -1,6 +1,6 @@
 //! Node dotenv's default regular-expression grammar (not its opt-in scanner).
 
-use super::python::{colon_at, final_ending, key_end};
+use super::python::{colon_at, key_end};
 use super::{is_space, line_breaks, skip_whitespace, valid_key_in, Parser, PhysicalLine};
 use crate::{ColonSeparator, DiagnosticCode, EntryTokens, ItemKind, LineEnding, Quote};
 use core::ops::Range;
@@ -8,26 +8,30 @@ use core::ops::Range;
 pub(super) fn statement<const D: bool>(
     parser: &mut Parser<'_, D>,
     start: usize,
-    _first: PhysicalLine,
+    physical: PhysicalLine,
 ) -> usize {
     let source = parser.source;
     let dialect = parser.dialect();
-    // The regex's leading \s* is greedy and may span physical lines.
-    let at = skip_whitespace(source, start, source.len(), dialect.whitespace);
-    let indent = start..at;
-    if at == source.len() {
-        return parser.plain_item(ItemKind::Blank, start..at, final_ending(source, at), None);
+    // The regex's leading \s* is greedy and may span physical lines, but the
+    // blank lines it skips carry no meaning. Keep each one as a blank item so
+    // that blank lines delimit groups as in the other presets. LS/PS are
+    // regex anchors, so they count as blank even under a custom whitespace
+    // policy that does not classify them as whitespace.
+    let blank = source[start..physical.content_end]
+        .chars()
+        .all(|ch| is_space(ch, dialect.whitespace) || matches!(ch, '\u{2028}' | '\u{2029}'));
+    if blank {
+        return parser.plain_item(ItemKind::Blank, start..physical.end, physical.ending, None);
     }
+    // The statement keeps the indentation on its own line.
+    let at = skip_whitespace(source, start, physical.content_end, dialect.whitespace);
+    let indent = start..at;
     let first = anchored_line(parser, at);
     if at == first.content_end {
-        // LS/PS are regex anchors even if a custom whitespace policy does not
-        // classify them as whitespace. Retain the separator and make progress.
-        let end = if first.end == at {
-            at + source[at..].chars().next().map_or(0, char::len_utf8)
-        } else {
-            first.end
-        };
-        return parser.plain_item(ItemKind::Blank, start..end, first.ending, None);
+        // An anchor that the whitespace policy does not skip ends this item.
+        // Retain the separator and make progress.
+        let end = at + source[at..].chars().next().map_or(0, char::len_utf8);
+        return parser.plain_item(ItemKind::Blank, start..end, LineEnding::None, None);
     }
     if source.as_bytes()[at] == b'#' {
         return parser.plain_item(

@@ -1,26 +1,21 @@
 //! Python dotenv's literal stream binding grammar.
 
 use super::{is_space, line_breaks, skip_whitespace, valid_key_in, Parser, PhysicalLine};
-use crate::{
-    ColonSeparator, DiagnosticCode, Dialect, EntryTokens, ItemKind, KeySyntax, LineEnding, Quote,
-};
+use crate::{ColonSeparator, DiagnosticCode, Dialect, EntryTokens, ItemKind, KeySyntax, Quote};
 
 /// Scan a binding without translating offsets away from the original UTF-8 input.
 pub(super) fn statement<const D: bool>(
     parser: &mut Parser<'_, D>,
     start: usize,
-    _first: PhysicalLine,
+    physical: PhysicalLine,
 ) -> usize {
     let source = parser.source;
     let dialect = parser.dialect();
     // Unlike the horizontal whitespace around `=`, the reader's binding prefix
-    // consumes newlines too. Keep that entire prefix in the following item.
-    let mut at = skip_whitespace(source, start, source.len(), dialect.whitespace);
+    // consumes newlines too. The blank lines it skips carry no meaning, so each
+    // one is a blank item and the statement keeps only its own indentation.
+    let mut at = skip_whitespace(source, start, physical.content_end, dialect.whitespace);
     let indent = start..at;
-    if at == source.len() {
-        return parser.plain_item(ItemKind::Blank, start..at, final_ending(source, at), None);
-    }
-    let physical = parser.physical(at);
     if at == physical.content_end {
         return parser.plain_item(ItemKind::Blank, start..physical.end, physical.ending, None);
     }
@@ -177,16 +172,4 @@ pub(super) fn colon_at(source: &str, at: usize, dialect: Dialect) -> bool {
                 .next()
                 .is_some_and(|ch| is_space(ch, dialect.whitespace)),
         }
-}
-
-pub(super) fn final_ending(source: &str, end: usize) -> LineEnding {
-    if source[..end].ends_with("\r\n") {
-        LineEnding::CrLf
-    } else if source[..end].ends_with('\n') {
-        LineEnding::Lf
-    } else if source[..end].ends_with('\r') {
-        LineEnding::Cr
-    } else {
-        LineEnding::None
-    }
 }
