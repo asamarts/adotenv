@@ -488,6 +488,8 @@ let config = config::Config::builder()
 - Parsing does not read files, environment variables or commands.
 - Retained documents keep token and item metadata. Apply byte and line budgets
   for untrusted input.
+- `Debug` output of documents, loaded environments, resolved values and the
+  adapter types includes values. Do not log it when values are secret.
 - Windows writes use a direct replace when possible and a backup swap otherwise.
   The fallback is not crash-atomic.
 - The `config` integration uses `config` 0.15 and requires Rust 1.88.

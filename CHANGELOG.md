@@ -8,6 +8,54 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 The 1.0 fix round. See [1.0-fix-round.md](docs/design/1.0-fix-round.md).
 
+### Security
+
+- `adotenv-cli`: `fmt --write` and `set` create their temporary file with
+  owner-only permissions before writing any content.
+
+### Changed
+
+- **Breaking:** `Edit::Insert` and `Document::insert` reject a key that the
+  document already declares or that another edit in the batch creates, with
+  `EditError::Duplicate`. Removing, commenting out or renaming away the existing
+  declarations frees the key.
+- **Breaking:** `sort` keeps two keys connected by a one-way reference in their
+  source order, so resolved values never change. Other keys still sort by name.
+- **Breaking (CLI):** every read or write failure exits with `2`, including in
+  `check` and `fmt`. Multi-file `check` and `fmt` exit with the highest code
+  across files.
+- **Breaking (CLI):** `run` exits with `128 + N` when the child is killed by
+  signal `N`, and with `255` for a status outside `0` to `255`.
+- **Breaking (CLI):** `load` prints Portable assignments that parse back to the
+  same values. It exits with `2` before printing anything when a key or value
+  has no Portable spelling.
+- CLI: `fmt --write` and `set` on a symbolic link replace the link target and
+  keep the link, and keep the file's owner and group where the user may set
+  them.
+- `adotenv-config` and `adotenv-figment` are versioned separately from the
+  core. `adotenv-config` uses `config` 0.15, whose keys keep their case, and
+  requires Rust 1.88.
+
+### Fixed
+
+- `sort` handles a last group without a final line ending.
+- Trimming keeps a whitespace-only last line that has no line ending, and
+  `FinalNewline::Ensure` no longer adds a second line ending after collapsed
+  blank lines.
+- Batches that set entries and insert after them run in linear time.
+- CLI: failed output writes and closed pipes exit with `2` instead of
+  panicking, and arguments that are not UTF-8 are usage errors.
+
+### Documentation
+
+- Text edits apply in reverse order of the returned slice. Edits that start at
+  the same offset are ordered for that.
+- `cli.md` documents every JSON field, and a test keeps it in sync.
+- The CLI docs describe what `run` passes to the child and which commands print
+  values.
+- The README notes that `Debug` output includes values.
+- Restored this changelog.
+
 ## [0.10.4] - 2026-10-27
 
 ### Performance
