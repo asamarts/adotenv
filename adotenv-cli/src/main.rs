@@ -1337,15 +1337,25 @@ static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
 
 /// Replace `path` with `contents` through a temporary file in the same directory.
 ///
-/// The temporary file is created private on Unix (mode `0600`) and receives the
-/// existing file's permissions only after the contents are written. A file that
-/// does not exist yet stays private.
+/// When `path` is a symbolic link, the file it finally points to is replaced
+/// in that file's directory and the link is kept. The temporary file is created
+/// private on Unix (mode `0600`), receives the existing file's owner and group
+/// where possible, and receives its permissions only after the contents are
+/// written. A file that does not exist yet stays private.
 fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
+    let target = replacement_target(path)?;
+    let path = target.as_path();
     let existing = match fs::metadata(path) {
         Ok(metadata) if metadata.is_dir() => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "path is a directory",
+            ));
+        }
+        Ok(metadata) if !metadata.is_file() => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "path is not a regular file",
             ));
         }
         Ok(metadata) => Some(metadata),
@@ -1421,7 +1431,17 @@ fn create_temporary(parent: &Path, name: &std::ffi::OsStr) -> io::Result<(PathBu
     ))
 }
 
-/// Write and flush the temporary file, then give it the existing file's permissions.
+/// The file a write to `path` replaces: the final target of a symbolic link,
+/// or `path` itself.
+fn replacement_target(path: &Path) -> io::Result<PathBuf> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => fs::canonicalize(path),
+        _ => Ok(path.to_path_buf()),
+    }
+}
+
+/// Write and flush the temporary file after giving it the existing file's
+/// owner, group and permissions.
 #[cfg(unix)]
 fn fill_temporary(
     mut file: fs::File,
@@ -1429,11 +1449,53 @@ fn fill_temporary(
     contents: &str,
     existing: Option<&fs::Metadata>,
 ) -> io::Result<()> {
+    if let Some(metadata) = existing {
+        keep_ownership(&file, metadata)?;
+    }
     file.write_all(contents.as_bytes())?;
     if let Some(metadata) = existing {
         file.set_permissions(metadata.permissions())?;
     }
     file.sync_all()
+}
+
+/// Give the temporary file the original owner and group where possible.
+///
+/// Keeping another user's ownership needs privileges, so an unprivileged
+/// replacement belongs to the running user, who could already read and replace
+/// the file. The group is kept when the running user may set it. When it cannot
+/// be kept and the original mode grants the group any access, the write fails:
+/// the copied mode would otherwise grant that access to a different group.
+#[cfg(unix)]
+fn keep_ownership(file: &fs::File, original: &fs::Metadata) -> io::Result<()> {
+    use std::os::unix::fs::{fchown, MetadataExt};
+
+    let created = file.metadata()?;
+    let owner = (created.uid() != original.uid()).then_some(original.uid());
+    let group = (created.gid() != original.gid()).then_some(original.gid());
+    if owner.is_none() && group.is_none() {
+        return Ok(());
+    }
+    if fchown(file, owner, group).is_ok() {
+        return Ok(());
+    }
+    let Some(group) = group else {
+        return Ok(());
+    };
+    match fchown(file, None, Some(group)) {
+        Ok(()) => Ok(()),
+        Err(_) if !grants_group_access(original.mode()) => Ok(()),
+        Err(error) => Err(io::Error::new(
+            error.kind(),
+            format!("cannot keep the file's group {group}: {error}"),
+        )),
+    }
+}
+
+/// Whether a Unix mode grants the owning group any access.
+#[cfg(unix)]
+const fn grants_group_access(mode: u32) -> bool {
+    mode & 0o070 != 0
 }
 
 /// Write and flush the temporary file, then give it the existing file's permissions.
@@ -1675,6 +1737,19 @@ mod tests {
         std::fs::remove_dir_all(&directory).unwrap();
         assert!(!temporary.exists());
         assert_eq!(mode, 0o600, "temporary file mode {mode:o}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn group_access_decides_whether_a_group_change_is_fatal() {
+        use super::grants_group_access;
+
+        for mode in [0o600, 0o700, 0o604, 0o100_600, 0o4600] {
+            assert!(!grants_group_access(mode), "{mode:o}");
+        }
+        for mode in [0o640, 0o620, 0o610, 0o660, 0o100_640] {
+            assert!(grants_group_access(mode), "{mode:o}");
+        }
     }
 
     #[test]

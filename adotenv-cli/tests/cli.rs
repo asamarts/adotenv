@@ -690,6 +690,97 @@ fn writes_keep_the_existing_file_mode() {
     }
 }
 
+#[cfg(unix)]
+fn is_symlink(path: &Path) -> bool {
+    fs::symlink_metadata(path).unwrap().file_type().is_symlink()
+}
+
+#[cfg(unix)]
+fn directory_names(path: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(path)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[cfg(unix)]
+#[test]
+fn writes_replace_the_symlink_target_and_keep_the_link() {
+    use std::os::unix::fs::symlink;
+
+    let dir = TempDir::new();
+    let real = dir.file_at("real/app.env", "B=2\nA=1\n");
+    let link = dir.path().join("link.env");
+    let chain = dir.path().join("chain.env");
+    symlink("real/app.env", &link).unwrap();
+    symlink("link.env", &chain).unwrap();
+
+    let output = run(&["set", link.to_str().unwrap(), "A", "3"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(is_symlink(&link));
+    assert_eq!(fs::read_link(&link).unwrap(), Path::new("real/app.env"));
+    assert_eq!(fs::read_to_string(&real).unwrap(), "B=2\nA=3\n");
+
+    let output = run(&["fmt", "--write", "--sort", chain.to_str().unwrap()]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(is_symlink(&chain));
+    assert!(is_symlink(&link));
+    assert_eq!(fs::read_to_string(&real).unwrap(), "A = 3\nB = 2\n");
+
+    assert_eq!(
+        directory_names(dir.path()),
+        vec!["chain.env", "link.env", "real"]
+    );
+    assert_eq!(directory_names(&dir.path().join("real")), vec!["app.env"]);
+}
+
+/// A group the current user belongs to other than the primary group, if any.
+#[cfg(unix)]
+fn supplementary_group() -> Option<u32> {
+    let id = |flag: &str| {
+        Command::new("id")
+            .arg(flag)
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+    };
+    let primary: u32 = id("-g")?.trim().parse().ok()?;
+    id("-G")?
+        .split_whitespace()
+        .filter_map(|group| group.parse().ok())
+        .find(|group| *group != primary)
+}
+
+#[cfg(unix)]
+#[test]
+fn writes_keep_the_file_group() {
+    use std::os::unix::fs::{chown, MetadataExt, PermissionsExt};
+
+    let Some(group) = supplementary_group() else {
+        eprintln!("skipping group test: no supplementary group");
+        return;
+    };
+    let dir = TempDir::new();
+    let file = dir.file("app.env", "B=2\nA=1\n");
+    chown(&file, None, Some(group)).unwrap();
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o640)).unwrap();
+
+    let output = run(&["set", file.to_str().unwrap(), "A", "3"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let metadata = fs::metadata(&file).unwrap();
+    assert_eq!(metadata.gid(), group, "set kept the group");
+    assert_eq!(metadata.mode() & 0o7777, 0o640);
+
+    let output = run(&["fmt", "--write", file.to_str().unwrap()]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let metadata = fs::metadata(&file).unwrap();
+    assert_eq!(metadata.gid(), group, "fmt kept the group");
+    assert_eq!(metadata.mode() & 0o7777, 0o640);
+}
+
 #[test]
 fn recursive_defaults_to_current_directory_and_normalizes_dot_excludes() {
     let dir = TempDir::new();
