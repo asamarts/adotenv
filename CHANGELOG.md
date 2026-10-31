@@ -12,6 +12,17 @@ The 1.0 fix round. See [1.0-fix-round.md](docs/design/1.0-fix-round.md).
 
 - `adotenv-cli`: `fmt --write` and `set` create their temporary file with
   owner-only permissions before writing any content.
+- Resolution enforces a total output budget, `ExpandOptions::max_output_bytes`
+  (64 MiB in every preset), across resolved values and provenance. A small file
+  of doubling references can no longer allocate unbounded memory.
+- `LoadedEnvironment::resolve_decoded` resolves each loaded key exactly as
+  loaded. A key that the synthetic source cannot represent is an error naming
+  that key, never a different key.
+
+### Added
+
+- `ExpandOptions::max_output_bytes`, `ExpandOptions::with_max_output_bytes` and
+  `ResolveError::OutputTooLarge`.
 
 ### Changed
 
@@ -30,6 +41,9 @@ The 1.0 fix round. See [1.0-fix-round.md](docs/design/1.0-fix-round.md).
   whitespace, inline comment and line ending when no other statement follows on
   that line. `Entry::inline_comment` returns that comment. Parsed values do not
   change.
+- **Breaking:** `LoadedEnvironment::resolve_contextual` requires whole-file
+  scope, like `resolve_decoded`. Winning declarations come from different
+  files, so no single order defines sequential bindings.
 - **Breaking (CLI):** every read or write failure exits with `2`, including in
   `check` and `fmt`. Multi-file `check` and `fmt` exit with the highest code
   across files.
@@ -49,6 +63,9 @@ The 1.0 fix round. See [1.0-fix-round.md](docs/design/1.0-fix-round.md).
 
 - Parsing stays linear when many statements share one physical line in Compose
   and Node, including with a line byte limit.
+- Resolution and reference scanning stay linear for many references in one
+  value, long `$` runs and deep nesting.
+- `LoadError::InvalidMode` describes every rejected mode name.
 - Diagnostics for an unterminated quoted key count line breaks in the leading
   whitespace.
 - `sort` handles a last group without a final line ending.
@@ -62,6 +79,9 @@ The 1.0 fix round. See [1.0-fix-round.md](docs/design/1.0-fix-round.md).
 ### Documentation
 
 - `DoubleEscapes` rustdoc shows single backslashes.
+- `ExpandOptions::compose` and `ReferenceRules::COMPOSE` describe reference
+  rules, not Docker Compose interpolation.
+- `loading.md` states the mode-name rules as implemented.
 - Text edits apply in reverse order of the returned slice. Edits that start at
   the same offset are ordered for that.
 - `cli.md` documents every JSON field, and a test keeps it in sync.
