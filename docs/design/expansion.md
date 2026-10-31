@@ -11,9 +11,14 @@ Finding a reference and resolving it are separate operations.
   `${VAR:+alternative}` and `${VAR+alternative}`;
 - `$(command)`, including nested payloads.
 
-Each `Reference` records its kind, full span, quote and escape context, nesting,
-closing delimiter state and contained forms. Variable forms expose name and
-operator spans plus arguments. Command forms expose the raw payload span.
+Each `Reference` records its kind, full span, quote and escape context, nesting
+depth and closing delimiter state. Variable forms expose name and operator spans
+plus arguments. Command forms expose the raw payload span.
+
+Candidates are sorted by start. A nested candidate's `parent` is the index of
+its innermost containing form, which comes earlier in the list, and the
+candidates nested in a form directly follow it. The list holds at most one
+candidate per `$`, so its size is linear in the value length.
 
 Single-quoted, escaped-dollar and malformed candidates remain visible. Visibility
 does not make a reference eligible.
