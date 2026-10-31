@@ -752,7 +752,8 @@ where
                 weight: 0,
             });
         };
-        let references = entry.references();
+        // References nested past the depth limit can never be resolved.
+        let references = entry.references_within_depth(self.options.max_depth.saturating_add(1));
         let parts = self.resolve_segments(entry, value, 0..value.len(), None, &references)?;
         let resolved = parts
             .segments
@@ -787,19 +788,30 @@ where
         })
     }
 
+    /// Resolve the top-level references of `range`, or the direct children of
+    /// `references[parent]` when a parent is given.
     fn resolve_segments(
         &mut self,
         entry: Entry<'a>,
         decoded: &str,
         range: Range<usize>,
-        parent: Option<&Reference>,
+        parent: Option<usize>,
         references: &[Reference],
     ) -> Result<Parts, ResolveError> {
         let mut parts = Parts::default();
         let mut length = 0usize;
         let mut cursor = range.start;
-        for reference in references {
-            if let Some(parent) = parent {
+        let (mut index, last) = match parent {
+            Some(parent) => (parent + 1, subtree_end(references, parent)),
+            None => (0, references.len()),
+        };
+        while index < last {
+            let current = index;
+            // Skip the candidates nested inside this one; they are resolved,
+            // if at all, as part of its argument.
+            index = subtree_end(references, current);
+            let reference = &references[current];
+            if let Some(parent) = parent.map(|parent| &references[parent]) {
                 if reference.depth != parent.depth.saturating_add(1)
                     || !reference.span_within(parent.argument.as_ref())
                 {
@@ -836,7 +848,7 @@ where
             }
             let replacement = match reference.kind {
                 ReferenceKind::Variable => {
-                    self.resolve_reference(entry, reference, decoded, start..end, references)?
+                    self.resolve_reference(entry, current, decoded, start..end, references)?
                 }
                 ReferenceKind::Command => self.run_command(entry, reference)?,
             };
@@ -945,11 +957,12 @@ where
     fn resolve_reference(
         &mut self,
         entry: Entry<'a>,
-        reference: &Reference,
+        index: usize,
         decoded: &str,
         decoded_span: Range<usize>,
         references: &[Reference],
     ) -> Result<Parts, ResolveError> {
+        let reference = &references[index];
         let name_span = reference
             .name
             .as_ref()
@@ -969,26 +982,26 @@ where
                 if set {
                     self.variable(entry, reference, name, bound)
                 } else {
-                    self.argument(entry, reference, decoded, references)
+                    self.argument(entry, index, decoded, references)
                 }
             }
             Some(ReferenceOperator::DefaultIfUnsetOrEmpty) => {
                 if set && !empty {
                     self.variable(entry, reference, name, bound)
                 } else {
-                    self.argument(entry, reference, decoded, references)
+                    self.argument(entry, index, decoded, references)
                 }
             }
             Some(ReferenceOperator::AlternativeIfSet) => {
                 if set {
-                    self.argument(entry, reference, decoded, references)
+                    self.argument(entry, index, decoded, references)
                 } else {
                     Ok(Parts::default())
                 }
             }
             Some(ReferenceOperator::AlternativeIfSetAndNonEmpty) => {
                 if set && !empty {
-                    self.argument(entry, reference, decoded, references)
+                    self.argument(entry, index, decoded, references)
                 } else {
                     Ok(Parts::default())
                 }
@@ -1153,11 +1166,11 @@ where
     fn argument(
         &mut self,
         entry: Entry<'a>,
-        reference: &Reference,
+        index: usize,
         decoded: &str,
         references: &[Reference],
     ) -> Result<Parts, ResolveError> {
-        let Some(argument) = reference.argument.as_ref() else {
+        let Some(argument) = references[index].argument.as_ref() else {
             return Ok(Parts::default());
         };
         let decoded_range = decoded_start_for_raw(entry, argument.start)
@@ -1175,7 +1188,7 @@ where
                 weight,
             ));
         };
-        self.resolve_segments(entry, decoded, range, Some(reference), references)
+        self.resolve_segments(entry, decoded, range, Some(index), references)
     }
 
     fn lookup_variable(&mut self, name: &str) -> Result<Option<Bound>, ResolveError> {
@@ -1285,29 +1298,67 @@ fn account(
     Ok(())
 }
 
-fn decoded_start_for_raw(entry: Entry<'_>, raw: usize) -> Option<usize> {
-    let value = entry.value()?;
-    let mut start = None;
-    for (offset, _) in value.char_indices() {
-        let mapped = entry.decoded_offset_to_raw(offset).ok()?;
-        if mapped <= raw {
-            start = Some(offset);
-        } else {
-            break;
-        }
-    }
-    if entry.decoded_offset_to_raw(value.len()).ok()? <= raw {
-        start = Some(value.len());
-    }
-    start
+/// The index just past `references[index]` and the candidates nested in it.
+///
+/// Candidates are sorted by start, and a nested candidate starts inside its
+/// container's span, so they form one contiguous run after the container.
+fn subtree_end(references: &[Reference], index: usize) -> usize {
+    let end = references[index].span.end;
+    let rest = &references[index + 1..];
+    index + 1 + rest.partition_point(|reference| reference.span.start < end)
 }
 
-fn decoded_end_for_raw(entry: Entry<'_>, raw: usize) -> Option<usize> {
+/// The last decoded boundary that maps to original offset `raw` or earlier.
+///
+/// Original offsets never decrease as decoded offsets grow, so a binary search
+/// finds the boundary a forward scan would stop at.
+fn decoded_start_for_raw(entry: Entry<'_>, raw: usize) -> Option<usize> {
     let value = entry.value()?;
-    for (offset, _) in value.char_indices() {
-        if entry.decoded_offset_to_raw(offset).ok()? >= raw {
-            return Some(offset);
+    // Find the first byte offset whose enclosing boundary maps past `raw`.
+    let (mut low, mut high) = (0, value.len() + 1);
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if entry
+            .decoded_offset_to_raw(floor_boundary(value, middle))
+            .ok()?
+            <= raw
+        {
+            low = middle + 1;
+        } else {
+            high = middle;
         }
     }
-    Some(value.len())
+    low.checked_sub(1)
+        .map(|offset| floor_boundary(value, offset))
+}
+
+/// The first decoded boundary before the end of the value that maps to
+/// original offset `raw` or later, or the end of the value.
+fn decoded_end_for_raw(entry: Entry<'_>, raw: usize) -> Option<usize> {
+    let value = entry.value()?;
+    let (mut low, mut high) = (0, value.len());
+    while low < high {
+        let middle = low + (high - low) / 2;
+        let boundary = ceil_boundary(value, middle);
+        if boundary == value.len() || entry.decoded_offset_to_raw(boundary).ok()? >= raw {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    Some(ceil_boundary(value, low))
+}
+
+fn floor_boundary(value: &str, mut offset: usize) -> usize {
+    while !value.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    offset
+}
+
+fn ceil_boundary(value: &str, mut offset: usize) -> usize {
+    while !value.is_char_boundary(offset) {
+        offset += 1;
+    }
+    offset
 }

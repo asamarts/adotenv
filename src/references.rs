@@ -279,6 +279,12 @@ impl Entry<'_> {
     /// execution occurs; use [`Reference::is_eligible`] for a policy decision.
     #[must_use]
     pub fn references(self) -> Vec<Reference> {
+        self.references_within_depth(usize::MAX)
+    }
+
+    /// Candidates nested at most `max_depth` levels deep. Every returned
+    /// candidate equals the corresponding one from [`Self::references`].
+    pub(crate) fn references_within_depth(self, max_depth: usize) -> Vec<Reference> {
         let tokens = self.tokens();
         let Some(body) = tokens.body.clone() else {
             return Vec::new();
@@ -294,6 +300,7 @@ impl Entry<'_> {
         let mut scanner = Scanner {
             source,
             dialect,
+            max_depth,
             references: Vec::new(),
             pending,
         };
@@ -310,6 +317,7 @@ impl Entry<'_> {
 struct Scanner<'a> {
     source: &'a str,
     dialect: Dialect,
+    max_depth: usize,
     references: Vec<Reference>,
     pending: Vec<(Range<usize>, Quote, usize, Vec<ReferenceContainer>)>,
 }
@@ -325,6 +333,7 @@ impl Scanner<'_> {
         let source = self.source;
         let dialect = self.dialect;
         let bytes = source.as_bytes();
+        let nest = depth < self.max_depth;
         let mut at = range.start;
         while at < range.end {
             if bytes[at] != b'$' {
@@ -338,7 +347,7 @@ impl Scanner<'_> {
                 let end = reference.span.end;
                 let container = container_for(&reference);
                 self.references.push(reference);
-                if let Some(nested) = nested {
+                if let Some(nested) = nested.filter(|_| nest) {
                     self.pending.push((
                         nested,
                         quote,
@@ -355,7 +364,7 @@ impl Scanner<'_> {
                 let end = reference.span.end;
                 let container = container_for(&reference);
                 self.references.push(reference);
-                if let Some(nested) = nested {
+                if let Some(nested) = nested.filter(|_| nest) {
                     self.pending.push((
                         nested,
                         quote,

@@ -1108,3 +1108,37 @@ fn default_output_budget_resolves_large_documents() {
         assert_eq!(resolved.len(), 65_536);
     }
 }
+
+/// Fail when `run` takes longer than `limit`. The bounds below are far above
+/// the linear cost and far below the quadratic cost of the same inputs.
+fn assert_completes_within(limit: core::time::Duration, run: impl FnOnce()) {
+    extern crate std;
+    let started = std::time::Instant::now();
+    run();
+    let elapsed = started.elapsed();
+    assert!(elapsed < limit, "took {elapsed:?}, limit {limit:?}");
+}
+
+#[test]
+fn many_references_in_one_value_resolve_in_linear_time() {
+    let count = 40_000;
+    let plain = alloc::format!("B=x\nA={}\n", "$B".repeat(count));
+    let operators = alloc::format!("A={}\n", "${M:-x}".repeat(count));
+    assert_completes_within(core::time::Duration::from_secs(30), || {
+        let resolved = resolve(&plain, |_| None, &ExpandOptions::portable()).unwrap();
+        assert_eq!(value(&resolved, 1).map(str::len), Some(count));
+        let resolved = resolve(&operators, |_| None, &ExpandOptions::compose()).unwrap();
+        assert_eq!(value(&resolved, 0).map(str::len), Some(count));
+    });
+}
+
+#[test]
+fn deep_nesting_stops_at_the_depth_limit_without_scanning_every_level() {
+    let depth = 40_000;
+    let source = alloc::format!("A={}x{}\n", "${M:-".repeat(depth), "}".repeat(depth));
+    let error = resolve(&source, |_| None, &ExpandOptions::compose()).unwrap_err();
+    assert!(
+        matches!(error, ResolveError::DepthExceeded { limit: 64, ref key, .. } if key == "A"),
+        "{error:?}"
+    );
+}
