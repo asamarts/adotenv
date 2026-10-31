@@ -694,7 +694,7 @@ impl<const D: bool> Parser<'_, D> {
                 first,
                 DiagnosticCode::InvalidKey,
                 at..first.content_end,
-                self.line,
+                self.line + line_breaks(&self.source[start..at]),
             );
         };
         at = key.end;

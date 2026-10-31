@@ -108,7 +108,7 @@ fn scan_key<const D: bool>(
                 first,
                 DiagnosticCode::InvalidKey,
                 at..first.content_end,
-                parser.line,
+                parser.line + line_breaks(&source[start..at]),
             ));
         };
         at += relative + 2;

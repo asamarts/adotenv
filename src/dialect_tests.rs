@@ -1296,3 +1296,33 @@ fn compose_quoted_entries_keep_line_structure_under_edits() {
     let doc = parse_strict_with("A=\"1\" # c\nB=\"2\"\n", Dialect::COMPOSE).unwrap();
     assert_eq!(doc.example(), "A=\"\" # c\nB=\n");
 }
+
+#[test]
+fn quoted_key_diagnostics_count_line_breaks_in_leading_whitespace() {
+    let mut wrong = vec::Vec::new();
+    for preset in PRESETS {
+        let mut dialect = preset
+            .with_quoted_keys(true)
+            .with_line_breaks(LineBreaks::Lf);
+        if preset.whitespace == Whitespace::Ascii {
+            dialect = dialect.with_whitespace(Whitespace::Unicode);
+        }
+        let name = preset.syntax;
+        let source = "\r'unterminated=value\n";
+        let (_, diagnostics) = parse_with(source, dialect);
+        let error = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.span().start == 1)
+            .unwrap();
+        let position = crate::LineIndex::new(source)
+            .to_position(error.span().start, crate::ColumnEncoding::Utf8)
+            .unwrap();
+        assert_eq!(position.line + 1, 2, "{name:?}");
+        let valid = parse_strict_with("\r'valid'=value\n", dialect).unwrap();
+        assert_eq!(valid.unique("valid").unwrap().line(), 2, "{name:?}");
+        if error.line() != 2 {
+            wrong.push((name, error.line()));
+        }
+    }
+    assert_eq!(wrong, []);
+}
