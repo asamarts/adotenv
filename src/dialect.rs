@@ -38,31 +38,31 @@ pub struct DoubleEscapes(u16);
 impl DoubleEscapes {
     /// No recognized escapes.
     pub const NONE: Self = Self(0);
-    /// `\\n`.
+    /// `\n`.
     pub const LF: Self = Self(1);
-    /// `\\r`.
+    /// `\r`.
     pub const CR: Self = Self(1 << 1);
-    /// `\\t`.
+    /// `\t`.
     pub const TAB: Self = Self(1 << 2);
-    /// `\\\\`.
+    /// `\\`.
     pub const BACKSLASH: Self = Self(1 << 3);
-    /// `\\"`.
+    /// `\"`.
     pub const DOUBLE_QUOTE: Self = Self(1 << 4);
-    /// `\\$` (literal dollar, not interpolation).
+    /// `\$` (literal dollar, not interpolation).
     pub const DOLLAR: Self = Self(1 << 5);
-    /// `\\'`.
+    /// `\'`.
     pub const SINGLE_QUOTE: Self = Self(1 << 6);
-    /// `\\a`.
+    /// `\a`.
     pub const BELL: Self = Self(1 << 7);
-    /// `\\b`.
+    /// `\b`.
     pub const BACKSPACE: Self = Self(1 << 8);
-    /// `\\f`.
+    /// `\f`.
     pub const FORM_FEED: Self = Self(1 << 9);
-    /// `\\v`.
+    /// `\v`.
     pub const VERTICAL_TAB: Self = Self(1 << 10);
-    /// Compose's `\\0` followed by up to three octal digits.
+    /// Compose's `\0` followed by up to three octal digits.
     pub const OCTAL: Self = Self(1 << 11);
-    /// Portable's newline, carriage return, tab, slash, quote and dollar escapes.
+    /// Portable's newline, carriage return, tab, backslash, quote and dollar escapes.
     pub const PORTABLE: Self = Self(0x3f);
     /// Node's newline and carriage return substitutions.
     pub const NODE: Self = Self(3);

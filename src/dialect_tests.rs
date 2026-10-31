@@ -1326,3 +1326,38 @@ fn quoted_key_diagnostics_count_line_breaks_in_leading_whitespace() {
     }
     assert_eq!(wrong, []);
 }
+
+#[test]
+fn double_escape_docs_show_the_escape_sequences_verbatim() {
+    let source = include_str!("dialect.rs");
+    let start = source.find("impl DoubleEscapes {").unwrap();
+    let source = &source[start..];
+    let mut wrong = vec::Vec::new();
+    for (name, sequence) in [
+        ("LF", r"`\n`"),
+        ("CR", r"`\r`"),
+        ("TAB", r"`\t`"),
+        ("BACKSLASH", r"`\\`"),
+        ("DOUBLE_QUOTE", r#"`\"`"#),
+        ("DOLLAR", r"`\$`"),
+        ("SINGLE_QUOTE", r"`\'`"),
+        ("BELL", r"`\a`"),
+        ("BACKSPACE", r"`\b`"),
+        ("FORM_FEED", r"`\f`"),
+        ("VERTICAL_TAB", r"`\v`"),
+        ("OCTAL", r"`\0`"),
+    ] {
+        let declaration = source.find(&format!("pub const {name}: Self")).unwrap();
+        let doc = source[..declaration]
+            .trim_end()
+            .lines()
+            .last()
+            .unwrap()
+            .trim();
+        let doubled = format!("`\\{}", &sequence[1..]);
+        if !doc.starts_with("///") || !doc.contains(sequence) || doc.contains(&doubled) {
+            wrong.push((name, doc));
+        }
+    }
+    assert_eq!(wrong, []);
+}
