@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-31
+
+The first stable release of `adotenv`, `adotenv-process` and `adotenv-cli`. The
+library API, the CLI commands, exit codes and JSON output follow semantic
+versioning from this release. `adotenv-config` 0.12.0 and `adotenv-figment`
+0.12.0 require `adotenv` 1 and keep their own 0.x line. Code that builds on
+0.11 needs only the change below.
+
 ### Changed
 
 - **Breaking:** `Edit::Rename` and `Document::rename` follow the collision
@@ -14,6 +22,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in the same batch frees it, so a batch can swap two keys. Two renames to the
   same key fail with `EditError::Duplicate` instead of
   `EditError::WouldChangeMeaning`.
+
+### Performance
+
+- `Entry::references` returns early for values without `$`, and skips the
+  parent-index reordering when the scan already yields source order. This
+  recovers the reference-scanning cost that 0.11.0 added; see
+  [performance.md](https://github.com/asamarts/adotenv/blob/v1.0.0/docs/design/performance.md).
 
 ## [0.11.0] - 2026-10-31
 

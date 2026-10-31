@@ -20,13 +20,13 @@ tools that need to inspect source exactly as written.
 
 ```toml
 [dependencies]
-adotenv = "0.11.0"
+adotenv = "1"
 ```
 
 Enable optional features as needed:
 
 ```toml
-adotenv = { version = "0.11.0", features = ["load", "serde"] }
+adotenv = { version = "1", features = ["load", "serde"] }
 ```
 
 ## Quick start

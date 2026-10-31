@@ -4,7 +4,7 @@ The `serde` feature adds typed deserialization for documents and loaded
 environments.
 
 ```toml
-adotenv = { version = "0.11.0", features = ["serde"] }
+adotenv = { version = "1", features = ["serde"] }
 ```
 
 ## Documents

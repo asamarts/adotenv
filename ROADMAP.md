@@ -16,26 +16,28 @@ The current release provides:
 
 ## Current status
 
-The project is at 0.11.0. The 1.0 evidence set was completed on 0.10.4, but a
-pre-release audit found defects in behavior that 1.0 would freeze. They are
-fixed in 0.11.0, as listed in [1.0-fix-round.md](docs/design/1.0-fix-round.md).
-The 1.0 evidence is now collected again on 0.11.0.
+`adotenv`, `adotenv-process` and `adotenv-cli` are at 1.0.0; `adotenv-config`
+and `adotenv-figment` are at 0.12.0. A pre-release audit of 0.10.4 found
+defects in behavior that 1.0 would freeze. They were fixed in 0.11.0, as listed
+in [1.0-fix-round.md](docs/design/1.0-fix-round.md), and the 1.0 evidence was
+collected again on the fixed code
+([1.0-readiness.md](docs/design/1.0-readiness.md)).
 
 ## Near-term work
 
-1. Collect the 1.0 evidence again on 0.11.0, tag 1.0 for `adotenv`,
-   `adotenv-process` and `adotenv-cli`, and verify crates.io, docs.rs and the
-   GitHub Release. `adotenv-config` and `adotenv-figment` stay on their own 0.x
-   line.
-2. Keep the public API stable. Additive changes use non-exhaustive types and
+1. Keep the public API stable. Additive changes use non-exhaustive types and
    builders.
-3. Start the optional linter and LSP prototypes in #14 after 1.0.
+2. Work through the "After 1.0" list in
+   [1.0-fix-round.md](docs/design/1.0-fix-round.md).
+3. Start the optional linter and LSP prototypes in #14.
 4. Expand conformance cases only when a real upstream behavior is pinned and
    reproducible.
 5. Keep the core dependency-free. New I/O, process or third-party behavior
    belongs in opt-in features or companion crates.
 
 ## 1.0 criteria
+
+All met for 1.0.0:
 
 - The workspace release gate passes.
 - The conformance corpus passes for every preset.
