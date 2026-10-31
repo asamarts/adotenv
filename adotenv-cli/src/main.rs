@@ -166,17 +166,21 @@ Commands:
                                 Format documents (optionally sorted)
   diff [--format human|matrix|json] [--json] <baseline> <file>...
                                 Compare effective keys
-  example <file>               Print a value-free example
-  load <directory> [mode]      Load the standard dotenv cascade
+  example <file>               Print a value-free example (comments are kept)
+  load <directory> [mode]      Print the standard dotenv cascade as Portable lines
   set <file> <key> <value>     Set and write one declaration
   run <directory> [mode] -- <program> [args...]
-                                Run a child with loaded values
+                                Run a child with the environment plus loaded values
 
 File-reading commands accept '-' or '--stdin' for standard input. Recursive
 commands skip .git, target and node_modules and do not follow symlinks.
---source may reveal secret values and is only valid for human output.
-run never mutates the parent environment. Command substitution from files is
-not enabled.
+--source may reveal secret values and is only valid for human output. get,
+load and diff print values. run passes the parent environment and the loaded
+values, which take precedence, and never changes the parent environment.
+Command substitution from files is not enabled.
+
+Exit codes: 0 success, 1 findings, 2 usage errors, read or write failures and
+input a command cannot process. run exits with the child's code.
 "#;
 
 fn usage() {

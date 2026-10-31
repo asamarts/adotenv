@@ -448,7 +448,12 @@ run <directory> [mode] -- <program> [args...]
 `check --format github` emits workflow annotations. Human output omits source
 lines unless `--source` is passed.
 
-`run` starts a child with loaded values. It never mutates the parent process.
+`run` starts a child with the parent environment plus the loaded values, which
+replace parent variables of the same name. Loaded files are trusted like code: a
+loaded `PATH` changes which program runs. The parent process is not changed.
+
+`get`, `load` and `diff` print values, and `example` keeps comments verbatim.
+`load` prints Portable lines that parse back to the same values.
 
 See [CLI details](docs/design/cli.md).
 
