@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `Edit::Rename` and `Document::rename` follow the collision
+  rule of `Edit::Insert`. The new key must name exactly one declaration of the
+  output: removing, commenting out or renaming away its existing declarations
+  in the same batch frees it, so a batch can swap two keys. Two renames to the
+  same key fail with `EditError::Duplicate` instead of
+  `EditError::WouldChangeMeaning`.
+
 ## [0.11.0] - 2026-10-31
 
 The 1.0 fix round. See
