@@ -822,7 +822,7 @@ where
                 {
                     continue;
                 }
-            } else if !reference.containers.is_empty() {
+            } else if reference.parent.is_some() {
                 continue;
             }
             if !reference.is_eligible(self.options.rules) {

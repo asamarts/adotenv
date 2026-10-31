@@ -3,8 +3,8 @@ use core::ops::Range;
 use proptest::prelude::*;
 
 use crate::{
-    parse, parse_with, Dialect, OperatorSet, Quote, QuotedTail, ReferenceKind, ReferenceOperator,
-    ReferenceRules,
+    parse, parse_with, Dialect, OperatorSet, Quote, QuotedTail, Reference, ReferenceKind,
+    ReferenceOperator, ReferenceRules,
 };
 
 fn text<'a>(source: &'a str, span: &Range<usize>) -> &'a str {
@@ -82,13 +82,13 @@ fn nested_defaults_are_reported_in_source_order() {
     assert!(references[0].is_eligible(ReferenceRules::COMPOSE));
     assert!(references[1].is_eligible(ReferenceRules::COMPOSE));
     assert!(!references[1].is_eligible(ReferenceRules::PORTABLE));
-    assert_eq!(references[1].containers.len(), 1);
+    assert_eq!(references[0].parent, None);
+    assert_eq!(references[1].parent, Some(0));
     assert_eq!(
-        references[1].containers[0].operator,
+        references[0].operator,
         Some(ReferenceOperator::DefaultIfUnsetOrEmpty)
     );
-    assert!(references[1].containers[0].name_nonempty);
-    assert!(references[1].containers[0].closed);
+    assert!(references[0].closed);
 }
 
 #[test]
@@ -97,8 +97,8 @@ fn nested_candidates_require_eligible_containers() {
     let (doc, _) = parse(source);
     let references = doc.unique("A").unwrap().references();
     assert_eq!(references.len(), 2);
-    assert_eq!(references[1].containers.len(), 1);
-    assert_eq!(references[1].containers[0].kind, ReferenceKind::Command);
+    assert_eq!(references[1].parent, Some(0));
+    assert_eq!(references[0].kind, ReferenceKind::Command);
     assert!(!references[0].is_eligible(ReferenceRules::COMPOSE));
     assert!(!references[1].is_eligible(ReferenceRules::COMPOSE));
     assert!(references[0].is_eligible(ReferenceRules::DOTENV_EXPAND));
@@ -510,7 +510,7 @@ fn deep_nesting_scans_each_level_once() {
             assert_eq!(references.len(), depth);
             for (level, reference) in references.iter().enumerate() {
                 assert_eq!(reference.depth, level);
-                assert_eq!(reference.containers.len(), level);
+                assert_eq!(reference.parent, level.checked_sub(1));
                 assert_eq!(
                     reference.operator,
                     Some(ReferenceOperator::DefaultIfUnsetOrEmpty)
@@ -519,4 +519,186 @@ fn deep_nesting_scans_each_level_once() {
             }
         }
     });
+}
+
+const DIALECTS: [Dialect; 5] = [
+    Dialect::PORTABLE,
+    Dialect::NODE_DOTENV,
+    Dialect::PYTHON_DOTENV,
+    Dialect::COMPOSE,
+    Dialect::DOCKER_RAW,
+];
+
+/// Every combination of rule switches.
+fn every_rules() -> Vec<ReferenceRules> {
+    let mut all = Vec::new();
+    for operators in [
+        OperatorSet::None,
+        OperatorSet::Braced,
+        OperatorSet::Basic,
+        OperatorSet::Compose,
+        OperatorSet::DotenvExpand,
+    ] {
+        for switches in 0..16u8 {
+            all.push(
+                ReferenceRules::NONE
+                    .with_operators(operators)
+                    .with_single_quotes(switches & 1 != 0)
+                    .with_escaped_dollar(switches & 2 != 0)
+                    .with_commands(switches & 4 != 0)
+                    .with_backtick_quotes(switches & 8 != 0),
+            );
+        }
+    }
+    all
+}
+
+fn nesting(operators: OperatorSet) -> bool {
+    matches!(operators, OperatorSet::Compose | OperatorSet::DotenvExpand)
+}
+
+/// Eligibility spelled out over the chain of containing forms: the candidate
+/// itself must be eligible, and every container must be closed, escaped only
+/// when escapes are eligible, a command only when commands are, and a named
+/// variable whose operator the rules accept.
+fn eligible_through_chain(references: &[Reference], index: usize, rules: ReferenceRules) -> bool {
+    let reference = &references[index];
+    let mut parent = reference.parent;
+    while let Some(container) = parent.map(|parent| &references[parent]) {
+        if (container.escaped && !rules.escaped_dollar) || !container.closed {
+            return false;
+        }
+        match container.kind {
+            ReferenceKind::Command if !rules.commands => return false,
+            ReferenceKind::Variable
+                if container.name.as_ref().map_or(true, Range::is_empty)
+                    || (container.operator.is_some() && !nesting(rules.operators)) =>
+            {
+                return false;
+            }
+            _ => {}
+        }
+        parent = container.parent;
+    }
+    let local = reference.closed
+        && (!reference.escaped || rules.escaped_dollar)
+        && (reference.quote != Quote::Single || rules.single_quotes)
+        && (reference.quote != Quote::Backtick || rules.backtick_quotes)
+        && (reference.depth == 0 || nesting(rules.operators));
+    local
+        && match reference.kind {
+            ReferenceKind::Command => rules.commands,
+            ReferenceKind::Variable => {
+                reference.name.as_ref().is_some_and(|name| !name.is_empty())
+                    && match rules.operators {
+                        OperatorSet::None => false,
+                        OperatorSet::Braced => reference.braced,
+                        _ => true,
+                    }
+                    && (reference.operator.is_none() || nesting(rules.operators))
+            }
+        }
+}
+
+/// Check the documented order of `references`: sorted by start, each parent
+/// earlier, one level shallower and containing the candidate, and the
+/// candidates nested in a form forming the run that directly follows it.
+fn check_reference_order(references: &[Reference]) {
+    // Forms whose spans contain the current start, innermost last.
+    let mut open: Vec<usize> = Vec::new();
+    for (index, reference) in references.iter().enumerate() {
+        if let Some(previous) = index.checked_sub(1).map(|previous| &references[previous]) {
+            assert!(
+                (previous.span.start, previous.span.end, previous.depth)
+                    < (reference.span.start, reference.span.end, reference.depth)
+            );
+        }
+        while open
+            .last()
+            .is_some_and(|&form| references[form].span.end <= reference.span.start)
+        {
+            open.pop();
+        }
+        assert_eq!(reference.parent, open.last().copied());
+        match reference.parent {
+            None => assert_eq!(reference.depth, 0),
+            Some(parent) => {
+                let container = &references[parent];
+                assert!(parent < index);
+                assert_eq!(reference.depth, container.depth + 1);
+                let inner = container
+                    .argument
+                    .as_ref()
+                    .or(container.command.as_ref())
+                    .unwrap();
+                assert!(inner.start <= reference.span.start && reference.span.end <= inner.end);
+            }
+        }
+        open.push(index);
+    }
+}
+
+#[test]
+fn parents_precede_and_contain_their_nested_candidates() {
+    let source = "A=${A:-${B:-$C$(x ${D}) $E}$F} $G ${H:+$(y)}\n";
+    let (doc, _) = parse_with(source, Dialect::COMPOSE);
+    let references = doc.unique("A").unwrap().references();
+    let spans: Vec<(&str, Option<usize>)> = references
+        .iter()
+        .map(|reference| (text(source, &reference.span), reference.parent))
+        .collect();
+    assert_eq!(
+        spans,
+        [
+            ("${A:-${B:-$C$(x ${D}) $E}$F}", None),
+            ("${B:-$C$(x ${D}) $E}", Some(0)),
+            ("$C", Some(1)),
+            ("$(x ${D})", Some(1)),
+            ("${D}", Some(3)),
+            ("$E", Some(1)),
+            ("$F", Some(0)),
+            ("$G", None),
+            ("${H:+$(y)}", None),
+            ("$(y)", Some(8)),
+        ]
+    );
+    check_reference_order(&references);
+}
+
+fn reference_value() -> impl Strategy<Value = String> {
+    let token = prop::sample::select(
+        [
+            "$", "$$", "${", "}", "$(", ")", ":-", "-", ":?", "?", ":+", "+", "\\", "\"", "'", "`",
+            "A", "B", "_", "x", " ", "#", "{", "(",
+        ]
+        .as_slice(),
+    );
+    prop::collection::vec(token, 0..40).prop_map(|tokens| tokens.concat())
+}
+
+proptest! {
+    #[test]
+    fn reference_order_and_eligibility_follow_the_parent_chain(value in reference_value()) {
+        let source = alloc::format!("A={value}\nB=${{A}}\n");
+        let rules = every_rules();
+        for dialect in DIALECTS {
+            let (doc, _) = parse_with(&source, dialect);
+            for entry in doc.entries() {
+                let references = entry.references();
+                check_reference_order(&references);
+                for (index, reference) in references.iter().enumerate() {
+                    for &rules in &rules {
+                        prop_assert_eq!(
+                            reference.is_eligible(rules),
+                            eligible_through_chain(&references, index, rules),
+                            "{:?} in {:?} under {:?}",
+                            reference,
+                            source,
+                            rules
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

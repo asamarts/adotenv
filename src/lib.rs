@@ -169,9 +169,7 @@ pub use portability::{
     PortabilityReport,
 };
 pub use position::{ColumnEncoding, LineIndex, Position, PositionError};
-pub use references::{
-    OperatorSet, Reference, ReferenceContainer, ReferenceKind, ReferenceOperator, ReferenceRules,
-};
+pub use references::{OperatorSet, Reference, ReferenceKind, ReferenceOperator, ReferenceRules};
 pub use resolve::{
     CommandCall, CommandContext, CommandError, CommandOutcome, ExpandOptions, ExpandScope,
     LookupOrder, ResolveError, ResolveFailure, ResolvedDocument, ResolvedEntry, ResolvedSegment,

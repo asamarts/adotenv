@@ -163,20 +163,73 @@ impl Default for ReferenceRules {
     }
 }
 
-/// A containing variable-operator or command form for a nested candidate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub struct ReferenceContainer {
-    /// The containing form's kind.
-    pub kind: ReferenceKind,
-    /// The containing variable's operator, if any.
-    pub operator: Option<ReferenceOperator>,
-    /// Whether the containing form's dollar was escaped.
-    pub escaped: bool,
-    /// Whether the containing form's closing delimiter was found.
-    pub closed: bool,
-    /// Whether a containing variable has a nonempty name.
-    pub name_nonempty: bool,
+/// What eligibility needs to know about the variable-operator and command
+/// forms that contain a candidate, independent of any rules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// These summarize independent properties of the containing forms.
+#[allow(clippy::struct_excessive_bools)]
+struct Enclosing {
+    /// Some containing form's dollar is escaped.
+    escaped: bool,
+    /// Some containing form has no closing delimiter.
+    unclosed: bool,
+    /// Some containing form is a command.
+    command: bool,
+    /// Some containing variable has an empty name.
+    unnamed: bool,
+    /// The operators of the containing variables, one bit per operator.
+    operators: u8,
+}
+
+impl Enclosing {
+    /// The summary for a candidate that no form contains.
+    const NONE: Self = Self {
+        escaped: false,
+        unclosed: false,
+        command: false,
+        unnamed: false,
+        operators: 0,
+    };
+
+    /// The summary for candidates nested directly inside `container`.
+    fn within(self, container: &Reference) -> Self {
+        let variable = container.kind == ReferenceKind::Variable;
+        Self {
+            escaped: self.escaped || container.escaped,
+            unclosed: self.unclosed || !container.closed,
+            command: self.command || container.kind == ReferenceKind::Command,
+            unnamed: self.unnamed
+                || (variable && container.name.as_ref().map_or(true, Range::is_empty)),
+            operators: self.operators | container.operator.map_or(0, operator_bit),
+        }
+    }
+
+    /// Whether a containing variable has an operator that `operators` rejects.
+    fn rejects_operator(self, operators: OperatorSet) -> bool {
+        OPERATORS.iter().any(|&operator| {
+            self.operators & operator_bit(operator) != 0 && !operators.accepts_operator(operator)
+        })
+    }
+}
+
+const OPERATORS: [ReferenceOperator; 6] = [
+    ReferenceOperator::DefaultIfUnset,
+    ReferenceOperator::DefaultIfUnsetOrEmpty,
+    ReferenceOperator::ErrorIfUnset,
+    ReferenceOperator::ErrorIfUnsetOrEmpty,
+    ReferenceOperator::AlternativeIfSet,
+    ReferenceOperator::AlternativeIfSetAndNonEmpty,
+];
+
+fn operator_bit(operator: ReferenceOperator) -> u8 {
+    match operator {
+        ReferenceOperator::DefaultIfUnset => 1,
+        ReferenceOperator::DefaultIfUnsetOrEmpty => 1 << 1,
+        ReferenceOperator::ErrorIfUnset => 1 << 2,
+        ReferenceOperator::ErrorIfUnsetOrEmpty => 1 << 3,
+        ReferenceOperator::AlternativeIfSet => 1 << 4,
+        ReferenceOperator::AlternativeIfSetAndNonEmpty => 1 << 5,
+    }
 }
 
 /// A raw reference candidate in an entry's literal value.
@@ -198,8 +251,13 @@ pub struct Reference {
     pub braced: bool,
     /// Whether the closing `}` or `)` was found.
     pub closed: bool,
-    /// Containing variable-operator or command forms, outermost first.
-    pub containers: Vec<ReferenceContainer>,
+    /// Index of the innermost containing variable-operator or command form in
+    /// the list returned with this candidate, or `None` at the value's top
+    /// level. The container comes earlier in the list, its span contains this
+    /// candidate's span, and its depth is one less.
+    pub parent: Option<usize>,
+    /// The chain of containing forms, summarized for eligibility.
+    enclosing: Enclosing,
     /// Variable-name span for variable forms.
     pub name: Option<Range<usize>>,
     /// Variable operator, when present.
@@ -235,27 +293,18 @@ impl Reference {
         if self.depth > 0 && !rules.operators.accepts_nested() {
             return false;
         }
-        for container in &self.containers {
-            if container.escaped && !rules.escaped_dollar {
-                return false;
-            }
-            if !container.closed {
-                return false;
-            }
-            if container.kind == ReferenceKind::Command && !rules.commands {
-                return false;
-            }
-            if container.kind == ReferenceKind::Variable {
-                if !container.name_nonempty {
-                    return false;
-                }
-                if container
-                    .operator
-                    .is_some_and(|operator| !rules.operators.accepts_operator(operator))
-                {
-                    return false;
-                }
-            }
+        let enclosing = self.enclosing;
+        if enclosing.escaped && !rules.escaped_dollar {
+            return false;
+        }
+        if enclosing.unclosed || enclosing.unnamed {
+            return false;
+        }
+        if enclosing.command && !rules.commands {
+            return false;
+        }
+        if enclosing.rejects_operator(rules.operators) {
+            return false;
         }
         match self.kind {
             ReferenceKind::Command => rules.commands,
@@ -281,17 +330,23 @@ impl Entry<'_> {
     /// Spans address the original source. No lookup, expansion, I/O or command
     /// execution occurs; use [`Reference::is_eligible`] for a policy decision.
     ///
-    /// Scanning time is linear in the value length plus the size of the
-    /// result. Each candidate carries its complete container list, so the
-    /// result for a value nested `n` levels deep holds about `n * n / 2`
-    /// containers. Resolution scans only one level past its depth limit.
+    /// Candidates are sorted by span start. A nested candidate's
+    /// [`Reference::parent`] is the index of its innermost containing form,
+    /// which comes earlier in the list. The candidates nested in a form, at
+    /// any depth, are exactly the candidates after it whose spans start before
+    /// its span ends, so they directly follow it.
+    ///
+    /// The result holds at most one candidate per `$` in the value, and
+    /// scanning time is linear in the value length up to a logarithmic
+    /// factor. Resolution scans only one level past its depth limit.
     #[must_use]
     pub fn references(self) -> Vec<Reference> {
         self.references_within_depth(usize::MAX)
     }
 
     /// Candidates nested at most `max_depth` levels deep. Every returned
-    /// candidate equals the corresponding one from [`Self::references`].
+    /// candidate equals the corresponding one from [`Self::references`],
+    /// except that parent indices address the returned list.
     pub(crate) fn references_within_depth(self, max_depth: usize) -> Vec<Reference> {
         let tokens = self.tokens();
         let Some(body) = tokens.body.clone() else {
@@ -299,10 +354,10 @@ impl Entry<'_> {
         };
         let dialect = self.document.dialect;
         let source = self.document.source();
-        let mut pending = vec![(body, self.quote(), 0, Vec::new())];
+        let mut pending = vec![(body, self.quote(), Level::TOP)];
         if dialect.quoted_tail == QuotedTail::Append {
             if let Some(tail) = tokens.quoted_tail.clone() {
-                pending.push((tail, Quote::None, 0, Vec::new()));
+                pending.push((tail, Quote::None, Level::TOP));
             }
         }
         let mut scanner = Scanner {
@@ -313,13 +368,60 @@ impl Entry<'_> {
             pending,
             closes: Closes::default(),
         };
-        while let Some((range, quote, depth, containers)) = scanner.pending.pop() {
-            scanner.scan(&range, quote, depth, &containers);
+        while let Some((range, quote, level)) = scanner.pending.pop() {
+            scanner.scan(&range, quote, level);
         }
-        let mut references = scanner.references;
-        references
-            .sort_by_key(|reference| (reference.span.start, reference.span.end, reference.depth));
-        references
+        in_source_order(scanner.references)
+    }
+}
+
+/// Sort candidates by start, end and depth, and point each parent index at
+/// its container's sorted position.
+fn in_source_order(references: Vec<Reference>) -> Vec<Reference> {
+    let mut order: Vec<usize> = (0..references.len()).collect();
+    order.sort_by_key(|&index| {
+        let reference = &references[index];
+        (reference.span.start, reference.span.end, reference.depth)
+    });
+    let mut position = vec![0; references.len()];
+    for (sorted, &index) in order.iter().enumerate() {
+        position[index] = sorted;
+    }
+    let mut slots: Vec<Option<Reference>> = references.into_iter().map(Some).collect();
+    order
+        .iter()
+        .map(|&index| {
+            let mut reference = slots[index].take().expect("each candidate moves once");
+            reference.parent = reference.parent.map(|parent| position[parent]);
+            reference
+        })
+        .collect()
+}
+
+/// Where a scanned range sits among the forms that contain it.
+#[derive(Clone, Copy)]
+struct Level {
+    depth: usize,
+    /// The containing form's index in scan order.
+    parent: Option<usize>,
+    enclosing: Enclosing,
+}
+
+impl Level {
+    const TOP: Self = Self {
+        depth: 0,
+        parent: None,
+        enclosing: Enclosing::NONE,
+    };
+
+    /// The level of a range nested directly inside `container`, the
+    /// candidate at scan-order `index`.
+    fn inside(self, index: usize, container: &Reference) -> Self {
+        Self {
+            depth: self.depth.saturating_add(1),
+            parent: Some(index),
+            enclosing: self.enclosing.within(container),
+        }
     }
 }
 
@@ -328,21 +430,16 @@ struct Scanner<'a> {
     dialect: Dialect,
     max_depth: usize,
     references: Vec<Reference>,
-    pending: Vec<(Range<usize>, Quote, usize, Vec<ReferenceContainer>)>,
+    pending: Vec<(Range<usize>, Quote, Level)>,
     closes: Closes,
 }
 
 impl Scanner<'_> {
-    fn scan(
-        &mut self,
-        range: &Range<usize>,
-        quote: Quote,
-        depth: usize,
-        containers: &[ReferenceContainer],
-    ) {
+    fn scan(&mut self, range: &Range<usize>, quote: Quote, level: Level) {
         let source = self.source;
         let dialect = self.dialect;
         let bytes = source.as_bytes();
+        let depth = level.depth;
         let nest = depth < self.max_depth;
         // The last dollar seen and how many dollars directly precede it, so a
         // run of dollars is counted once instead of once per dollar.
@@ -360,51 +457,25 @@ impl Scanner<'_> {
             previous_dollar = Some((at, dollars));
             let escaped = escaped_at(source, range, at, quote, dialect, depth > 0, dollars);
             if at + 1 < range.end && bytes[at + 1] == b'{' {
-                let (reference, nested) = braced(
-                    source,
-                    range,
-                    at,
-                    quote,
-                    escaped,
-                    depth,
-                    containers,
-                    &mut self.closes,
-                );
+                let (reference, nested) =
+                    braced(source, range, at, quote, escaped, level, &mut self.closes);
                 let end = reference.span.end;
-                let container = container_for(&reference);
+                let inner = level.inside(self.references.len(), &reference);
                 self.references.push(reference);
                 if let Some(nested) = nested.filter(|_| nest) {
-                    self.pending.push((
-                        nested,
-                        quote,
-                        depth.saturating_add(1),
-                        nested_containers(containers, container),
-                    ));
+                    self.pending.push((nested, quote, inner));
                 }
                 at = end;
                 continue;
             }
             if at + 1 < range.end && bytes[at + 1] == b'(' {
-                let (reference, nested) = command(
-                    source,
-                    range,
-                    at,
-                    quote,
-                    escaped,
-                    depth,
-                    containers,
-                    &mut self.closes,
-                );
+                let (reference, nested) =
+                    command(source, range, at, quote, escaped, level, &mut self.closes);
                 let end = reference.span.end;
-                let container = container_for(&reference);
+                let inner = level.inside(self.references.len(), &reference);
                 self.references.push(reference);
                 if let Some(nested) = nested.filter(|_| nest) {
-                    self.pending.push((
-                        nested,
-                        quote,
-                        depth.saturating_add(1),
-                        nested_containers(containers, container),
-                    ));
+                    self.pending.push((nested, quote, inner));
                 }
                 at = end;
                 continue;
@@ -426,7 +497,8 @@ impl Scanner<'_> {
                     depth,
                     braced: false,
                     closed: true,
-                    containers: containers.to_vec(),
+                    parent: level.parent,
+                    enclosing: level.enclosing,
                     name: Some(name_start..name_end),
                     operator: None,
                     operator_span: None,
@@ -494,37 +566,13 @@ fn preceding(bytes: &[u8], start: usize, at: usize, byte: u8) -> usize {
         .count()
 }
 
-fn container_for(reference: &Reference) -> ReferenceContainer {
-    ReferenceContainer {
-        kind: reference.kind,
-        operator: reference.operator,
-        escaped: reference.escaped,
-        closed: reference.closed,
-        name_nonempty: match reference.kind {
-            ReferenceKind::Command => true,
-            ReferenceKind::Variable => reference.name.as_ref().is_some_and(|name| !name.is_empty()),
-        },
-    }
-}
-
-fn nested_containers(
-    parent: &[ReferenceContainer],
-    container: ReferenceContainer,
-) -> Vec<ReferenceContainer> {
-    let mut nested = parent.to_vec();
-    nested.push(container);
-    nested
-}
-
-#[allow(clippy::too_many_arguments)]
 fn braced(
     source: &str,
     range: &Range<usize>,
     at: usize,
     quote: Quote,
     escaped: bool,
-    depth: usize,
-    containers: &[ReferenceContainer],
+    level: Level,
     closes: &mut Closes,
 ) -> (Reference, Option<Range<usize>>) {
     let body_start = at + 2;
@@ -544,10 +592,11 @@ fn braced(
             span: at..end,
             quote,
             escaped,
-            depth,
+            depth: level.depth,
             braced: true,
             closed: close.is_some(),
-            containers: containers.to_vec(),
+            parent: level.parent,
+            enclosing: level.enclosing,
             name: Some(body_start..name_end),
             operator,
             operator_span,
@@ -558,15 +607,13 @@ fn braced(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 fn command(
     source: &str,
     range: &Range<usize>,
     at: usize,
     quote: Quote,
     escaped: bool,
-    depth: usize,
-    containers: &[ReferenceContainer],
+    level: Level,
     closes: &mut Closes,
 ) -> (Reference, Option<Range<usize>>) {
     let payload_start = at + 2;
@@ -585,10 +632,11 @@ fn command(
             span: at..end,
             quote,
             escaped,
-            depth,
+            depth: level.depth,
             braced: false,
             closed: close.is_some(),
-            containers: containers.to_vec(),
+            parent: level.parent,
+            enclosing: level.enclosing,
             name: None,
             operator: None,
             operator_span: None,
