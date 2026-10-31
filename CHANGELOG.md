@@ -15,6 +15,9 @@ The 1.0 fix round. See [1.0-fix-round.md](docs/design/1.0-fix-round.md).
 - Resolution enforces a total output budget, `ExpandOptions::max_output_bytes`
   (64 MiB in every preset), across resolved values and provenance. A small file
   of doubling references can no longer allocate unbounded memory.
+- `Entry::references`, `sort` and `adotenv fmt` use memory linear in the value
+  length. Before, deeply nested or unclosed `$(` forms needed memory that grew
+  with the square of their number.
 - `LoadedEnvironment::resolve_decoded` resolves each loaded key exactly as
   loaded. A key that the synthetic source cannot represent is an error naming
   that key, never a different key.
@@ -41,6 +44,10 @@ The 1.0 fix round. See [1.0-fix-round.md](docs/design/1.0-fix-round.md).
   whitespace, inline comment and line ending when no other statement follows on
   that line. `Entry::inline_comment` returns that comment. Parsed values do not
   change.
+- **Breaking:** `Reference::containers` and `ReferenceContainer` are replaced
+  by `Reference::parent`, the index of the innermost containing form in the same
+  list. Candidates are sorted by start, a parent comes before its descendants,
+  and `Reference::is_eligible` gives the same results.
 - **Breaking:** `LoadedEnvironment::resolve_contextual` requires whole-file
   scope, like `resolve_decoded`. Winning declarations come from different
   files, so no single order defines sequential bindings.
@@ -105,6 +112,8 @@ the same values unless it exceeds the new output budget. Code that moves from
   blank lines as separate `Blank` items and trailing comments of quoted Compose
   entries as inline comments.
 - Pass `ExpandScope::WholeFile` to `LoadedEnvironment::resolve_contextual`.
+- Replace reads of `Reference::containers` with a walk up
+  `Reference::parent` through the list that `Entry::references` returned.
 - A resolution whose output exceeds 64 MiB fails with
   `ResolveError::OutputTooLarge`. Raise the limit with
   `ExpandOptions::with_max_output_bytes` where large outputs are expected.
