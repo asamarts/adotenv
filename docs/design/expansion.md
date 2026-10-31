@@ -38,6 +38,12 @@ let resolved = doc.resolve(
 
 Caller values are literal and are not expanded again.
 
+`ExpandOptions::compose()` selects Compose-style reference rules: which forms
+and operators are eligible, including nested arguments. It does not emulate
+Docker Compose interpolation as a whole. Under the Compose dialect an escaped
+`$$B` is not eligible, so resolution leaves `$$B` as written, while Compose
+prints `$B`.
+
 `ExpandOptions` selects:
 
 | Option | Choices |

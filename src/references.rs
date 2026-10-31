@@ -137,6 +137,9 @@ impl ReferenceRules {
         backtick_quotes: false,
     };
     /// Compose-style variable operators and nesting; no command execution.
+    ///
+    /// These are eligibility rules, not Docker Compose interpolation: an
+    /// escaped `$$` is not eligible and resolution leaves it as written.
     pub const COMPOSE: Self = Self {
         operators: OperatorSet::Compose,
         single_quotes: false,

@@ -133,7 +133,12 @@ impl ExpandOptions {
             max_output_bytes: 67_108_864,
         }
     }
-    /// Compose-style operators and nesting with file-first sequential bindings.
+    /// Compose-style reference rules with file-first sequential bindings.
+    ///
+    /// This selects which references are eligible: `$VAR`, `${VAR}`, every
+    /// operator and nested arguments. It is not an emulation of Docker
+    /// Compose interpolation. For example, an escaped `$$B` stays `$$B` here,
+    /// while Compose interpolation replaces `$$` with a single `$`.
     #[must_use]
     pub const fn compose() -> Self {
         Self {
