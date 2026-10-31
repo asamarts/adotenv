@@ -296,6 +296,11 @@ fn check_result(source: &str, document: &adotenv::Document<'_>, options: &Format
     }
     replayed.push_str(&source[cursor..]);
     assert_eq!(replayed, formatted.as_str());
+    let mut reversed = source.to_owned();
+    for edit in formatted.edits().iter().rev() {
+        reversed.replace_range(edit.range.clone(), &edit.replacement);
+    }
+    assert_eq!(reversed, formatted.as_str());
 
     if options.final_newline != FinalNewline::Remove {
         let again = after

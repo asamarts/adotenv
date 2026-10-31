@@ -307,6 +307,12 @@ fn check_replay(source: &str, verified: &VerifiedEdits) {
     }
     replay.push_str(&source[cursor..]);
     assert_eq!(replay, verified.as_str());
+    // The documented contract: apply the slice in reverse order.
+    let mut reversed = source.to_owned();
+    for edit in verified.edits().iter().rev() {
+        reversed.replace_range(edit.range.clone(), &edit.replacement);
+    }
+    assert_eq!(reversed, verified.as_str());
 }
 
 fn check_comment_restore(source: &str, selector: u8, dialect: Dialect) {

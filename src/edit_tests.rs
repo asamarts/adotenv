@@ -1,9 +1,25 @@
 use crate::{
     parse, remove, set, AssignmentState, DiagnosticCode, Edit, EditError, InsertPosition, ItemKind,
-    Quote,
+    Quote, TextEdit,
 };
-use alloc::{format, string::String, vec, vec::Vec};
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use core::fmt::Write as _;
+use proptest::prelude::*;
+
+// The documented contract: apply the returned slice from its last element to
+// its first, each against the text produced so far.
+fn apply_in_reverse(source: &str, edits: &[TextEdit]) -> String {
+    let mut text = source.to_string();
+    for edit in edits.iter().rev() {
+        text.replace_range(edit.range.clone(), &edit.replacement);
+    }
+    text
+}
 
 fn replay(source: &str, result: &crate::VerifiedEdits) -> String {
     let mut output = String::new();
@@ -834,4 +850,163 @@ fn removing_commenting_or_renaming_a_declaration_frees_its_key_for_insertion() {
         ])
         .unwrap();
     assert_eq!(result.as_str(), "Z=1\nB=2\nA=3\n");
+}
+
+#[test]
+fn edits_at_the_same_offset_apply_in_reverse_slice_order() {
+    let (doc, _) = parse("A=1\n");
+    let result = doc
+        .edit(&[
+            Edit::Export {
+                entry: 0,
+                enabled: true,
+            },
+            Edit::Rename { entry: 0, key: "B" },
+        ])
+        .unwrap();
+    assert_eq!(
+        result.edits(),
+        [
+            TextEdit {
+                range: 0..0,
+                replacement: "export ".into(),
+            },
+            TextEdit {
+                range: 0..1,
+                replacement: "B".into(),
+            },
+        ]
+    );
+    assert_eq!(
+        apply_in_reverse(doc.source(), result.edits()),
+        "export B=1\n"
+    );
+    assert_eq!(result.as_str(), "export B=1\n");
+
+    // Applying "from the highest offset to the lowest" after a stable sort by
+    // start offset applies the insertion first and corrupts the result.
+    let mut by_offset = result.edits().to_vec();
+    by_offset.sort_by_key(|edit| core::cmp::Reverse(edit.range.start));
+    let mut text = doc.source().to_string();
+    for edit in &by_offset {
+        text.replace_range(edit.range.clone(), &edit.replacement);
+    }
+    assert_eq!(text, "Bxport A=1\n");
+
+    // An insertion after one entry starts where the next entry's edits start.
+    let (doc, _) = parse("A=1\nB=2\n");
+    let result = doc
+        .edit(&[
+            Edit::Insert {
+                key: "C",
+                value: Some("3"),
+                position: InsertPosition::AfterEntry(0),
+            },
+            Edit::Export {
+                entry: 1,
+                enabled: true,
+            },
+            Edit::Rename { entry: 1, key: "D" },
+        ])
+        .unwrap();
+    assert_eq!(result.as_str(), "A=1\nC=3\nexport D=2\n");
+    assert_eq!(
+        apply_in_reverse(doc.source(), result.edits()),
+        result.as_str()
+    );
+}
+
+fn batch_source_line() -> impl Strategy<Value = &'static str> {
+    prop::sample::select(
+        [
+            "A=1",
+            "export B=two",
+            "C",
+            "D=",
+            "# E=5",
+            "#",
+            "",
+            "  F = 'six' # note",
+            "G=\"x\ny\"",
+            "H=\"quoted\"",
+            "A=again",
+        ]
+        .as_slice(),
+    )
+}
+
+fn batch_operation(
+    (kind, target, name, value): (u8, usize, usize, usize),
+    entries: usize,
+    items: usize,
+) -> Edit<'static> {
+    const KEYS: [&str; 5] = ["N", "A", "M", "B2", "Z"];
+    const VALUES: [&str; 5] = ["v", "", "two words", "#hash", "line\nbreak"];
+    let entry = target % entries.max(1);
+    let item = target % items.max(1);
+    let key = KEYS[name % KEYS.len()];
+    let value = VALUES[value % VALUES.len()];
+    match kind % 10 {
+        0 => Edit::Set { entry, value },
+        1 => Edit::Remove { item },
+        2 => Edit::Rename { entry, key },
+        3 => Edit::Comment { item },
+        4 => Edit::Uncomment { item },
+        5 => Edit::Export {
+            entry,
+            enabled: target % 2 == 0,
+        },
+        6 => Edit::Insert {
+            key,
+            value: Some(value),
+            position: InsertPosition::AfterEntry(entry),
+        },
+        7 => Edit::Insert {
+            key,
+            value: None,
+            position: InsertPosition::Sorted,
+        },
+        8 => Edit::Insert {
+            key,
+            value: Some(value),
+            position: InsertPosition::End,
+        },
+        _ => Edit::Insert {
+            key,
+            value: Some(value),
+            position: InsertPosition::AfterKey("C"),
+        },
+    }
+}
+
+proptest! {
+    #[test]
+    fn verified_edits_apply_in_reverse_slice_order(
+        lines in prop::collection::vec(batch_source_line(), 0..8),
+        crlf in any::<bool>(),
+        final_newline in any::<bool>(),
+        operations in prop::collection::vec(
+            (any::<u8>(), any::<usize>(), any::<usize>(), any::<usize>()),
+            0..6,
+        ),
+    ) {
+        let ending = if crlf { "\r\n" } else { "\n" };
+        let mut source = lines.join(ending);
+        if final_newline {
+            source.push_str(ending);
+        }
+        let (doc, _) = parse(&source);
+        let operations: Vec<_> = operations
+            .into_iter()
+            .map(|operation| batch_operation(operation, doc.entries().len(), doc.items().len()))
+            .collect();
+        if let Ok(result) = doc.edit(&operations) {
+            prop_assert!(result
+                .edits()
+                .windows(2)
+                .all(|pair| pair[0].range.end <= pair[1].range.start));
+            prop_assert_eq!(apply_in_reverse(&source, result.edits()), result.as_str());
+            prop_assert_eq!(replay(&source, &result), result.as_str());
+        }
+    }
 }
