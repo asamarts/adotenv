@@ -835,7 +835,8 @@ impl fmt::Display for LoadError {
             Self::Invalid { path, diagnostic } => {
                 write!(formatter, "{}: {diagnostic}", path.display())
             }
-            Self::InvalidMode => formatter.write_str("mode must not contain path separators"),
+            Self::InvalidMode => formatter
+                .write_str("mode must not contain path separators or NUL and must not be . or .."),
         }
     }
 }

@@ -115,7 +115,10 @@ assert_eq!(values.get("PORT"), Some("8080"));
 - the first syntax or policy error with path and diagnostic;
 - an invalid mode name.
 
-Mode names may not contain path separators, `.` or `..`.
+A mode name may not contain `/`, `\` or NUL and may not be exactly `.` or
+`..`; such a mode returns `LoadError::InvalidMode`. Other dots are allowed, so
+mode `prod.eu` reads `.env.prod.eu` and `.env.prod.eu.local`. An empty mode
+reads only `.env` and `.env.local`.
 
 ## Memory
 

@@ -280,6 +280,25 @@ fn invalid_modes_cannot_escape_the_cascade() {
 }
 
 #[test]
+fn dotted_modes_name_their_own_files() {
+    let dir = TempDir::new();
+    dir.write(".env.prod.eu", "A=mode\n");
+    dir.write(".env.prod.eu.local", "B=local\n");
+    for mode in ["prod.eu", "...", ".prod"] {
+        assert!(load_cascade(dir.path(), mode).is_ok());
+    }
+    let loaded = load_cascade(dir.path(), "prod.eu").unwrap();
+    assert_eq!(loaded.get("A"), Some("mode"));
+    assert_eq!(loaded.get("B"), Some("local"));
+    for mode in [".", ".."] {
+        assert!(matches!(
+            load_cascade(dir.path(), mode),
+            Err(LoadError::InvalidMode)
+        ));
+    }
+}
+
+#[test]
 fn empty_mode_loads_only_base_and_local_files() {
     let dir = TempDir::new();
     dir.write(".env", "A=base\n");
@@ -827,7 +846,10 @@ fn load_errors_have_stable_display_and_sources() {
     assert!(std::error::Error::source(&invalid).is_none());
 
     let mode = load_cascade(dir.path(), "bad\0mode").unwrap_err();
-    assert_eq!(mode.to_string(), "mode must not contain path separators");
+    assert_eq!(
+        mode.to_string(),
+        "mode must not contain path separators or NUL and must not be . or .."
+    );
     assert!(std::error::Error::source(&mode).is_none());
 }
 
