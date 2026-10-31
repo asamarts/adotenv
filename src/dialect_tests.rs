@@ -1403,3 +1403,35 @@ fn statements_sharing_one_physical_line_scan_each_byte_a_bounded_number_of_times
     }
     assert_eq!(excessive, []);
 }
+
+#[test]
+fn node_and_python_blank_lines_format_and_sort_within_groups() {
+    let trim = crate::FormatOptions::default().with_trim_trailing_whitespace(true);
+    for dialect in [Dialect::NODE_DOTENV, Dialect::PYTHON_DOTENV] {
+        let name = dialect.syntax;
+        let (doc, _) = parse_with(" \n ", dialect);
+        let trimmed = doc.format(&trim).unwrap();
+        assert_eq!(trimmed.as_str(), "\n ", "{name:?}");
+        let (again, _) = parse_with(trimmed.as_str(), dialect);
+        assert!(again.format(&trim).unwrap().is_empty(), "{name:?}");
+
+        let (doc, _) = parse_with("A=1\n\n\n   ", dialect);
+        let collapsed = doc
+            .format(&crate::FormatOptions::normalize_groups())
+            .unwrap();
+        assert_eq!(collapsed.as_str(), "A = 1\n\n", "{name:?}");
+
+        let (doc, _) = parse_with("C=1\nB=2\n\nZ=1\nA=1", dialect);
+        assert_eq!(
+            doc.sort().unwrap().as_str(),
+            "B=2\nC=1\n\nA=1\nZ=1",
+            "{name:?}"
+        );
+    }
+}
+
+#[test]
+fn compose_quoted_entries_sort_when_each_owns_its_line() {
+    let (doc, _) = parse_with("B=\"2\"\nA=\"1\"", Dialect::COMPOSE);
+    assert_eq!(doc.sort().unwrap().as_str(), "A=\"1\"\nB=\"2\"");
+}
