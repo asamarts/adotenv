@@ -4,7 +4,7 @@ version = 3
 
 [[package]]
 name = "adotenv"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "criterion",
  "proptest",
@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "adotenv-cli"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "adotenv",
 ]
@@ -38,7 +38,7 @@ dependencies = [
 
 [[package]]
 name = "adotenv-process"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "adotenv",
 ]

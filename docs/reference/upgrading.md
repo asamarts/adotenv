@@ -25,13 +25,13 @@ Releases within 1.x keep the API. These fixes change results:
   to its first visible declaration, the one `Document::get` returns. 1.0.0
   bound it to the last one. The presets use `Duplicates::Last` and are
   unaffected.
-- Unreleased: `Document::uncomment` and `Edit::Uncomment` fail with
+- 1.1.0: `Document::uncomment` and `Edit::Uncomment` fail with
   `EditError::Duplicate` when the restored key is still declared, unless the
   same batch removes, comments out or renames away the other declaration.
-- Unreleased: `Document::format` and `Document::sort` return the verified
+- 1.1.0: `Document::format` and `Document::sort` return the verified
   output where they used to fail, leaving out only the changes that would read
   differently. A quote style no longer changes values that contain `$`.
-- Unreleased: the messages of `ResolveError::Required`, `dotenv.tight-hash`,
+- 1.1.0: the messages of `ResolveError::Required`, `dotenv.tight-hash`,
   `dotenv.lone-cr`, `EditError::InvalidTarget` and
   `EditError::WouldChangeMeaning` changed. Match on the error or diagnostic
   code, not on its text.

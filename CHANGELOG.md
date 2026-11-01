@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-01
+
+A minor release of `adotenv`, `adotenv-process` and `adotenv-cli` with the
+fixes from a review of 1.0.1. Some results change; see
+[Within 1.x](https://github.com/asamarts/adotenv/blob/v1.1.0/docs/reference/upgrading.md#within-1x).
+`adotenv-config` and `adotenv-figment` are unchanged.
+
 ### Changed
 
 - `Document::uncomment` and `Edit::Uncomment` follow the collision rule of
@@ -22,6 +29,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of "is unset or empty", which was wrong for `${NAME?message}`;
   `dotenv.tight-hash`, `dotenv.lone-cr`, `EditError::InvalidTarget` and
   `EditError::WouldChangeMeaning` describe what happened in plain words.
+- `Group::entries`, `Group::comments`, `Group::leading_comments`,
+  `LoadRepeated::origins` and the iterator methods of `LoadedEnvironment` are
+  `#[must_use]`, like `Group::items` and `Document::items`.
 
 ### Fixed
 

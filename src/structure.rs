@@ -58,11 +58,13 @@ impl<'doc> Group<'doc> {
         })
     }
     /// Returns an iterator over the group's declarations in source order.
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn entries(self) -> impl Iterator<Item = Entry<'doc>> + 'doc {
         self.items().filter_map(Item::entry)
     }
     /// Returns an iterator over the group's whole-line comments in source
     /// order.
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn comments(self) -> impl Iterator<Item = Item<'doc>> + 'doc {
         self.items().filter(|item| item.kind() == ItemKind::Comment)
     }
@@ -71,6 +73,7 @@ impl<'doc> Group<'doc> {
     /// The run ends at the first item that is not a comment, such as the first
     /// entry or an invalid statement. These comments usually describe the
     /// whole group.
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn leading_comments(self) -> impl Iterator<Item = Item<'doc>> + 'doc {
         self.items()
             .take_while(|item| item.kind() == ItemKind::Comment)

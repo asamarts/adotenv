@@ -315,6 +315,7 @@ impl<'a> LoadRepeated<'a> {
     }
     /// Returns the origins of the declarations that take part in lookup, in
     /// source order.
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn origins(&self) -> impl Iterator<Item = LoadOrigin<'a>> + '_ {
         self.origins
             .iter()
@@ -652,6 +653,7 @@ impl LoadedEnvironment {
     /// # std::fs::remove_dir_all(&dir)?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn values(&self) -> impl Iterator<Item = (&str, &str)> + '_ {
         self.records
             .iter()
@@ -744,6 +746,7 @@ impl LoadedEnvironment {
     /// # std::fs::remove_dir_all(&dir)?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn entries(&self) -> impl Iterator<Item = LoadedEntry<'_>> + '_ {
         self.entries.iter().map(|entry| LoadedEntry {
             key: entry.key.as_ref(),
@@ -777,6 +780,7 @@ impl LoadedEnvironment {
     /// # std::fs::remove_dir_all(&dir)?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn overrides(&self) -> impl Iterator<Item = LoadOverride<'_>> + '_ {
         self.overrides.iter().map(|override_report| LoadOverride {
             key: override_report.key.as_ref(),
@@ -808,6 +812,7 @@ impl LoadedEnvironment {
     /// # std::fs::remove_dir_all(&dir)?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn repeated(&self) -> impl Iterator<Item = LoadRepeated<'_>> + '_ {
         self.repeated.iter().map(|repeated| LoadRepeated {
             key: repeated.key.as_ref(),
@@ -839,6 +844,7 @@ impl LoadedEnvironment {
     /// # std::fs::remove_dir_all(&dir)?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn skipped(&self) -> impl Iterator<Item = LoadSkipped<'_>> + '_ {
         self.skipped.iter().map(|skipped| LoadSkipped {
             key: skipped.key.as_deref(),
