@@ -48,7 +48,9 @@ for a new crate that has no trusted publisher yet; see
 
 4. Update package manifests and path dependency constraints explicitly. Do not
    replace every matching version string in `Cargo.lock`. Third-party crates can
-   share the same version number.
+   share the same version number. The conformance crate has its own lock file,
+   `conformance/rust/Cargo.lock`; update the `adotenv` version there too,
+   because CI builds that crate with `--locked`.
 5. Move the `Unreleased` entries in `CHANGELOG.md` into a section headed
    `## [X.Y.Z] - YYYY-MM-DD` for the lockstep version, and update the version in
    the README and docs install snippets.
