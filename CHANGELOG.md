@@ -6,8 +6,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-01
+
+A patch release of `adotenv`, `adotenv-process` and `adotenv-cli` with one fix
+and rewritten API documentation. `adotenv-config` and `adotenv-figment` are
+unchanged.
+
+### Fixed
+
+- `Document::resolve` and `Document::resolve_with_commands` follow the
+  dialect's duplicate-key rule. With `Duplicates::First`, a reference now binds
+  to the first visible declaration of a key, the one `Document::get` returns,
+  instead of the last. The presets use `Duplicates::Last` and are unaffected.
+
 ### Documentation
 
+- The API documentation on docs.rs is rewritten: a crate overview with a task
+  index and feature table, plain summaries for every item, `# Errors` sections,
+  and about 140 new examples that run as doctests. Items behind optional
+  features are labelled with the feature they need.
+- Statements that did not match the code are corrected in the rustdoc of
+  dialects, encoding, references, formatting, sorting, comparison, examples,
+  resolution, loading, serde, positions, diagnostics and `adotenv-process`.
+- The README, the documentation site and the repository description link to
+  the API reference on docs.rs.
 - The documentation site has a new structure and theme: a landing page, a
   Getting started page, and Guide, Reference and Project sections.
 - New pages: Getting started, Parsing and lookup, Editing, Process
