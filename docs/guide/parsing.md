@@ -7,7 +7,7 @@ It never changes the source: printing a document returns the original bytes.
 
 | Function | Returns | On errors |
 |---|---|---|
-| `parse(source)` | `(Document, Vec<Diagnostic>)` | Keeps the bad text as an `Invalid` item and reports it |
+| `parse(source)` | `(Document, Vec<Diagnostic>)` | Keeps the bad text as an `Invalid` or `Ignored` item and reports it |
 | `parse_strict(source)` | `Result<Document, Diagnostic>` | Returns the first error |
 | `parse_owned(String)` | `(Document<'static>, Vec<Diagnostic>)` | Like `parse`, but the document owns the source |
 | `parse_values(source)` | `Result<BTreeMap<String, String>, Diagnostic>` | Returns the first error |
@@ -37,7 +37,8 @@ do not fail it, and it does not return them. The codes are listed in
 
 `parse_values` is the fast path when only final values matter. It keeps no
 items or spans, applies the dialect's duplicate and bare-key rules, and returns
-the first error. It uses much less memory than a document.
+the first error. The map, sorted by key, holds the same keys and values as
+`effective_entries` below. It uses much less memory than a document.
 
 `parse_owned` moves the source into the document. `Document::into_owned`
 copies the source only when the document still borrows it. `Document::reparse`
@@ -52,19 +53,28 @@ without gaps, apart from a leading byte-order mark:
 |---|---|
 | `Blank` | An empty or whitespace-only line |
 | `Comment` | A whole-line comment |
-| `Entry` | A declaration the dialect reads |
-| `Invalid` | A statement with an error, kept as source |
-| `Ignored` | A statement the dialect skips without an error |
+| `Entry` | A declaration: `KEY=value` or a bare `KEY` |
+| `Invalid` | A statement with an error, kept as written |
+| `Ignored` | A statement the dialect skips, with a warning |
 
-`Document::entries()` yields the declarations. `Item` and `Entry` are borrowed
+`Document::entries()` yields the declarations, including duplicates and
+declarations that do not take part in lookup. `Item` and `Entry` are borrowed
 views. Their `id()` is a zero-based index into `items()` or `entries()` of this
 document, and `Entry::item_id()` gives the item that holds an entry. IDs
-belong to one reading: a reparsed document has its own.
+belong to one document: a reparsed document, or one parsed from edited text,
+has its own.
 
 An `Item` has `kind()`, `span()`, `raw()`, `line_ending()`, `content_span()`,
 `comment_text()` for comments, `diagnostic()` and `invalid_code()` for invalid
 and ignored items and for entries that break a dialect policy, and `entry()` for
 declarations.
+
+Most items are one line, including its line ending. A multiline quoted value
+makes one item of several lines, and some dialects, such as Compose, can read
+several statements from one line. `line_ending()` is `Lf`, `CrLf`, `Cr` or
+`None`. Portable, Node dotenv and python-dotenv end a line at a lone CR, and
+Portable reports it as `dotenv.lone-cr`. Compose and Docker end lines only at
+LF and keep a lone CR as text inside the line.
 
 ## Lookup
 
@@ -89,10 +99,10 @@ assert_eq!(winners, [("A", "2"), ("B", "3")]);
 | Method | Returns |
 |---|---|
 | `get(key)` | The effective value |
-| `get_entry(key)` | The effective declaration |
+| `get_entry(key)` | The declaration that wins lookup |
 | `get_all(key)` | Every declaration of the key, in source order |
 | `unique(key)` | The only declaration, or `EditError::Missing` or `EditError::Duplicate` |
-| `effective_entries()` | One winning declaration per key that has a value, in source order |
+| `effective_entries()` | The winning declaration of each key that has an effective value, in source order |
 | `lookup_index()` | A `LookupIndex` for many lookups |
 
 `get` scans the entries. For many lookups, build `lookup_index()` once; it has
@@ -116,9 +126,9 @@ assert_eq!(doc.get_entry("EMPTY").unwrap().state(), AssignmentState::Empty);
 assert_eq!(doc.get("EMPTY"), Some(""));
 ```
 
-`BareKeys::Empty` makes a bare declaration read as an empty value in lookup
-without changing its syntax. A bare declaration never reads the process
-environment.
+`BareKeys::Empty` makes a bare declaration read as an empty value in lookup,
+while the entry itself stays bare: its `state()` is `Bare` and its `value()` is
+`None`. A bare declaration never reads the process environment.
 
 ## Raw tokens
 
@@ -138,16 +148,20 @@ assert_eq!(entry.decoded_span_to_raw(0..3).unwrap(), 10..13);
 ```
 
 `Entry::tokens()` returns `EntryTokens`, with the byte range of every part of
-the line: `indent`, `export`, `space_after_export`, `key`, `space_before_eq`,
-`eq`, `space_after_eq`, `value`, `body`, `quoted_tail`, `trailing_space` and
-`inline_comment`. `quote()` gives the quote style and `state()` the assignment
-state. `decoded_offset_to_raw` and `decoded_span_to_raw` map positions in the
-decoded value back to the source, accounting for escapes.
+the declaration: `indent`, `export`, `space_after_export`, `key`,
+`space_before_eq`, `eq`, `space_after_eq`, `value`, `body`, `quoted_tail`,
+`trailing_space` and `inline_comment`. `quote()` gives the quote style and
+`state()` the assignment state. `decoded_offset_to_raw` and
+`decoded_span_to_raw` map positions in the decoded value back to the source,
+accounting for escapes.
 
 ## Spans and positions
 
 Every span is a byte range into the original source, byte-order mark
-included. Entry and diagnostic lines are one-based.
+included. Entry and diagnostic lines are one-based. They count LF, CRLF and a
+lone CR as line ends in every dialect, the same way as `LineIndex`, so in
+Compose and Docker a lone CR starts a new line number even though it does not
+end a statement.
 
 `LineIndex` converts between byte offsets and zero-based line and column
 positions. The column encoding is explicit:
@@ -173,8 +187,9 @@ clamped. `Utf8` columns can address any byte.
 `Position::one_based()` converts a position for display.
 
 `Document::line_index()` builds a new index on each call, so keep it when
-converting many positions. LF, CRLF and a lone CR always end a line in a
-`LineIndex`, whatever the dialect.
+converting many positions. A leading byte-order mark is part of line 0: it
+takes 3 `Utf8` columns, or 1 `Scalar` or `Utf16` column, before the first
+character.
 
 ## Groups and comments
 
@@ -184,6 +199,7 @@ reason about layout:
 - `Document::groups()` iterates the groups. Each `Group` has `items()`,
   `entries()`, `comments()`, `leading_comments()` and `span()`.
 - `Document::header()` is the run of items before the first entry, if any.
+  Unlike a group, it can contain blank lines.
 - `Entry::leading_comments()` yields the whole-line comments directly above an
   entry. A blank line ends the attachment.
 

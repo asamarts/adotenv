@@ -1,9 +1,9 @@
 # Formatting and sorting
 
 `Document::format` and `Document::sort` return a `FormatResult`: the verified
-output and the text edits that produce it, against the original snapshot. The
-complete output is parsed again with the same dialect before it is returned.
-A change that would alter a declaration fails with
+output and the text edits that produce it, with ranges into the original
+source. The complete output is parsed again with the same dialect before it is
+returned. A change that would alter a declaration fails with
 `FormatError::WouldChangeMeaning`.
 
 `FormatResult` has `as_str()`, `into_string()`, `edits()`, `into_edits()` and
@@ -12,7 +12,7 @@ described in [Applying text edits](../guide/editing.md#applying-text-edits).
 
 ## Format
 
-`format` changes trivia only:
+`format` changes layout only:
 
 ```rust
 use adotenv::{parse_strict, FormatOptions};
@@ -28,8 +28,8 @@ builder:
 
 | Field | Choices |
 |---|---|
-| `equals_spacing` | `EqualsSpacing::Preserve`, `Spaces` (one space on each side) or `None` (no spaces) |
-| `trim_trailing_whitespace` | Remove trailing spaces and tabs |
+| `equals_spacing` | `EqualsSpacing::Preserve`, `Spaces` (one space on each side) or `None` (no spaces, but the space after the separator stays when an inline comment follows) |
+| `trim_trailing_whitespace` | `true` removes trailing spaces and tabs |
 | `blank_lines` | `BlankLines::Preserve` or `Collapse` (each run becomes one blank line) |
 | `quote_style` | `QuoteStyle::Preserve`, `Double`, `Single` or `Unquoted` |
 | `final_newline` | `FinalNewline::Preserve`, `Ensure` or `Remove` |
@@ -43,8 +43,12 @@ Two presets cover common needs:
 
 ### What formatting keeps
 
-- Values never change. A quote change is applied only when the decoded value
-  stays exactly the same, and empty assigned values keep their quote style.
+- Decoded values never change. A quote change is applied only when the
+  decoded value stays exactly the same. Empty values, bare declarations and
+  empty keys keep their form.
+- Separator spacing stays as it is for empty keys. When no inline comment
+  follows, the space after `=` also stays if the value is empty or starts
+  with `#`, because changing it could change how the line reads.
 - Invalid and ignored statements are never rewritten.
 - Trimming never removes a line or touches whitespace inside a multiline
   value. A whitespace-only last line without a line ending stays as is unless
@@ -52,21 +56,25 @@ Two presets cover common needs:
 - In raw-value dialects such as Docker, entry lines stay untouched, because
   every byte after `=` is part of the value. Comments and blank lines are
   still formatted.
-- Empty assignments that could become indentation, and boundaries between
-  mixed lone-CR line endings, are preserved.
+- Trimming leaves alone lines that end with or follow a lone CR line ending,
+  and an empty or bare declaration without an inline comment that is followed
+  by an indented line, together with that line, so the next parse reads the
+  same lines.
 
 ### Line endings
 
-`FinalNewline::Ensure` adds an LF when the output does not end in a line
-break, even in a CRLF file. It adds nothing when collapsing a trailing
-blank-line run already leaves the output ending in a line break.
-`FinalNewline::Remove` removes one final LF, CRLF or lone CR.
+`FinalNewline::Ensure` adds an LF when the output ends with neither LF nor
+CR, even in a CRLF file. It adds nothing to a document with no items, or when
+collapsing a trailing blank-line run already leaves the output ending in a line
+break. `FinalNewline::Remove` removes one final LF, CRLF or lone CR. It removes
+nothing when the last item is a blank line, because that would remove the
+blank line.
 
 ### Quote styles
 
 `QuoteStyle::Double` and `Single` re-encode each value whose decoded text
 survives in the new style, multiline values included. A multiline value can
-then move onto one line with an escaped line break:
+then move onto one line with an escaped line break, or the other way around:
 
 ```rust
 use adotenv::{parse_strict, FormatOptions, QuoteStyle};
@@ -76,8 +84,13 @@ let options = FormatOptions::default().with_quote_style(QuoteStyle::Double);
 assert_eq!(doc.format(&options).unwrap().as_str(), "A=\"x\\ny\"\n");
 ```
 
-`QuoteStyle::Unquoted` applies only when every other option is `Preserve`;
-combined with other changes it is skipped.
+`QuoteStyle::Unquoted` applies only when every other option keeps its
+default (`Preserve` or `false`); combined with other changes it is skipped.
+Raw-value dialects such as Docker are never re-quoted.
+
+The check compares literal values, not how references expand, so a quote
+change can change resolved values. With `ExpandOptions::portable()`,
+`A=${HOST}` expands `${HOST}`, while `A='${HOST}'` keeps it as text.
 
 ## Sort
 
@@ -85,6 +98,7 @@ combined with other changes it is skipped.
 
 - Comments above the first entry stay as a group header.
 - Comments above later entries move with those entries.
+- Comments below the last entry stay at the bottom.
 - Inline comments and multiline values move intact.
 - Keys compare by bytes, so uppercase letters sort before lowercase ones:
   `b`, `B`, `a` sorts to `B`, `a`, `b`.

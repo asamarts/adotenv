@@ -111,12 +111,16 @@ pub enum DiagnosticCode {
     /// [`UnknownEscapes::Warn`](crate::UnknownEscapes::Warn), as in Portable.
     /// For example `"\q"` keeps both the backslash and the `q`.
     UnknownEscape,
-    /// An earlier declaration that takes part in lookup has the same key.
+    /// A declaration that takes part in lookup repeats the key of an earlier
+    /// one.
     ///
     /// Warning, `dotenv.duplicate-key`, reported on every later declaration
-    /// of the key. The primary span is the key of the later declaration and
-    /// the secondary span is the key of the first one. Which declaration wins
-    /// lookup depends on [`Dialect::duplicates`](crate::Dialect::duplicates).
+    /// of the key that takes part in lookup
+    /// ([`Entry::participates_in_lookup`](crate::Entry::participates_in_lookup)).
+    /// The primary span is the key of the later declaration and the secondary
+    /// span is the key of the first declaration that takes part. Which
+    /// declaration wins lookup depends on
+    /// [`Dialect::duplicates`](crate::Dialect::duplicates).
     DuplicateKey,
     /// A declaration has no `=` and no value, such as `DEBUG`.
     ///
@@ -130,11 +134,13 @@ pub enum DiagnosticCode {
     /// Warning, `dotenv.non-posix-key`, Portable syntax only. A POSIX name
     /// uses ASCII letters, digits and `_` and does not start with a digit.
     NonPosixKey,
-    /// A `#` inside an unquoted value, without whitespace before it, is
-    /// literal text, not a comment, as in `A=a#b`.
+    /// A `#` in an unquoted value is literal text, not a comment, as in
+    /// `A=a#b`.
     ///
-    /// Warning, `dotenv.tight-hash`, Portable syntax only. Some dialects, such
-    /// as Node dotenv, start a comment at any `#`.
+    /// Warning, `dotenv.tight-hash`, Portable syntax only, reported for each
+    /// such `#`. Portable starts a comment only at a `#` after whitespace, so
+    /// `A=a #b` reads `a`. Some dialects, such as Node dotenv, start a comment
+    /// at any `#`.
     TightHash,
     /// A backtick in an unquoted value is literal text, not a quote.
     ///
@@ -152,7 +158,9 @@ pub enum DiagnosticCode {
     /// Warning, `dotenv.lone-cr`, Portable syntax with
     /// [`LineBreaks::Universal`](crate::LineBreaks::Universal) only. Portable
     /// ends a line at a lone CR. Every lone CR in the source is reported,
-    /// including one inside a quoted value.
+    /// including one inside a quoted value. Node dotenv and python-dotenv also
+    /// end a line there, without this warning; Compose and Docker keep a lone
+    /// CR as text inside the line.
     LoneCarriageReturn,
     /// A declaration has no `=` and the dialect forbids that.
     ///
@@ -175,7 +183,9 @@ pub enum DiagnosticCode {
     /// [`UnknownEscapes::Error`](crate::UnknownEscapes::Error). The
     /// declaration stays an entry with this diagnostic attached
     /// ([`Item::diagnostic`](crate::Item::diagnostic)), and its value keeps
-    /// the escape as written.
+    /// the escape as written. When a value has several such escapes,
+    /// [`parse`](crate::parse) reports each one and the entry carries the
+    /// first.
     InvalidEscape,
     /// A statement is kept in the source, but the dialect ignores it.
     ///
@@ -190,6 +200,7 @@ pub enum DiagnosticCode {
     ///
     /// Error, `dotenv.line-too-long`, set with
     /// [`Dialect::with_line_byte_limit`](crate::Dialect::with_line_byte_limit).
+    /// The count leaves out the line's final LF but includes a CR before it.
     /// The Docker preset allows 65,535 bytes; the other presets have no limit.
     /// The statement becomes an [`ItemKind::Invalid`](crate::ItemKind::Invalid)
     /// item.
@@ -345,8 +356,9 @@ impl Diagnostic {
     }
     /// Returns the one-based line where the primary span starts.
     ///
-    /// Lines are counted as [`LineIndex`](crate::LineIndex) counts them: LF,
-    /// CRLF and a lone CR each end a line, in every dialect.
+    /// Lines are counted as [`LineIndex`](crate::LineIndex) and
+    /// [`Entry::line`](crate::Entry::line) count them: LF, CRLF and a lone CR
+    /// each end a line, in every dialect.
     #[must_use]
     pub const fn line(&self) -> usize {
         self.line

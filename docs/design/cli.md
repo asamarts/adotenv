@@ -147,8 +147,8 @@ values. The second form reports a file that could not be read. In `<path>` and
 
 `diff` compares effective declarations. In human output, each candidate starts
 with a `baseline -> file` header, followed by one line per difference: `-` for
-a key only in the baseline, `+` for a key only in the candidate and `~` for a
-changed value, state or export prefix. A candidate with no differences prints
+a key that takes part in lookup only in the baseline, `+` for one that takes
+part only in the candidate and `~` for a changed value, state or export prefix. A candidate with no differences prints
 `(no differences)`.
 
 ```text
@@ -182,9 +182,9 @@ Every field is listed below, in output order. The schema is stable.
 | diff report | `files` | array of diff file | One entry per candidate, in argument order. |
 | diff file | `path` | string | The candidate path as given. |
 | diff file | `ok` | boolean | Always `true`. A file that cannot be read or parsed stops `diff` with exit `2` and no JSON. |
-| diff file | `differences` | array of difference | Baseline keys in baseline order, then keys found only in the candidate, in candidate order. Keys whose declarations agree are left out. |
+| diff file | `differences` | array of difference | Baseline keys in the order of their first declaration that takes part in lookup, then the keys that take part in lookup only in the candidate, in the same order. Keys whose declarations agree are left out. |
 | difference | `key` | string | The key. |
-| difference | `kind` | string | The first difference found, checked in this order: `only-left` (only in the baseline), `only-right` (only in the candidate), `state`, `value`, `export`. |
+| difference | `kind` | string | The first difference found, checked in this order: `only-left` (takes part in lookup only in the baseline), `only-right` (only in the candidate), `state`, `value`, `export`. |
 | difference | `left` | value or null | The baseline declaration, or `null` when the key is absent. |
 | difference | `right` | value or null | The candidate declaration, or `null` when the key is absent. |
 | value | `state` | string | `bare` for a key without `=`, `empty` for an empty value, otherwise `value`. |

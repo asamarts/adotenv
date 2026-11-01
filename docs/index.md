@@ -15,7 +15,7 @@
 <div class="feature"><h3>Precise locations</h3><p>Every token has a byte span. Positions convert to UTF-8, Unicode scalar or UTF-16 columns.</p></div>
 <div class="feature"><h3>Verified edits</h3><p>Set, rename, insert, remove, format and sort. Each result is parsed again and checked before you get it.</p></div>
 <div class="feature"><h3>Explicit dialects</h3><p>Portable, Node dotenv, python-dotenv, Docker Compose and Docker presets, plus custom reading rules.</p></div>
-<div class="feature"><h3>Small core</h3><p>No runtime dependencies, no I/O, no unsafe code and a <code>no_std</code> build with <code>alloc</code>.</p></div>
+<div class="feature"><h3>Small core</h3><p>No required dependencies, no I/O, no unsafe code and a <code>no_std</code> build with <code>alloc</code>.</p></div>
 </div>
 
 ## Install

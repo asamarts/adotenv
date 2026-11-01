@@ -71,9 +71,9 @@ pub struct ComparisonEntry {
 /// The keys whose effective declarations differ between two documents.
 ///
 /// [`Document::compare`] returns this type. Keys that take part in lookup in
-/// the left document come first, in the order they are first declared,
-/// followed by the keys found only in the right document, in the same order.
-/// Keys that agree are left out.
+/// the left document come first, in the order of their first declaration that
+/// takes part in lookup, followed by the keys that take part in lookup only in
+/// the right document, in the same order. Keys that agree are left out.
 ///
 /// # Examples
 ///

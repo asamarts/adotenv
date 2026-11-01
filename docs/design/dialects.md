@@ -6,7 +6,7 @@ rules explicit: every document carries the `Dialect` it was read with.
 
 ## Presets
 
-| Preset | Reads like | Pinned reference |
+| Preset | Reads like | Pinned version |
 |---|---|---|
 | `Dialect::PORTABLE` | A strict, literal default for files shared between tools | None |
 | `Dialect::NODE_DOTENV` | The default parser of Node `dotenv` | `dotenv` 18.0.8 |
@@ -14,11 +14,11 @@ rules explicit: every document carries the `Dialect` it was read with.
 | `Dialect::COMPOSE` | Docker Compose env files, without interpolation | Compose 5.6.0, `compose-go` 2.16.1 |
 | `Dialect::DOCKER_RAW` | The Docker CLI `--env-file` parser | Docker CLI 29.8.2 |
 
-Presets choose parsing and literal lookup rules only. None enables
-interpolation, inheritance from the process environment or file loading.
-Compose bare-key roles stay the caller's job. The pinned references are the
-versions that the [conformance corpus](quality.md#conformance) was recorded
-against.
+Presets choose parsing and literal lookup rules only. None expands
+references, reads the process environment or loads files, so a bare key never
+takes a value from the environment, even where Docker or Compose would. The
+pinned versions are the upstream releases that the
+[conformance corpus](quality.md#conformance) was recorded against.
 
 ```rust
 use adotenv::{parse_with, Dialect};
@@ -40,40 +40,60 @@ assert_eq!(raw.get("B"), Some("`two words`"));
   are invalid.
 - An optional `export ` prefix and spaces or tabs around `=` are accepted.
 - `#` starts a comment at the beginning of a line or after whitespace.
-  `A=a#b` has value `a#b` and a warning. `A= # comment` is assigned empty.
+  `A=a#b` has the value `a#b` and a warning. `A= # comment` has an empty
+  value.
 - Single quotes are literal. Double quotes decode `\n`, `\r`, `\t`, `\\`, `\"`
   and `\$`. Unknown escape pairs stay literal with a warning.
 - Single and double quoted values may span lines. Original line endings remain.
 - After a closing quote, only whitespace and a `#` comment may follow.
   `A="x" # c` is fine; `A="x"#c` and `A="x"y` are errors.
-- `KEY` is a bare declaration with no value. `KEY=` and `KEY=""` have an empty
-  value. Bare declarations never read the environment.
-- Duplicates are retained. The last declaration wins and a warning is emitted.
-  A last bare declaration does not fall back to an earlier value.
-- A leading BOM is retained as a separate prelude. LF, CRLF and lone CR are
-  preserved. Lone CR produces a warning.
-- Backticks are literal text, not quotes.
+- `KEY` is a bare key: it takes part in lookup with no value, with a warning.
+  `KEY=` and `KEY=""` have an empty value. Bare keys never read the
+  environment.
+- Duplicates are kept. The last declaration wins and gets a warning. A bare
+  key that comes last does not fall back to an earlier value.
+- A leading byte-order mark is kept apart from the items, with an
+  informational diagnostic. LF, CRLF and a lone CR end lines and are kept as
+  written. A lone CR gets a warning.
+- Backticks are literal text, not quotes. In an unquoted value they get a
+  warning.
 - Parsing never expands variables or runs commands.
 
 ## Preset behavior
 
-**Node** supports backtick quotes, `KEY: value` separators (a colon followed by
-whitespace), decoded newline normalization and its default regex fallback.
-Malformed lines are ignored with a warning instead of failing. Bare keys are
-excluded from lookup. `__proto__` is retained as source but excluded from
-effective object lookup.
+**Node** starts a comment at any `#` in an unquoted value, so `A=a#b` reads
+`a`, and a comment may follow a closing quote directly. Backticks quote values,
+and a colon followed by whitespace works like `=`, as in `KEY: value`. Double
+quotes decode only `\n` and `\r`; other pairs stay as written. Text after a
+closing quote makes the whole value literal: `A="x"y` reads `"x"y`. CRLF and
+CR inside decoded values become LF. Malformed lines are ignored with a warning
+instead of failing. Bare keys and the key `__proto__` stay in the document but
+take no part in lookup.
 
-**Python** supports its named escape set, multiline single-quoted keys and
-Python whitespace classes. Original CRLF bytes stay in text-stream values.
+**Python** double quotes decode `\n`, `\r`, `\t`, `\\`, `\"`, `\'`, `\a`,
+`\b`, `\f` and `\v`, but not `\$`; other pairs stay as written. Single quotes
+decode `\'` and `\\`. A comment may follow a closing quote directly, and any
+`#` right after a bare key starts a comment. Keys may contain any character
+except whitespace, `=` and `#`, and may be single-quoted. Whitespace follows
+Python's definition. `export # note` is a comment line. CRLF inside quoted
+values stays as written.
 
-**Compose** recognizes Unicode letter and number categories, Compose whitespace
-and octal escapes. Text after a quoted value can begin another statement on the
-same line. Its end-of-file bare-key behavior is retained, and bare keys are
-excluded from lookup. Dollar syntax stays literal.
+**Compose** starts a comment only at a `#` after an ASCII space, and not at
+the start of a value: `A=a\t#b` and `A= #b` keep the hash. Any colon separates
+a key from its value. Keys may use Unicode letters and numbers, `_`, `.`, `-`,
+`[` and `]`, and may be empty, as in `=value`. Double quotes also decode `\a`,
+`\b`, `\f`, `\v` and the octal escape `\0` followed by exactly three octal
+digits, so `\0101` reads `A`; single quotes decode `\'`. Text after a closing
+quote starts another statement on the same line, and only LF ends a line. Bare
+keys take no part in lookup, but a bare key on a last line without a line
+ending reads as a value with an empty key, as Compose does. `$VAR` stays
+literal.
 
-**Docker** keeps values, hashes, quotes and internal CR bytes raw. Bare keys
-are retained but excluded from lookup. Lines are limited to 65,535 bytes, and
-only an ASCII space or tab invalidates a nonempty raw key.
+**Docker** keeps every byte after `=` as the value: quotes, `#`, backslashes,
+spaces and CR bytes inside the line. A key is everything before `=`; it may not
+be empty or contain an ASCII space or tab. There is no `export` prefix and no
+multiline value, and only LF ends a line. Bare keys stay in the document but
+take no part in lookup. Lines are limited to 65,535 bytes.
 
 ## Custom dialects
 
@@ -122,15 +142,15 @@ Every field of `Dialect` is public and has a builder of the same name:
 The variants of each policy are listed in the
 [API reference](https://docs.rs/adotenv/latest/adotenv/struct.Dialect.html).
 
-Each document keeps its exact configuration. `Document::reparse` rebuilds
-items, entries and maps for a different dialect while reusing the source text.
-Item and entry IDs belong to one reading only.
+Each document keeps the dialect it was read with. `Document::reparse` reads
+the same source text again with another dialect and builds new items and
+entries. Item and entry IDs belong to one reading only.
 
 ## Portability
 
-`Document::portability(&[dialects])` reparses the retained source for each
-unique configuration and reports lines whose meaning differs. The document's
-own dialect is always the first reading.
+`Document::portability(&[dialects])` parses the document's source again with
+each distinct dialect and reports the lines that they read differently. The
+document's own dialect is always the first reading.
 
 ```rust
 use adotenv::Dialect;
@@ -147,12 +167,17 @@ one `PortabilityReading` per dialect. A reading lists ordered parts:
 declarations, blank lines, comments, invalid or ignored statements and
 multiline continuations. Declaration parts include key, decoded value,
 assignment state, export prefix, lookup participation, effective value and
-duplicate winner. Quote style alone is not a difference.
+duplicate winner. Quote style alone is not a difference: `A=x` and `A="x"`
+read the same. Lines are split at LF, CRLF and a lone CR, whatever the
+dialects' line break rules, and a multiline item shows as a declaration on its
+first line and continuations on the others.
 
-The check is literal. It performs no expansion, lookup, inheritance or I/O.
+The check is literal. It expands nothing and reads no environment or file.
 
 ## Encoding
 
 `encode_value_with(value, dialect)` returns a literal token that reads back as
-`value` in that dialect, or `EncodeError::Unrepresentable`. See
+`value` in that dialect, or `EncodeError::Unrepresentable`. `encode_value` is
+the Portable helper; it returns `None` for a value that contains a control
+character other than tab, CR and LF. See
 [Encoding values](../guide/editing.md#encoding-values).

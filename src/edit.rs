@@ -126,7 +126,15 @@ impl VerifiedEdits {
 /// when it has none. At the end of a file without a final line ending, the
 /// line break goes before the new declaration and the output still has no
 /// final line ending, except where the dialect needs one: a bare key added at
-/// the end of a Compose file gets a line ending.
+/// the end of a Compose file gets a line ending. An empty file counts as a
+/// file without a final line ending, so inserting `PORT=8080` into it gives
+/// `PORT=8080` with no line ending.
+///
+/// In a dialect that reads text after a closing quote as the next statement
+/// ([`QuotedTail::NextStatement`](crate::QuotedTail::NextStatement), as in
+/// Compose), a declaration inserted right after a quoted value that has no
+/// line ending follows the closing quote on the same line: inserting `B=1`
+/// at the end of `A="x"` gives `A="x"B=1`.
 ///
 /// Several insertions at the same offset keep their order in the batch. When
 /// all of them use [`Sorted`](Self::Sorted), they are ordered by key instead.
@@ -208,11 +216,13 @@ pub enum Edit<'a> {
     /// A new literal value for one declaration.
     ///
     /// The value is written so that it reads back as exactly `value` in the
-    /// document's dialect, quoted or escaped as needed; references such as
-    /// `${HOST}` are written as text, not expanded. The declaration keeps its
-    /// quote style when that style can spell the value. A bare declaration gets
-    /// `=` and the value. The batch fails with [`EditError::Unencodable`] when
-    /// the dialect cannot spell the value in this position.
+    /// document's dialect, quoted or escaped as needed. A reference such as
+    /// `${HOST}` is written as typed, not expanded, and it is not escaped
+    /// against later expansion, so [`Document::resolve`] can still expand it.
+    /// The declaration keeps its quote style when that style can spell the
+    /// value. A bare declaration gets `=` and the value. The batch fails with
+    /// [`EditError::Unencodable`] when the dialect cannot spell the value in
+    /// this position.
     Set {
         /// The entry ID ([`Entry::id`](crate::Entry::id)) of the declaration.
         entry: usize,
@@ -272,13 +282,13 @@ pub enum Edit<'a> {
     /// or the batch fails with [`EditError::InvalidKey`] or
     /// [`EditError::Unencodable`].
     ///
-    /// The key must not already be declared in the output. The batch fails
-    /// with [`EditError::Duplicate`] when the document declares the key (any
-    /// occurrence, including duplicates and bare declarations) or when another
-    /// insertion, rename or uncommented line in the same batch declares it.
-    /// Removing, commenting out or renaming every existing declaration of the
-    /// key in the same batch frees it. Commented-out declarations are comments
-    /// and never collide.
+    /// The new declaration must be the only declaration of the key in the
+    /// output. The batch fails with [`EditError::Duplicate`] when the document
+    /// keeps a declaration of the key (any occurrence, including duplicates
+    /// and bare declarations) or when another insertion, rename or uncommented
+    /// line in the same batch declares it. Removing, commenting out or
+    /// renaming away every existing declaration of the key in the same batch
+    /// frees it. Commented-out declarations are comments and never collide.
     Insert {
         /// The new literal key.
         key: &'a str,
@@ -1719,10 +1729,12 @@ impl Document<'_> {
     /// Sets the literal value of the only declaration of `key`.
     ///
     /// The value is written so that it reads back as exactly `value` in the
-    /// document's dialect, quoted or escaped as needed; references such as
-    /// `${HOST}` are written as text, not expanded. The declaration keeps its
-    /// quote style when that style can spell the value. A bare declaration
-    /// becomes an assignment. Every other part of the file stays as it is.
+    /// document's dialect, quoted or escaped as needed. A reference such as
+    /// `${HOST}` is written as typed, not expanded, and it is not escaped
+    /// against later expansion, so [`Document::resolve`] can still expand it.
+    /// The declaration keeps its quote style when that style can spell the
+    /// value. A bare declaration becomes an assignment. Every other part of the
+    /// file stays as it is.
     ///
     /// To change one of several declarations of a key, use [`Document::edit`]
     /// with [`Edit::Set`].

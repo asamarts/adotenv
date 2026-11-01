@@ -13,7 +13,7 @@
 //! adotenv-process = "1"
 //! ```
 //!
-//! The crate has no features of its own and supports Rust 1.81.
+//! The crate has no features of its own and needs Rust 1.81 or later.
 //!
 //! # Prefer passing values explicitly
 //!

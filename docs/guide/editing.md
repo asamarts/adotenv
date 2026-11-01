@@ -1,11 +1,11 @@
 # Editing
 
-Edits work on one parsed snapshot. Every edit method returns
-`Result<VerifiedEdits, EditError>`. Before a result is returned, its complete
-output is parsed again with the same dialect and checked: the requested change
-happened, and unrelated declarations, comments, item kinds and invalid
-statements did not change. If the check fails, the edit fails and nothing is
-returned.
+Edits work on one parsed document and never modify it. Every edit method
+returns `Result<VerifiedEdits, EditError>`. Before a result is returned, its
+complete output is parsed again with the same dialect and checked: the
+requested change happened, and unrelated declarations, comments, item kinds
+and invalid statements did not change. If the check fails, the edit fails and
+nothing is returned. To keep editing, parse the output again.
 
 ## Single edits
 
@@ -37,15 +37,22 @@ assert_eq!(inserted.as_str(), "# app\nA=1\nB=2\nC=3\n");
 ```
 
 Values are literal. `set("URL", "${HOST}/api")` writes text that reads back as
-`${HOST}/api` in the same dialect, quoting or escaping it when needed. A value
-that the dialect cannot spell, such as a line break in Docker, fails with
-`EditError::Unencodable`.
+`${HOST}/api` in the same dialect, quoting or escaping it when needed. The
+reference is written as typed and not escaped against expansion, so
+`Document::resolve` can still expand it. A value that the dialect cannot
+spell, such as a line break in Docker, fails with `EditError::Unencodable`.
 
-Inserted lines use the line ending that is most common in the document.
+Inserted lines use the line ending that is most common in the document, or LF
+when it has none. At the end of a file without a final line ending, including
+an empty file, the output still has no final line ending; a bare key added at
+the end of a Compose file is the exception. In Compose, a declaration inserted
+right after a quoted value with no line ending follows the closing quote on
+the same line, as in `A="x"B=1`, because Compose reads text after a closing
+quote as the next statement.
 
 ## Batches
 
-`Document::edit` applies several operations to one snapshot and verifies the
+`Document::edit` applies several operations to one document and verifies the
 result once. Operations select targets by ID, so a batch can change one of
 several duplicate declarations:
 
@@ -67,16 +74,19 @@ assert_eq!(verified.as_str(), "A=one\nA=changed\nB\n");
 | `Edit` | Change |
 |---|---|
 | `Set { entry, value }` | Set the value of one declaration |
-| `Remove { item }` | Remove one item of any kind, without its neighboring comments |
+| `Remove { item }` | Remove one item of any kind; the comments around it stay |
 | `Rename { entry, key }` | Rename one declaration |
-| `Insert { key, value, position }` | Add a declaration; `value: None` adds a bare key |
+| `Insert { key, value, position }` | Add a declaration of a key that is not declared yet; `value: None` adds a bare key |
 | `Comment { item }` | Prefix every physical line of one item with `# ` |
 | `Uncomment { item }` | Remove one comment marker, and the following space if there is one, from a comment item |
 | `Export { entry, enabled }` | Add or remove the `export` prefix |
 
-`entry` is an entry ID and `item` an item ID of the same snapshot; see
-[Items and entries](parsing.md#items-and-entries). Restoring a commented-out
-multiline value takes one `Uncomment` per line in one batch.
+`entry` is an entry ID and `item` an item ID of the document that runs the
+batch; see [Items and entries](parsing.md#items-and-entries). Every ID and
+position refers to the original document, not to the output of earlier
+operations, and the batch either applies every operation or fails as a whole.
+Restoring a commented-out multiline value takes one `Uncomment` per line in
+one batch.
 
 ### Insert positions
 
@@ -114,7 +124,9 @@ let swapped = doc
 assert_eq!(swapped.as_str(), "B=1\nA=2\n");
 ```
 
-Commented-out declarations are comments, so they never collide.
+Commented-out declarations are comments, so they never collide. Uncommenting
+does not check collisions on its own: `uncomment` and `Edit::Uncomment` can
+restore a declaration of a key that the document still declares.
 
 ## Errors
 
@@ -125,7 +137,7 @@ Commented-out declarations are comments, so they never collide.
 | `InvalidTarget` | An ID is out of range or names the wrong kind of item. |
 | `InvalidKey` | The dialect cannot spell the key. |
 | `Unencodable` | The dialect cannot spell the value in this position. |
-| `ConflictingEdits` | Operations in one batch overlap or set the same property twice. |
+| `ConflictingEdits` | Operations in one batch overlap or change the same property twice. |
 | `WouldChangeMeaning` | The output would change unrelated source or miss the requested change. |
 
 ## Applying text edits
@@ -162,7 +174,7 @@ assert_eq!(text, verified.as_str());
 ```
 
 An editor that applies the edits to a buffer that may have changed since the
-snapshot was parsed must check the buffer version first.
+document was parsed must check the buffer version first.
 [Formatting and sorting](../design/formatting.md) return edits in the same
 order.
 

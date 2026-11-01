@@ -31,9 +31,10 @@ files, `Document::resolve` substitutes references from a lookup you pass,
   many statements on one line, long `$` runs and deeply nested forms.
   Resolution time is linear in the number of references in a value, and edit
   batches that set and insert entries stay linear.
-- Resolution enforces limits on nesting depth, the expanded size of each value
-  and the total output size. The total defaults to 64 MiB in every preset and
-  fails with `ResolveError::OutputTooLarge`. See
+- Resolution enforces limits on nesting depth (64 in every preset), the
+  expanded size of each value (1 MiB) and the total output size (64 MiB).
+  Exceeding them fails with `ResolveError::DepthExceeded`, `ValueTooLarge` or
+  `OutputTooLarge`. See
   [References and resolution](../design/expansion.md#resolution).
 - Fuzz targets cover parsing, edits, encoding, resolution and formatting. A
   bounded fuzz run is evidence, not a proof; see [Quality](../design/quality.md).
@@ -42,11 +43,13 @@ files, `Document::resolve` substitutes references from a lookup you pass,
 
 Values may be secrets. These outputs include them:
 
-- `Debug` output of documents, entries, loaded environments, resolved values
-  and the adapter types. Do not log it when values are secret.
+- `Debug` output of documents, items, entries, edit and format results,
+  comparisons, loaded environments, resolved values and the adapter types. Do not log it when values are secret.
 - Serde conversion errors name the key and line, and their messages include
   the value. Figment and `config` errors may also include the value they failed
   to convert.
+- Command call records (`CommandCall`) keep each command's output, and
+  `exec::Shell` error messages include the command's standard error.
 - `adotenv-cli get`, `load` and `diff` print values in every output format.
   `fmt` prints or writes the whole file. `check` prints source lines only with
   `--source`.

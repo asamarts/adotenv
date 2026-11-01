@@ -26,4 +26,4 @@ directly, when mutation is not required. See the
 [process environment guide](https://asamarts.github.io/adotenv/guide/process.html).
 
 This is the only workspace crate with an unsafe API. The core `adotenv` crate
-forbids unsafe code. The crate supports Rust 1.81.
+forbids unsafe code. The crate needs Rust 1.81 or later.

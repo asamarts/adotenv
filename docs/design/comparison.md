@@ -37,15 +37,20 @@ differences.
 
 | `DifferenceKind` | The key |
 |---|---|
-| `OnlyLeft` | Is declared only in the left document |
-| `OnlyRight` | Is declared only in the right document |
-| `State` | Changes between assigned, empty and bare |
+| `OnlyLeft` | Has a declaration that takes part in lookup only in the left document |
+| `OnlyRight` | Has a declaration that takes part in lookup only in the right document |
+| `State` | Changes between a non-empty value, an empty value and a bare declaration |
 | `Value` | Has a different decoded value |
 | `Export` | Gains or loses the `export` prefix |
 
-Each entry reports the first kind that applies, in that order. Entries list the
-left document's keys in source order, then keys found only in the right
-document. Empty keys, which some dialects accept, are compared too.
+Each entry reports the first kind that applies, in that order, so a key whose
+value and `export` prefix both differ reports `Value`. Entries list the left
+document's keys in the order of their first declaration that takes part in
+lookup, then the keys that take part in lookup only in the right document, in
+the same order. A bare declaration that does not take part in lookup, as in
+Node, Compose and Docker, counts as absent. Quoting, spacing, comments and
+source order are not compared. Empty keys, which some dialects accept, are
+compared too.
 
 Comparison is literal. It does not expand values, read files, inspect the
 environment or run commands. `adotenv-cli diff` prints the same comparison; see
@@ -53,16 +58,20 @@ environment or run commands. `adotenv-cli diff` prints the same comparison; see
 
 ## Generate an example
 
-`Document::example` replaces assigned values while preserving:
+`Document::example` removes assigned values while preserving:
 
-- comments and blank lines;
-- keys, export prefixes and formatting;
+- whole-line comments and blank lines;
+- keys, `export` prefixes and the spacing before each value;
+- inline comments;
 - line endings and a BOM;
-- the assignment state of bare declarations.
+- bare declarations, which stay bare.
 
-Invalid statements, ignored statements and empty-key entries become comments
-that keep their indentation. Value text from those forms cannot leak into the
-output.
+Invalid statements, ignored statements and empty-key entries become `#`
+comments that keep only their indentation and line ending. Value text from
+those forms cannot leak into the output. Statements that shared one physical
+line are put on separate lines. In Compose, text right after a closing quote is
+the next statement, so `A="x"tail` gives `A=""` and a bare `tail` on the next
+line.
 
 ```rust
 let source = "# app\nA=1\nB=\"two\" # note\nBARE\nBAD KEY=secret\n";
@@ -76,7 +85,9 @@ Where an empty value would change how the line reads, the value becomes `""`
 instead of nothing. That happens when the separator is `:`, when the value
 spans lines, when another statement follows on the same line, or when the
 entry has an inline comment in a dialect that lets comments follow quotes
-(Node, Python and Compose). Raw-value dialects never get a placeholder.
+(Node, Python and Compose). Raw-value dialects such as Docker never get a
+placeholder. In a custom dialect where an inline comment cannot follow an
+empty value, the comment moves to its own line.
 
 ```rust
 use adotenv::{parse_with, Dialect};

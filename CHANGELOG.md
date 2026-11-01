@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Documentation
+
+- A second review of the 1.0.1 documentation corrected statements that did
+  not match the code, among them the diagnostics that `dotenv.tight-hash` and
+  `dotenv.duplicate-key` cover, where an insertion lands in Compose, how
+  `diff` orders keys, which serde shapes convert, how loading treats a bare
+  key in a later file, and the resolution limits. The guide gained a table of
+  reference operators and a table of the item kind that carries each
+  diagnostic, and the README and guide no longer use internal terms such as
+  "snapshot" or "trivia".
+
 ## [1.0.1] - 2026-11-01
 
 A patch release of `adotenv`, `adotenv-process` and `adotenv-cli` with one fix

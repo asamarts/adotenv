@@ -7,9 +7,9 @@ use crate::{Document, Entry, Item, ItemKind};
 /// A run of items between blank lines.
 ///
 /// [`Document::groups`] splits a document's items at blank lines. A group
-/// holds the comments, entries and invalid or ignored statements between two
-/// runs of blank lines; the blank lines themselves belong to no group. A
-/// multiline value stays in one group, even if it contains empty lines.
+/// holds one run of comments, entries and invalid or ignored statements with
+/// no blank line between them; the blank lines themselves belong to no group.
+/// A multiline value stays in one group, even if it contains empty lines.
 /// [`Document::header`] also returns a `Group`, and is the exception: it can
 /// contain blank lines.
 ///

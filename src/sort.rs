@@ -5,7 +5,8 @@
 //! whole chunks of a group so leading comments and inline comments travel with
 //! their entries. Keys that reference each other keep their relative order. A
 //! group is left untouched when it contains invalid or ignored statements,
-//! duplicate or empty keys, a self-reference or a reference cycle.
+//! duplicate or empty keys, a self-reference, a reference cycle, or a
+//! declaration that shares its physical line with the next statement.
 
 use alloc::{
     collections::{BTreeMap, BTreeSet},

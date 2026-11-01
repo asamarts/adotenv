@@ -1,7 +1,7 @@
 # Getting started
 
 adotenv reads `.env` files as source code: it keeps every byte, reports where
-each token is and changes files only through verified edits. This page installs
+each token is and changes text only through verified edits. This page installs
 the crates and walks through the main tasks.
 
 ## Install the library
@@ -94,8 +94,9 @@ Python, Docker Compose or Docker.
 
 ## Edit
 
-Edits work on a snapshot and return `VerifiedEdits`: the new text plus the text
-edits that produce it. The output is parsed again before it is returned.
+Edits never change the document. They return `VerifiedEdits`: the new text
+plus the text edits that produce it. The output is parsed again and checked
+before it is returned.
 
 ```rust
 let doc = adotenv::parse_strict("A=1\nB=2\n").unwrap();
@@ -103,7 +104,7 @@ let doc = adotenv::parse_strict("A=1\nB=2\n").unwrap();
 let edited = doc.set("B", "two words").unwrap();
 assert_eq!(edited.as_str(), "A=1\nB=two words\n");
 
-// An unquoted value gets quotes only when the dialect needs them.
+// The value is quoted only when it needs to be.
 let quoted = doc.set("B", "a # b").unwrap();
 assert_eq!(quoted.as_str(), "A=1\nB=\"a # b\"\n");
 

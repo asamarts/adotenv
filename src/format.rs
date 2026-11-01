@@ -15,10 +15,10 @@ use crate::{Document, ItemKind, Quote, TextEdit};
 /// The spacing applies to the separator (`=`, or `:` in dialects that accept
 /// it) of every assignment; bare declarations have none. Declarations with an
 /// empty key and every declaration in a raw-value dialect such as
-/// [`Dialect::DOCKER_RAW`](crate::Dialect::DOCKER_RAW) keep their spacing. The
-/// space after the separator also stays when the value is empty or starts
-/// with `#` and no inline comment follows, because changing it could change
-/// the value.
+/// [`Dialect::DOCKER_RAW`](crate::Dialect::DOCKER_RAW) keep their spacing.
+/// When no inline comment follows, the space after the separator also stays
+/// if the value is empty or starts with `#`, because changing it could change
+/// how the line reads.
 ///
 /// # Examples
 ///
@@ -66,13 +66,13 @@ pub enum EqualsSpacing {
 pub enum FinalNewline {
     /// The end of the file stays as it is.
     Preserve,
-    /// A final line ending: an LF is added when the output does not end with a
-    /// line break.
+    /// A final line ending: an LF is added when the output ends with neither
+    /// LF nor CR.
     ///
-    /// The LF is added even in a CRLF file. Nothing is added to an empty
-    /// document, or when collapsing a trailing run of blank lines already
-    /// leaves the output ending in a line break. With trimming, a
-    /// whitespace-only last line becomes an empty blank line.
+    /// The LF is added even in a CRLF file. Nothing is added to a document
+    /// with no items, such as an empty one, or when collapsing a trailing run
+    /// of blank lines already leaves the output ending in a line break. With
+    /// trimming, a whitespace-only last line becomes an empty blank line.
     Ensure,
     /// No final line ending: one final LF, CRLF or lone CR is removed.
     ///
@@ -115,6 +115,11 @@ pub enum BlankLines {
 /// around. Empty values, bare declarations and declarations with an empty key
 /// keep their form, and values in raw-value dialects such as
 /// [`Dialect::DOCKER_RAW`](crate::Dialect::DOCKER_RAW) are never re-quoted.
+///
+/// Only the literal value is compared, not how references in it expand. A
+/// quote change can therefore change what [`Document::resolve`] returns: with
+/// [`ExpandOptions::portable`](crate::ExpandOptions::portable), `A=${HOST}`
+/// expands `${HOST}`, while `A='${HOST}'` keeps it as text.
 ///
 /// # Examples
 ///
@@ -184,8 +189,8 @@ pub struct FormatOptions {
     /// line without a line ending is kept as is unless [`FinalNewline::Ensure`]
     /// is selected, because trimming it would remove the line. Lines that end
     /// with or follow a lone CR line ending, and an empty or bare declaration
-    /// followed by an indented line (together with that line), are also left
-    /// alone, so the next parse reads the same lines.
+    /// without an inline comment followed by an indented line (together with
+    /// that line), are also left alone, so the next parse reads the same lines.
     pub trim_trailing_whitespace: bool,
     /// What happens to runs of blank lines; see [`BlankLines`].
     pub blank_lines: BlankLines,
@@ -432,7 +437,8 @@ impl Document<'_> {
     /// are never rewritten. Trimming never touches whitespace inside multiline
     /// values. A quote style other than [`QuoteStyle::Preserve`] re-encodes a
     /// value, multiline values included, only when its decoded text stays the
-    /// same. In raw-value dialects such as
+    /// same; it can still change how references expand (see [`QuoteStyle`]).
+    /// In raw-value dialects such as
     /// [`Dialect::DOCKER_RAW`](crate::Dialect::DOCKER_RAW), declaration lines
     /// stay untouched because every byte after `=` is part of the value;
     /// comments and blank lines are still formatted.
@@ -446,8 +452,9 @@ impl Document<'_> {
     /// Returns [`FormatError::WouldChangeMeaning`] if the parsed output does not
     /// keep the keys, values, assignment states, `export` prefixes, lookup
     /// participation and inline comments of every declaration, the kind of
-    /// every item and the text of invalid and ignored statements, and also the
-    /// quoting when the quote style is [`QuoteStyle::Preserve`]. The formatter
+    /// every item, the text of comments apart from trailing whitespace, the
+    /// text of invalid and ignored statements and the BOM, and also the quoting
+    /// when the quote style is [`QuoteStyle::Preserve`]. The formatter
     /// skips the changes it knows to be risky, so this is rare; see
     /// [`FormatError`] for an example.
     ///

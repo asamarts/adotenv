@@ -804,7 +804,8 @@ pub enum ResolveError {
     },
     /// Nesting went deeper than [`ExpandOptions::max_depth`].
     DepthExceeded {
-        /// The key of the entry being resolved when the limit was reached.
+        /// The key of the entry that holds the nested reference, or of the
+        /// entry that would be resolved too deep.
         key: String,
         /// The configured [`ExpandOptions::max_depth`].
         limit: usize,
@@ -924,10 +925,11 @@ impl Document<'_> {
     /// [`LookupOrder`] picks which one is tried first: the file
     /// ([`LookupOrder::FileFirst`], the preset) or the closure
     /// ([`LookupOrder::CallerFirst`]). A variable is *unset* when this order
-    /// finds no value for it; under [`LookupOrder::FileFirst`] a visible bare
-    /// key also leaves it unset. An empty value still counts as set. Operator
-    /// forms, which need rules such as those of [`ExpandOptions::compose`],
-    /// work as follows:
+    /// finds no value for it. A visible bare key has no value, so under
+    /// [`LookupOrder::FileFirst`] it leaves the variable unset without calling
+    /// the closure; under [`BareKeys::Empty`] it reads as empty instead. An
+    /// empty value still counts as set. Operator forms, which need rules such
+    /// as those of [`ExpandOptions::compose`], work as follows:
     ///
     /// | Form | Result |
     /// |---|---|
@@ -955,8 +957,9 @@ impl Document<'_> {
     ///
     /// - [`ResolveError::Unresolved`] when a plain reference is unset and the
     ///   policy is [`Unresolved::Error`];
-    /// - [`ResolveError::Required`] when a `${NAME:?message}` or
-    ///   `${NAME?message}` reference finds its variable without a value;
+    /// - [`ResolveError::Required`] when a `${NAME?message}` reference finds
+    ///   its variable unset, or a `${NAME:?message}` reference finds it unset
+    ///   or empty;
     /// - [`ResolveError::Cycle`] when file values refer to each other in a loop
     ///   (whole-file scope only);
     /// - [`ResolveError::DepthExceeded`] when nesting goes deeper than

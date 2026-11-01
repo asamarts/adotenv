@@ -25,8 +25,10 @@
 //! Every file is parsed with the same dialect. Within one file, the dialect's
 //! duplicate-key and bare-key rules choose the effective value of each key.
 //! Across files, a later file's effective value replaces an earlier one, key by
-//! key. A bare key has no value under the Portable dialect, so a bare `PORT` in
-//! a later file keeps the earlier value of `PORT`.
+//! key. When the declaration that wins in a file is a bare key, the Portable
+//! dialect gives the key no value there, so the value from earlier files stays:
+//! with `PORT=3000` in `.env`, and `PORT=8080` followed by a bare `PORT` in
+//! `.env.local`, the result is `3000`.
 //!
 //! With `PORT=3000` and `DATABASE_URL=postgres://localhost/dev` in `.env`, and
 //! `PORT=8080` in `.env.production`:
@@ -90,10 +92,10 @@
 //! # Options and reports
 //!
 //! [`LoadOptions`] chooses the dialect and what a [`LoadedEnvironment`] keeps.
-//! [`LoadOptions::new`], which the functions without an options argument use,
-//! keeps the values, their origins and the raw source text that
-//! [`LoadedEnvironment::resolve_contextual`] needs. [`LoadOptions::full`] also
-//! keeps four reports that explain how the values were chosen:
+//! [`LoadOptions::new`], which [`load_cascade`], [`load_cascade_with`] and
+//! [`load_files`] use, keeps the values, their origins and the raw source text
+//! that [`LoadedEnvironment::resolve_contextual`] needs. [`LoadOptions::full`]
+//! also keeps four reports that explain how the values were chosen:
 //!
 //! - [`LoadedEnvironment::entries`]: the effective declaration of each key in
 //!   each file, including the ones a later file replaced ([`LoadedEntry`]).
@@ -560,7 +562,8 @@ impl LoadOptions {
     /// Returns options that keep values, origins and raw source text, but no
     /// reports.
     ///
-    /// The load functions without an options argument use these options.
+    /// [`load_cascade`], [`load_cascade_with`] and [`load_files`] use these
+    /// options.
     #[must_use]
     pub const fn new(dialect: Dialect) -> Self {
         Self {
@@ -1123,6 +1126,7 @@ impl LoadedEnvironment {
     /// - without a key, if `options.scope` is not [`ExpandScope::WholeFile`];
     /// - naming the key, if a key or value cannot be written back exactly,
     ///   such as a value with a control character other than tab, CR or LF;
+    /// - without a key, if the written-back values cannot be parsed again;
     /// - naming the key, if resolution fails, for example an unset name under
     ///   [`Unresolved::Error`](crate::Unresolved::Error), a cycle or a size
     ///   limit; the message is the [`ResolveError`] message.
@@ -1400,8 +1404,9 @@ fn resolve_error_key(error: &ResolveError) -> &str {
 /// An error that stops a load.
 ///
 /// A load either reads and checks every file or returns this error and no
-/// values. Its `Display` names the file, for example
+/// values. The `Display` of a file error names the file, for example
 /// `/srv/my-app/.env: line 2: key does not match the selected dialect (dotenv.invalid-key)`.
+/// [`LoadError::InvalidMode`] has a fixed message.
 ///
 /// # Examples
 ///

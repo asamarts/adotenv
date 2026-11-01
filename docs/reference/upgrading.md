@@ -16,6 +16,16 @@ Parsed values and Portable item boundaries are the same as in 0.10. The full
 list of changes is in the
 [changelog](https://github.com/asamarts/adotenv/blob/main/CHANGELOG.md).
 
+## Within 1.x
+
+Patch releases fix bugs without changing the API. One fix changes results:
+
+- 1.0.1: with a custom dialect that uses `Duplicates::First`,
+  `Document::resolve` and `Document::resolve_with_commands` bind a repeated key
+  to its first visible declaration, the one `Document::get` returns. 1.0.0
+  bound it to the last one. The presets use `Duplicates::Last` and are
+  unaffected.
+
 ## From 0.11
 
 One change needs attention:

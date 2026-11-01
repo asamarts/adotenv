@@ -3,8 +3,8 @@
 //!
 //! The effective declarations are presented as a map from key to literal
 //! value. A value converts to a scalar type when the target asks for one;
-//! sequences, nested maps, tuples and enums are rejected. A value or key that
-//! does not convert reports the line of its declaration.
+//! sequences, nested maps and structs, tuples and enums are rejected. A value
+//! or key that does not convert reports the line of its declaration.
 
 use alloc::{
     format,
@@ -27,9 +27,11 @@ use crate::Document;
 ///
 /// - A value that does not convert has the one-based line of its declaration
 ///   and its key.
-/// - A key that does not convert, such as `abc` read as a `u16` map key or an
-///   unknown field under `#[serde(deny_unknown_fields)]`, has the line of its
-///   declaration and an empty key, `Some("")`.
+/// - A key that does not convert, such as an unknown field under
+///   `#[serde(deny_unknown_fields)]`, has the line of its declaration and an
+///   empty key, `Some("")`. Keys are always passed as strings, so any key read
+///   into a map with non-string keys, such as `BTreeMap<u16, String>`, fails
+///   this way, even `8080`.
 /// - An error about the whole map, such as a missing field, has line `0` and
 ///   no key.
 /// - From a loaded environment loaded without origins, a value error has
@@ -166,12 +168,18 @@ impl Document<'_> {
     /// | `Option<T>` | `None` when the key is absent, otherwise `Some` of the converted value |
     /// | `()` and unit structs | An empty value |
     /// | Newtype structs | The rule of the inner type |
-    /// | Bytes | The UTF-8 bytes of the value |
+    /// | Bytes, as requested by `serde_bytes::ByteBuf` | The UTF-8 bytes of the value |
     ///
     /// An empty value is still present: `PORT=` read as `Option<u16>` is an
-    /// error, not `None`. Sequences, nested maps, tuples and enums are rejected
-    /// as values, even enums with only unit variants; deserialize a `String`
-    /// and convert it yourself when a field needs another shape.
+    /// error, not `None`. Sequences, nested maps and structs, tuples and enums
+    /// are rejected as values, even enums with only unit variants and
+    /// `Vec<u8>`, which Serde reads as a sequence; deserialize a `String` and
+    /// convert it yourself when a field needs another shape.
+    ///
+    /// Map keys are passed as strings, so a map with non-string keys, such as
+    /// `BTreeMap<u16, String>`, fails. Fields inside `#[serde(flatten)]` also
+    /// receive every value as a string, so only fields that accept a string,
+    /// such as `String`, work there.
     ///
     /// # Errors
     ///

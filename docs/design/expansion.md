@@ -10,7 +10,10 @@ Finding those references and resolving them are separate, explicit steps.
 - `$VAR` and `${VAR}`;
 - `${VAR:-default}`, `${VAR-default}`, `${VAR:?message}`, `${VAR?message}`,
   `${VAR:+alternative}` and `${VAR+alternative}`;
-- `$(command)`, including nested payloads.
+- `$(command)`.
+
+Candidates nested in operator arguments and in commands are returned too, as in
+`${TAG:-$(git describe)}`.
 
 ```rust
 use adotenv::{parse_strict, ReferenceKind, ReferenceOperator, ReferenceRules};
@@ -36,7 +39,7 @@ its innermost containing form, which comes earlier in the list, and the
 candidates nested in a form directly follow it. The list holds at most one
 candidate per `$`, so its size is linear in the value length.
 
-Single-quoted, escaped-dollar and malformed candidates remain visible. Being
+Single-quoted, escaped and malformed candidates remain visible. Being
 visible does not make a reference eligible.
 
 Inspection performs no lookup, expansion, I/O or command execution.
@@ -51,7 +54,7 @@ form is eligible too.
 |---|---|
 | `operators` | `OperatorSet::None`, `Braced` (`${VAR}` only), `Basic` (`$VAR` and `${VAR}`), `Compose` or `DotenvExpand` (all operators and nesting) |
 | `single_quotes` | References inside single quotes are eligible |
-| `escaped_dollar` | References after `\$` are eligible |
+| `escaped_dollar` | Escaped candidates are eligible: `\$VAR` in double quotes when the dialect decodes `\$`, `\$` inside an operator argument or command, and the `$B` of `$$B` under the Compose grammar |
 | `commands` | `$(command)` forms are eligible |
 | `backtick_quotes` | References inside backticks are eligible |
 
@@ -73,8 +76,8 @@ Compose prints `$B`.
 ## Resolution
 
 `Document::resolve(lookup, options)` substitutes eligible references using the
-file's own bindings and a caller lookup closure. The core never reads the
-environment or files on its own.
+file's own declarations and a lookup closure supplied by the caller. The core
+never reads the environment or files on its own.
 
 ```rust
 use adotenv::{parse_strict, ExpandOptions, LookupOrder};
@@ -120,38 +123,70 @@ Builders change one option each:
 | `with_max_value_bytes` | Expanded bytes per value | 1 MiB |
 | `with_max_output_bytes` | Total bytes of one resolution | 64 MiB |
 
-Sequential scope uses the earlier declarations of a name, and whole-file scope
-uses all of them. Among those, the dialect's duplicate-key rule picks one: the
-latest under `Duplicates::Last`, which every preset uses, or the first under
-`Duplicates::First`. With no caller value, `A=base` followed by `A=${A}x` gives
-`basex` in sequential scope and a cycle in whole-file scope.
+In sequential scope a reference sees the declarations before its entry; in
+whole-file scope it sees every declaration. Only declarations that take part in
+lookup count. When a name is declared more than once, the dialect's
+duplicate-key rule picks one of the visible declarations: the latest under
+`Duplicates::Last`, which every dialect preset uses, or the first under
+`Duplicates::First`. In whole-file scope this is the declaration that
+`Document::get` returns. With a dialect preset and no caller value, `A=base`
+followed by `A=${A}x` gives `basex` in sequential scope and a cycle in
+whole-file scope. Under `Duplicates::First` it gives `basex` in both, because
+the reference binds to `A=base`.
 
-With `FileFirst`, a declaration in the file wins over the lookup closure, even
-a declaration without a value. With `CallerFirst`, the closure wins when it
-returns a value.
+With `FileFirst`, a visible declaration wins over the lookup closure, even a
+bare key: the closure is not called. With `CallerFirst`, the closure wins when
+it returns a value.
+
+### Unset variables and operators
+
+A variable is unset when the lookup order finds no value for it. An empty value
+is still set. A visible bare key supplies no value, except under
+`BareKeys::Empty`, where it reads as empty.
+
+A plain `$NAME` or `${NAME}` that is unset follows `Unresolved`: `Keep` (every
+preset) leaves the reference as written, `Empty` replaces it with nothing, and
+`Error` fails with `ResolveError::Unresolved`. Operator forms need rules that
+accept them, such as `ExpandOptions::compose()`, and decide for themselves:
+
+| Form | Result |
+|---|---|
+| `${NAME:-default}` | `default` when `NAME` is unset or empty, else its value |
+| `${NAME-default}` | `default` when `NAME` is unset, else its value |
+| `${NAME:+alternative}` | `alternative` when `NAME` is set and not empty, else empty |
+| `${NAME+alternative}` | `alternative` when `NAME` is set, else empty |
+| `${NAME:?message}` | `ResolveError::Required` when `NAME` is unset or empty, else its value |
+| `${NAME?message}` | `ResolveError::Required` when `NAME` is unset, else its value |
+
+An argument is resolved only when it is used, and may contain further
+references.
 
 ### Results
 
 `resolve` returns a `ResolvedDocument` with `entries()`, `commands()`, `len()`
 and `is_empty()`. Each `ResolvedEntry` has the `entry` ID, `key`, assignment
-`state`, resolved `value`, `effective_value` after lookup policy, and
-`segments`. The segments concatenate to the value and record where each part
-came from: literal text, a variable from the file (entry, key and span) or from
-the lookup, an unresolved reference, or a command.
+`state`, resolved `value`, `effective_value` (the value the entry gives to
+lookup, after the dialect's bare-key rule) and `segments`. The segments
+concatenate to the value and record where each part came from: literal text, a
+variable from the file (entry, key and span) or from the lookup, an unresolved
+reference, or a command.
 
 ### Errors and limits
 
-`ResolveError` reports `Unresolved` (with `Unresolved::Error`), `Required` (a
-`?` or `:?` operator without a value), `Cycle`, `DepthExceeded`,
-`ValueTooLarge`, `OutputTooLarge` and `Command`. Resolution never loops on a
+Resolution stops at the first error. `ResolveError` reports `Unresolved` (an
+unset plain reference under `Unresolved::Error`), `Required` (from a `?` or
+`:?` operator), `Cycle` (file values that refer to each other in a loop, in
+whole-file scope), `DepthExceeded`, `ValueTooLarge`, `OutputTooLarge` and
+`Command` (a `CommandError` from the callback). Resolution never loops on a
 cycle.
 
-Nested provenance copies the referenced value's segments, so references that
-repeat each other can make the output grow much faster than the file.
-`max_output_bytes` bounds the whole output of one resolution: every resolved
-value and every segment counts, nested parts included, with a fixed overhead
-per segment. The budget is checked before each copy is made. The presets allow
-64 MiB, several times what a 65,536-entry file needs. Exceeding it returns
+A reference to a file value copies that value's segments into the result, so
+references that repeat each other can make the output grow much faster than the
+file. `max_output_bytes` bounds the whole output of one resolution: every
+resolved value, segment and recorded command call counts, nested parts
+included, with a fixed overhead for each. The budget is checked before each
+copy is made. The presets allow 64 MiB, about three times what a file of 65,536
+short declarations without references needs. Exceeding it returns
 `ResolveError::OutputTooLarge` with the entry being resolved and the limit.
 
 ## Commands
@@ -183,10 +218,11 @@ each command to the callback as a `CommandContext` with:
 - `source`, the optional caller source identity.
 
 The callback returns the output or a `CommandError`. Output is literal and is
-not expanded again. Every call is recorded as a `CommandCall` in `commands()`,
-including failed calls. On failure, `resolve_with_commands` returns a
-`ResolveFailure` with the `error` and the `commands` run so far. Earlier calls
-are not rolled back.
+not expanded again. A command inside an operator argument runs only when the
+argument is used. Every call is recorded as a `CommandCall`, in
+`ResolvedDocument::commands()` on success. On failure, `resolve_with_commands`
+returns a `ResolveFailure` with the `error` and the `commands` called so far,
+including a failed call. Calls that already ran are not rolled back.
 
 ### `exec::Shell`
 
@@ -205,13 +241,19 @@ let resolved = doc
 # Ok::<(), adotenv::ResolveError>(())
 ```
 
+- Each command runs as `sh -c <command>`, or `cmd /C <command>` on Windows,
+  with the command text as written.
 - `Shell::new(directory)` runs every command in that directory. An invalid
-  directory is an error when a command runs; the host working directory is
-  never used as a fallback.
+  directory is an error when a command runs; the current directory of the
+  process is never used instead.
 - `Shell::with_origins(directory, origins)` maps source identities to
   directories, so commands from each file run next to it.
-- Standard output is returned with one trailing newline removed. A nonzero exit
-  status or output that is not UTF-8 is an error.
-- The command inherits the environment of the current process.
+- The command inherits the environment of the current process and gets an
+  empty standard input. The shell expands variables in the command from that
+  environment, not from the file or the lookup closure.
+- Standard output is returned with one trailing newline removed. A command
+  that cannot start, exits with a nonzero status or prints output that is not
+  UTF-8 is an error; for a nonzero status the message includes the command's
+  standard error.
 
 Commands run exactly as written. Only use `exec::Shell` with trusted files.

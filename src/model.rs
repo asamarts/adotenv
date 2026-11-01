@@ -263,8 +263,9 @@ pub(crate) struct ItemData {
 /// [`Dialect`] reads from it: entries, comments, blank lines, and statements
 /// the dialect rejects or skips. Parsing never changes the source:
 /// [`Document::source`] and the `Display` output return it byte for byte,
-/// malformed lines included. Values are literal: `${HOST}` is not expanded
-/// unless you call [`Document::resolve`].
+/// malformed lines included. Values are literal: `${HOST}` stays as written,
+/// and only [`Document::resolve`] substitutes references, in a separate
+/// result.
 ///
 /// Create a document with [`parse`](crate::parse) or one of its siblings. A
 /// `Document<'src>` borrows its source; [`parse_owned`](crate::parse_owned)
@@ -296,18 +297,21 @@ pub(crate) struct ItemData {
 ///
 /// - **Lookup**: [`get`](Document::get) returns the *effective value* of a
 ///   key, after the dialect's duplicate-key and bare-key rules, and
-///   [`get_entry`](Document::get_entry) the declaration that provides it.
+///   [`get_entry`](Document::get_entry) the declaration that wins lookup.
 ///   [`get_all`](Document::get_all) yields every declaration of a key, and
 ///   [`unique`](Document::unique) returns the only one or fails.
-///   [`effective_entries`](Document::effective_entries) yields one winning
-///   declaration per key. For many lookups, build a [`LookupIndex`] once with
+///   [`effective_entries`](Document::effective_entries) yields the winning
+///   declaration of each key that has an effective value. For many lookups,
+///   build a [`LookupIndex`] once with
 ///   [`lookup_index`](Document::lookup_index).
 /// - **Items and entries**: [`items`](Document::items) and
 ///   [`item`](Document::item) give every piece of the source as an [`Item`];
 ///   [`entries`](Document::entries) and [`entry`](Document::entry) give the
-///   declarations as [`Entry`] values. [`source`](Document::source),
+///   declarations as [`Entry`] values.
+/// - **Source text**: [`source`](Document::source),
 ///   [`has_bom`](Document::has_bom), [`bom_span`](Document::bom_span) and
-///   [`has_final_newline`](Document::has_final_newline) describe the text.
+///   [`has_final_newline`](Document::has_final_newline) describe the text, and
+///   [`into_owned`](Document::into_owned) makes the document own it.
 /// - **Structure**: [`groups`](Document::groups) splits the items at blank
 ///   lines, and [`header`](Document::header) returns the items before the
 ///   first entry. [`Entry::leading_comments`] returns the comments above a
@@ -401,8 +405,9 @@ impl Document<'_> {
     ///
     /// The items cover the source with no gaps or overlaps, except a leading
     /// byte-order mark that the dialect strips ([`Document::bom_span`]), so
-    /// joining their [`Item::raw`] text rebuilds the source. The zero-based
-    /// position of an item in this iterator is its [`Item::id`].
+    /// joining their [`Item::raw`] text rebuilds the source without that mark.
+    /// The zero-based position of an item in this iterator is its
+    /// [`Item::id`].
     ///
     /// # Examples
     ///
@@ -1265,7 +1270,8 @@ impl<'doc> Entry<'doc> {
     /// Returns the one-based line of the key.
     ///
     /// Lines are counted as [`LineIndex`] counts them: LF, CRLF and a lone CR
-    /// each end a line, in every dialect.
+    /// each end a line, in every dialect. So in Compose and Docker, where a
+    /// lone CR does not end a statement, it still starts a new line number.
     #[must_use]
     pub fn line(self) -> usize {
         self.data().line

@@ -185,9 +185,9 @@ impl ReferenceRules {
         commands: false,
         backtick_quotes: false,
     };
-    /// Portable rules: `$VAR` and `${VAR}` outside single quotes.
+    /// Portable rules: `$VAR` and `${VAR}` outside single quotes and backticks.
     ///
-    /// No operators, nesting or commands. These are
+    /// No operators, nesting, commands or escaped candidates. These are
     /// [`ReferenceRules::default`] and the rules of
     /// [`ExpandOptions::portable`](crate::ExpandOptions::portable).
     pub const PORTABLE: Self = Self {
@@ -351,9 +351,10 @@ pub struct Reference {
     /// An odd number of backslashes before the `$` escapes it in a
     /// double-quoted value whose dialect decodes `\$`
     /// ([`DoubleEscapes::DOLLAR`]), and inside an operator argument or command
-    /// of an unquoted value. Under the Compose grammar, the second `$` of
-    /// `$$` is escaped too. Escaped candidates are eligible only with
-    /// [`ReferenceRules::escaped_dollar`].
+    /// of an unquoted value. At the top of an unquoted value a backslash does
+    /// not escape: in `A=\$HOME` the candidate `$HOME` is not escaped. Under
+    /// the Compose grammar, the second `$` of `$$` is escaped too. Escaped
+    /// candidates are eligible only with [`ReferenceRules::escaped_dollar`].
     pub escaped: bool,
     /// How deeply the candidate is nested.
     ///

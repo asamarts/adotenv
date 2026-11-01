@@ -132,6 +132,9 @@ impl Position {
 pub enum PositionError {
     /// The offset, line or column is past the end, or adding one to a
     /// coordinate would overflow.
+    ///
+    /// [`Entry::decoded_offset_to_raw`](crate::Entry::decoded_offset_to_raw)
+    /// also returns it for a bare key, which has no value.
     OutOfBounds,
     /// The offset is inside a UTF-8 character.
     ///
@@ -177,6 +180,10 @@ struct Line {
 /// the CR and the LF of a CRLF is an error. The end of the source is always a
 /// valid offset. Conversions never round or clamp: an offset or position that
 /// does not name an exact place returns a [`PositionError`].
+///
+/// A leading byte-order mark is part of line 0, like the spans of this crate:
+/// it takes 3 UTF-8 columns or 1 scalar or UTF-16 column before the first
+/// character. Subtract it yourself if your consumer hides the mark.
 ///
 /// Building the index stores only where lines start and end, not a copy of
 /// the source, and borrows the source. Finding a line takes logarithmic time;

@@ -2,11 +2,12 @@
 
 /// The statement grammar: how a line splits into key, separator and value.
 ///
-/// Each grammar follows one tool's parser, including its quirks. The other
-/// [`Dialect`] fields refine it: for example [`Dialect::keys`] decides which
-/// keys are valid and [`Dialect::inline_comments`] where comments start. Each
-/// preset pairs its grammar with matching settings, so most callers pick a
-/// preset rather than a grammar.
+/// Each grammar other than [`Portable`](Self::Portable) follows one tool's
+/// parser, including its quirks. The other [`Dialect`] fields refine it: for
+/// example [`Dialect::keys`] decides which keys are valid and
+/// [`Dialect::inline_comments`] where comments start. Each preset pairs its
+/// grammar with matching settings, so most callers pick a preset rather than a
+/// grammar.
 ///
 /// # Examples
 ///
@@ -51,7 +52,8 @@ pub enum Syntax {
     /// The Docker CLI `--env-file` parser.
     ///
     /// Only leading whitespace is skipped. A key is everything up to `=`, so
-    /// `A =1` has the key `A ` (with a space).
+    /// in `A =1` the key is `A ` (with a space), which [`KeySyntax::Docker`]
+    /// rejects.
     Docker,
 }
 
@@ -59,8 +61,9 @@ pub enum Syntax {
 ///
 /// A line whose first non-blank character is `#` is always a comment. This
 /// policy decides when a later `#` starts an inline comment: inside an
-/// unquoted value and after a closing quote. The characters that count as
-/// whitespace come from [`Dialect::whitespace`].
+/// unquoted value and after a closing quote. A `#` directly after a closing
+/// quote, as in `A="x"#note`, also needs [`Dialect::quoted_comments`]. The
+/// characters that count as whitespace come from [`Dialect::whitespace`].
 ///
 /// # Examples
 ///
@@ -90,7 +93,7 @@ pub enum InlineComments {
     /// `A=a #b` reads `a`, while `A=a\t#b` and `A= #b` keep the hash.
     /// Compose uses this.
     Space,
-    /// Every `#` starts a comment.
+    /// Every `#` in an unquoted value starts a comment.
     ///
     /// `A=a#b` reads `a`. Node dotenv uses this.
     AnyHash,
@@ -100,9 +103,11 @@ pub enum InlineComments {
     /// With the Python grammar, `KEY#note` is the bare key `KEY`. python-dotenv
     /// uses this.
     Python,
-    /// A `#` in a value or after a closing quote is literal text.
+    /// A `#` in a value is literal text.
     ///
-    /// `A=a #b` reads `a #b`. Docker uses this.
+    /// `A=a #b` reads `a #b`. After a closing quote, `#` is text that
+    /// [`Dialect::quoted_tail`] handles, so `A="x" #b` is an error in Portable.
+    /// Docker uses this.
     None,
 }
 
@@ -331,7 +336,8 @@ pub enum KeySyntax {
     /// `[` and `]`.
     ///
     /// [Compose whitespace](Whitespace::Compose) other than an ASCII space is
-    /// also allowed inside a key. Compose uses this.
+    /// also allowed inside a key, and the key may be empty, as in `=value`.
+    /// Compose uses this.
     Compose,
     /// One or more characters other than an ASCII space, a tab and `=`.
     ///
@@ -438,7 +444,9 @@ pub enum BomPolicy {
     Strip,
     /// The mark is ordinary text at the start of the first line.
     ///
-    /// With Portable keys it makes the first key invalid.
+    /// In Portable it makes the first key invalid. Where the dialect's
+    /// whitespace includes U+FEFF, as in Node dotenv, it is skipped like a
+    /// space.
     Keep,
     /// The mark becomes an invalid item of its own, with an error.
     ///
@@ -799,7 +807,7 @@ pub struct Dialect {
     ///
     /// When `true`, `A="x"#note` reads `x`. When `false`, the comment needs
     /// whitespace before it, as [`inline_comments`](Self::inline_comments)
-    /// decides.
+    /// decides. It has no effect under [`InlineComments::None`].
     pub quoted_comments: bool,
     /// Whether CRLF and a lone CR in a decoded value become LF.
     ///
@@ -813,7 +821,8 @@ pub struct Dialect {
     pub node_object_keys: bool,
     /// The longest physical line accepted, in bytes, or `None` for no limit.
     ///
-    /// The count leaves out the line's final LF but includes a CR before it.
+    /// The count leaves out the line's final LF but includes a CR before it
+    /// and a lone CR. A leading byte-order mark counts toward the first line.
     /// An item with a longer line becomes invalid, with a
     /// [`DiagnosticCode::LineTooLong`](crate::DiagnosticCode::LineTooLong)
     /// error.
@@ -833,13 +842,14 @@ impl Dialect {
     ///   `\\`, `\"` and `\$`; other backslash pairs stay as written, with a
     ///   warning.
     /// - Quoted values may span lines. After a closing quote only whitespace
-    ///   and a comment may follow.
-    /// - Backticks are ordinary text.
-    /// - A bare `KEY` takes part in lookup with no value. `KEY=` and `KEY=""`
-    ///   are empty.
+    ///   and a comment may follow, and the comment needs whitespace before it:
+    ///   `A="x" #c` is valid, while `A="x"#c` and `A="x"y` are errors.
+    /// - Backticks are ordinary text; in an unquoted value they get a warning.
+    /// - A bare `KEY` takes part in lookup with no value, with a warning.
+    ///   `KEY=` and `KEY=""` are empty.
     /// - The last duplicate wins, with a warning.
-    /// - LF, CRLF and a lone CR end lines. A leading byte-order mark is set
-    ///   apart from the items.
+    /// - LF, CRLF and a lone CR end lines; a lone CR gets a warning. A leading
+    ///   byte-order mark is set apart from the items.
     ///
     /// # Examples
     ///
@@ -882,10 +892,12 @@ impl Dialect {
     ///
     /// Differences from Portable:
     ///
-    /// - Any `#` in an unquoted value starts a comment: `A=a#b` reads `a`.
+    /// - Any `#` in an unquoted value starts a comment: `A=a#b` reads `a`. A
+    ///   comment may also follow a closing quote directly, as in `A="x"#note`.
     /// - Backticks quote values, and a colon followed by whitespace works like
     ///   `=`, as in `KEY: value`.
-    /// - Double quotes decode only `\n` and `\r`.
+    /// - Double quotes decode only `\n` and `\r`. Other pairs stay as written,
+    ///   without a warning.
     /// - Text after a closing quote makes the value literal: `A="x"y` reads
     ///   `"x"y`.
     /// - CRLF and CR inside decoded values become LF.
@@ -970,7 +982,8 @@ impl Dialect {
     /// - `#` starts a comment only after an ASCII space: `A=a\t#b` keeps the
     ///   hash.
     /// - Any colon separates a key from its value: `A:b` reads `b`.
-    /// - Keys may use Unicode letters and numbers, `[` and `]`.
+    /// - Keys may use Unicode letters and numbers, `[` and `]`, and may be
+    ///   empty, as in `=value`.
     /// - Double quotes also decode `\a`, `\b`, `\f`, `\v` and octal `\0`
     ///   escapes. Single quotes decode `\'`.
     /// - Text after a closing quote starts another statement on the same line.
@@ -1013,8 +1026,8 @@ impl Dialect {
     ///
     /// - The value is every byte after `=`, unchanged: quotes, `#`,
     ///   backslashes and spaces are part of it.
-    /// - A key is everything before `=` and may not contain an ASCII space or
-    ///   tab.
+    /// - A key is everything before `=`. It may not be empty or contain an
+    ///   ASCII space or tab.
     /// - There is no `export` prefix and no multiline value. Only LF ends a
     ///   line.
     /// - Bare keys stay in the document but take no part in lookup.

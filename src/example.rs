@@ -22,8 +22,8 @@ impl Document<'_> {
     ///
     /// Every assigned value becomes empty
     /// ([`AssignmentState::Empty`](crate::AssignmentState::Empty)), and the
-    /// rest of its line is dropped unless it is an inline comment. Where an
-    /// empty value would change how the line reads, the value becomes `""`
+    /// rest of the declaration is dropped, apart from an inline comment. Where
+    /// an empty value would change how the line reads, the value becomes `""`
     /// instead of nothing: when the separator is `:`, when the value spans
     /// lines, when another statement follows on the same line, or when the
     /// entry has an inline comment in a dialect that lets comments follow
@@ -34,7 +34,9 @@ impl Document<'_> {
     /// Invalid statements, ignored statements and entries with an empty key
     /// become `#` comments that keep only their indentation and line ending, so
     /// no value text from them can leak into the output. Statements that shared
-    /// one physical line are put on separate lines.
+    /// one physical line are put on separate lines, and each is handled on its
+    /// own. In Compose, text right after a closing quote is the next statement,
+    /// so `A="x"tail` gives `A=""` and a bare `tail` on the next line.
     ///
     /// Comments are kept verbatim, including anything secret written in them.
     /// The result is meant for examples and documentation, not for use as a

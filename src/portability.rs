@@ -84,8 +84,10 @@ pub struct PortabilityDifference {
     pub span: Range<usize>,
     /// The one-based line number.
     pub first_line: usize,
-    /// The one-based number of the last line covered, which is always
-    /// [`first_line`](Self::first_line) today.
+    /// The one-based number of the last line covered.
+    ///
+    /// Each difference covers one line, so this always equals
+    /// [`first_line`](Self::first_line).
     pub last_line: usize,
     /// One reading per compared dialect, in comparison order.
     ///

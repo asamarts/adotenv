@@ -30,9 +30,9 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
-//! [`parse_strict`] stops at the first error. [`parse`] never fails: it returns a document and
-//! a list of [`Diagnostic`]s, so tools can inspect and report on a broken file without losing
-//! any of it.
+//! [`parse_strict`] returns the first error instead of a document. [`parse`] never fails: it
+//! returns a document and a list of [`Diagnostic`]s, so tools can inspect and report on a broken
+//! file without losing any of it.
 //!
 //! ```
 //! use adotenv::{DiagnosticCode, ItemKind};
@@ -49,18 +49,19 @@
 //! | Task | Start with |
 //! |---|---|
 //! | Parse text | [`parse`], [`parse_strict`], [`parse_owned`], [`parse_values`], and their `_with` variants that take a [`Dialect`] |
-//! | Look up values | [`Document::get`], [`Document::get_all`], [`Document::effective_entries`], [`Document::lookup_index`] |
+//! | Look up values | [`Document::get`], [`Document::get_entry`], [`Document::get_all`], [`Document::effective_entries`], [`Document::lookup_index`] |
 //! | Walk the source | [`Document::items`], [`Document::entries`], [`Item`], [`Entry`], [`EntryTokens`] |
 //! | Report problems | [`Diagnostic`], [`DiagnosticCode`], [`Severity`] |
 //! | Choose reading rules | [`Dialect`] and its presets |
-//! | Edit | [`Document::set`], [`Document::remove`], [`Document::rename`], [`Document::insert`], or [`Document::edit`] with a batch of [`Edit`]s |
+//! | Edit | [`Document::set`], [`Document::remove`], [`Document::rename`], [`Document::insert`], [`Document::comment`], [`Document::uncomment`], [`Document::set_export`], or [`Document::edit`] with a batch of [`Edit`]s |
+//! | Set or remove one key of Portable text in one call | [`set`], [`remove`] |
 //! | Quote a value for a file | [`encode_value`], [`encode_value_with`] |
 //! | Format and sort | [`Document::format`] with [`FormatOptions`], [`Document::sort`] |
 //! | Compare two files | [`Document::compare`] |
 //! | Write an example file | [`Document::example`] |
 //! | Check portability across dialects | [`Document::portability`] |
 //! | Groups and comments | [`Document::groups`], [`Document::header`], [`Entry::leading_comments`] |
-//! | Lines and columns | [`Document::line_index`], [`LineIndex`], [`ColumnEncoding`] |
+//! | Lines and columns | [`Document::line_index`], [`LineIndex`], [`Position`], [`ColumnEncoding`] |
 //! | Find `$VAR` references | [`Entry::references`], [`ReferenceRules`] |
 //! | Resolve references | [`Document::resolve`] with [`ExpandOptions`] |
 //! | Load files from disk | the [`load`] module |
@@ -82,16 +83,16 @@
 //! adotenv = { version = "1", default-features = false }
 //! ```
 //!
-//! The crate has no runtime dependencies and forbids unsafe code with every feature
-//! combination. It supports Rust 1.81 and later.
+//! The only dependency is `serde`, and only with the `serde` feature. The crate forbids unsafe
+//! code with every feature combination and supports Rust 1.81 and later.
 //!
 //! # Dialects
 //!
 //! Every parse uses a [`Dialect`]: the syntax and literal lookup rules of one `.env` reader.
 //! The functions without a suffix use [`Dialect::PORTABLE`]. The other presets follow Node
 //! dotenv, python-dotenv, Docker Compose and Docker `--env-file`, and a custom dialect starts
-//! from a preset and changes single rules. A dialect never enables expansion, inheritance or
-//! file loading.
+//! from a preset and changes single rules. No dialect expands references, reads the process
+//! environment or loads files.
 //!
 //! ```
 //! use adotenv::{parse_with, Dialect};
@@ -103,19 +104,25 @@
 //!
 //! # Source, spans and positions
 //!
-//! A [`Document`] borrows its source, or owns it with [`parse_owned`]. Its items cover the
-//! whole source without gaps, malformed statements included, and every range is a byte range
-//! into the original text, BOM included. [`LineIndex`] converts byte offsets to zero-based
-//! lines and columns in UTF-8 bytes, Unicode scalar values or UTF-16 code units, and
-//! [`Position::one_based`] converts a position for display.
+//! A [`Document`] borrows its source, or owns it after [`parse_owned`] or
+//! [`Document::into_owned`]. Its items cover the whole source without gaps, malformed
+//! statements included; only a leading byte-order mark that the dialect strips belongs to no
+//! item. Every span is a byte range into the original text, byte-order mark included.
+//!
+//! [`Entry::line`] and [`Diagnostic::line`] are one-based. [`LineIndex`] converts between byte
+//! offsets and zero-based lines and columns in UTF-8 bytes, Unicode scalar values or UTF-16
+//! code units, and [`Position::one_based`] converts a position for display. Lines and line
+//! numbers count LF, CRLF and a lone CR as line ends, whatever the dialect.
 //!
 //! # Verified edits
 //!
-//! Edits select declarations by key, or by item when keys repeat. Every edit and every batch
-//! is applied to the whole source, parsed again with the same dialect and checked: the
-//! requested change happened and nothing else changed meaning. [`VerifiedEdits`] then gives
-//! the new text and the source-relative [`TextEdit`]s, for example to send to an editor.
-//! [`Document::format`] and [`Document::sort`] are verified the same way.
+//! Methods such as [`Document::set`] select the only declaration of a key. A batch of
+//! [`Edit`]s selects entries and items by id, so it can also change one of several
+//! declarations of a key. Every edit and every batch is applied to the whole source, parsed
+//! again with the same dialect and checked: the requested change happened and nothing else
+//! changed meaning. [`VerifiedEdits`] then gives the new text and the source-relative
+//! [`TextEdit`]s, for example to send to an editor. [`Document::format`] and
+//! [`Document::sort`] are verified the same way.
 //!
 //! # References and resolution
 //!
@@ -127,9 +134,11 @@
 //!
 //! # Secrets
 //!
-//! Values may be secrets. `Debug` output of documents, entries, loaded environments and
-//! resolved values includes them, and so do serde conversion errors. Do not log them where
-//! values are secret. [`Document::example`] removes assigned values but keeps comments.
+//! Values may be secrets. `Debug` output of documents, items, entries, edit and format results,
+//! comparisons, loaded environments and resolved values includes them, and so do the messages
+//! of serde conversion errors. Do not log them where values are secret. [`Document::example`]
+//! removes assigned values but keeps comments verbatim, including any secret written in a
+//! comment.
 //!
 //! # Related crates
 //!

@@ -23,6 +23,11 @@ assert_eq!(duplicate.secondary_span(), Some(0..1));
 `DiagnosticCode` has `as_str()`, `severity()` and `message()`. The same codes
 appear in the CLI's human, JSON and GitHub output.
 
+`parse` returns the diagnostics ordered by the start of their spans. Spans are
+byte ranges into the original source, byte-order mark included. Lines count
+LF, CRLF and a lone CR as line ends in every dialect, as `LineIndex` and
+`Entry::line` do.
+
 ## Severities
 
 - **Error** fails `parse_strict`, `parse_values` and loading, and makes
@@ -36,24 +41,30 @@ appear in the CLI's human, JSON and GitHub output.
 
 ## Codes
 
-| Code | Severity | Meaning |
-|---|---|---|
-| `dotenv.invalid-key` | Error | A key is empty or contains a character outside the dialect's key alphabet. |
-| `dotenv.unterminated-quote` | Error | A quoted value has no closing quote before the end of the input, or of the line when the dialect does not allow that quote to span lines. |
-| `dotenv.trailing-text` | Error | Text other than a comment follows a closing quote, in dialects with `QuotedTail::Error`. |
-| `dotenv.unknown-escape` | Warning | A double-quoted escape that the dialect does not define is kept literally. Portable reports it. |
-| `dotenv.duplicate-key` | Warning | An earlier declaration that takes part in lookup has the same key. The secondary span points at the key of the first such declaration. |
-| `dotenv.bare-key` | Warning | A declaration has no `=` and no value. Portable syntax only. |
-| `dotenv.non-posix-key` | Warning | A key is accepted but is not a POSIX shell variable name, such as `app.port`. Portable syntax only. |
-| `dotenv.tight-hash` | Warning | A `#` directly after an unquoted value is literal text, not a comment, as in `A=a#b`. Portable only. |
-| `dotenv.backtick` | Warning | A backtick is literal text, not a quote. Portable only. |
-| `dotenv.bom` | Info | A UTF-8 byte-order mark precedes the source, with `BomPolicy::Strip`. |
-| `dotenv.lone-cr` | Warning | A carriage return without a line feed is kept as a line ending. Portable only. |
-| `dotenv.forbidden-bare-key` | Error | The dialect forbids key-only declarations (`BareKeys::Error`). |
-| `dotenv.forbidden-bom` | Error | The dialect forbids a leading byte-order mark (`BomPolicy::Error`). |
-| `dotenv.invalid-escape` | Error | The dialect rejects an unknown escape (`UnknownEscapes::Error`). |
-| `dotenv.ignored-statement` | Warning | A statement is kept in the source but ignored by the dialect. |
-| `dotenv.line-too-long` | Error | A physical line exceeds the dialect's byte limit. Docker uses 65,535 bytes. |
+The **Item** column names the kind of item that carries the diagnostic, which
+`Item::diagnostic()` returns. "none" means that no item carries it: the
+diagnostic is only in the list that `parse` returns. "Portable syntax only"
+means dialects whose `syntax` is `Syntax::Portable`: the Portable preset and
+custom dialects built from it.
+
+| Code | Severity | Item | Meaning |
+|---|---|---|---|
+| `dotenv.invalid-key` | Error | `Invalid` | A key is empty (Compose keys may be empty) or contains a character the dialect does not allow. Other statements that are not a declaration, such as `BAD KEY=value`, get this code too. |
+| `dotenv.unterminated-quote` | Error | `Invalid` | A quoted value has no closing quote before the end of the input, or of the line when the dialect does not allow that quote to span lines. Only the line with the opening quote becomes the item. |
+| `dotenv.trailing-text` | Error | `Invalid` | Text other than a comment follows a closing quote, as in `A="x"y`, in dialects with `QuotedTail::Error`, such as Portable and python-dotenv. |
+| `dotenv.unknown-escape` | Warning | none | A double-quoted escape that the dialect does not define is kept as written, under `UnknownEscapes::Warn`, as in Portable. |
+| `dotenv.duplicate-key` | Warning | none | A declaration that takes part in lookup repeats the key of an earlier one. Reported on each later such declaration; the secondary span is the key of the first. |
+| `dotenv.bare-key` | Warning | none | A declaration has no `=` and no value, such as `DEBUG`. Portable syntax only. |
+| `dotenv.non-posix-key` | Warning | none | A key is accepted but is not a POSIX shell variable name, such as `app.port`. Portable syntax only. |
+| `dotenv.tight-hash` | Warning | none | A `#` in an unquoted value is literal text, not a comment, as in `A=a#b`. Portable starts a comment only at a `#` after whitespace. Portable syntax only. |
+| `dotenv.backtick` | Warning | none | A backtick in an unquoted value is literal text, not a quote. Reported for each backtick. Portable syntax only. |
+| `dotenv.bom` | Info | none | The source starts with a UTF-8 byte-order mark, which the dialect sets apart from the items (`BomPolicy::Strip`, used by every preset). |
+| `dotenv.lone-cr` | Warning | none | A carriage return is not followed by a line feed. Portable ends a line there. Every lone CR is reported, including one inside a quoted value. Portable syntax with `LineBreaks::Universal` only. |
+| `dotenv.forbidden-bare-key` | Error | `Entry` | A declaration has no `=` and the dialect forbids that (`BareKeys::Error`). |
+| `dotenv.forbidden-bom` | Error | `Invalid` | The source starts with a byte-order mark and the dialect forbids that (`BomPolicy::Error`). The item holds only the three bytes of the mark. |
+| `dotenv.invalid-escape` | Error | `Entry` | The dialect rejects a double-quoted escape it does not define (`UnknownEscapes::Error`). The value keeps the escape as written. |
+| `dotenv.ignored-statement` | Warning | `Ignored` | A statement is kept in the source but ignored by the dialect: a malformed statement under `MalformedLines::Ignore`, or a statement with text after its closing quote under `QuotedTail::Skip`. |
+| `dotenv.line-too-long` | Error | `Invalid` | A physical line is longer than the dialect's byte limit, counted without the final LF but with a CR before it. Docker allows 65,535 bytes; the other presets have no limit. |
 
 In dialects that ignore malformed lines (`MalformedLines::Ignore`, used by the
 Node preset), `dotenv.ignored-statement` replaces every error code above

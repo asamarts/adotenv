@@ -47,5 +47,5 @@ command cannot process. Warnings do not change the exit code. `run` exits with
 the child's code. See the
 [command-line tool guide](https://asamarts.github.io/adotenv/design/cli.html).
 
-The crate has no runtime dependencies outside the workspace and supports Rust
-1.81.
+The crate has no dependencies outside the workspace and needs Rust 1.81 or
+later.

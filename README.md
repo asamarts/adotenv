@@ -21,8 +21,8 @@ verifies every edit before returning it.
   comments, spacing, a BOM and mixed line endings.
 - Every token has a source span. Decoded values map back to the original bytes.
 - Edits return source-relative text edits and a re-parsed, verified result.
-- The core has no runtime dependencies, no file I/O, no environment access and
-  no process spawning. `#![forbid(unsafe_code)]` is unconditional.
+- The core has no required dependencies (only the optional `serde` feature adds
+  one), no file I/O, no environment access and no process spawning. `#![forbid(unsafe_code)]` is unconditional.
 - Filesystem loading, process mutation and command execution are separate
   opt-in features or crates.
 
@@ -84,8 +84,8 @@ secondary spans. Match codes and spans, not message text.
 `parse_owned(String)` moves the source into the document. `Document::into_owned`
 copies only when the document still borrows its input.
 
-When only final values are needed, `parse_values` uses the projection parser and
-avoids retaining items and spans. It returns the first error and discards
+When only final values are needed, `parse_values` parses without building items
+or spans. It returns the first error and discards
 warnings.
 
 ```rust
@@ -99,7 +99,8 @@ assert_eq!(values.len(), 2);
 
 The default is `Dialect::PORTABLE`. Other presets are `NODE_DOTENV`,
 `PYTHON_DOTENV`, `COMPOSE` and `DOCKER_RAW`. Presets choose parsing and literal
-lookup rules only. They do not enable interpolation, inheritance or loading.
+lookup rules only. None expands references, reads the process environment or
+loads files.
 
 ```rust
 use adotenv::{parse_with, Dialect, InlineComments};
@@ -219,8 +220,8 @@ assert_eq!(resolved.commands().len(), 1);
 
 ## Format and sort
 
-`Document::format` changes only requested trivia and verifies the complete result
-with the document dialect.
+`Document::format` changes only the requested layout and verifies the complete
+result with the document dialect.
 
 ```rust
 use adotenv::{parse_strict, FormatOptions};
@@ -284,7 +285,7 @@ assert_eq!(
 );
 ```
 
-## Edit a snapshot
+## Edit a document
 
 Every edit method returns `VerifiedEdits`. Ranges refer to the original source.
 The edits are sorted by start offset and do not overlap. Apply them in reverse
@@ -357,9 +358,10 @@ clamped. Entry and diagnostic lines are one-based; `Position` is zero-based.
 ## Load files
 
 Enable the `load` feature to read a cascade from an explicit directory. The order
-is `.env`, `.env.local`, `.env.{mode}` and `.env.{mode}.local`. Later files win
-by effective key. Missing cascade files are skipped. Read, UTF-8 and syntax
-errors invalidate the whole load.
+is `.env`, `.env.local`, `.env.{mode}` and `.env.{mode}.local`. A later file's
+effective value replaces an earlier one, key by key. Missing cascade files are
+skipped. A file that cannot be read, is not valid UTF-8 or has an error-severity
+diagnostic fails the whole load.
 
 ```rust,ignore
 use adotenv::load::load_cascade;
@@ -371,8 +373,8 @@ let origin = loaded.origin("PORT").unwrap();
 println!("{}:{}", origin.path().display(), origin.line());
 ```
 
-The default loader keeps values, shared-file origins and raw winning tokens.
-Reports are opt-in:
+The default loader keeps values, their origins and the raw source text of each
+winning declaration. Reports are opt-in:
 
 ```rust,ignore
 use adotenv::load::{load_cascade_with_options, LoadOptions};
@@ -394,9 +396,9 @@ for entry in loaded.entries() {
 }
 ```
 
-`LoadOptions::new(dialect)` is the default profile. Builders can disable raw
-tokens, origins or reports. `load_values` and `load_cascade_values` retain only
-final strings.
+`LoadOptions::new(dialect)` is the default profile. Builders turn the raw source
+text, origins and reports on or off, and `LoadOptions::full` keeps the reports.
+`load_values` and `load_cascade_values` keep only the final strings.
 
 `LoadedEnvironment::resolve_contextual` resolves merged values with their original
 quote and escape context. `resolve_decoded` treats final values as unquoted text.
@@ -498,8 +500,9 @@ let config = config::Config::builder()
 - Parsing does not read files, environment variables or commands.
 - Retained documents keep token and item metadata. Apply byte and line budgets
   for untrusted input.
-- `Debug` output of documents, loaded environments, resolved values and the
-  adapter types includes values. Do not log it when values are secret.
+- `Debug` output of documents, items, entries, edit and format results,
+  comparisons, loaded environments, resolved values and the adapter types
+  includes values. Do not log it when values are secret.
 - Windows writes use a direct replace when possible and a backup swap otherwise.
   The fallback is not crash-atomic.
 - The `config` integration uses `config` 0.15 and requires Rust 1.88.
