@@ -6,7 +6,8 @@
 //! their entries. Keys that reference each other keep their relative order. A
 //! group is left untouched when it contains invalid or ignored statements,
 //! duplicate or empty keys, a self-reference, a reference cycle, or a
-//! declaration that shares its physical line with the next statement.
+//! declaration that shares its physical line with the next statement, and when
+//! its sorted text would read differently in the whole output.
 
 use alloc::{
     collections::{BTreeMap, BTreeSet},
@@ -16,8 +17,8 @@ use alloc::{
 };
 
 use crate::{
-    AssignmentState, Document, Entry, FormatError, FormatResult, Item, ItemKind, LineEnding, Quote,
-    ReferenceKind, TextEdit,
+    format::Check, AssignmentState, Document, Entry, FormatError, FormatResult, Item, ItemKind,
+    LineEnding, Quote, ReferenceKind, TextEdit,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,7 +70,12 @@ impl Document<'_> {
     /// - groups with invalid or ignored statements;
     /// - groups with a self-reference or a reference cycle;
     /// - groups where a declaration shares its physical line with the next
-    ///   statement.
+    ///   statement;
+    /// - groups whose sorted text would read differently once the whole output
+    ///   is parsed again. In [`Dialect::COMPOSE`](crate::Dialect::COMPOSE), a
+    ///   bare key on the last line of a file without a final line ending reads
+    ///   as the value of an empty key, so `G\nB=2` stays as it is. A lone CR
+    ///   line ending moved in front of an LF would join it into a CRLF.
     ///
     /// Sorting never adds or removes a final line ending. When the file ends
     /// without one and its last declaration moves up, that declaration takes
@@ -83,12 +89,12 @@ impl Document<'_> {
     ///
     /// # Errors
     ///
-    /// Returns [`FormatError::WouldChangeMeaning`] if the parsed output does not
-    /// keep the declarations, values and comments of every group. That happens
-    /// when moving a declaration changes how it reads. For example, in
-    /// [`Dialect::COMPOSE`](crate::Dialect::COMPOSE) a bare key on the last line
-    /// of a file without a final line ending reads differently, so sorting
-    /// `G\nB=2` fails.
+    /// Returns [`FormatError::WouldChangeMeaning`] if the parsed output still
+    /// does not keep the declarations, values and comments of every group after
+    /// the groups that read differently are left unchanged. Each round of
+    /// checks leaves at least one more group unchanged, and sorting gives up
+    /// after a few rounds so that the work stays linear in the size of the
+    /// file. No known input reaches that limit.
     ///
     /// # Examples
     ///
@@ -106,38 +112,50 @@ impl Document<'_> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn sort(&self) -> Result<FormatResult, FormatError> {
-        let mut plans = Vec::new();
-        for (index, group) in self.groups().enumerate() {
-            if let Some(plan) = self.plan_group(index, group) {
-                plans.push(plan);
+        let mut plans: Vec<Plan> = self
+            .groups()
+            .enumerate()
+            .filter_map(|(index, group)| self.plan_group(index, group))
+            .collect();
+        // A group can sort cleanly on its own and still read differently in
+        // the whole output, for example when a lone CR moves in front of an
+        // LF. Such groups keep their source text. Each round drops the plans
+        // that did not verify; a fixed bound keeps the work linear.
+        for _ in 0..crate::format::VERIFY_ROUNDS {
+            if plans.is_empty() {
+                return Ok(FormatResult::from_parts(
+                    Vec::new(),
+                    self.source().to_string(),
+                ));
             }
-        }
-        if plans.is_empty() {
-            return Ok(FormatResult::from_parts(
-                Vec::new(),
-                self.source().to_string(),
-            ));
-        }
+            let mut output = String::with_capacity(self.source().len());
+            let mut cursor = 0;
+            for plan in &plans {
+                output.push_str(&self.source()[cursor..plan.range.start]);
+                output.push_str(&plan.text);
+                cursor = plan.range.end;
+            }
+            output.push_str(&self.source()[cursor..]);
 
-        let mut output = String::with_capacity(self.source().len());
-        let mut cursor = 0;
-        let mut edits = Vec::with_capacity(plans.len());
-        for plan in &plans {
-            output.push_str(&self.source()[cursor..plan.range.start]);
-            output.push_str(&plan.text);
-            cursor = plan.range.end;
-            edits.push(TextEdit {
-                range: plan.range.clone(),
-                replacement: plan.text.clone(),
-            });
+            let (parsed, _) = crate::parse_with(&output, self.dialect());
+            let checks = check_groups(self, &parsed, &plans);
+            if checks.iter().all(|check| check.same) {
+                let edits = plans
+                    .into_iter()
+                    .map(|plan| TextEdit {
+                        range: plan.range,
+                        replacement: plan.text,
+                    })
+                    .collect();
+                return Ok(FormatResult::from_parts(edits, output));
+            }
+            let culprits = crate::format::culprits(&checks);
+            if culprits.is_empty() {
+                break;
+            }
+            plans.retain(|plan| !culprits.contains(&plan.index));
         }
-        output.push_str(&self.source()[cursor..]);
-
-        let (parsed, _) = crate::parse_with(&output, self.dialect());
-        if !verify(self, &parsed, &plans) {
-            return Err(FormatError::WouldChangeMeaning);
-        }
-        Ok(FormatResult::from_parts(edits, output))
+        Err(FormatError::WouldChangeMeaning)
     }
 
     fn plan_group(&self, index: usize, group: crate::Group<'_>) -> Option<Plan> {
@@ -325,49 +343,88 @@ fn facts(entry: Entry<'_>) -> EntryFacts {
     }
 }
 
-fn verify(original: &Document<'_>, output: &Document<'_>, plans: &[Plan]) -> bool {
-    if original.has_bom() != output.has_bom()
-        || original.groups().count() != output.groups().count()
+// One check for each group of `original`, the document before sorting. Every
+// group must reappear at its shifted span in `output`: unchanged, or with
+// exactly the planned text, keys, items, values and comments. When `output`
+// holds a group that no check found, every check fails, so every plan is
+// dropped.
+fn check_groups(original: &Document<'_>, output: &Document<'_>, plans: &[Plan]) -> Vec<Check> {
+    let mut after_groups = output.groups().peekable();
+    let mut plans = plans.iter().peekable();
+    // Bytes that the earlier plans replaced and inserted.
+    let (mut replaced, mut inserted) = (0, 0);
+    let mut found = 0;
+    let mut checks = Vec::new();
+    for (index, before) in original.groups().enumerate() {
+        let plan = plans.next_if(|plan| plan.index == index);
+        let span = before.span();
+        let length = plan.map_or(span.len(), |plan| plan.text.len());
+        let start = span.start - replaced + inserted;
+        let expected = start..start + length;
+        if plan.is_some() {
+            replaced += span.len();
+            inserted += length;
+        }
+        while after_groups
+            .peek()
+            .is_some_and(|after| after.span().start < expected.start)
+        {
+            after_groups.next();
+        }
+        let after = after_groups
+            .peek()
+            .copied()
+            .filter(|after| after.span().start == expected.start);
+        let same = after.is_some_and(|after| {
+            after.span() == expected
+                && plan.map_or(true, |plan| same_group(output, before, after, plan))
+        });
+        found += usize::from(same);
+        checks.push(Check {
+            found_end: after.map(|after| after.span().end),
+            expected,
+            same,
+            changed: plan.is_some(),
+        });
+    }
+    let bom = original.has_bom() != output.has_bom();
+    if bom || checks.iter().all(|check| check.same) && found != output.groups().count() {
+        for check in &mut checks {
+            check.same = false;
+        }
+    }
+    checks
+}
+
+// Whether a planned group reads the same after sorting: the planned text and
+// key order, the same number of items, the same facts for each key and the
+// same comments.
+fn same_group(
+    output: &Document<'_>,
+    before: crate::Group<'_>,
+    after: crate::Group<'_>,
+    plan: &Plan,
+) -> bool {
+    if output.source()[after.span()] != plan.text
+        || after.entries().map(Entry::key).collect::<Vec<_>>() != plan.keys
+        || before.items().count() != after.items().count()
     {
         return false;
     }
-    let mut plans_iter = plans.iter().peekable();
-    for (index, (before, after)) in original.groups().zip(output.groups()).enumerate() {
-        let plan = if plans_iter.peek().is_some_and(|plan| plan.index == index) {
-            plans_iter.next()
-        } else {
-            None
-        };
-        let Some(plan) = plan else {
-            if original.source()[before.span()] != output.source()[after.span()] {
-                return false;
-            }
-            continue;
-        };
-        if output.source()[after.span()] != plan.text
-            || after.entries().map(Entry::key).collect::<Vec<_>>() != plan.keys
-            || before.items().count() != after.items().count()
-        {
-            return false;
-        }
-        let before_meanings: BTreeMap<_, _> = before
-            .entries()
-            .map(|entry| (entry.key().to_string(), facts(entry)))
-            .collect();
-        let after_meanings: BTreeMap<_, _> = after
-            .entries()
-            .map(|entry| (entry.key().to_string(), facts(entry)))
-            .collect();
-        if before_meanings != after_meanings {
-            return false;
-        }
-        let mut before_comments: Vec<_> = before.comments().map(Item::raw).collect();
-        let mut after_comments: Vec<_> = after.comments().map(Item::raw).collect();
-        before_comments.sort_unstable();
-        after_comments.sort_unstable();
-        if before_comments != after_comments {
-            return false;
-        }
+    let before_meanings: BTreeMap<_, _> = before
+        .entries()
+        .map(|entry| (entry.key().to_string(), facts(entry)))
+        .collect();
+    let after_meanings: BTreeMap<_, _> = after
+        .entries()
+        .map(|entry| (entry.key().to_string(), facts(entry)))
+        .collect();
+    if before_meanings != after_meanings {
+        return false;
     }
-    plans_iter.next().is_none()
+    let mut before_comments: Vec<_> = before.comments().map(Item::raw).collect();
+    let mut after_comments: Vec<_> = after.comments().map(Item::raw).collect();
+    before_comments.sort_unstable();
+    after_comments.sort_unstable();
+    before_comments == after_comments
 }

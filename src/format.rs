@@ -5,10 +5,10 @@
 //! complete result again with the document's dialect and checks that every
 //! declaration's meaning is unchanged.
 
-use alloc::{string::String, vec, vec::Vec};
-use core::fmt;
+use alloc::{collections::BTreeSet, string::String, vec, vec::Vec};
+use core::{fmt, ops::Range};
 
-use crate::{Document, ItemKind, Quote, TextEdit};
+use crate::{ColonSeparator, Document, InlineComments, ItemKind, Quote, TextEdit};
 
 /// The spacing that [`Document::format`] puts around assignment separators.
 ///
@@ -16,9 +16,11 @@ use crate::{Document, ItemKind, Quote, TextEdit};
 /// it) of every assignment; bare declarations have none. Declarations with an
 /// empty key and every declaration in a raw-value dialect such as
 /// [`Dialect::DOCKER_RAW`](crate::Dialect::DOCKER_RAW) keep their spacing.
-/// When no inline comment follows, the space after the separator also stays
-/// if the value is empty or starts with `#`, because changing it could change
-/// how the line reads.
+/// The space after the separator also stays when changing it could change how
+/// the line reads: when the value is empty and no inline comment follows, and
+/// when the value starts with `#`, as in `A=#x # note`. In Node dotenv, a
+/// `KEY: value` declaration keeps its spacing, because its colon needs no
+/// space before it and whitespace after it.
 ///
 /// # Examples
 ///
@@ -116,10 +118,11 @@ pub enum BlankLines {
 /// keep their form, and values in raw-value dialects such as
 /// [`Dialect::DOCKER_RAW`](crate::Dialect::DOCKER_RAW) are never re-quoted.
 ///
-/// Only the literal value is compared, not how references in it expand. A
-/// quote change can therefore change what [`Document::resolve`] returns: with
+/// A value that contains `$` keeps its quoting, because quotes decide whether
+/// a reference in it expands: with
 /// [`ExpandOptions::portable`](crate::ExpandOptions::portable), `A=${HOST}`
-/// expands `${HOST}`, while `A='${HOST}'` keeps it as text.
+/// expands `${HOST}`, while `A='${HOST}'` keeps it as text. A quote change
+/// therefore never changes what [`Document::resolve`] returns.
 ///
 /// # Examples
 ///
@@ -382,9 +385,10 @@ impl FormatResult {
 /// result.
 ///
 /// Both methods refuse rather than return output that reads differently from
-/// the source. They skip the changes they know to be risky, so this error is
-/// rare; it comes from inputs such as an unterminated quote that a quote
-/// change would close.
+/// the source. Before they refuse, they leave out every change that does not
+/// verify and check the output again, a bounded number of times. No known
+/// input still fails after that, so this error is a safeguard: handle it like
+/// any other failure, for example by keeping the file as it is.
 ///
 /// # Examples
 ///
@@ -392,13 +396,19 @@ impl FormatResult {
 /// use adotenv::{FormatError, FormatOptions, QuoteStyle};
 ///
 /// // The recovering parser keeps the unterminated quote as an invalid line.
-/// // A double quote added to the next value would close it.
-/// let (doc, _) = adotenv::parse("BROKEN=\"\nPORT='8080'\n");
+/// // A double quote added to the value of PORT would close it, so that change
+/// // is left out and only A is requoted.
+/// let (doc, _) = adotenv::parse("A='1'\nBROKEN=\"\nPORT='8080'\n");
 /// let options = FormatOptions::default().with_quote_style(QuoteStyle::Double);
-/// match doc.format(&options) {
-///     Err(FormatError::WouldChangeMeaning) => {}
-///     other => panic!("unexpected result: {other:?}"),
-/// }
+/// let output = match doc.format(&options) {
+///     Ok(formatted) => formatted.into_string(),
+///     Err(error) => {
+///         // Keep the file as it is.
+///         assert_eq!(error, FormatError::WouldChangeMeaning);
+///         doc.source().to_string()
+///     }
+/// };
+/// assert_eq!(output, "A=\"1\"\nBROKEN=\"\nPORT='8080'\n");
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -415,6 +425,9 @@ impl fmt::Display for FormatError {
 }
 
 impl core::error::Error for FormatError {}
+
+// How many times `format` and `sort` verify an output before they give up.
+pub(crate) const VERIFY_ROUNDS: usize = 8;
 
 impl Document<'_> {
     /// Formats the layout of this document as `options` select and verifies the
@@ -437,15 +450,20 @@ impl Document<'_> {
     /// are never rewritten. Trimming never touches whitespace inside multiline
     /// values. A quote style other than [`QuoteStyle::Preserve`] re-encodes a
     /// value, multiline values included, only when its decoded text stays the
-    /// same; it can still change how references expand (see [`QuoteStyle`]).
-    /// In raw-value dialects such as
+    /// same, and a value that contains `$` keeps its quoting (see
+    /// [`QuoteStyle`]). In raw-value dialects such as
     /// [`Dialect::DOCKER_RAW`](crate::Dialect::DOCKER_RAW), declaration lines
     /// stay untouched because every byte after `=` is part of the value;
     /// comments and blank lines are still formatted.
     ///
     /// The complete output is parsed again with this document's dialect before
-    /// it is returned. Formatting does not reorder declarations; use
-    /// [`Document::sort`] for that.
+    /// it is returned. A change that would make an item read differently there
+    /// is left out, together with the other changes to that item, and the
+    /// output is checked again. For example, in
+    /// [`Dialect::COMPOSE`](crate::Dialect::COMPOSE) a final line ending is not
+    /// added after a bare key on the last line, because that bare key reads as
+    /// the value of an empty key without one. Formatting does not reorder
+    /// declarations; use [`Document::sort`] for that.
     ///
     /// # Errors
     ///
@@ -454,9 +472,10 @@ impl Document<'_> {
     /// participation and inline comments of every declaration, the kind of
     /// every item, the text of comments apart from trailing whitespace, the
     /// text of invalid and ignored statements and the BOM, and also the quoting
-    /// when the quote style is [`QuoteStyle::Preserve`]. The formatter
-    /// skips the changes it knows to be risky, so this is rare; see
-    /// [`FormatError`] for an example.
+    /// when the quote style is [`QuoteStyle::Preserve`], even after the changes
+    /// that read differently are left out. Formatting gives up after a few
+    /// rounds of checks so that the work stays linear in the size of the file.
+    /// No known input reaches that limit; see [`FormatError`].
     ///
     /// # Examples
     ///
@@ -474,8 +493,10 @@ impl Document<'_> {
     /// ```
     pub fn format(&self, options: &FormatOptions) -> Result<FormatResult, FormatError> {
         let mut edits = Vec::new();
-        self.plan_equals_spacing(*options, &mut edits);
         self.plan_quotes(*options, &mut edits);
+        // The value spans that get new quotes, for the spacing rules.
+        let requoted: BTreeSet<usize> = edits.iter().map(|edit| edit.range.start).collect();
+        self.plan_equals_spacing(*options, &requoted, &mut edits);
         let removed = self.plan_blank_lines(*options, &mut edits);
         if options.trim_trailing_whitespace {
             self.plan_trailing_whitespace(
@@ -492,20 +513,48 @@ impl Document<'_> {
         {
             return Err(FormatError::WouldChangeMeaning);
         }
-        let output = apply(self.source(), &edits);
-        let (formatted, _) = crate::parse_with(&output, self.dialect());
-        if !same_meaning(
-            self,
-            &formatted,
-            options.blank_lines,
-            options.quote_style == QuoteStyle::Preserve,
-        ) {
-            return Err(FormatError::WouldChangeMeaning);
+        let mut removed: Vec<bool> = (0..self.items().len())
+            .map(|id| removed.get(id).copied().unwrap_or(false))
+            .collect();
+        let mut owners = owners(self, &edits, &removed);
+        // A change can be safe on its own line and still read differently in
+        // the whole output, for example a final line ending added after a
+        // Compose bare key. Each round drops the changes of the items that did
+        // not verify; a fixed bound keeps the work linear.
+        for _ in 0..VERIFY_ROUNDS {
+            let output = apply(self.source(), &edits);
+            let (formatted, _) = crate::parse_with(&output, self.dialect());
+            let checks = check_items(
+                self,
+                &formatted,
+                &edits,
+                &owners,
+                &removed,
+                options.quote_style == QuoteStyle::Preserve,
+            );
+            if checks.iter().all(|check| check.same) {
+                return Ok(FormatResult { edits, output });
+            }
+            let culprits = culprits(&checks);
+            if culprits.is_empty() {
+                break;
+            }
+            for &id in &culprits {
+                removed[id] = false;
+            }
+            let mut kept = owners.iter().map(|owner| !culprits.contains(owner));
+            edits.retain(|_| kept.next().unwrap_or(true));
+            owners.retain(|owner| !culprits.contains(owner));
         }
-        Ok(FormatResult { edits, output })
+        Err(FormatError::WouldChangeMeaning)
     }
 
-    fn plan_equals_spacing(&self, options: FormatOptions, edits: &mut Vec<TextEdit>) {
+    fn plan_equals_spacing(
+        &self,
+        options: FormatOptions,
+        requoted: &BTreeSet<usize>,
+        edits: &mut Vec<TextEdit>,
+    ) {
         if options.equals_spacing == EqualsSpacing::Preserve {
             return;
         }
@@ -514,7 +563,17 @@ impl Document<'_> {
                 continue;
             };
             let tokens = entry.tokens();
-            if tokens.eq.is_none() || entry.key().is_empty() || self.dialect().raw_values {
+            let Some(separator) = tokens.eq.clone() else {
+                continue;
+            };
+            if entry.key().is_empty() || self.dialect().raw_values {
+                continue;
+            }
+            if self.dialect().colon == ColonSeparator::Whitespace
+                && &self.source()[separator] == ":"
+            {
+                // A colon separator such as Node's `KEY: value` needs no space
+                // before it and whitespace after it.
                 continue;
             }
             let before = tokens.space_before_eq.clone();
@@ -532,8 +591,18 @@ impl Document<'_> {
                 // for the next physical line in some grammars.
                 continue;
             }
-            let risky_hash_value =
-                !inline_comment && entry.value().is_some_and(|value| value.starts_with('#'));
+            // A space before a leading `#` can turn the value into a comment.
+            // With an inline comment after the value, that needs a value that
+            // stays unquoted and a dialect where whitespace before `#` starts
+            // a comment.
+            let risky_hash_value = entry.value().is_some_and(|value| value.starts_with('#'))
+                && (!inline_comment
+                    || entry.quote() == Quote::None
+                        && !requoted.contains(&after.end)
+                        && !matches!(
+                            self.dialect().inline_comments,
+                            InlineComments::Space | InlineComments::None
+                        ));
             if risky_hash_value {
                 continue;
             }
@@ -592,6 +661,11 @@ impl Document<'_> {
             if decoded.is_empty() {
                 // Empty values interact with the after-`=` spacing policy and
                 // comment separators; preserve them in this slice.
+                continue;
+            }
+            if decoded.contains('$') {
+                // Quotes decide whether `$` starts a reference, so a new quote
+                // style could change what resolution returns.
                 continue;
             }
             let before = &self.source()[item.span().start..value.start];
@@ -797,43 +871,150 @@ fn apply(source: &str, edits: &[TextEdit]) -> String {
     output
 }
 
-fn same_meaning(
+// The item that each edit belongs to, in edit order: the item where the edit
+// starts, or for a line ending added at the end of the source, the last item
+// that formatting keeps.
+fn owners(document: &Document<'_>, edits: &[TextEdit], removed: &[bool]) -> Vec<usize> {
+    let starts: Vec<usize> = document.items().map(|item| item.span().start).collect();
+    let last_kept = (0..starts.len()).rev().find(|&id| !removed[id]);
+    edits
+        .iter()
+        .map(|edit| {
+            if edit.range.is_empty() && edit.range.start == document.source().len() {
+                if let Some(id) = last_kept {
+                    return id;
+                }
+            }
+            starts
+                .partition_point(|&start| start <= edit.range.start)
+                .saturating_sub(1)
+        })
+        .collect()
+}
+
+/// How one part of the original source, an item or a group, reappears in a
+/// formatted or sorted output.
+pub(crate) struct Check {
+    /// The span the part should have in the output.
+    pub(crate) expected: Range<usize>,
+    /// The end of the output part that starts at `expected.start`, if any.
+    pub(crate) found_end: Option<usize>,
+    /// Whether the part reads the same in the output.
+    pub(crate) same: bool,
+    /// Whether the output changes the part's own text.
+    pub(crate) changed: bool,
+}
+
+/// The positions of the parts whose changes to drop before the next round;
+/// empty when every part reads the same.
+///
+/// A part that reads differently starts a region that also covers the parts
+/// it swallowed in the output, such as the lines an unterminated quote reads
+/// up to a quote that formatting added. The first changed part of the region
+/// that reads differently is dropped, else its first changed part, else the
+/// nearest changed part before the region, then after it.
+pub(crate) fn culprits(checks: &[Check]) -> BTreeSet<usize> {
+    let mut culprits = BTreeSet::new();
+    let mut first = 0;
+    while first < checks.len() {
+        if checks[first].same {
+            first += 1;
+            continue;
+        }
+        let mut end = first + 1;
+        let mut reach = checks[first]
+            .found_end
+            .unwrap_or(0)
+            .max(checks[first].expected.end);
+        while end < checks.len() && checks[end].expected.start < reach {
+            if !checks[end].same {
+                reach = reach.max(checks[end].found_end.unwrap_or(0));
+            }
+            end += 1;
+        }
+        let culprit = (first..end)
+            .find(|&at| checks[at].changed && !checks[at].same)
+            .or_else(|| (first..end).find(|&at| checks[at].changed))
+            .or_else(|| (0..first).rev().find(|&at| checks[at].changed))
+            .or_else(|| (end..checks.len()).find(|&at| checks[at].changed));
+        if let Some(culprit) = culprit {
+            culprits.insert(culprit);
+        }
+        first = end;
+    }
+    culprits
+}
+
+// One check for each item of `left`, the document before formatting. Every
+// item that formatting keeps must reappear at its shifted span in `right`, as
+// the same kind with the same meaning (see `same_item`). Blank lines that the
+// edits remove have no counterpart and an empty span. When `right` holds an
+// item that no check found, every check fails, so every change is dropped.
+fn check_items(
     left: &Document<'_>,
     right: &Document<'_>,
-    blank_lines: BlankLines,
+    edits: &[TextEdit],
+    owners: &[usize],
+    removed: &[bool],
     preserve_quote: bool,
-) -> bool {
-    if left.has_bom() != right.has_bom() {
-        return false;
-    }
-    match blank_lines {
-        BlankLines::Preserve => {
-            left.items().len() == right.items().len()
-                && left
-                    .items()
-                    .zip(right.items())
-                    .all(|(left, right)| same_item(left, right, preserve_quote))
+) -> Vec<Check> {
+    let owned: BTreeSet<usize> = owners.iter().copied().collect();
+    let mut pending = edits.iter().peekable();
+    let (mut replaced, mut inserted) = (0, 0);
+    let mut starts = Vec::with_capacity(left.items().len());
+    for item in left.items() {
+        let start = item.span().start;
+        while let Some(edit) = pending.next_if(|edit| edit.range.end <= start) {
+            replaced += edit.range.len();
+            inserted += edit.replacement.len();
         }
-        BlankLines::Collapse => {
-            let mut left_items = left.items().filter(|item| item.kind() != ItemKind::Blank);
-            let mut right_items = right.items().filter(|item| item.kind() != ItemKind::Blank);
-            let same_nonblank = loop {
-                match (left_items.next(), right_items.next()) {
-                    (Some(left), Some(right)) if same_item(left, right, preserve_quote) => {}
-                    (None, None) => break true,
-                    _ => break false,
-                }
-            };
-            same_nonblank
-                && left.groups().count() == right.groups().count()
-                && !right
-                    .items()
-                    .zip(right.items().skip(1))
-                    .any(|(left, right)| {
-                        left.kind() == ItemKind::Blank && right.kind() == ItemKind::Blank
-                    })
+        starts.push(start - replaced + inserted);
+    }
+    let mut right_items = right.items().peekable();
+    let mut found = 0;
+    let mut checks = Vec::with_capacity(starts.len());
+    for (item, &start) in left.items().zip(&starts) {
+        let changed = owned.contains(&item.id());
+        if removed[item.id()] {
+            checks.push(Check {
+                expected: start..start,
+                found_end: None,
+                same: true,
+                changed,
+            });
+            continue;
+        }
+        let end = starts
+            .get(item.id() + 1)
+            .copied()
+            .unwrap_or(right.source().len());
+        while right_items
+            .peek()
+            .is_some_and(|other| other.span().start < start)
+        {
+            right_items.next();
+        }
+        let other = right_items
+            .peek()
+            .copied()
+            .filter(|other| other.span().start == start);
+        let same = other
+            .is_some_and(|other| other.span().end == end && same_item(item, other, preserve_quote));
+        found += usize::from(same);
+        checks.push(Check {
+            expected: start..end,
+            found_end: other.map(|other| other.span().end),
+            same,
+            changed,
+        });
+    }
+    let bom = left.has_bom() != right.has_bom();
+    if bom || checks.iter().all(|check| check.same) && found != right.items().len() {
+        for check in &mut checks {
+            check.same = false;
         }
     }
+    checks
 }
 
 fn same_item(left: crate::Item<'_>, right: crate::Item<'_>, preserve_quote: bool) -> bool {
@@ -878,34 +1059,102 @@ fn trim_horizontal(text: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{same_meaning, BlankLines};
-    use crate::parse_strict;
+    use alloc::{string::String, vec::Vec};
+
+    use super::{check_items, culprits, owners, Check};
+    use crate::{parse_strict, Document, TextEdit};
+
+    // The ids of the items of `left` that do not read the same in `right`.
+    fn failing(
+        left: &Document<'_>,
+        right: &Document<'_>,
+        edits: &[TextEdit],
+        removed: &[bool],
+    ) -> Vec<usize> {
+        let owners = owners(left, edits, removed);
+        let checks = check_items(left, right, edits, &owners, removed, true);
+        (0..checks.len()).filter(|&id| !checks[id].same).collect()
+    }
 
     #[test]
-    fn same_meaning_rejects_different_items_with_equal_counts() {
+    fn checks_report_a_different_value_at_the_same_span() {
         let left = parse_strict("A=1\n").unwrap();
         let right = parse_strict("A=2\n").unwrap();
-        assert!(!same_meaning(&left, &right, BlankLines::Preserve, true));
+        assert_eq!(failing(&left, &right, &[], &[false]), [0]);
     }
 
     #[test]
-    fn same_meaning_rejects_different_nonblank_items_when_collapsing() {
-        let left = parse_strict("A=1\n\nB=2\n").unwrap();
-        let right = parse_strict("A=1\n\nB=3\n").unwrap();
-        assert!(!same_meaning(&left, &right, BlankLines::Collapse, true));
-    }
-
-    #[test]
-    fn same_meaning_rejects_group_count_changes_when_collapsing() {
+    fn checks_report_items_after_a_lost_blank_line() {
         let left = parse_strict("A=1\n\nB=2\n").unwrap();
         let right = parse_strict("A=1\nB=2\n").unwrap();
-        assert!(!same_meaning(&left, &right, BlankLines::Collapse, true));
+        assert_eq!(failing(&left, &right, &[], &[false; 3]), [1, 2]);
     }
 
     #[test]
-    fn same_meaning_rejects_consecutive_blank_items_when_collapsing() {
+    fn checks_report_items_after_an_extra_blank_line() {
         let left = parse_strict("A=1\n\nB=2\n").unwrap();
         let right = parse_strict("A=1\n\n\nB=2\n").unwrap();
-        assert!(!same_meaning(&left, &right, BlankLines::Collapse, true));
+        assert_eq!(failing(&left, &right, &[], &[false; 3]), [2]);
+    }
+
+    #[test]
+    fn checks_skip_removed_blank_lines() {
+        let left = parse_strict("A=1\n\n\nB=2\n").unwrap();
+        let right = parse_strict("A=1\n\nB=2\n").unwrap();
+        let edits = [TextEdit {
+            range: 5..6,
+            replacement: String::new(),
+        }];
+        assert_eq!(
+            failing(&left, &right, &edits, &[false, false, true, false]),
+            Vec::<usize>::new()
+        );
+        assert_eq!(failing(&left, &right, &[], &[false; 4]), [2, 3]);
+    }
+
+    fn check(
+        expected: core::ops::Range<usize>,
+        found_end: Option<usize>,
+        same: bool,
+        changed: bool,
+    ) -> Check {
+        Check {
+            expected,
+            found_end,
+            same,
+            changed,
+        }
+    }
+
+    #[test]
+    fn culprits_prefer_a_changed_part_that_reads_differently() {
+        // The first part swallows the second in the output; the second has
+        // the change that reads differently.
+        let checks = [
+            check(0..4, Some(4), true, true),
+            check(4..9, Some(20), false, false),
+            check(9..20, None, false, true),
+            check(20..24, Some(24), true, true),
+        ];
+        assert_eq!(culprits(&checks).into_iter().collect::<Vec<_>>(), [2]);
+        // Two changed parts in one region: the first one goes.
+        let checks = [
+            check(0..8, Some(17), false, true),
+            check(9..17, None, false, true),
+        ];
+        assert_eq!(culprits(&checks).into_iter().collect::<Vec<_>>(), [0]);
+        // A part without changes of its own charges the nearest changed part
+        // before it, else after it.
+        let checks = [
+            check(0..4, Some(4), true, true),
+            check(4..8, Some(9), false, false),
+            check(9..12, Some(12), true, true),
+        ];
+        assert_eq!(culprits(&checks).into_iter().collect::<Vec<_>>(), [0]);
+        let checks = [
+            check(0..4, Some(5), false, false),
+            check(5..9, Some(9), true, true),
+        ];
+        assert_eq!(culprits(&checks).into_iter().collect::<Vec<_>>(), [1]);
     }
 }

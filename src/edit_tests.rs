@@ -752,6 +752,45 @@ fn renames_free_and_claim_keys_like_insertions() {
 }
 
 #[test]
+fn uncommenting_claims_keys_like_insertions() {
+    let (doc, _) = parse("A=1\n# A=old\n# B=2\n");
+    let ok = |operations: &[Edit<'_>]| doc.edit(operations).map(|v| v.as_str().to_string());
+    // Restoring a second declaration of a key that the output keeps collides.
+    assert_eq!(doc.uncomment(1), Err(EditError::Duplicate(2)));
+    assert_eq!(
+        ok(&[
+            Edit::Uncomment { item: 2 },
+            Edit::Insert {
+                key: "B",
+                value: Some("3"),
+                position: InsertPosition::End,
+            },
+        ]),
+        Err(EditError::Duplicate(2))
+    );
+    // Removing, commenting out or renaming away the old declaration frees it.
+    assert_eq!(
+        ok(&[Edit::Remove { item: 0 }, Edit::Uncomment { item: 1 }]),
+        Ok("A=old\n# B=2\n".to_string())
+    );
+    assert_eq!(
+        ok(&[Edit::Comment { item: 0 }, Edit::Uncomment { item: 1 }]),
+        Ok("# A=1\nA=old\n# B=2\n".to_string())
+    );
+    assert_eq!(
+        ok(&[
+            Edit::Rename { entry: 0, key: "C" },
+            Edit::Uncomment { item: 1 }
+        ]),
+        Ok("C=1\nA=old\n# B=2\n".to_string())
+    );
+    assert_eq!(doc.uncomment(2).unwrap().as_str(), "A=1\n# A=old\nB=2\n");
+    // Existing duplicates that the batch does not touch stay allowed.
+    let (doc, _) = parse("A=1\nA=2\n# B=3\n");
+    assert_eq!(doc.uncomment(2).unwrap().as_str(), "A=1\nA=2\nB=3\n");
+}
+
+#[test]
 fn large_interleaved_set_rename_batch_keeps_sorted_native_edits() {
     let count = 256;
     let mut source = String::new();

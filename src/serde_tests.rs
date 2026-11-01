@@ -246,6 +246,39 @@ fn value_error_display_includes_line_and_key() {
 }
 
 #[test]
+fn conversions_after_reading_a_value_keep_its_line_and_key() {
+    #[derive(Debug, Deserialize)]
+    #[serde(try_from = "String")]
+    struct Port(#[allow(dead_code)] u16);
+
+    impl TryFrom<String> for Port {
+        type Error = &'static str;
+
+        fn try_from(value: String) -> Result<Self, Self::Error> {
+            match value.parse() {
+                Ok(0) | Err(_) => Err("port must be a nonzero number"),
+                Ok(port) => Ok(Self(port)),
+            }
+        }
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[allow(dead_code)]
+    struct Server {
+        host: String,
+        port: Port,
+    }
+
+    let doc = parse_strict("host=h\nport=0\n").unwrap();
+    let error = doc.deserialize::<Server>().unwrap_err();
+    assert_eq!((error.line(), error.key()), (2, Some("port")));
+    assert_eq!(
+        error.to_string(),
+        r#"line 2: port must be a nonzero number (key "port")"#
+    );
+}
+
+#[test]
 fn duplicate_and_bare_policies_control_serde_membership() {
     use crate::Duplicates;
 

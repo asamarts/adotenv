@@ -453,8 +453,9 @@ fn limits_and_cycles_are_structured_errors() {
         ),
         Err(ResolveError::Cycle { .. })
     ));
-    let large = parse_strict("A=${B}\nB=abcdef\n").unwrap();
-    assert!(matches!(
+    let large = parse_strict("A=\"${B}\" # note\nB=abcdef\n").unwrap();
+    // The span covers the value as written, like that of OutputTooLarge.
+    assert_eq!(
         large.resolve(
             |_| None,
             &ExpandOptions {
@@ -462,8 +463,12 @@ fn limits_and_cycles_are_structured_errors() {
                 ..ExpandOptions::portable()
             }
         ),
-        Err(ResolveError::ValueTooLarge { .. })
-    ));
+        Err(ResolveError::ValueTooLarge {
+            key: "A".to_string(),
+            limit: 3,
+            span: 2..8,
+        })
+    );
     let deep = parse_strict("A=${B}\nB=${C}\nC=${D}\nD=x\n").unwrap();
     assert!(matches!(
         deep.resolve(
@@ -811,7 +816,7 @@ fn structured_errors_have_stable_display_text() {
         .unwrap_err();
     assert_eq!(
         required.to_string(),
-        "required variable MISSING is unset or empty while resolving A: boom"
+        "required variable MISSING has no value while resolving A: boom"
     );
 
     let cycle = parse_strict("A=${B}\nB=${A}\n")

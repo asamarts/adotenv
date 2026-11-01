@@ -65,6 +65,10 @@ pub enum Syntax {
 /// quote, as in `A="x"#note`, also needs [`Dialect::quoted_comments`]. The
 /// characters that count as whitespace come from [`Dialect::whitespace`].
 ///
+/// After a bare key, the Portable grammar ([`Syntax::Portable`]) always starts
+/// a comment at a `#` that follows whitespace, whatever this policy says: in
+/// `DEBUG #note` there is no value for the `#` to belong to.
+///
 /// # Examples
 ///
 /// ```

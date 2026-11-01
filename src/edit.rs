@@ -318,8 +318,11 @@ pub enum Edit<'a> {
     /// valid syntax, or when it opens a multiline value whose other lines stay
     /// commented out: uncomment every line of such a value in one batch.
     ///
-    /// Uncommenting does not check key collisions: the restored declaration
-    /// can duplicate a key that the document still declares.
+    /// A restored declaration must be the only declaration of its key in the
+    /// output, as for [`Edit::Insert`]: the batch fails with
+    /// [`EditError::Duplicate`] when the document keeps another declaration of
+    /// the key, unless the same batch removes, comments out or renames it
+    /// away.
     Uncomment {
         /// The item ID ([`Item::id`](crate::Item::id)) of the comment.
         item: usize,
@@ -418,12 +421,14 @@ impl fmt::Display for EditError {
                     "key has {count} declarations; select one occurrence or use another key"
                 )
             }
-            Self::InvalidTarget => f.write_str("invalid snapshot-local edit target"),
+            Self::InvalidTarget => {
+                f.write_str("edit target is out of range or has the wrong item kind")
+            }
             Self::InvalidKey => f.write_str("key cannot be represented by the selected dialect"),
             Self::Unencodable => f.write_str("value cannot be represented in the selected dialect"),
             Self::ConflictingEdits => f.write_str("conflicting operations in edit batch"),
             Self::WouldChangeMeaning => {
-                f.write_str("edit would change unrelated source interpretation")
+                f.write_str("edit would change other parts of the document or miss its change")
             }
         }
     }
@@ -794,10 +799,10 @@ impl Document<'_> {
     /// the result holds the new text and the text edits. An empty batch returns
     /// the source unchanged, with no text edits.
     ///
-    /// Inserted and renamed keys must each name exactly one declaration of the
-    /// output; removing, commenting out or renaming away the existing
-    /// declarations in the same batch frees a key. See [`Edit::Insert`] and
-    /// [`Edit::Rename`].
+    /// Inserted, renamed and uncommented keys must each name exactly one
+    /// declaration of the output; removing, commenting out or renaming away the
+    /// existing declarations in the same batch frees a key. See
+    /// [`Edit::Insert`], [`Edit::Rename`] and [`Edit::Uncomment`].
     ///
     /// # Errors
     ///
@@ -805,8 +810,8 @@ impl Document<'_> {
     ///   or the target of [`Edit::Uncomment`] is not a comment.
     /// - [`EditError::Missing`] or [`EditError::Duplicate`] when the key of an
     ///   [`InsertPosition::AfterKey`] is not declared exactly once.
-    /// - [`EditError::Duplicate`] when an inserted or renamed key would have
-    ///   more than one declaration in the output.
+    /// - [`EditError::Duplicate`] when an inserted, renamed or uncommented key
+    ///   would have more than one declaration in the output.
     /// - [`EditError::InvalidKey`] when the dialect cannot spell an inserted or
     ///   renamed key.
     /// - [`EditError::Unencodable`] when the dialect cannot spell a value in its
@@ -1651,6 +1656,8 @@ impl Document<'_> {
             region.range.start = 3;
         }
         let mut actual = parsed.items();
+        // Uncommented declarations follow the collision rule of insertions.
+        let mut new_keys = new_keys;
         for region in regions {
             if region.range.is_empty() && matches!(region.expect, Expect::Uncommented) {
                 continue;
@@ -1707,6 +1714,9 @@ impl Document<'_> {
                             || (comments_only && current.kind() != ItemKind::Comment)
                         {
                             return Err(EditError::WouldChangeMeaning);
+                        }
+                        if let Some(entry) = current.entry().filter(|_| !comments_only) {
+                            new_keys.push(entry.key());
                         }
                         if current.span().end == region.range.end {
                             break;
@@ -1918,13 +1928,17 @@ impl Document<'_> {
     /// comment items: uncomment all of them in one [`Document::edit`] batch of
     /// [`Edit::Uncomment`] operations.
     ///
-    /// Uncommenting does not check key collisions: the restored declaration
-    /// can duplicate a key that the document still declares.
+    /// The restored declaration must be the only declaration of its key in the
+    /// output: uncommenting `# PORT=8080` while `PORT=3000` stays fails. To
+    /// swap the two, remove or comment out the other declaration in the same
+    /// [`Document::edit`] batch.
     ///
     /// # Errors
     ///
     /// - [`EditError::InvalidTarget`] when `item` is out of range or is not a
     ///   comment.
+    /// - [`EditError::Duplicate`] when the document still declares the key of
+    ///   the restored declaration.
     /// - [`EditError::WouldChangeMeaning`] when the uncommented text is not
     ///   valid syntax or would continue onto a line that stays commented out,
     ///   such as the first line of a multiline value.
@@ -1941,6 +1955,12 @@ impl Document<'_> {
     /// assert_eq!(doc.uncomment(1), Err(EditError::WouldChangeMeaning));
     /// let restored = doc.edit(&[Edit::Uncomment { item: 1 }, Edit::Uncomment { item: 2 }])?;
     /// assert_eq!(restored.as_str(), "# DEBUG=true\nKEY='line one\nline two'\n");
+    ///
+    /// // A restored key must not be declared twice.
+    /// let doc = adotenv::parse_strict("PORT=3000\n# PORT=8080\n")?;
+    /// assert_eq!(doc.uncomment(1), Err(EditError::Duplicate(2)));
+    /// let swapped = doc.edit(&[Edit::Comment { item: 0 }, Edit::Uncomment { item: 1 }])?;
+    /// assert_eq!(swapped.as_str(), "# PORT=3000\nPORT=8080\n");
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///

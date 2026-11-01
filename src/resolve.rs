@@ -764,7 +764,7 @@ impl ResolvedDocument {
 /// }
 /// assert_eq!(
 ///     error.to_string(),
-///     "required variable DB_HOST is unset or empty while resolving DATABASE_URL: set DB_HOST"
+///     "required variable DB_HOST has no value while resolving DATABASE_URL: set DB_HOST"
 /// );
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -819,7 +819,7 @@ pub enum ResolveError {
         key: String,
         /// The configured [`ExpandOptions::max_value_bytes`].
         limit: usize,
-        /// The byte range of the entry's statement.
+        /// The byte range of the entry's value as written, quotes included.
         span: Range<usize>,
     },
     /// The whole result grew larger than [`ExpandOptions::max_output_bytes`].
@@ -856,7 +856,7 @@ impl fmt::Display for ResolveError {
                 key, name, message, ..
             } => write!(
                 formatter,
-                "required variable {name} is unset or empty while resolving {key}: {message}"
+                "required variable {name} has no value while resolving {key}: {message}"
             ),
             Self::Cycle { key, chain } => {
                 write!(formatter, "reference cycle while resolving {key}: ")?;
@@ -1844,7 +1844,7 @@ fn account(
         return Err(ResolveError::ValueTooLarge {
             key: entry.key().to_string(),
             limit,
-            span: entry.line_span(),
+            span: entry.value_span().unwrap_or_else(|| entry.line_span()),
         });
     }
     Ok(())

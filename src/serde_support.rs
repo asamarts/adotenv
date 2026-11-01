@@ -37,8 +37,9 @@ use crate::Document;
 /// - From a loaded environment loaded without origins, a value error has
 ///   line `0` but still names the key.
 ///
-/// Its `Display` is `line {line}: {message} (key "{key}")` when the line is
-/// known, and the message alone when the line is `0`. Messages include the
+/// Its `Display` is `line {line}: {message} (key "{key}")`, without the
+/// `line` part when the line is `0` and without the `key` part when there is
+/// no key. Messages include the
 /// value that failed to convert, such as `expected a u16, found "abc"`, so
 /// treat them as secret when the values are secret.
 ///
@@ -122,18 +123,13 @@ impl DeserializeError {
 
 impl fmt::Display for DeserializeError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.line == 0 {
-            formatter.write_str(&self.message)
-        } else {
-            write!(
-                formatter,
-                "line {}: {}{}",
-                self.line,
-                self.message,
-                self.key
-                    .as_ref()
-                    .map_or(String::new(), |key| format!(" (key {key:?})"))
-            )
+        if self.line != 0 {
+            write!(formatter, "line {}: ", self.line)?;
+        }
+        formatter.write_str(&self.message)?;
+        match &self.key {
+            Some(key) => write!(formatter, " (key {key:?})"),
+            None => Ok(()),
         }
     }
 }
@@ -365,7 +361,11 @@ impl<'de> MapAccess<'de> for EntriesAccess {
         let Some((key, value, line)) = self.current.take() else {
             return Err(DeserializeError::new("value requested without a key"));
         };
+        // Conversions that run after the value is read, such as
+        // `#[serde(try_from = "String")]`, fail outside `ValueDeserializer`.
+        let context = key.clone();
         seed.deserialize(ValueDeserializer { key, value, line })
+            .map_err(|error| error.with_context(line, context))
     }
 
     fn size_hint(&self) -> Option<usize> {

@@ -931,8 +931,10 @@ fn serde_errors_without_origins_have_no_line_number() {
     let error = loaded.deserialize::<Config>().unwrap_err();
     assert_eq!(error.line(), 0);
     assert_eq!(error.key(), Some("port"));
-    assert!(!error.to_string().starts_with("line "));
-    assert!(error.to_string().contains("u16"));
+    assert_eq!(
+        error.to_string(),
+        r#"expected a u16, found "not-a-number" (key "port")"#
+    );
 }
 
 fn whole_file() -> ExpandOptions {

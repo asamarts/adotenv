@@ -6,6 +6,39 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- `Document::uncomment` and `Edit::Uncomment` follow the collision rule of
+  insertions and renames: restoring a declaration of a key that the output
+  still declares fails with `EditError::Duplicate`, unless the same batch
+  removes, comments out or renames away the other declaration.
+- `Document::format` with a quote style keeps the quoting of values that
+  contain `$`, because quotes decide whether a reference expands. Before,
+  `A=${HOST}` formatted with `QuoteStyle::Single` became `A='${HOST}'`, which
+  `Document::resolve` no longer expands.
+- `ResolveError::ValueTooLarge` has the span of the entry's value, like
+  `OutputTooLarge`, instead of the whole statement.
+- Clearer messages: `ResolveError::Required` says the variable "has no value"
+  instead of "is unset or empty", which was wrong for `${NAME?message}`;
+  `dotenv.tight-hash`, `dotenv.lone-cr`, `EditError::InvalidTarget` and
+  `EditError::WouldChangeMeaning` describe what happened in plain words.
+
+### Fixed
+
+- `Document::format` and `Document::sort` no longer fail a whole file when one
+  change would read differently once the output is parsed again. They leave
+  that change, or that group, out and check the output again. This affected,
+  for example, a Compose bare key on the last line with `FinalNewline::Ensure`
+  or `Remove`, a lone CR line ending that sorting moved in front of an LF, and
+  a quote change that closed an earlier unterminated quote.
+- `Document::format` keeps the spacing after `=` of a value that starts with
+  `#` when an inline comment follows, as in `A=#x # note`, and the spacing of
+  Node dotenv `KEY: value` declarations. Both used to fail formatting.
+- Serde errors from conversions that run after a value is read, such as
+  `#[serde(try_from = "String")]`, report the line and key of the value.
+  `DeserializeError` names the key in its `Display` also when the line is
+  unknown.
+
 ### Documentation
 
 - A second review of the 1.0.1 documentation corrected statements that did

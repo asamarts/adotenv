@@ -102,7 +102,8 @@ the first greater key it finds.
 
 ### Key collisions
 
-An inserted or renamed key must name exactly one declaration of the output.
+An inserted, renamed or uncommented key must name exactly one declaration of
+the output.
 The batch fails with `EditError::Duplicate` when the document keeps another
 declaration of that key, or when another insertion, rename or uncommented line
 in the batch declares it. Removing, commenting out or renaming away every
@@ -125,8 +126,11 @@ assert_eq!(swapped.as_str(), "B=1\nA=2\n");
 ```
 
 Commented-out declarations are comments, so they never collide. Uncommenting
-does not check collisions on its own: `uncomment` and `Edit::Uncomment` can
-restore a declaration of a key that the document still declares.
+follows the same rule as inserting: a restored declaration must be the only
+declaration of its key in the output, so `uncomment` and `Edit::Uncomment`
+fail with `Duplicate` while the document still declares the key. Comment out,
+remove or rename the other declaration in the same batch to switch between
+them.
 
 ## Errors
 

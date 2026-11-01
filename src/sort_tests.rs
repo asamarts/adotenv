@@ -7,7 +7,7 @@ use alloc::{
 
 use proptest::prelude::*;
 
-use crate::{parse, parse_strict, Document, ExpandOptions, ExpandScope};
+use crate::{parse, parse_strict, parse_with, Dialect, Document, ExpandOptions, ExpandScope};
 
 type GroupValues = BTreeMap<(usize, String), Vec<(Option<String>, Option<String>)>>;
 
@@ -226,6 +226,38 @@ fn a_declaration_that_shares_its_line_with_the_next_statement_keeps_its_group() 
     let sorted = doc.sort().unwrap();
     assert_eq!(sorted.as_str(), source);
     assert!(sorted.is_empty());
+}
+
+#[test]
+fn a_group_that_would_read_differently_keeps_its_order() {
+    // In Compose a bare key on the last line of a file without a final line
+    // ending reads as a value of the empty key, so `B` cannot move there. A
+    // lone CR moved in front of the blank line's LF would become a CRLF.
+    for (dialect, source, expected) in [
+        (Dialect::COMPOSE, "D=4\nC=3\n\nB\nA:", "C=3\nD=4\n\nB\nA:"),
+        (
+            Dialect::PORTABLE,
+            "G=1\rB=2\n\nZ=1\nY=2\n",
+            "G=1\rB=2\n\nY=2\nZ=1\n",
+        ),
+        (
+            Dialect::PORTABLE,
+            "Z=1\nY=2\n\nG=1\rB=2\n\n",
+            "Y=2\nZ=1\n\nG=1\rB=2\n\n",
+        ),
+    ] {
+        let (doc, _) = parse_with(source, dialect);
+        let sorted = doc.sort().unwrap();
+        assert_eq!(sorted.as_str(), expected, "{source:?}");
+        assert_eq!(sorted.edits().len(), 1, "{source:?}");
+        replay(doc.source(), sorted.as_str(), sorted.edits());
+        let (after, _) = parse_with(sorted.as_str(), dialect);
+        assert!(after.sort().unwrap().is_empty(), "{source:?}");
+    }
+    let (doc, _) = parse_with("B\nA:", Dialect::COMPOSE);
+    let sorted = doc.sort().unwrap();
+    assert!(sorted.is_empty());
+    assert_eq!(sorted.as_str(), "B\nA:");
 }
 
 fn simple_line() -> impl Strategy<Value = String> {

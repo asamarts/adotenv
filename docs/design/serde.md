@@ -95,8 +95,9 @@ accept a string, such as `String`, work there.
 - An error about the whole map, such as a missing field, has line `0` and no
   key.
 
-The `Display` form is `line {line}: {message} (key "{key}")` when the line is
-known, and the message alone when the line is `0`.
+The `Display` form is `line {line}: {message} (key "{key}")`, without the
+`line` part when the line is `0` and without the `key` part when there is no
+key.
 
 Error messages include the value that failed to convert, such as
 `expected a u16, found "abc"`. Treat them as secret when values are secret.

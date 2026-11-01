@@ -423,6 +423,67 @@ fn collapsing_trailing_blank_lines_does_not_add_another_line_ending() {
     }
 }
 
+#[test]
+fn a_change_that_would_read_differently_is_skipped() {
+    let double = FormatOptions::default().with_quote_style(QuoteStyle::Double);
+    let remove = FormatOptions::default().with_final_newline(FinalNewline::Remove);
+    for (dialect, options, source, expected) in [
+        // A final line ending after a Compose bare key turns the value of the
+        // empty key into a bare key, and removing one does the reverse.
+        (
+            Dialect::COMPOSE,
+            FormatOptions::normalize(),
+            "A =1\nG",
+            "A = 1\nG",
+        ),
+        (Dialect::COMPOSE, remove, "A=1\nG\n", "A=1\nG\n"),
+        // A double quote added after an unterminated quote would close it.
+        (
+            Dialect::PORTABLE,
+            double,
+            "A='1'\nBROKEN=\"\nPORT='8080'\n",
+            "A=\"1\"\nBROKEN=\"\nPORT='8080'\n",
+        ),
+    ] {
+        let (doc, _) = parse_with(source, dialect);
+        let formatted = doc.format(&options).unwrap();
+        assert_eq!(formatted.as_str(), expected, "{source:?}");
+        let (after, _) = parse_with(formatted.as_str(), dialect);
+        assert!(after.format(&options).unwrap().is_empty(), "{source:?}");
+    }
+}
+
+#[test]
+fn spacing_keeps_a_leading_hash_and_a_node_colon_separator() {
+    let options = FormatOptions::normalize_groups();
+    for (dialect, source, expected) in [
+        (Dialect::PORTABLE, "A=#x # c\nB =2\n", "A =#x # c\nB = 2\n"),
+        (Dialect::NODE_DOTENV, "A: 1\nB =2\n", "A: 1\nB = 2\n"),
+    ] {
+        let (doc, _) = parse_with(source, dialect);
+        let formatted = doc.format(&options).unwrap();
+        assert_eq!(formatted.as_str(), expected, "{source:?}");
+    }
+}
+
+#[test]
+fn quote_styles_keep_values_with_a_dollar_sign() {
+    let source = "H=h\nA=${H}\nB='$H'\nC=\"a$b\"\n";
+    let doc = parse_strict(source).unwrap();
+    for (style, expected) in [
+        (QuoteStyle::Single, "H='h'\nA=${H}\nB='$H'\nC=\"a$b\"\n"),
+        (QuoteStyle::Double, "H=\"h\"\nA=${H}\nB='$H'\nC=\"a$b\"\n"),
+        (QuoteStyle::Unquoted, "H=h\nA=${H}\nB='$H'\nC=\"a$b\"\n"),
+    ] {
+        let options = FormatOptions::default().with_quote_style(style);
+        assert_eq!(
+            doc.format(&options).unwrap().as_str(),
+            expected,
+            "{style:?}"
+        );
+    }
+}
+
 fn any_format_options() -> impl Strategy<Value = FormatOptions> {
     (
         0..3usize,

@@ -265,10 +265,10 @@ impl DiagnosticCode {
             Self::DuplicateKey => "duplicate key; lookup follows the selected dialect policy",
             Self::BareKey => "bare declaration retained without assigning a value",
             Self::NonPosixKey => "key is not a POSIX shell variable name",
-            Self::TightHash => "hash without preceding whitespace is literal",
+            Self::TightHash => "hash in an unquoted value is literal text, not a comment",
             Self::Backtick => "backticks are literal in Portable syntax",
             Self::ByteOrderMark => "leading UTF-8 byte-order mark retained",
-            Self::LoneCarriageReturn => "lone carriage return retained as a line ending",
+            Self::LoneCarriageReturn => "carriage return without a following line feed",
             Self::ForbiddenBareKey => "bare declaration forbidden by the selected policy",
             Self::ForbiddenByteOrderMark => {
                 "leading byte-order mark forbidden by the selected policy"

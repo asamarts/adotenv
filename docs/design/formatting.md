@@ -3,8 +3,10 @@
 `Document::format` and `Document::sort` return a `FormatResult`: the verified
 output and the text edits that produce it, with ranges into the original
 source. The complete output is parsed again with the same dialect before it is
-returned. A change that would alter a declaration fails with
-`FormatError::WouldChangeMeaning`.
+returned. A change that would make an item or a group read differently there
+is left out, and the output is checked again. Both methods give up after a few
+rounds, with `FormatError::WouldChangeMeaning`, so the work stays linear in the
+size of the file; no known input gets that far.
 
 `FormatResult` has `as_str()`, `into_string()`, `edits()`, `into_edits()` and
 `is_empty()`, which is true when nothing changed. The edits follow the order
@@ -46,9 +48,15 @@ Two presets cover common needs:
 - Decoded values never change. A quote change is applied only when the
   decoded value stays exactly the same. Empty values, bare declarations and
   empty keys keep their form.
-- Separator spacing stays as it is for empty keys. When no inline comment
-  follows, the space after `=` also stays if the value is empty or starts
-  with `#`, because changing it could change how the line reads.
+- Separator spacing stays as it is for empty keys and, in Node dotenv, for
+  `KEY: value` declarations, whose colon needs no space before it and
+  whitespace after it. The space after `=` also stays when the value is empty
+  and no inline comment follows, and when the value starts with `#`, as in
+  `A=#x # note`, because changing it could change how the line reads.
+- A change that reads differently once the whole output is parsed again is
+  left out, with the other changes to the same item. For example, Compose
+  reads a bare key on the last line of a file without a final line ending as
+  the value of an empty key, so `FinalNewline::Ensure` adds nothing after it.
 - Invalid and ignored statements are never rewritten.
 - Trimming never removes a line or touches whitespace inside a multiline
   value. A whitespace-only last line without a line ending stays as is unless
@@ -88,9 +96,10 @@ assert_eq!(doc.format(&options).unwrap().as_str(), "A=\"x\\ny\"\n");
 default (`Preserve` or `false`); combined with other changes it is skipped.
 Raw-value dialects such as Docker are never re-quoted.
 
-The check compares literal values, not how references expand, so a quote
-change can change resolved values. With `ExpandOptions::portable()`,
-`A=${HOST}` expands `${HOST}`, while `A='${HOST}'` keeps it as text.
+A value that contains `$` keeps its quoting, because quotes decide whether a
+reference expands: with `ExpandOptions::portable()`, `A=${HOST}` expands
+`${HOST}`, while `A='${HOST}'` keeps it as text. A quote change therefore never
+changes resolved values.
 
 ## Sort
 
@@ -116,7 +125,11 @@ These groups are left unchanged, byte for byte:
 - groups with duplicate keys or empty keys;
 - groups with invalid or ignored statements;
 - groups with a self-reference or a reference cycle;
-- groups where a declaration shares its physical line with the next statement.
+- groups where a declaration shares its physical line with the next statement;
+- groups whose sorted text would read differently once the whole output is
+  parsed again. In Compose, `G\nB=2` without a final line ending stays as it
+  is, because `G` on the last line would read as the value of an empty key. A
+  lone CR line ending moved in front of an LF would join it into a CRLF.
 
 ```rust
 let source = "# header\nC=3\nB=${A}\n# A note\nA=1\n# bottom\n";

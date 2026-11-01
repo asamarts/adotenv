@@ -358,9 +358,22 @@ fn check_comment_restore(source: &str, selector: u8, dialect: Dialect) {
         .filter(|part| part.span().start >= item.span().start && part.span().end <= end)
         .map(|part| Edit::Uncomment { item: part.id() })
         .collect::<Vec<_>>();
-    let restored = comments
-        .edit(&operations)
-        .expect("generated comments must restore valid syntax");
+    let restored = comments.edit(&operations);
+    if document
+        .entries()
+        .filter(|other| other.key() == entry.key())
+        .count()
+        > 1
+    {
+        // Restoring a declaration of a key that the file still declares
+        // collides, as an insertion would.
+        assert!(
+            matches!(restored, Err(adotenv::EditError::Duplicate(_))),
+            "{restored:?}"
+        );
+        return;
+    }
+    let restored = restored.expect("generated comments must restore valid syntax");
     check_replay(comment.as_str(), &restored);
     assert_eq!(restored.as_str(), source);
 }

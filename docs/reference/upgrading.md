@@ -18,13 +18,23 @@ list of changes is in the
 
 ## Within 1.x
 
-Patch releases fix bugs without changing the API. One fix changes results:
+Releases within 1.x keep the API. These fixes change results:
 
 - 1.0.1: with a custom dialect that uses `Duplicates::First`,
   `Document::resolve` and `Document::resolve_with_commands` bind a repeated key
   to its first visible declaration, the one `Document::get` returns. 1.0.0
   bound it to the last one. The presets use `Duplicates::Last` and are
   unaffected.
+- Unreleased: `Document::uncomment` and `Edit::Uncomment` fail with
+  `EditError::Duplicate` when the restored key is still declared, unless the
+  same batch removes, comments out or renames away the other declaration.
+- Unreleased: `Document::format` and `Document::sort` return the verified
+  output where they used to fail, leaving out only the changes that would read
+  differently. A quote style no longer changes values that contain `$`.
+- Unreleased: the messages of `ResolveError::Required`, `dotenv.tight-hash`,
+  `dotenv.lone-cr`, `EditError::InvalidTarget` and
+  `EditError::WouldChangeMeaning` changed. Match on the error or diagnostic
+  code, not on its text.
 
 ## From 0.11
 
