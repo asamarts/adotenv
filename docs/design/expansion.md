@@ -120,8 +120,10 @@ Builders change one option each:
 | `with_max_value_bytes` | Expanded bytes per value | 1 MiB |
 | `with_max_output_bytes` | Total bytes of one resolution | 64 MiB |
 
-Sequential scope uses the latest earlier binding. Whole-file scope uses the
-final binding. With no caller value, `A=base` followed by `A=${A}x` gives
+Sequential scope uses the earlier declarations of a name, and whole-file scope
+uses all of them. Among those, the dialect's duplicate-key rule picks one: the
+latest under `Duplicates::Last`, which every preset uses, or the first under
+`Duplicates::First`. With no caller value, `A=base` followed by `A=${A}x` gives
 `basex` in sequential scope and a cycle in whole-file scope.
 
 With `FileFirst`, a declaration in the file wins over the lookup closure, even

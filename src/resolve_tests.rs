@@ -48,6 +48,37 @@ fn sequential_resolution_uses_earlier_bindings() {
 }
 
 #[test]
+fn references_follow_the_dialect_duplicate_rule() {
+    // A reference binds to the declaration that lookup returns.
+    let source = "A=one\nA=two\nB=${A}\n";
+    for (duplicates, expected) in [
+        (crate::Duplicates::First, "one"),
+        (crate::Duplicates::Last, "two"),
+    ] {
+        let (doc, _) = parse_with(source, Dialect::PORTABLE.with_duplicates(duplicates));
+        assert_eq!(doc.get("A"), Some(expected));
+        for scope in [ExpandScope::Sequential, ExpandScope::WholeFile] {
+            let options = ExpandOptions::portable().with_scope(scope);
+            let resolved = doc.resolve(|_| None, &options).unwrap();
+            assert_eq!(
+                value(&resolved, 2),
+                Some(expected),
+                "{duplicates:?} {scope:?}"
+            );
+        }
+    }
+
+    // In sequential scope, a later duplicate sees the first declaration.
+    let (doc, _) = parse_with(
+        "A=one\nA=${A}-two\nB=${A}\n",
+        Dialect::PORTABLE.with_duplicates(crate::Duplicates::First),
+    );
+    let resolved = doc.resolve(|_| None, &ExpandOptions::portable()).unwrap();
+    assert_eq!(value(&resolved, 1), Some("one-two"));
+    assert_eq!(value(&resolved, 2), Some("one"));
+}
+
+#[test]
 fn whole_file_scope_uses_final_bindings_and_detects_cycles() {
     let lookup = |_: &str| None;
     let doc = parse_strict("A=${B}\nB=value\n").unwrap();

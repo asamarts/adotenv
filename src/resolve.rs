@@ -13,8 +13,8 @@ use alloc::{
 use core::{fmt, ops::Range};
 
 use crate::{
-    AssignmentState, BareKeys, Document, Entry, Reference, ReferenceKind, ReferenceOperator,
-    ReferenceRules,
+    AssignmentState, BareKeys, Document, Duplicates, Entry, Reference, ReferenceKind,
+    ReferenceOperator, ReferenceRules,
 };
 
 /// Whether later definitions can see earlier definitions or the final file.
@@ -657,16 +657,12 @@ where
             ExpandScope::Sequential => {
                 for entry in self.document.entries() {
                     self.resolve_entry(entry.id())?;
-                    if entry.participates_in_lookup() {
-                        self.bindings.insert(entry.key(), entry.id());
-                    }
+                    self.bind(entry);
                 }
             }
             ExpandScope::WholeFile => {
                 for entry in self.document.entries() {
-                    if entry.participates_in_lookup() {
-                        self.bindings.insert(entry.key(), entry.id());
-                    }
+                    self.bind(entry);
                 }
                 for entry in self.document.entries() {
                     self.resolve_entry(entry.id())?;
@@ -1210,6 +1206,21 @@ where
                     return Ok(file);
                 }
                 Ok((self.lookup)(name).map(Bound::Lookup))
+            }
+        }
+    }
+
+    /// Make `entry` the file binding of its key when lookup would select it.
+    fn bind(&mut self, entry: Entry<'a>) {
+        if !entry.participates_in_lookup() {
+            return;
+        }
+        match self.document.dialect().duplicates {
+            Duplicates::First => {
+                self.bindings.entry(entry.key()).or_insert(entry.id());
+            }
+            Duplicates::Last => {
+                self.bindings.insert(entry.key(), entry.id());
             }
         }
     }
