@@ -216,3 +216,57 @@ mod tests;
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]
 pub struct ReadmeDoctests;
+
+/// Compile and execute the examples of the documentation site.
+///
+/// Every book page is listed, so a Rust example added to any page is tested.
+/// Pages with examples that need optional features are tested with them.
+#[cfg(doctest)]
+pub mod book_doctests {
+    #[doc = include_str!("../docs/index.md")]
+    pub struct Introduction;
+    #[cfg_attr(feature = "load", doc = include_str!("../docs/guide/getting-started.md"))]
+    pub struct GettingStarted;
+    #[doc = include_str!("../docs/guide/parsing.md")]
+    pub struct Parsing;
+    #[doc = include_str!("../docs/design/dialects.md")]
+    pub struct Dialects;
+    #[doc = include_str!("../docs/guide/editing.md")]
+    pub struct Editing;
+    #[doc = include_str!("../docs/design/formatting.md")]
+    pub struct Formatting;
+    #[doc = include_str!("../docs/design/comparison.md")]
+    pub struct Comparison;
+    #[cfg_attr(feature = "exec", doc = include_str!("../docs/design/expansion.md"))]
+    pub struct References;
+    #[cfg_attr(feature = "load", doc = include_str!("../docs/design/loading.md"))]
+    pub struct Loading;
+    #[cfg_attr(all(feature = "load", feature = "serde"), doc = include_str!("../docs/design/serde.md"))]
+    pub struct Serde;
+    #[cfg_attr(feature = "load", doc = include_str!("../docs/guide/process.md"))]
+    pub struct Process;
+    #[doc = include_str!("../docs/design/integrations.md")]
+    pub struct Integrations;
+    #[doc = include_str!("../docs/design/cli.md")]
+    pub struct Cli;
+    #[doc = include_str!("../docs/reference/diagnostics.md")]
+    pub struct Diagnostics;
+    #[doc = include_str!("../docs/reference/security.md")]
+    pub struct Security;
+    #[doc = include_str!("../docs/reference/upgrading.md")]
+    pub struct Upgrading;
+    #[doc = include_str!("../docs/design/architecture.md")]
+    pub struct Architecture;
+    #[doc = include_str!("../docs/design/feature-decisions.md")]
+    pub struct FeatureDecisions;
+    #[doc = include_str!("../docs/design/quality.md")]
+    pub struct Quality;
+    #[doc = include_str!("../docs/design/test-audit.md")]
+    pub struct TestAudit;
+    #[doc = include_str!("../docs/design/performance.md")]
+    pub struct Performance;
+    #[doc = include_str!("../docs/design/1.0-readiness.md")]
+    pub struct Readiness;
+    #[doc = include_str!("../docs/design/1.0-fix-round.md")]
+    pub struct FixRound;
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check public Markdown links, punctuation and common filler phrases."""
+"""Check public Markdown links, book coverage, punctuation and filler phrases."""
 
 from __future__ import annotations
 
@@ -8,12 +8,13 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+DOCS = ROOT / "docs"
 FILES = [
     ROOT / "README.md",
     ROOT / "ROADMAP.md",
     ROOT / "RELEASING.md",
     *sorted(ROOT.glob("adotenv-*/README.md")),
-    *sorted((ROOT / "docs").rglob("*.md")),
+    *sorted(DOCS.rglob("*.md")),
 ]
 SMART = "—–’“”…•"
 BANNED = re.compile(
@@ -35,8 +36,15 @@ for file in FILES:
     for match in BANNED.finditer(text):
         errors.append(f"{file}: contains banned phrase {match.group(0)!r}")
 
-    for match in re.finditer(r"\[[^\]]*\]\(([^)]+)\)", text):
-        target = match.group(1).strip()
+    targets = [match.group(1) for match in re.finditer(r"\[[^\]]*\]\(([^)]+)\)", text)]
+    if DOCS in file.parents:
+        # Raw HTML in book pages links to the rendered `.html` page.
+        targets += [
+            re.sub(r"\.html(?=$|#)", ".md", match.group(1))
+            for match in re.finditer(r'href="([^"]+)"', text)
+        ]
+    for target in targets:
+        target = target.strip()
         if target.startswith(("http://", "https://", "#", "mailto:")):
             continue
         target = target.split("#", 1)[0]
@@ -45,6 +53,17 @@ for file in FILES:
         resolved = (file.parent / target).resolve()
         if not resolved.exists():
             errors.append(f"{file}: missing link target {target!r}")
+        elif DOCS in file.parents and DOCS not in resolved.parents:
+            errors.append(f"{file}: link target {target!r} is outside the book")
+
+summary = (DOCS / "SUMMARY.md").read_text()
+listed = {
+    (DOCS / target).resolve()
+    for target in re.findall(r"\]\(([^)#]+\.md)\)", summary)
+}
+for page in sorted(DOCS.rglob("*.md")):
+    if page.name != "SUMMARY.md" and page.resolve() not in listed:
+        errors.append(f"{page}: not listed in docs/SUMMARY.md")
 
 if errors:
     print("\n".join(errors), file=sys.stderr)

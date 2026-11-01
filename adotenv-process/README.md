@@ -12,12 +12,18 @@ let loaded = load_cascade("/srv/my-app", "production")?;
 unsafe { apply(&loaded)? };
 ```
 
-`apply` validates every key and value before the first mutation. It sets only
-keys from the loaded environment and cannot roll changes back. The process
-environment is global, so the caller owns the concurrency guarantee.
+`apply` takes a `LoadedEnvironment` from the `adotenv` `load` feature. It
+validates every key and value before the first mutation and returns an
+`ApplyError` for an empty key, a key that contains NUL or `=`, or a value that
+contains NUL. It sets only keys from the loaded environment, removes nothing and
+cannot roll changes back. The process environment is global, so the caller owns
+the concurrency guarantee.
 
-Prefer iterating or collecting `LoadedEnvironment::values()` when mutation is
-not required.
+`validate` runs the same checks without changing anything.
+
+Prefer passing `LoadedEnvironment::values()` to a child process, or reading them
+directly, when mutation is not required. See the
+[process environment guide](https://asamarts.github.io/adotenv/guide/process.html).
 
 This is the only workspace crate with an unsafe API. The core `adotenv` crate
 forbids unsafe code. The crate supports Rust 1.81.

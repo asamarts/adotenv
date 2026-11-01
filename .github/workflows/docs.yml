@@ -6,12 +6,14 @@ on:
     paths:
       - "docs/**"
       - "book.toml"
+      - "theme/**"
       - "scripts/check_docs.py"
       - ".github/workflows/docs.yml"
   pull_request:
     paths:
       - "docs/**"
       - "book.toml"
+      - "theme/**"
       - "scripts/check_docs.py"
       - ".github/workflows/docs.yml"
   workflow_dispatch:

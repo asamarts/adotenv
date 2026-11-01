@@ -1,7 +1,7 @@
 name: Fuzz
 
-# Bounded, corpus-driven fuzzing on a weekly cadence and on demand. This is a
-# recurring smoke, not a substitute for a longer pre-1.0 fuzzing campaign.
+# Bounded, corpus-driven fuzzing on a weekly cadence and on demand. Each run is
+# a recurring smoke test; longer campaigns run locally with `cargo fuzz`.
 on:
   schedule:
     - cron: "23 4 * * 1"

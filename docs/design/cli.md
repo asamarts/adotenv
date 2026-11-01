@@ -1,11 +1,23 @@
-# CLI
+# Command-line tool
 
-`adotenv-cli` provides command-line tools built on the library APIs.
+`adotenv-cli` checks, formats, compares and loads `.env` files from a shell or
+a CI job. It uses the library APIs, so it reads files exactly as the library
+does.
+
+## Install
+
+```console
+cargo install adotenv-cli --locked
+```
+
+This installs one binary, `adotenv-cli`. It needs Rust 1.81 or later to build.
+`adotenv-cli --help` prints the usage and `adotenv-cli --version` prints the
+version.
 
 ## Commands
 
 ```text
-adotenv-cli [--dialect portable|node|python|compose|docker] <command> ...
+adotenv-cli [--dialect <portable|node|python|compose|docker>] <command> [options]
 
 get <file> <key>
 check [--format human|json|github] [--json] [--source] [--recursive] [--exclude <path>] <path>...
@@ -17,19 +29,46 @@ set <file> <key> <value>
 run <directory> [mode] -- <program> [args...]
 ```
 
-`check` reads one or more files or directories. `fmt` formats, checks or writes
-in place. `diff` treats the first file as the baseline. `example` prints the
-document without values. `load` prints the merged cascade. `set` changes one
-declaration in place. `run` loads a cascade and starts a child process.
+| Command | Does |
+|---|---|
+| `get` | Prints the effective value of a key and a line break, without quoting. |
+| `check` | Reports diagnostics for each file. |
+| `fmt` | Prints formatted text, checks formatting with `--check` or rewrites files with `--write`. `--sort` also sorts each group. |
+| `diff` | Compares each file with the baseline, the first path. |
+| `example` | Prints the document with assigned values removed. |
+| `load` | Prints the merged cascade of a directory as Portable lines. |
+| `set` | Changes the value of a key in place. |
+| `run` | Loads a cascade and runs a program with the loaded values. |
 
-Arguments must be valid UTF-8.
+`set` changes an existing declaration. The key must be declared exactly once;
+a missing or duplicated key is an error, and `set` never adds a key.
+
+`--json` is short for `--format json`, `--format=<value>` is accepted, and `-r`
+is short for `--recursive`. Two different formats in one command are a usage
+error, as is `--source` with JSON or GitHub output, and `--write` with
+`--check`. Arguments must be valid UTF-8.
+
+### Dialects
+
+`--dialect` selects the reading rules for every file in the command. It can
+appear before or after the command name, but before `--`.
+
+| Value | Library preset |
+|---|---|
+| `portable` (default) | `Dialect::PORTABLE` |
+| `node` | `Dialect::NODE_DOTENV` |
+| `python` | `Dialect::PYTHON_DOTENV` |
+| `compose` | `Dialect::COMPOSE` |
+| `docker` or `docker-raw` | `Dialect::DOCKER_RAW` |
+
+See [Dialects](dialects.md) for what each preset accepts.
 
 ## Values in output
 
-Values may be secrets. `check` prints them only with `--source`. These commands
-print values or text that can contain them:
+Values may be secrets. `check` prints source lines only with `--source`. These
+commands print values or text that can contain them:
 
-- `get` prints the effective value and a line break, without quoting.
+- `get` prints the effective value.
 - `load` prints every loaded value.
 - `diff` prints values in every format: human, matrix and JSON.
 - `fmt` prints or writes the whole document.
@@ -38,9 +77,21 @@ print values or text that can contain them:
 
 ## Diagnostics
 
-Human output contains path, one-based line and column, severity, code, message
-and a summary. `--source` adds source lines and carets for human output only.
-Human output is not a machine contract.
+`check` prints one line per diagnostic: path, one-based line and column,
+severity, code and message. A summary line follows when any file has a
+diagnostic or could not be read; a clean run prints nothing.
+
+```text
+$ adotenv-cli check bad.env
+bad.env:1:1: error[dotenv.invalid-key]: key does not match the selected dialect
+bad.env:3:1: warning[dotenv.duplicate-key]: duplicate key; lookup follows the selected dialect policy
+1 error, 1 warning, 0 info in 1 file
+```
+
+`--source` adds the source line and a caret under the span. Diagnostics go to
+standard output and read errors to standard error. Human output is not a
+machine contract; use JSON or GitHub output in scripts. The codes are listed in
+[Diagnostic codes](../reference/diagnostics.md).
 
 ### `check --format json`
 
@@ -70,8 +121,7 @@ spans are stable.
 | span | `start` | number | Byte offset into the file. A leading byte-order mark is counted. |
 | span | `end` | number | Byte offset just past the range. |
 
-A file with no diagnostics produces an empty `diagnostics` array. A recursive
-search that finds no files prints `{"version":1,"files":[]}`.
+A file with no diagnostics produces an empty `diagnostics` array.
 
 ### `check --format github`
 
@@ -88,10 +138,32 @@ values. The second form reports a file that could not be read. In `<path>` and
 `<code>`, `%`, CR, LF, `:` and `,` are percent-encoded. In `<message>` and
 `<error>`, `%`, CR and LF are percent-encoded. This format is stable.
 
+```yaml
+- run: cargo install adotenv-cli --locked
+- run: adotenv-cli check --format github --recursive
+```
+
 ## Comparison
 
-`diff` compares effective declarations. Human output and the matrix table are
-not machine contracts.
+`diff` compares effective declarations. In human output, each candidate starts
+with a `baseline -> file` header, followed by one line per difference: `-` for
+a key only in the baseline, `+` for a key only in the candidate and `~` for a
+changed value, state or export prefix. A candidate with no differences prints
+`(no differences)`.
+
+```text
+$ adotenv-cli diff base.env app.env
+base.env -> app.env
+~ B: two -> changed
+~ C: 3 (export) -> 3
+- BARE=<bare>
++ D=""
+```
+
+`--format matrix` prints one table with a row per key and a column per file.
+A cell shows the value, `""` for an empty value, `<bare>` for a declaration
+without `=`, `<unset>` for a missing key and an `export ` prefix for exported
+declarations. Neither human output nor the matrix is a machine contract.
 
 ### `diff --format json`
 
@@ -119,6 +191,27 @@ Every field is listed below, in output order. The schema is stable.
 | value | `value` | string or null | The decoded literal value: `""` for `empty`, `null` for `bare`. |
 | value | `exported` | boolean | Whether the declaration has an `export` prefix. |
 
+## Formatting
+
+`fmt` applies `FormatOptions::normalize_groups()`:
+
+- one space on each side of `=`, so `A=1` becomes `A = 1`, in dialects where
+  that keeps the value;
+- trailing spaces and tabs removed;
+- each run of blank lines collapsed to one;
+- quote styles kept;
+- a final line break ensured.
+
+`--sort` also sorts declarations within each blank-line group; see
+[Formatting and sorting](formatting.md). Formatting never changes a value. A
+change that would alter meaning is refused and exits `2`.
+
+With several files, printed output starts each file with a `==> path <==`
+header. `--check` prints `path: would reformat` for each file that would
+change and exits `1` if any would. `--write` rewrites changed files in place.
+Diagnostics are reported on standard error, and a file with error diagnostics
+is still formatted.
+
 ## `load` output
 
 `load` prints the merged cascade as a Portable document: one `KEY=value` line
@@ -131,11 +224,16 @@ When a key is not a Portable key, or a value contains a control character other
 than tab, CR or LF, `load` prints nothing and exits `2`. The error names the key
 but not the value.
 
+A cascade file that does not exist is skipped, so a directory without any
+cascade files, or one that does not exist, loads nothing: `load` prints nothing
+and exits `0`.
+
 ## `run` environment
 
 `run` starts the program with the parent environment plus the loaded values. A
 loaded value replaces a parent variable of the same name. Other parent variables
-are passed through unchanged. The parent environment is not changed.
+are passed through unchanged. The parent environment is not changed. When no
+cascade file exists, the program runs with the parent environment alone.
 
 Loaded files are trusted like code. A loaded `PATH` changes which program runs,
 and variables such as `LD_PRELOAD` change how it runs.
@@ -146,17 +244,30 @@ contain NUL, are rejected before the program starts.
 
 ## Discovery
 
-`check --recursive` and `fmt --recursive` find `.env` and `.env.*` below each
-root. With no path they use `.`.
+With `--recursive`, `check` and `fmt` search each directory argument for
+`.env` and `.env.*` files. With no path they search `.`. A file argument is
+included whatever its name, and `-` reads standard input.
 
-`--exclude` is repeatable and relative to each root. Discovery skips `.git`,
-`target`, `node_modules` and symbolic links. A recursive root that is a symbolic
-link is refused.
+Without `--recursive`, every path argument must be a file. A directory is a
+read failure, and `check` or `fmt` with no path is a usage error.
+
+The search skips `.git`, `target`, `node_modules` and symbolic links. A
+directory argument that is a symbolic link is refused. When the search finds
+no files, `check` prints an empty report (`{"version":1,"files":[]}` for JSON),
+`no .env files found` goes to standard error, and the exit code is `0`. `fmt`
+behaves the same way.
+
+`--exclude <path>` needs `--recursive` and can be repeated. Each exclude is
+relative to each directory argument, or to the parent directory of a file
+argument. It removes the path and everything below it, comparing whole path
+components. A leading `./` is ignored and an empty exclude has no effect. An
+absolute exclude is compared with paths as they are spelled, so it only matches
+below an absolute directory argument.
 
 ## Input and output
 
-File-reading commands accept `-` or `--stdin` for standard input. `fmt` prints
-formatted text unless `--write` or `--check` is selected.
+File-reading commands accept `-` or `--stdin` for standard input, at most once
+per command. `set` and `fmt --write` need a file and refuse standard input.
 
 `fmt --write` and `set` replace a file through a temporary file in the same
 directory:
@@ -198,18 +309,20 @@ Every command except `run` exits with one of these codes:
   without a message.
 
 `check` and `fmt` process every file and exit with the highest code, so a file
-that fails takes precedence over findings in other files. `fmt` still prints or
-writes a file that has error diagnostics.
+that fails takes precedence over findings in other files.
 
 Warning and info diagnostics do not change the exit code. `example` reports
 diagnostics on standard error and exits `0`.
 
-`run` exits `2` when it cannot load the cascade or start the program. Otherwise
-it exits with the child's exit code. On Unix, a child ended by signal `N` exits
-`128 + N`, as in POSIX shells. A child exit code outside `0` to `255`, such as a
-Windows `NTSTATUS` crash code, exits `255`.
+`run` exits `2` for a usage error, when it cannot load the cascade, when a
+loaded key or value cannot be passed to a child, or when the program cannot be
+started. Otherwise it exits with the child's exit code. On Unix, a child ended
+by signal `N` exits `128 + N`, as in POSIX shells. A child exit code outside
+`0` to `255`, such as a Windows `NTSTATUS` crash code, exits `255`.
 
 ## Limits
 
-Command substitution from loaded files is disabled. Use the library or the
-`adotenv-process` crate for other workflows.
+The CLI never runs command substitutions from loaded files. To run them, use
+the library: `Document::resolve_with_commands` with a callback, or
+`exec::Shell` from the `exec` feature. To change the environment of the current
+process, use [`adotenv-process`](../guide/process.md).

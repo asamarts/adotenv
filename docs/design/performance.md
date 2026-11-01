@@ -1,15 +1,28 @@
 # Performance
 
-These are local reference measurements, not CI thresholds.
+These are reference measurements from one host, not CI thresholds. CI runs the
+benchmarks once as a smoke test.
 
 ## Method
 
-- Reference host: Intel Core i7-6700HQ, 4 cores and 8 threads, 2.6 GHz,
-  Linux x86_64, rustc 1.97.0. The benchmark process was pinned to one CPU.
-- Release build with a fixed fixture generator.
-- `cargo bench -p adotenv --bench core --locked -- --sample-size 20 --measurement-time 2`
-- The host was otherwise idle. Wall time is recorded; instruction counts are the
-  stable CPU measure.
+- Host: Intel Core i7-6700HQ, 4 cores and 8 threads at 2.6 GHz, 15 GiB RAM,
+  Linux x86_64, rustc 1.97.0. The host is otherwise idle during measurements,
+  and the benchmark process is pinned to one CPU.
+- Release builds throughout.
+- The core workloads come from `benches/core.rs`, which generates fixtures of
+  8, 128 and 65,536 entries from four line shapes:
+
+  ```console
+  taskset -c 3 cargo bench -p adotenv --bench core --locked -- --sample-size 20 --measurement-time 2
+  ```
+
+- Instruction counts (callgrind), peak and retained RSS, binary size and
+  startup time come from a separate harness that is not part of this
+  repository. It uses a simple fixture of 65,536 declarations and records the
+  fixture hashes, load average and compiler version with every run.
+
+Wall time varies between runs by up to about 10% for 65,536 entries, even on
+an idle host. Instruction counts are the stable CPU measure.
 
 ## Core workloads
 
@@ -34,95 +47,131 @@ Compared with the 0.10.4 record from 2026-10-27, on the same host and compiler:
 - references are about 20% faster for small and typical documents, because
   values without `$` are not scanned;
 - sort is 6% to 12% slower, because it keeps referencing pairs in source order;
-- the other workloads are within run-to-run variation, which is up to about
-  10% for 65,536 entries. Three runs of native set on that size took 59.1 ms,
-  66.3 ms and 67.4 ms.
+- the other workloads are within run-to-run variation. Three runs of native set
+  on 65,536 entries took 59.1 ms, 66.3 ms and 67.4 ms.
 
 `Document::get` scans entries. For many lookups, build `Document::lookup_index`
-once. The index uses a compact open-addressed table with an ordered fallback for
-collision-heavy input.
+once. The index uses a compact open-addressed table with an ordered fallback
+for collision-heavy input.
 
-## Parser memory
+## Memory and instructions
 
-One 65,536-entry document with a 1.8 MB source:
-
-- live after parse: 23.6 MB;
-- peak parse: 32.0 MB;
-- parse plus collected map: 4.6 MB live after the document is dropped.
-
-Retained document memory is dominated by item and token metadata. Values-only
-loading avoids the document entirely.
-
-## Loading memory
-
-One 65,536-entry file on a release build:
-
-| Profile | Peak | Retained |
-|---|---:|---:|
-| Default | 47.7 MB | 28.0 MB |
-| `LoadOptions::full` | 57.4 MB | 37.7 MB |
-| Values only | 11.2 MB | 10.0 MB |
-
-The default keeps values, shared-file origins and raw tokens. Reports add entry,
-override, repeat and skipped vectors. Values-only loading projects values while
-parsing and retains no document or provenance.
-
-The default profile now stores value, origin and raw-token data in one record
-per key. This removes two per-key maps from the retained loader.
-
-## Budgets
-
-Budgets are checked on the reference host before a release, with the same
-fixtures as the tables above.
-
-| Profile | Instructions | Peak RSS | Retained RSS |
-|---|---:|---:|---:|
-| adotenv parse | 260M | not budgeted | 29 MB |
-| adotenv parse + values | 400M | 12 MB | 12 MB |
-| adotenv parse + map | 335M | not budgeted | 17 MB |
-| values-only load | 400M | 13 MB | 11.5 MB |
-| default load | 560M | 50 MB | 30 MB |
-| full-report load | 750M | 60 MB | 40 MB |
-
-Measured for 1.0.0 on 2026-10-31, from commit `0a2e5c5`, with 0.10.4 measured
-in the same session for comparison:
+Measured for 1.0.0 on 2026-10-31, from commit `0a2e5c5`, on the simple
+65,536-declaration fixture (a 1.8 MB source), with 0.10.4 measured in the same
+session for comparison:
 
 | Profile | Instructions | Peak RSS | Retained RSS | 0.10.4 instructions | 0.10.4 retained |
 |---|---:|---:|---:|---:|---:|
-| adotenv parse | 211M | 26.6 MB | 26.6 MB | 207M | 26.5 MB |
-| adotenv parse + values | 372M | 10.0 MB | 10.0 MB | 365M | 10.0 MB |
-| adotenv parse + map | 280M | 34.7 MB | 16.2 MB | 276M | 16.2 MB |
+| parse | 211M | 26.6 MB | 26.6 MB | 207M | 26.5 MB |
+| parse + values | 372M | 10.0 MB | 10.0 MB | 365M | 10.0 MB |
+| parse + map | 280M | 34.7 MB | 16.2 MB | 276M | 16.2 MB |
 | values-only load | 372M | 11.3 MB | 10.0 MB | 366M | 9.9 MB |
 | default load | 469M | 47.8 MB | 28.0 MB | 465M | 27.8 MB |
 | full-report load | 691M | 57.5 MB | 37.7 MB | 686M | 37.7 MB |
 
-The parse + map retained budget was 16 MB. Both releases now measure 16.2 MB
-on the reference host, where the earlier record was 14.2 MB, so the budget was
-raised to 17 MB for 1.0.0. The difference is memory that the allocator keeps
-after the document is dropped while the map stays alive, not memory that
+- **parse** keeps a lossless `Document`. Its memory is mostly item and token
+  metadata.
+- **parse + values** uses `parse_values`, which keeps no document.
+- **parse + map** parses a document, collects the effective values into a map
+  and drops the document.
+- **default load** keeps one record per key for the value, its origin and its
+  raw token.
+- **full-report load** adds the entry, override, repeat and skipped reports.
+- **values-only load** projects values while parsing and keeps no document or
+  provenance.
+
+## Budgets
+
+A release is checked against these budgets on the reference host, with the
+fixture above.
+
+| Profile | Instructions | Peak RSS | Retained RSS |
+|---|---:|---:|---:|
+| parse | 260M | not budgeted | 29 MB |
+| parse + values | 400M | 12 MB | 12 MB |
+| parse + map | 335M | not budgeted | 17 MB |
+| values-only load | 400M | 13 MB | 11.5 MB |
+| default load | 560M | 50 MB | 30 MB |
+| full-report load | 750M | 60 MB | 40 MB |
+
+The parse-only binary has a 500 KB budget.
+
+- A result above an instruction, memory or binary-size budget blocks a release
+  until the regression is fixed or explicitly accepted.
+- Wall time has no absolute budget. It is compared with the previous record
+  from the same host and compiler: a 1.5x slowdown needs a repeat run and an
+  explanation, and a 2x slowdown blocks the release until it is explained or
+  fixed.
+- Update this page when the fixtures, the compiler major version or the method
+  change.
+
+The parse + map retained budget was 16 MB until 1.0.0. Both 0.10.4 and 1.0.0
+measure 16.2 MB on the reference host, where the earlier record was 14.2 MB, so
+the budget was raised to 17 MB. The difference is memory that the allocator
+keeps after the document is dropped while the map stays alive, not memory that
 adotenv holds.
 
-The parse-only binary budget is 500 KB. Wall time is recorded but not enforced
-because the shared host is too noisy for a hard threshold.
+## Earlier measurements
 
-A release blocks above the instruction or memory budget until the regression is
-fixed or explicitly accepted. A wall-time result between 1.5x and 2x requires a
-repeat run and an explanation; above 2x blocks the release.
+These were recorded for 0.10.4 on 2026-10-27, on the same host, and were not
+repeated for 1.0. The 0.11 parser changes to blank lines in Node and Python
+and to quoted tails in Compose affect the dialect rows.
 
-## Diff and matrix
+### Fixtures
 
-For three 65,536-entry files:
+65,536 declarations, except the mixed fixture and the real-world corpus, which
+repeat smaller inputs with unique key prefixes.
 
-- streaming two-file diff with indexed comparison: about 73.3 MB peak and 0.6 s;
+| Fixture | Workload | Wall | Instructions | Retained |
+|---|---|---:|---:|---:|
+| Mixed quoting, spacing, Unicode and comments | parse | 20.6 ms | 106M | 11.0 MB |
+| Mixed quoting, spacing, Unicode and comments | parse + map | 27.6 ms | 153M | 5.8 MB |
+| Pinned public configurations | parse | 9.4 ms | 63M | 4.2 MB |
+| Pinned public configurations | parse + map | 11.2 ms | 78M | 2.4 MB |
+
+### Dialects
+
+| Dialect | Wall | Instructions | Retained |
+|---|---:|---:|---:|
+| Portable | 33.3 ms | 207M | 26.5 MB |
+| Node | 60.6 ms | 423M | 14.3 MB |
+| Python | 50.6 ms | 329M | 14.3 MB |
+| Compose | 51.7 ms | 305M | 14.2 MB |
+| Docker | 42.7 ms | 269M | 14.3 MB |
+
+### Comparison
+
+For three 65,536-entry files, measured on 2026-10-25:
+
+- streaming two-file diff with indexed comparison: about 73.3 MB peak and
+  0.6 s;
 - matrix diff with compact incremental rows: about 103.0 MB peak and 0.8 s.
 
-Matrix output retains one row per key because every column is needed. Two-file
+Matrix output keeps one row per key because every column is needed. Two-file
 diff streams candidates and buffers output until all candidates validate.
 
-## Budget
+### Build and startup
 
-- CI runs benchmark smoke only.
-- Compare repeated runs on the same host and toolchain.
-- A 1.5x deviation needs a repeat run and an explanation.
-- A 2x deviation blocks a release until it is explained or fixed.
-- Update this file when fixtures, compiler major version or methodology change.
+Clean release builds:
+
+| Binary | Build | Stripped size | Startup |
+|---|---:|---:|---:|
+| parse-and-print demo | 46.6 s | 454 KB | 651 us |
+| `adotenv-cli` | 16.8 s | 1,199 KB | 653 us |
+
+| Library features | Build | Library |
+|---|---:|---:|
+| No default features | 11.9 s | 2,616 KB |
+| Default (`std`) | 11.9 s | 2,616 KB |
+| `load` | 13.2 s | 3,111 KB |
+| `serde` | 14.8 s | 2,789 KB |
+| `load` and `serde` | 16.2 s | 3,324 KB |
+| `exec` | 12.1 s | 2,654 KB |
+
+## Known gaps
+
+- Building a map from mixed and real-world input pays for the ordered map and
+  the retained lossless document. `parse_values` avoids both.
+- The parse-only binary is larger than a values-only parser would need.
+
+Both remain candidates for later optimization.

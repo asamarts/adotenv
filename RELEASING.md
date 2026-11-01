@@ -23,15 +23,21 @@ adapters.
 
 All five crates are registered with Trusted Publishing. Existing crates publish
 through GitHub Actions OIDC. A temporary `CARGO_REGISTRY_TOKEN` is only needed
-for a new crate that has no trusted publisher yet.
+for a new crate that has no trusted publisher yet; see
+[New crates](#new-crates).
 
 ## Preflight
 
-1. Run the full workspace gate from [quality.md](docs/design/quality.md).
+1. Run the CI gate locally. The authoritative list of commands is the CI
+   workflow, [`ci.yml`](.github/workflows/ci.yml);
+   [quality.md](docs/design/quality.md) summarizes it. A manual dispatch of the
+   release workflow runs the same gate in CI without checking versions or
+   publishing.
 2. Confirm the lockstep crates use the same version and that every path
    dependency on `adotenv` requires that version.
-3. Run the API check for each library crate against its previous published
-   version:
+3. The CI `semver` job checks each library crate against its latest
+   published version on every pull request, push to `main` and release tag.
+   As a cross-check, run it locally with the intended release type:
 
    ```console
    cargo semver-checks check-release -p adotenv --baseline-version <previous-version> --release-type <patch|minor|major>
@@ -91,6 +97,20 @@ changes, use a new patch version.
 Trusted Publishing is tied to the workflow filename `release.yml` and to an empty
 GitHub environment. Update every crate's trusted publisher before renaming the
 workflow or adding an environment.
+
+## New crates
+
+crates.io cannot register a trusted publisher for a crate that does not exist
+yet, so the first publish of a new crate uses a token:
+
+1. Create a crates.io API token limited to `publish-new` for the new crate name,
+   with a short expiry.
+2. Add it as the repository secret `CARGO_REGISTRY_TOKEN`.
+3. Release as usual. The plan step uses the token only for crates that are not
+   on crates.io yet; existing crates still publish through OIDC.
+4. On crates.io, add the trusted publisher for the new crate: this repository,
+   workflow `release.yml`, no environment.
+5. Delete the secret and revoke the token.
 
 ## Credentials
 

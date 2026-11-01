@@ -211,16 +211,18 @@ impl core::error::Error for FormatError {}
 impl Document<'_> {
     /// Apply trivia-only formatting and verify that every declaration survives.
     ///
-    /// Invalid and ignored statements are not rewritten. Multiline value bodies
-    /// are not modified; only final-line trivia, whole-line comments and blank
-    /// lines are trimmed. The complete output is reparsed with this document's
-    /// exact dialect before it is returned.
+    /// Invalid and ignored statements are not rewritten. Trimming never touches
+    /// whitespace inside multiline value bodies; only final-line trivia,
+    /// whole-line comments and blank lines are trimmed. A quote style other
+    /// than [`QuoteStyle::Preserve`] re-encodes a value, multiline values
+    /// included, only when its decoded text stays the same. The complete output
+    /// is reparsed with this document's exact dialect before it is returned.
     ///
     /// # Errors
     /// Returns [`FormatError::WouldChangeMeaning`] if the complete output does
-    /// not preserve declaration keys, values, states, quotes, exports, lookup
+    /// not preserve declaration keys, values, states, exports, lookup
     /// participation, inline comments, item kinds or malformed statement
-    /// content.
+    /// content, or quotes when the quote style is [`QuoteStyle::Preserve`].
     ///
     /// # Examples
     ///

@@ -18,8 +18,9 @@ The current release provides:
 
 `adotenv`, `adotenv-process` and `adotenv-cli` are at 1.0.0; `adotenv-config`
 and `adotenv-figment` are at 0.12.0. A pre-release audit of 0.10.4 found
-defects in behavior that 1.0 would freeze. They were fixed in 0.11.0, as listed
-in [1.0-fix-round.md](docs/design/1.0-fix-round.md), and the 1.0 evidence was
+defects in behavior that 1.0 would freeze. They were fixed in 0.11.0, apart from
+the rename collision rule, which shipped in 1.0.0. The fixes are listed in
+[1.0-fix-round.md](docs/design/1.0-fix-round.md), and the 1.0 evidence was
 collected again on the fixed code
 ([1.0-readiness.md](docs/design/1.0-readiness.md)).
 
@@ -29,7 +30,8 @@ collected again on the fixed code
    builders.
 2. Work through the "After 1.0" list in
    [1.0-fix-round.md](docs/design/1.0-fix-round.md).
-3. Start the optional linter and LSP prototypes in #14.
+3. Start the optional linter and LSP prototypes in
+   [#14](https://github.com/asamarts/adotenv/issues/14).
 4. Expand conformance cases only when a real upstream behavior is pinned and
    reproducible.
 5. Keep the core dependency-free. New I/O, process or third-party behavior
@@ -41,7 +43,7 @@ All met for 1.0.0:
 
 - The workspace release gate passes.
 - The conformance corpus passes for every preset.
-- Four consecutive controlled fuzz runs pass for all five targets.
+- Four consecutive scheduled fuzz runs pass for all five targets.
 - A manual performance run is recorded and reviewed.
 - At least one external project confirms use of a published crate.
 - CLI schemas and library contracts are documented and frozen.
@@ -58,7 +60,14 @@ All met for 1.0.0:
 
 | Document | Content |
 |---|---|
-| [architecture.md](docs/design/architecture.md) | Document model, spans, diagnostics, edits |
+| [getting-started.md](docs/guide/getting-started.md) | Installation and first steps |
+| [parsing.md](docs/guide/parsing.md) | Parsing, lookup, raw tokens, positions |
+| [editing.md](docs/guide/editing.md) | Verified edits, batches, encoding |
+| [process.md](docs/guide/process.md) | Applying values to the process environment |
+| [diagnostics.md](docs/reference/diagnostics.md) | Stable diagnostic codes |
+| [security.md](docs/reference/security.md) | Untrusted input, secrets, commands, writes |
+| [upgrading.md](docs/reference/upgrading.md) | Migration from 0.x |
+| [architecture.md](docs/design/architecture.md) | Layers, document model, verification |
 | [dialects.md](docs/design/dialects.md) | Presets, policies, encoding, portability |
 | [expansion.md](docs/design/expansion.md) | References, resolution, commands |
 | [formatting.md](docs/design/formatting.md) | Formatting and group sorting |
@@ -67,11 +76,9 @@ All met for 1.0.0:
 | [serde.md](docs/design/serde.md) | Typed deserialization |
 | [cli.md](docs/design/cli.md) | Command line tools and machine output |
 | [integrations.md](docs/design/integrations.md) | `config` and Figment adapters |
-| [quality.md](docs/design/quality.md) | Tests, fuzzing, conformance, MSRV |
-| [test-audit.md](docs/design/test-audit.md) | Coverage and integration test gaps |
-| [performance.md](docs/design/performance.md) | Benchmarks and memory |
-| [benchmark-plan.md](docs/design/benchmark-plan.md) | Benchmark program and acceptance criteria |
-| [benchmark-dashboard.md](docs/design/benchmark-dashboard.md) | Reference results and engineering metrics |
+| [quality.md](docs/design/quality.md) | Tests, CI, fuzzing, conformance, MSRV |
+| [test-audit.md](docs/design/test-audit.md) | Coverage and known test gaps |
+| [performance.md](docs/design/performance.md) | Benchmarks, memory and budgets |
 | [feature-decisions.md](docs/design/feature-decisions.md) | Adopt, defer and reject decisions |
 | [1.0-readiness.md](docs/design/1.0-readiness.md) | Release evidence checklist |
 | [1.0-fix-round.md](docs/design/1.0-fix-round.md) | Pre-1.0 audit fixes and decisions |

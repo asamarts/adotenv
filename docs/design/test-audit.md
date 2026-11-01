@@ -1,94 +1,69 @@
 # Test audit
 
-This audit records current test coverage and the highest-value gaps. Coverage is
-a guide, not a release gate.
+This page records test coverage at the last release and the known gaps.
+Coverage is a guide, not a release gate. How the tests are organized is
+described in [Quality](quality.md).
 
-## Inventory
+## Coverage at 1.0.0
 
-- Core unit tests cover parsing, model, dialects, edits, encoding, formatting,
-  sorting, comparison, structure, positions, references and resolution.
-- Property tests cover arbitrary UTF-8, edits, encoding, comparison and
-  `parse_values`.
-- Public API integration tests cover values parsing, native edits and loading
-  with origins and reports.
-- CLI integration tests cover commands, schemas, stdin, recursion, exit codes
-  and child execution.
-- Adapter tests cover `adotenv-process`, `adotenv-config` and
-  `adotenv-figment`.
-- Conformance covers 80 pinned cases and 20 profiles.
-- Five fuzz targets cover parser, edits, encoding, resolution and format.
+From the CI coverage report of the 1.0.0 release commit `c695b8d`, produced by
+`cargo llvm-cov --workspace --all-features`. The summary lists the core
+crate's modules:
 
-## Coverage
+| Scope | Regions | Lines |
+|---|---:|---:|
+| Core crate total | 95.5% | 96.0% |
+| `compare.rs`, `diagnostic.rs` | 100.0% | 100.0% |
+| `parser/decode.rs` | 99.8% | 100.0% |
+| `structure.rs` | 99.1% | 99.0% |
+| `portability.rs` | 98.7% | 99.2% |
+| `position.rs` | 98.4% | 97.9% |
+| `format.rs` | 98.3% | 97.6% |
+| `references.rs` | 98.3% | 98.4% |
+| `sort.rs` | 97.6% | 96.0% |
+| `parser.rs` | 97.1% | 96.4% |
+| `encode.rs` | 96.5% | 97.5% |
+| `edit.rs` | 94.7% | 96.1% |
+| `load.rs` | 94.0% | 93.2% |
+| `serde_support.rs` | 92.9% | 95.2% |
+| `resolve.rs` | 85.6% | 90.6% |
 
-Measured with `cargo llvm-cov --workspace --all-features --summary-only` after
-the issue #23 expansion:
+The resolution figure includes generic bounds, closing braces and defensive
+mapping fallbacks that cannot be reached independently. Its behavioral error
+paths are covered.
 
-- Total: 95.06 percent regions and 95.39 percent lines.
-- Strong areas: compare, diagnostics, parser decode, Docker, position,
-  encoding, editing and serde.
-- Module line coverage:
-  - `position.rs`: 97.9 percent.
-  - `encode.rs`: 97.5 percent.
-  - `format.rs`: 95.4 percent.
-  - `serde_support.rs`: 95.2 percent.
-  - `parser/node.rs`: 95.2 percent.
-  - `adotenv-cli`: 94.2 percent.
-  - `load.rs`: 92.8 percent.
-  - `references.rs`: 91.7 percent.
-  - `parser/compose.rs`: 93.0 percent.
-  - `resolve.rs`: 89.2 percent.
+## What the tests cover
 
-The resolution percentage includes many generic bounds, closing braces and
-defensive mapping fallbacks that are not independently executable. The
-behavioral error paths are covered; the metric remains below the workspace
-average.
+- **Parsing:** every preset's grammar, recovery boundaries, diagnostics with
+  their codes, severities and spans, positions, BOM and line-ending handling,
+  and long single-line inputs.
+- **Edits:** every `Edit` variant, insert positions, key collision rules,
+  batches, edit ordering and verification failures.
+- **Formatting and sorting:** every option, quote changes, idempotent
+  normalization, reference-preserving order and files without a final line
+  ending.
+- **References and resolution:** every operator, rule builder and structured
+  error, command callbacks, limits including the total output budget, and
+  linear time and memory for deep nesting and long `$` runs.
+- **Loading:** compact and full retention, origins, reports, values-only
+  loading, both resolution methods, mode names and every error.
+- **Serde:** scalar, option, unit, newtype and byte shapes, structural and
+  value errors, duplicate and bare policies, and loaded origins.
+- **CLI:** every command, the JSON schemas, GitHub output, standard input,
+  recursion and excludes, symbolic links, file permissions, exit codes and
+  child processes.
+- **Adapters:** `config` and Figment typed loading, and `adotenv-process`
+  validation.
+- **Conformance:** 80 pinned cases across 20 upstream profiles.
+- **Documentation:** every Rust example on this site and in the README runs as
+  a doctest.
 
-## Completed expansion
+## Known gaps
 
-- Serde covers scalar, byte, byte-buffer, identifier and unit-struct shapes,
-  structural and value errors, duplicate and bare policies, non-string keys,
-  loaded origins and origins-disabled errors.
-- Resolution covers every operator, every structured error, command failures,
-  retained calls, limits, empty documents, bare-empty file bindings, caller
-  fallback to file bindings, empty operator arguments and zero-size limits, and
-  rule builders.
-- Loading covers compact and full retention, origin accessors, compact values,
-  resolved views, invalid modes, invalid UTF-8, read errors, report retention
-  and stable error display.
-- CLI integration covers usage errors, missing files, invalid documents,
-  invalid modes, child startup failures, multi-file formatting, recursive
-  stdin and file roots, absolute and empty excludes, symlink and non-regular
-  roots, invalid baselines, matrix escaping and JSON control-character paths.
-- Formatting covers every option builder, result views, conservative quote
-  separation and idempotent normalization.
-- References cover every rule builder, escaped containers, unclosed containers
-  and empty-name containers.
-- Docker covers raw values, comments, EOF, quoted keys, invalid boundaries,
-  export and colon overrides, and scanner limits.
-- Node covers export retry, colon spacing, cross-line quoted values, LS/PS
-  preservation, quoted-key bounds and ignored malformed headers.
-- Compose covers custom whitespace, export, EOF bare-key quirks, quoted keys
-  and invalid boundaries.
-- Adapters cover typed cascade loading through `config` and Figment, plus
-  process validation for NUL keys and values.
-- Diagnostics cover every stable code, severity, message, span and secondary
-  span.
-- Dialect tests cover every `with_*` builder plus multiline and escape-set
-  composition.
-- Selected design examples are compile-checked from `tests/design_docs.rs`,
-  including comparison, formatting, sorting and dialect builders.
-
-## Remaining gaps
-
-1. Resolution metric lines that are generic bounds, closing braces or defensive
-   mapping fallbacks. These were reviewed; no public API path reaches the
-   defensive fallbacks without an invalid internal mapping.
-2. CLI helper branches for rare rename, permission and temporary-file
-   exhaustion failures. Testing these meaningfully requires platform error
-   injection and is deferred.
-3. Mutation survivor review for defensive edit-verification branches.
-
-## Suggested order
-
-1. CLI filesystem-failure branch review.
-2. Final 1.0 release gate and publication verification.
+1. CLI branches for rare rename, permission and temporary-file failures. These
+   need platform error injection and are deferred.
+2. The coverage summary in CI lists the core crate's modules only, so the CLI
+   and the adapters have no published coverage figure.
+3. Mutation testing last ran before the 1.0 changes to edit verification. The
+   surviving mutants then were triaged as defensive branches; the next run
+   should confirm that for the 1.0 code.

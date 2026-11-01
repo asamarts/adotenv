@@ -9,11 +9,23 @@ src = "docs"
 site-url = "/adotenv/"
 git-repository-url = "https://github.com/asamarts/adotenv"
 edit-url-template = "https://github.com/asamarts/adotenv/edit/main/docs/{path}"
-default-theme = "rust"
-preferred-dark-theme = "rust"
+default-theme = "light"
+preferred-dark-theme = "navy"
+additional-css = ["theme/adotenv.css"]
+additional-js = ["theme/adotenv.js"]
+no-section-label = true
+
+[output.html.playground]
+runnable = false
 
 [output.html.search]
 enable = true
 
+# Pages merged into others keep working at their old addresses.
+[output.html.redirect]
+"/design/benchmark-plan.html" = "performance.html"
+"/design/benchmark-dashboard.html" = "performance.html"
+
 [build]
 build-dir = "target/book"
+create-missing = false

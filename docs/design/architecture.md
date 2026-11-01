@@ -1,96 +1,99 @@
 # Architecture
 
-adotenv separates syntax from meaning.
+adotenv separates syntax from meaning, and meaning from effects. Parsing
+records what the source says. A dialect decides what it means. Anything that
+touches the outside world, such as reading files, expanding references,
+running commands or changing the process environment, is a separate,
+explicit step.
+
+## Layers
+
+| Layer | Provides | Effects |
+|---|---|---|
+| Parser | Items, entries, token spans and diagnostics for one dialect | None |
+| Model | Lookup, raw tokens, groups, positions | None |
+| Views | Comparison, portability, examples, reference inspection | None |
+| Changes | Verified edits, formatting and sorting | Returns new text; never writes |
+| Resolution | Reference substitution from file bindings and a caller lookup | Calls the caller's closures only |
+| `load` feature | Cascades and file lists | Reads files |
+| `exec` feature | `exec::Shell` command callback | Runs commands |
+| `adotenv-process` | `apply` | Writes the process environment (unsafe) |
+| `adotenv-cli` | Commands for shells and CI | Reads and writes files, runs programs |
+
+The core crate has no runtime dependencies and forbids unsafe code with every
+feature combination. Without default features it builds for `no_std` with
+`alloc`; everything except `load` and `exec` remains, `serde` included.
 
 ## Document model
 
-`Document` borrows or owns one UTF-8 source string and a dialect. It stores:
+`Document` borrows or owns one UTF-8 source string and stores the dialect,
+the items in source order, the entries the dialect recognizes and the raw token
+spans of each entry. Items cover the source without gaps apart from a leading
+byte-order mark, so printing a document returns the original bytes.
 
-- items in source order, including comments, blank lines and invalid text;
-- entries that the selected dialect recognizes;
-- raw token spans for keys, separators, values and comments;
-- diagnostics produced during parsing;
-- a line index built on demand.
+`Item` and `Entry` are borrowed views. Their IDs are zero-based indexes into
+one document's items and entries, and they mean nothing in another reading of
+the same source.
 
-`Item` covers comments, blank lines, declarations and invalid or ignored
-statements. `Entry` is a declaration view. Both are zero-based snapshot IDs.
+Diagnostics are returned by the parse functions, not stored in the document.
+An invalid or ignored item keeps its primary diagnostic, which
+`Item::diagnostic()` returns. `Document::line_index()` builds a new
+`LineIndex` on each call.
 
-The parser never edits source text. Printing a document returns the original
-bytes unchanged.
+See [Parsing and lookup](../guide/parsing.md) for the API.
 
-## Recovering and strict parsing
+## Recovery
 
-`parse` and `parse_owned` always return a document plus diagnostics. They recover
-at the smallest safe boundary and preserve the source that caused a problem.
-`parse_values` and `parse_values_with` are the values-only path. They use the
-projection parser, discard warnings and return the first error.
+The recovering parser never fails. When a statement is malformed it records a
+diagnostic, keeps the text as an `Invalid` item and resumes at the smallest
+safe boundary, usually the next line. Tools can then report every problem in a
+file and still edit the parts that are valid.
 
-`parse_strict` returns the first error. Warnings and informational diagnostics do
-not fail a strict parse.
+`parse_strict` runs the same grammar and stops at the first error.
+`parse_values` uses a projection parser that keeps only final values and
+builds no items, spans or diagnostic lists.
 
-Diagnostics contain a stable code, severity, message, primary span and optional
-secondary labels. Message text may change; codes and spans are the stable
-contract.
+Diagnostics have a stable code, a severity, a one-based line, a primary span
+and an optional secondary span. Codes and spans are the contract; message text
+may change. See [Diagnostic codes](../reference/diagnostics.md).
 
-## Meaning and lookup
+## Verified changes
 
-A dialect decides which text counts as a declaration and how it is decoded.
-Lookup follows the dialect's duplicate policy and participation rules.
+Edits, formatting and sorting share one design: plan text replacements against
+the original snapshot, apply them to a copy, then parse the complete result
+with the same dialect and compare it with the original. The comparison checks
+that the requested change happened and that unrelated declarations, comments,
+item kinds and invalid statements did not change. If the check fails, the
+operation returns an error instead of text.
 
-- `get` returns the effective value.
-- `get_entry` returns the effective declaration.
-- `get_all` returns every occurrence.
-- `unique` rejects duplicate keys.
-- `effective_entries` yields one winning declaration per effective key.
-- `lookup_index` builds an explicit index for repeated lookups.
+The result carries the replacements as `TextEdit` values sorted by start
+offset, without overlaps, so editors can apply them to their own buffers. See
+[Editing](../guide/editing.md#applying-text-edits) for the order rules.
 
-Bare declarations are distinct from empty assignments. `KEY` has no value,
-`KEY=` has an empty value. `BareKeys::Empty` changes effective lookup without
-changing the declaration's syntax state.
+Verification makes edits safe across dialects with unusual grammars: a value
+that a dialect cannot spell in a given position fails with an error instead
+of producing text that reads differently.
 
-## Spans and positions
+## Literal values and resolution
 
-Source spans are byte ranges into the original input. Token helpers return raw
-ranges. Decoded value offsets can be mapped back to raw ranges when escapes are
-present.
+Values are always the decoded literal text. Reference inspection finds `$VAR`
+and `$(command)` candidates with spans and quote context, but does not decide
+whether they expand. Eligibility is a pure function of a candidate and
+caller-selected rules, and resolution is a separate call that takes the
+lookup closure and limits as arguments. See
+[References and resolution](expansion.md).
 
-`LineIndex` converts between offsets and line/column positions. Encodings are
-explicit: UTF-8 bytes, Unicode scalars or UTF-16 code units. Invalid positions
-return an error. They are never rounded or clamped.
+## Crates
 
-Entry and diagnostic lines are one-based. `Position` is zero-based.
+| Crate | Version line | Contains |
+|---|---|---|
+| `adotenv` | 1.x | The core and the optional `load`, `serde` and `exec` features |
+| `adotenv-process` | 1.x | The only unsafe API: applying values to the process environment |
+| `adotenv-cli` | 1.x | The command-line tool |
+| `adotenv-config` | 0.x | A `config` source |
+| `adotenv-figment` | 0.x | A Figment provider |
 
-## Verified edits
-
-Edits are built as text replacements against the original snapshot. Before an
-edit is returned, the complete result is parsed with the same dialect and checked
-for changes to unrelated declarations, comments, item kinds and invalid
-statements. If a change cannot be verified, the edit fails.
-
-`VerifiedEdits` exposes borrowed text edits, the verified output and optional
-metadata. The edits are sorted by start offset and do not overlap. When an
-insertion and a replacement start at the same offset, the insertion comes
-first. Apply the edits in reverse order of the returned slice, from the last
-edit to the first. A sort by start offset alone can swap edits that share a
-start, so clients must not re-sort them. Formatting and sorting results follow
-the same order.
-
-`Edit::Insert` adds a declaration of a new key. It fails with
-`EditError::Duplicate` when the verified output would declare that key more
-than once: the document already declares it (duplicates and bare declarations
-included), or another insertion, rename or uncommented line in the batch
-declares it. Removing, commenting out or renaming every existing declaration in
-the same batch frees the key. Commented-out declarations are comments and never
-collide. `Edit::Rename` rejects a new key that the document already declares.
-
-## Features and safety
-
-The core has no runtime dependencies and no I/O. `load` enables filesystem
-loading. `serde` enables typed deserialization. `exec` enables a command runner
-with an explicit working directory.
-
-The core forbids unsafe code. Process environment mutation lives in the separate
-`adotenv-process` crate and is an unsafe API because the environment is global.
-
-Disable default features for `no_std` with `alloc`. The parser, model, edits,
-formatting, comparison and sorting remain available.
+`adotenv`, `adotenv-process` and `adotenv-cli` release together with the same
+version. The adapters follow their own 0.x line, so a new major version of
+`config` or Figment is a minor release of the adapter. The reasons behind the
+split are in [Feature decisions](feature-decisions.md).

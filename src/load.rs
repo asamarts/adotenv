@@ -122,7 +122,7 @@ impl<'a> LoadRepeated<'a> {
     pub const fn key(&self) -> &'a str {
         self.key
     }
-    /// All occurrences in source order.
+    /// Occurrences that take part in lookup, in source order.
     pub fn origins(&self) -> impl Iterator<Item = LoadOrigin<'a>> + '_ {
         self.origins
             .iter()
@@ -372,7 +372,8 @@ impl LoadedEnvironment {
             line: origin.line,
         })
     }
-    /// Every loaded declaration, including later-overridden entries.
+    /// The effective declaration of each key in each file, in load order,
+    /// including declarations that a later file overrides.
     ///
     /// Empty when loaded with [`LoadOptions::with_reports`] set to `false`.
     pub fn entries(&self) -> impl Iterator<Item = LoadedEntry<'_>> + '_ {
@@ -575,14 +576,14 @@ impl LoadedEnvironment {
     /// Resolve variable references in the final decoded values.
     ///
     /// This is the explicit **decoded-value** policy: loaded values are treated
-    /// as unquoted decoded text. Original quote, escape and source-line context
-    /// is not retained by [`LoadedEnvironment`]; use [`crate::Document::resolve`]
-    /// when context-aware resolution is required.
+    /// as unquoted decoded text, and the original quote, escape and dialect
+    /// context is ignored. Use [`Self::resolve_contextual`] to keep that
+    /// context.
     ///
     /// Only [`ExpandScope::WholeFile`] is accepted. The synthetic resolution
     /// order is lexicographic by key, but whole-file bindings do not depend on
-    /// order. Command substitutions remain literal unless the caller supplies a
-    /// context-aware document callback.
+    /// order. Command substitutions stay literal; to run them, resolve a parsed
+    /// document with [`crate::Document::resolve_with_commands`].
     ///
     /// Keys take part exactly as loaded, whatever dialect read them, so a
     /// braced reference such as `${A B}` finds a quoted key `A B`. A key is

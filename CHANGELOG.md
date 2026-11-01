@@ -6,6 +6,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Documentation
+
+- The documentation site has a new structure and theme: a landing page, a
+  Getting started page, and Guide, Reference and Project sections.
+- New pages: Getting started, Parsing and lookup, Editing, Process
+  environment, Diagnostic codes, Security and limits, and Upgrading to 1.0.
+- The benchmark plan and dashboard pages are merged into Performance. Their old
+  addresses redirect there.
+- Corrected statements that did not match 1.0 behavior in the dialect,
+  formatting, comparison, reference, loading, serde, CLI, architecture, quality
+  and release pages, in the READMEs and in the rustdoc of `Document::format`,
+  `LoadedEnvironment::entries`, `LoadedEnvironment::resolve_decoded` and
+  `LoadRepeated::origins`.
+- Rust examples on every site page are compiled and run as doctests, and the
+  documentation check covers HTML links and pages missing from the table of
+  contents.
+
 ## [1.0.0] - 2026-10-31
 
 The first stable release of `adotenv`, `adotenv-process` and `adotenv-cli`. The
@@ -137,9 +154,9 @@ the same values unless it exceeds the new output budget. Code that moves from
   or remove or rename it in the same batch.
 - `sort` output can differ from 0.10 where one key references another in the
   same group. Re-run formatting checks that compare against stored output.
-- Code that walks `Document::items` for Node, Python or Compose files sees
-  blank lines as separate `Blank` items and trailing comments of quoted Compose
-  entries as inline comments.
+- Code that walks `Document::items` sees blank lines of Node and Python files
+  as separate `Blank` items, and trailing comments of quoted Compose entries as
+  inline comments.
 - Pass `ExpandScope::WholeFile` to `LoadedEnvironment::resolve_contextual`.
 - Replace reads of `Reference::containers` with a walk up
   `Reference::parent` through the list that `Entry::references` returned.

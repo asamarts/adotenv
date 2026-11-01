@@ -13,7 +13,8 @@ name: Release
 # versions; each one is published when its declared version is not on
 # crates.io yet.
 #
-# Manual dispatch runs the same checks without publishing.
+# Manual dispatch runs only the CI quality gate. The version checks and
+# publishing run only for a pushed tag.
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]

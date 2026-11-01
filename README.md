@@ -34,7 +34,7 @@ adotenv = "1"
 
 | Feature | Purpose |
 |---|---|
-| default (`std`) | Error traits and standard desktop use |
+| default (`std`) | Standard library support; required by `load` and `exec` |
 | `load` | Read `.env` cascades from files |
 | `serde` | Deserialize documents and loaded environments |
 | `exec` | Run command substitutions with an explicit directory |
@@ -97,8 +97,8 @@ assert_eq!(values.len(), 2);
 ## Dialects
 
 The default is `Dialect::PORTABLE`. Other presets are `NODE_DOTENV`,
-`PYTHON_DOTENV`, `COMPOSE` and `DOCKER_RAW`. Presets choose parsing rules only.
-They do not enable interpolation, inheritance or loading.
+`PYTHON_DOTENV`, `COMPOSE` and `DOCKER_RAW`. Presets choose parsing and literal
+lookup rules only. They do not enable interpolation, inheritance or loading.
 
 ```rust
 use adotenv::{parse_with, Dialect, InlineComments};
@@ -234,8 +234,9 @@ assert!(parse_strict(formatted.as_str()).is_ok());
 `Document::sort` orders declarations inside blank-line-separated groups and
 keeps comments and multiline entries intact. When one key references another in
 the same group, the two keep their current relative order, so resolved values
-do not change. Groups with duplicates, empty keys, malformed items or reference
-cycles are left unchanged.
+do not change. Groups with duplicate or empty keys, invalid or ignored
+statements, self-references or reference cycles are left unchanged, as are
+groups where a declaration shares its physical line with the next statement.
 
 ```rust
 let doc = adotenv::parse_strict("# header\nC=3\nB=${A}\n# A note\nA=1\n# bottom\n").unwrap();
@@ -270,8 +271,9 @@ assert_eq!(
 );
 ```
 
-`Document::example` removes assigned values while preserving layout. Malformed
-statements and empty-key entries become comments so they cannot leak values.
+`Document::example` removes assigned values while preserving layout. Invalid
+statements, ignored statements and empty-key entries become comments so they
+cannot leak values.
 
 ```rust
 let source = "# app\nA=1\nB=\"two\" # note\nBARE\nBAD KEY=secret\n";
@@ -413,7 +415,9 @@ let loaded = load_cascade("/srv/my-app", "production")?;
 unsafe { apply(&loaded)? };
 ```
 
-Prefer iterating `LoadedEnvironment::values()` when mutation is not required.
+`validate` runs the same checks without changing anything. Prefer passing
+`LoadedEnvironment::values()` to a child process or reading them directly when
+mutation is not required.
 
 ## Serde
 
@@ -433,19 +437,23 @@ let doc = adotenv::parse_strict("host=localhost\nport=8080\n").unwrap();
 let config: Config = doc.deserialize()?;
 ```
 
-Only strings, booleans, numbers and characters are converted from literal
-values. Nested structures and enum layouts are not invented. Errors carry the
-source line and key.
+Strings, booleans, numbers, characters, options and unit or newtype shapes are
+converted from literal values. Sequences, tuples, nested structs and maps, and
+enums are rejected.
+Value-conversion errors carry the source line and key, and their messages
+include the value.
 
 ## CLI
 
-The workspace includes `adotenv-cli`:
+`cargo install adotenv-cli --locked` installs the `adotenv-cli` binary:
 
 ```text
+adotenv-cli [--dialect <portable|node|python|compose|docker>] <command> [options]
+
 get <file> <key>
-check [--format human|json|github] [--source] [--recursive] <path>...
-fmt [--write|--check] [--sort] [--recursive] <path>...
-diff [--format human|matrix|json] <baseline> <file>...
+check [--format human|json|github] [--json] [--source] [--recursive] [--exclude <path>] <path>...
+fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <path>...
+diff [--format human|matrix|json] [--json] <baseline> <file>...
 example <file>
 load <directory> [mode]
 set <file> <key> <value>
@@ -460,10 +468,11 @@ lines unless `--source` is passed.
 replace parent variables of the same name. Loaded files are trusted like code: a
 loaded `PATH` changes which program runs. The parent process is not changed.
 
-`get`, `load` and `diff` print values, and `example` keeps comments verbatim.
-`load` prints Portable lines that parse back to the same values.
+`get`, `load` and `diff` print values, `fmt` prints whole documents, and
+`example` keeps comments verbatim. `load` prints Portable lines that parse back
+to the same values.
 
-See [CLI details](docs/design/cli.md).
+See the [command-line tool guide](https://asamarts.github.io/adotenv/design/cli.html).
 
 ## Adapters
 
