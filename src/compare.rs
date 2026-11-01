@@ -1,8 +1,9 @@
-//! Key-based comparison of two literal-document interpretations.
+//! Key-based comparison of the effective declarations of two documents.
 //!
-//! Comparison is independent of source order and formatting. It uses each
-//! document's effective lookup entry, so duplicate-key policy and bare-key
-//! participation are honored. No expansion, environment access or I/O occurs.
+//! Comparison is independent of source order and formatting. It uses the
+//! declaration that each document's lookup returns, so duplicate-key policy
+//! and bare-key participation are honored. No expansion, environment access
+//! or I/O occurs.
 
 use alloc::{
     collections::BTreeSet,
@@ -12,70 +13,106 @@ use alloc::{
 
 use crate::{AssignmentState, Document};
 
-/// The effective value side of one compared key.
+/// The state, value and `export` prefix of one side's effective declaration.
+///
+/// [`ComparisonEntry::left`] and [`ComparisonEntry::right`] hold these values,
+/// copied from the declaration that lookup returns in each document.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ComparedValue {
-    /// Whether the declaration is bare, empty or assigned a non-empty value.
+    /// Whether the declaration is bare, assigned an empty value or assigned a
+    /// non-empty value.
     pub state: AssignmentState,
-    /// Decoded literal value; `None` for a bare declaration.
+    /// The decoded literal value; `None` for a bare declaration.
     pub value: Option<String>,
-    /// Whether the declaration carries an `export` prefix.
+    /// Whether the declaration has the `export` prefix.
     pub exported: bool,
 }
 
-/// Why a key appears in a [`Comparison`].
+/// The kind of difference that [`Document::compare`] found for one key.
+///
+/// The variants are listed in priority order: each [`ComparisonEntry`]
+/// reports the first kind that applies. A key whose value and `export` prefix
+/// both differ reports [`Value`](Self::Value).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum DifferenceKind {
-    /// The key has no effective declaration in the right document.
+    /// Only the left document has a declaration of the key that takes part in
+    /// lookup.
     OnlyLeft,
-    /// The key has no effective declaration in the left document.
+    /// Only the right document has a declaration of the key that takes part in
+    /// lookup.
     OnlyRight,
-    /// Both sides declare the key, but bare/empty/value states differ.
+    /// The assignment states differ: a non-empty value, an empty value or a
+    /// bare declaration.
     State,
-    /// Both sides have the same state but different decoded values.
+    /// The decoded values differ.
     Value,
-    /// The decoded value is the same but export participation differs.
+    /// Only the `export` prefix differs.
     Export,
 }
 
-/// One changed key and its effective values on both sides.
+/// One key whose effective declarations differ, with both sides.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ComparisonEntry {
-    /// The declaration key.
+    /// The compared key.
     pub key: String,
-    /// The effective left declaration, or `None` when absent.
+    /// The effective declaration in the left document, or `None` when it has
+    /// none.
     pub left: Option<ComparedValue>,
-    /// The effective right declaration, or `None` when absent.
+    /// The effective declaration in the right document, or `None` when it has
+    /// none.
     pub right: Option<ComparedValue>,
-    /// The primary difference category.
+    /// The first kind of difference that applies; see [`DifferenceKind`].
     pub kind: DifferenceKind,
 }
 
-/// Changed keys between two documents in stable key order.
+/// The keys whose effective declarations differ between two documents.
 ///
-/// Keys present on the left appear in left source order, followed by keys that
-/// occur only on the right in right source order. Keys with identical effective
-/// values are omitted.
+/// [`Document::compare`] returns this type. Keys that take part in lookup in
+/// the left document come first, in the order they are first declared,
+/// followed by the keys found only in the right document, in the same order.
+/// Keys that agree are left out.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{AssignmentState, DifferenceKind};
+///
+/// let left = adotenv::parse_strict("PORT=8080\nexport HOST=localhost\n")?;
+/// let right = adotenv::parse_strict("HOST=localhost\nPORT=8080\n")?;
+/// let comparison = left.compare(&right);
+/// assert_eq!(comparison.len(), 1);
+///
+/// let entry = &comparison.differences()[0];
+/// assert_eq!(entry.key, "HOST");
+/// assert_eq!(entry.kind, DifferenceKind::Export);
+/// let left_side = entry.left.as_ref().unwrap();
+/// assert_eq!(left_side.state, AssignmentState::Value);
+/// assert_eq!(left_side.value.as_deref(), Some("localhost"));
+/// assert!(left_side.exported);
+///
+/// assert!(left.compare(&left).is_empty());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Comparison {
     differences: Vec<ComparisonEntry>,
 }
 
 impl Comparison {
-    /// Changed entries in stable key order.
+    /// Returns one entry for each differing key, left keys first.
     #[must_use]
     pub fn differences(&self) -> &[ComparisonEntry] {
         &self.differences
     }
-    /// Whether the effective declarations are identical.
+    /// Returns `true` when the two documents agree on every key.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.differences.is_empty()
     }
-    /// Number of changed keys.
+    /// Returns the number of differing keys.
     #[must_use]
     pub fn len(&self) -> usize {
         self.differences.len()
@@ -83,21 +120,35 @@ impl Comparison {
 }
 
 impl Document<'_> {
-    /// Compare effective declarations by key.
+    /// Compares the effective declarations of this document and `other` by
+    /// key.
     ///
-    /// Each side contributes only declarations that participate in lookup.
-    /// Duplicate resolution uses the document's own `Duplicates` policy. A
-    /// bare declaration, an assigned empty value and an absent key are distinct
-    /// states; decoded values are compared literally. Export differences are
-    /// reported only when state and value are otherwise equal.
+    /// This document is the left side and `other` the right side. For each
+    /// key, the declaration that lookup returns ([`Document::get_entry`]) on
+    /// each side is compared: its assignment state, decoded value and `export`
+    /// prefix. Each document uses its own dialect for duplicate keys and
+    /// lookup participation, so a
+    /// [`Dialect::NODE_DOTENV`](crate::Dialect::NODE_DOTENV) file can be
+    /// compared with a Portable one.
+    ///
+    /// A bare declaration, an assigned empty value and an absent key are
+    /// distinct. A bare declaration that does not take part in lookup, as under
+    /// [`BareKeys::Ignore`](crate::BareKeys::Ignore) in Node, Compose and
+    /// Docker, counts as absent. Quoting, spacing, comments and source order are
+    /// not compared. Empty keys, which some dialects accept, are compared too.
+    /// See [`DifferenceKind`] for how each difference is classified and
+    /// [`Comparison`] for the order of the result.
+    ///
+    /// Comparison is literal: it does not expand values, read files, inspect
+    /// the environment or run commands.
     ///
     /// # Examples
     ///
     /// ```
     /// use adotenv::{parse_strict, DifferenceKind};
     ///
-    /// let left = parse_strict("A=1\nB=\nC=3\n").unwrap();
-    /// let right = parse_strict("A=2\nB\nD=4\n").unwrap();
+    /// let left = parse_strict("A=1\nB=\nC=3\n")?;
+    /// let right = parse_strict("A=2\nB\nD=4\n")?;
     /// let comparison = left.compare(&right);
     /// let kinds: Vec<_> = comparison
     ///     .differences()
@@ -113,6 +164,7 @@ impl Document<'_> {
     ///         ("D", DifferenceKind::OnlyRight),
     ///     ]
     /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
     pub fn compare<'a>(&'a self, other: &'a Document<'_>) -> Comparison {

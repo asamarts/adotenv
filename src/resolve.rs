@@ -1,8 +1,9 @@
-//! Opt-in literal variable resolution with explicit lookup and origins.
+//! Opt-in variable resolution with a lookup closure supplied by the caller.
 //!
-//! Resolution never reads the process environment, files or commands. A caller
-//! supplies a lookup closure; command substitutions remain literal in this
-//! slice. Every substituted value records its direct source.
+//! [`Document::resolve`] substitutes references from the file and from a lookup
+//! closure; it never reads the process environment or files. Commands run only
+//! through the callback passed to [`Document::resolve_with_commands`]. Every
+//! substituted part records where it came from.
 
 use alloc::{
     collections::BTreeMap,
@@ -17,102 +18,271 @@ use crate::{
     ReferenceOperator, ReferenceRules,
 };
 
-/// Whether later definitions can see earlier definitions or the final file.
+/// Which declarations in the file a reference can see during resolution.
+///
+/// Set it with [`ExpandOptions::with_scope`]; every preset uses
+/// [`ExpandScope::Sequential`]. Only declarations that take part in lookup
+/// count. When a key is declared more than once, a reference follows the
+/// dialect's duplicate-key rule ([`Dialect::duplicates`](crate::Dialect::duplicates))
+/// among the declarations it can see: the first one under
+/// [`Duplicates::First`], the latest one under [`Duplicates::Last`]. In
+/// whole-file scope this is the declaration that [`Document::get`] returns.
+///
+/// # Examples
+///
+/// In sequential scope a line can extend a value from the lookup closure. In
+/// whole-file scope the same line refers to itself, which is a cycle:
+///
+/// ```
+/// use adotenv::{parse_strict, ExpandOptions, ExpandScope, ResolveError};
+///
+/// let doc = parse_strict("PATH=${PATH}:/opt/app/bin\n")?;
+/// let lookup = |name: &str| (name == "PATH").then(|| "/usr/bin".to_string());
+///
+/// let sequential = doc.resolve(lookup, &ExpandOptions::portable())?;
+/// assert_eq!(sequential.entries()[0].value.as_deref(), Some("/usr/bin:/opt/app/bin"));
+///
+/// let whole_file = ExpandOptions::portable().with_scope(ExpandScope::WholeFile);
+/// let error = doc.resolve(lookup, &whole_file).unwrap_err();
+/// assert!(matches!(error, ResolveError::Cycle { .. }));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ExpandScope {
-    /// A reference sees the latest participating declaration before it.
+    /// Each entry sees only the declarations before it.
+    ///
+    /// A reference uses the earlier declaration of the name that the
+    /// dialect's duplicate-key rule selects, so with the presets `A=base`
+    /// followed by `A=${A}x` gives `basex`. Declarations later in the file are
+    /// not visible. Sequential scope cannot form a cycle.
     Sequential,
-    /// A reference sees the final participating declaration in the file.
+    /// Each entry sees, for every name, the declaration that [`Document::get`] uses.
+    ///
+    /// Entries may refer to declarations that come after them. A loop of
+    /// references through file values, including a line such as `A=${A}x`,
+    /// fails with [`ResolveError::Cycle`] unless the lookup closure supplies the
+    /// value first ([`LookupOrder::CallerFirst`]).
     WholeFile,
 }
 
-/// Whether the caller lookup or the document's own bindings win.
+/// Whether the file or the lookup closure supplies a variable's value first.
+///
+/// Set it with [`ExpandOptions::with_lookup_order`]; every preset uses
+/// [`LookupOrder::FileFirst`].
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_strict, ExpandOptions, LookupOrder};
+///
+/// let doc = parse_strict("HOST=localhost\nURL=http://${HOST}/\n")?;
+/// let lookup = |name: &str| (name == "HOST").then(|| "db.internal".to_string());
+///
+/// let file_first = doc.resolve(lookup, &ExpandOptions::portable())?;
+/// assert_eq!(file_first.entries()[1].value.as_deref(), Some("http://localhost/"));
+///
+/// let options = ExpandOptions::portable().with_lookup_order(LookupOrder::CallerFirst);
+/// let caller_first = doc.resolve(lookup, &options)?;
+/// assert_eq!(caller_first.entries()[1].value.as_deref(), Some("http://db.internal/"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum LookupOrder {
-    /// Consult the caller lookup before document bindings.
+    /// The lookup closure first, then the file.
+    ///
+    /// The closure is called first for each reference that is resolved. A
+    /// declaration in the file is used only when the closure returns `None`.
     CallerFirst,
-    /// Consult document bindings before the caller lookup. A participating
-    /// declaration with no value shadows the caller lookup.
+    /// The file first, then the lookup closure.
+    ///
+    /// The closure is called only when no declaration of the name is visible in
+    /// the selected [`ExpandScope`]. A visible declaration always wins, even a
+    /// bare key (`NAME` without `=`): the name is then unset, or empty under
+    /// [`BareKeys::Empty`], and the closure is not called.
     FileFirst,
 }
 
-/// Treatment of an eligible reference with no value from the lookup order.
+/// What happens to a plain reference whose variable has no value.
+///
+/// This applies to `$NAME` and `${NAME}` without an operator. Operator forms
+/// such as `${NAME:-default}` decide for themselves; see [`Document::resolve`].
+/// A variable has no value when neither a visible declaration nor the lookup
+/// closure supplies one; an empty value is still a value. Set it with
+/// [`ExpandOptions::with_unresolved`]; every preset uses [`Unresolved::Keep`].
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_strict, ExpandOptions, ResolveError, Unresolved};
+///
+/// let doc = parse_strict("URL=https://${API_HOST}/v1\n")?;
+/// let kept = doc.resolve(|_| None, &ExpandOptions::portable())?;
+/// assert_eq!(kept.entries()[0].value.as_deref(), Some("https://${API_HOST}/v1"));
+///
+/// let strict = ExpandOptions::portable().with_unresolved(Unresolved::Error);
+/// let error = doc.resolve(|_| None, &strict).unwrap_err();
+/// assert!(matches!(error, ResolveError::Unresolved { name, .. } if name == "API_HOST"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Unresolved {
-    /// Leave the reference exactly as written.
+    /// The reference stays in the value as written.
+    ///
+    /// It is recorded as a [`ResolvedSegmentKind::Unresolved`] segment.
     Keep,
-    /// Substitute an empty string.
+    /// The reference is replaced with an empty string.
+    ///
+    /// No segment is recorded for it.
     Empty,
-    /// Return [`ResolveError::Unresolved`].
+    /// Resolution fails with [`ResolveError::Unresolved`].
     Error,
 }
 
-/// Explicit resolution policy and resource limits.
+/// Options for [`Document::resolve`]: eligible references, scope, lookup order
+/// and limits.
+///
+/// Start from a preset and adjust it with the `with_*` methods. The struct is
+/// `#[non_exhaustive]`, so code outside this crate cannot build it with a
+/// struct literal, but its public fields can be read and assigned.
+///
+/// The presets differ only in their [`rules`](Self::rules), which decide which
+/// references are eligible for substitution:
+///
+/// | Preset | Rules | Eligible forms |
+/// |---|---|---|
+/// | [`ExpandOptions::portable`] (the [`Default`]) | [`ReferenceRules::PORTABLE`] | `$VAR` and `${VAR}` |
+/// | [`ExpandOptions::compose`] | [`ReferenceRules::COMPOSE`] | also every operator and nested references |
+/// | [`ExpandOptions::dotenv_expand`] | [`ReferenceRules::DOTENV_EXPAND`] | also single-quoted values and `$(command)` |
+/// | [`ExpandOptions::none`] | [`ReferenceRules::NONE`] | none |
+///
+/// All presets share the other settings:
+///
+/// | Option | Builder | Preset value |
+/// |---|---|---|
+/// | [`scope`](Self::scope) | [`with_scope`](Self::with_scope) | [`ExpandScope::Sequential`] |
+/// | [`lookup_order`](Self::lookup_order) | [`with_lookup_order`](Self::with_lookup_order) | [`LookupOrder::FileFirst`] |
+/// | [`unresolved`](Self::unresolved) | [`with_unresolved`](Self::with_unresolved) | [`Unresolved::Keep`] |
+/// | [`max_depth`](Self::max_depth) | [`with_max_depth`](Self::with_max_depth) | 64 |
+/// | [`max_value_bytes`](Self::max_value_bytes) | [`with_max_value_bytes`](Self::with_max_value_bytes) | 1 MiB (1,048,576 bytes) |
+/// | [`max_output_bytes`](Self::max_output_bytes) | [`with_max_output_bytes`](Self::with_max_output_bytes) | 64 MiB (67,108,864 bytes) |
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_strict, ExpandOptions, ExpandScope, Unresolved};
+///
+/// let options = ExpandOptions::compose()
+///     .with_scope(ExpandScope::WholeFile)
+///     .with_unresolved(Unresolved::Empty)
+///     .with_max_value_bytes(4096);
+///
+/// // HOST is declared later, SCHEME uses its default and SUFFIX has no value.
+/// let doc = parse_strict("URL=${SCHEME:-https}://${HOST}${SUFFIX}\nHOST=example.com\n")?;
+/// let resolved = doc.resolve(|_| None, &options)?;
+/// assert_eq!(resolved.entries()[0].value.as_deref(), Some("https://example.com"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct ExpandOptions {
-    /// Quote, escape and operator eligibility rules.
-    pub rules: ReferenceRules,
-    /// Sequential or whole-file bindings.
-    pub scope: ExpandScope,
-    /// Caller lookup versus file binding precedence.
-    pub lookup_order: LookupOrder,
-    /// Treatment of an eligible reference with no value.
-    pub unresolved: Unresolved,
-    /// Maximum active binding and reference nesting depth.
-    pub max_depth: usize,
-    /// Maximum resolved bytes for one entry value.
-    pub max_value_bytes: usize,
-    /// Maximum approximate bytes of one resolution's output.
+    /// The rules that decide which references are eligible for substitution.
     ///
-    /// Resolved values and every provenance segment count, nested parts
-    /// included, so each copy of a referenced value is charged again. Each
-    /// segment and entry also counts a fixed overhead for its structure. The
-    /// budget is checked before a copy is made. Presets use 64 MiB.
+    /// Ineligible references, such as single-quoted ones under
+    /// [`ReferenceRules::PORTABLE`], stay as written. See
+    /// [`Reference::is_eligible`].
+    pub rules: ReferenceRules,
+    /// Which declarations a reference can see; [`ExpandScope::Sequential`] in
+    /// every preset.
+    pub scope: ExpandScope,
+    /// Whether the file or the lookup closure is consulted first;
+    /// [`LookupOrder::FileFirst`] in every preset.
+    pub lookup_order: LookupOrder,
+    /// What happens to a plain reference with no value; [`Unresolved::Keep`] in
+    /// every preset.
+    pub unresolved: Unresolved,
+    /// The maximum nesting depth; 64 in every preset.
+    ///
+    /// Two kinds of nesting count, each checked on its own. A reference inside
+    /// an operator argument is one level deeper than the reference around it:
+    /// in `${A:-${B}}`, `${B}` is at depth 1. Under [`ExpandScope::WholeFile`],
+    /// a file value that has to be resolved while another one is being resolved
+    /// is also one level deeper; in sequential scope, earlier values are already
+    /// resolved. Going deeper than the limit fails with
+    /// [`ResolveError::DepthExceeded`].
+    pub max_depth: usize,
+    /// The maximum length in bytes of one resolved value; 1 MiB in every preset.
+    ///
+    /// Every entry's value is checked as its parts are added. Exceeding the
+    /// limit fails with [`ResolveError::ValueTooLarge`]; `0` allows only empty
+    /// values.
+    pub max_value_bytes: usize,
+    /// The maximum approximate size in bytes of one resolution's result; 64 MiB
+    /// in every preset.
+    ///
+    /// Every resolved value, segment and recorded command call counts, with a
+    /// fixed overhead for each. A reference to a file value is charged again for
+    /// its copy of that value and of its nested segments, so the limit holds
+    /// even when values that repeat each other make the result grow much faster
+    /// than the file. The budget is checked before each copy is made. Exceeding
+    /// it fails with [`ResolveError::OutputTooLarge`].
     pub max_output_bytes: usize,
 }
 
 impl ExpandOptions {
-    /// Use the given reference eligibility rules.
+    /// Sets the rules that decide which references are eligible.
+    ///
+    /// See [`ExpandOptions::rules`].
     #[must_use]
     pub const fn with_rules(mut self, value: ReferenceRules) -> Self {
         self.rules = value;
         self
     }
-    /// Use the given resolution scope.
+    /// Sets which declarations a reference can see.
+    ///
+    /// See [`ExpandOptions::scope`].
     #[must_use]
     pub const fn with_scope(mut self, value: ExpandScope) -> Self {
         self.scope = value;
         self
     }
-    /// Use the given lookup precedence.
+    /// Sets whether the file or the lookup closure is consulted first.
+    ///
+    /// See [`ExpandOptions::lookup_order`].
     #[must_use]
     pub const fn with_lookup_order(mut self, value: LookupOrder) -> Self {
         self.lookup_order = value;
         self
     }
-    /// Use the given unresolved-reference policy.
+    /// Sets what happens to a plain reference with no value.
+    ///
+    /// See [`ExpandOptions::unresolved`].
     #[must_use]
     pub const fn with_unresolved(mut self, value: Unresolved) -> Self {
         self.unresolved = value;
         self
     }
-    /// Set the maximum nesting depth.
+    /// Sets the maximum nesting depth.
+    ///
+    /// See [`ExpandOptions::max_depth`].
     #[must_use]
     pub const fn with_max_depth(mut self, value: usize) -> Self {
         self.max_depth = value;
         self
     }
-    /// Set the maximum resolved value size.
+    /// Sets the maximum length in bytes of one resolved value.
+    ///
+    /// See [`ExpandOptions::max_value_bytes`].
     #[must_use]
     pub const fn with_max_value_bytes(mut self, value: usize) -> Self {
         self.max_value_bytes = value;
         self
     }
-    /// Set the maximum approximate size of one resolution's output.
+    /// Sets the maximum approximate size in bytes of one resolution's result.
+    ///
+    /// See [`ExpandOptions::max_output_bytes`].
     #[must_use]
     pub const fn with_max_output_bytes(mut self, value: usize) -> Self {
         self.max_output_bytes = value;
@@ -120,7 +290,12 @@ impl ExpandOptions {
     }
 }
 impl ExpandOptions {
-    /// Portable-style basic variables with file-first sequential bindings.
+    /// Default options with the Portable reference rules: `$VAR` and `${VAR}`
+    /// only.
+    ///
+    /// Uses [`ReferenceRules::PORTABLE`]: no operators, nothing inside single
+    /// quotes and no commands. The other settings have the preset values listed
+    /// on [`ExpandOptions`]. [`Default::default`] returns the same options.
     #[must_use]
     pub const fn portable() -> Self {
         Self {
@@ -133,12 +308,17 @@ impl ExpandOptions {
             max_output_bytes: 67_108_864,
         }
     }
-    /// Compose-style reference rules with file-first sequential bindings.
+    /// Options with the Compose reference rules: every operator and nested
+    /// references.
     ///
-    /// This selects which references are eligible: `$VAR`, `${VAR}`, every
-    /// operator and nested arguments. It is not an emulation of Docker
-    /// Compose interpolation. For example, an escaped `$$B` stays `$$B` here,
-    /// while Compose interpolation replaces `$$` with a single `$`.
+    /// Uses [`ReferenceRules::COMPOSE`]: `$VAR`, `${VAR}`, every operator such
+    /// as `${VAR:-default}`, and references inside operator arguments. The
+    /// other settings have the preset values listed on [`ExpandOptions`].
+    ///
+    /// This selects which references are eligible; it does not emulate Docker
+    /// Compose interpolation. For example, under the Compose dialect an escaped
+    /// `$$B` stays `$$B` here, while Compose interpolation replaces `$$` with a
+    /// single `$`.
     #[must_use]
     pub const fn compose() -> Self {
         Self {
@@ -146,7 +326,14 @@ impl ExpandOptions {
             ..Self::portable()
         }
     }
-    /// dotenv-expand-style rules with file-first sequential bindings.
+    /// Options with the dotenv-expand reference rules, which also allow single
+    /// quotes and commands.
+    ///
+    /// Uses [`ReferenceRules::DOTENV_EXPAND`]: every operator and nested
+    /// references, references inside single-quoted values, and `$(command)`
+    /// forms. Commands run only through [`Document::resolve_with_commands`];
+    /// [`Document::resolve`] leaves them as written. The other settings have
+    /// the preset values listed on [`ExpandOptions`].
     #[must_use]
     pub const fn dotenv_expand() -> Self {
         Self {
@@ -154,7 +341,11 @@ impl ExpandOptions {
             ..Self::portable()
         }
     }
-    /// No variable forms are eligible; values remain literal.
+    /// Options under which no reference is eligible, so every value stays
+    /// literal.
+    ///
+    /// Uses [`ReferenceRules::NONE`]. Resolution still returns a
+    /// [`ResolvedDocument`], with each non-empty value as one literal segment.
     #[must_use]
     pub const fn none() -> Self {
         Self {
@@ -170,35 +361,73 @@ impl Default for ExpandOptions {
     }
 }
 
-/// Structured input passed to a command-substitution callback.
+/// The details of one `$(command)` form, passed to a command callback.
+///
+/// [`Document::resolve_with_commands`] passes one to the callback for each
+/// eligible command it reaches. The struct is `#[non_exhaustive]`, so code
+/// outside this crate receives it but cannot build it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct CommandContext<'a> {
-    /// Command text exactly as written between `$(` and `)`.
+    /// The command text exactly as written between `$(` and `)`.
+    ///
+    /// This is the source text: references inside it are not substituted and
+    /// escapes are not decoded.
     pub command: &'a str,
-    /// Whole `$(...)` reference span in the original source.
+    /// The byte range of the whole `$(...)` form in the source.
     pub reference: Range<usize>,
-    /// Raw command payload span in the original source.
+    /// The byte range of the command text in the source.
     pub payload: Range<usize>,
-    /// Optional caller-supplied source identity; never inferred from a path.
+    /// The source identity passed to [`Document::resolve_with_commands`], if
+    /// any.
+    ///
+    /// The crate passes it through unchanged and never derives it from a path.
     pub source: Option<&'a str>,
 }
 
-/// An error returned by a command-substitution callback.
+/// An error that a command callback returns to stop resolution.
+///
+/// Resolution then fails with [`ResolveError::Command`], which carries the
+/// message, and the failed call is recorded with [`CommandOutcome::Error`].
+/// The [`Display`](fmt::Display) output is the message.
+///
+/// # Examples
+///
+/// A callback that refuses commands it does not know:
+///
+/// ```
+/// use adotenv::{parse_strict, CommandError, ExpandOptions, ResolveError};
+///
+/// let doc = parse_strict("TOKEN=$(cat /run/secrets/token)\n")?;
+/// let failure = doc
+///     .resolve_with_commands(
+///         |_| None,
+///         |context| Err(CommandError::new(format!("not allowed: {}", context.command))),
+///         None,
+///         &ExpandOptions::dotenv_expand(),
+///     )
+///     .unwrap_err();
+/// assert!(matches!(
+///     failure.error,
+///     ResolveError::Command { key, message, .. }
+///         if key == "TOKEN" && message == "not allowed: cat /run/secrets/token"
+/// ));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandError {
     message: String,
 }
 
 impl CommandError {
-    /// Create a callback error with a caller-provided message.
+    /// Creates an error with the given message.
     #[must_use]
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
         }
     }
-    /// The caller-provided message.
+    /// Returns the message.
     #[must_use]
     pub fn message(&self) -> &str {
         &self.message
@@ -213,37 +442,69 @@ impl fmt::Display for CommandError {
 
 impl core::error::Error for CommandError {}
 
-/// Recorded outcome of one invoked command callback.
+/// What one command callback call returned.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum CommandOutcome {
-    /// The callback returned this output.
+    /// The output the callback returned.
     Output(String),
-    /// The callback returned this error message.
+    /// The message of the [`CommandError`] the callback returned.
     Error(String),
 }
 
-/// Provenance for one invoked command callback.
+/// A record of one command callback call made during resolution.
+///
+/// Calls are listed in [`ResolvedDocument::commands`] or, when resolution
+/// fails, in [`ResolveFailure::commands`]. The command text itself is the
+/// document's source text at [`payload`](Self::payload). See
+/// [`Document::resolve_with_commands`] for an example.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct CommandCall {
-    /// Whole `$(...)` reference span in the original source.
+    /// The byte range of the whole `$(...)` form in the source.
     pub reference: Range<usize>,
-    /// Raw command payload span in the original source.
+    /// The byte range of the command text in the source.
     pub payload: Range<usize>,
-    /// Caller-supplied source identity, if any.
+    /// The source identity passed to [`Document::resolve_with_commands`], if
+    /// any.
     pub source: Option<String>,
-    /// Recorded output or error.
+    /// The output or error message the callback returned.
     pub outcome: CommandOutcome,
 }
 
-/// A resolution failure that retains command calls already made.
+/// A failed [`Document::resolve_with_commands`], with the command calls made
+/// before the failure.
+///
+/// Commands that already ran are not undone, so [`commands`](Self::commands)
+/// shows which of them happened. The [`Display`](fmt::Display) output is that
+/// of [`error`](Self::error).
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_strict, CommandOutcome, ExpandOptions, ResolveError};
+///
+/// let doc = parse_strict("REVISION=$(git rev-parse HEAD)\nURL=${HOST:?HOST is required}\n")?;
+/// let failure = doc
+///     .resolve_with_commands(
+///         |_| None,
+///         |_| Ok("4f2a9c1".to_string()),
+///         None,
+///         &ExpandOptions::dotenv_expand(),
+///     )
+///     .unwrap_err();
+/// assert!(matches!(failure.error, ResolveError::Required { .. }));
+/// assert_eq!(failure.commands.len(), 1);
+/// assert_eq!(failure.commands[0].outcome, CommandOutcome::Output("4f2a9c1".into()));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ResolveFailure {
-    /// The structured resolution error.
+    /// The error that stopped resolution.
     pub error: ResolveError,
-    /// Command callbacks invoked before the failure, in invocation order.
+    /// The command calls made before the failure, including a failed call, in
+    /// call order.
     pub commands: Vec<CommandCall>,
 }
 
@@ -255,92 +516,197 @@ impl fmt::Display for ResolveFailure {
 
 impl core::error::Error for ResolveFailure {}
 
-/// Where one resolved variable value came from.
+/// Where a substituted variable value came from.
+///
+/// Found in [`ResolvedSegmentKind::Variable`]; see there for an example.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ValueOrigin {
-    /// A participating declaration in this document.
+    /// A declaration in the document.
     File {
-        /// Snapshot-local entry identity.
+        /// The zero-based entry ID of the declaration; see [`Document::entry`].
         entry: usize,
-        /// Binding key.
+        /// The declaration's key.
         key: String,
-        /// Original value-token or line span.
+        /// The byte range of the declaration's raw value, quotes included, or of
+        /// its whole statement for a bare key.
         span: Range<usize>,
     },
-    /// The caller-supplied lookup.
+    /// The lookup closure passed to resolution.
     Lookup,
 }
 
-/// One resolved value part.
+/// One part of a resolved value: its text and where the text came from.
+///
+/// The segments of a [`ResolvedEntry`] concatenate to its value. See
+/// [`ResolvedSegmentKind`] for an example.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ResolvedSegment {
-    /// Exact text contributed by this part.
+    /// The text this part adds to the resolved value.
     pub value: String,
-    /// Provenance and structural role.
+    /// Where the text came from.
     pub kind: ResolvedSegmentKind,
 }
 
-/// The role of one resolved segment.
+/// Where the text of one [`ResolvedSegment`] came from.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_strict, ExpandOptions, ResolvedSegmentKind, ValueOrigin};
+///
+/// let doc = parse_strict("HOST=localhost\nURL=http://${HOST}:${PORT}/${BASE_PATH}\n")?;
+/// let lookup = |name: &str| (name == "PORT").then(|| "8080".to_string());
+/// let resolved = doc.resolve(lookup, &ExpandOptions::portable())?;
+///
+/// let described: Vec<String> = resolved.entries()[1]
+///     .segments
+///     .iter()
+///     .map(|segment| match &segment.kind {
+///         ResolvedSegmentKind::Literal { .. } => format!("text {:?}", segment.value),
+///         ResolvedSegmentKind::Variable { name, origin: Some(ValueOrigin::File { .. }), .. } => {
+///             format!("{name} from the file")
+///         }
+///         ResolvedSegmentKind::Variable { name, .. } => format!("{name} from the lookup"),
+///         ResolvedSegmentKind::Unresolved { name, .. } => format!("{name} unresolved"),
+///         _ => "other".to_string(),
+///     })
+///     .collect();
+/// assert_eq!(
+///     described,
+///     [
+///         "text \"http://\"",
+///         "HOST from the file",
+///         "text \":\"",
+///         "PORT from the lookup",
+///         "text \"/\"",
+///         "BASE_PATH unresolved",
+///     ]
+/// );
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ResolvedSegmentKind {
-    /// Literal decoded source text.
+    /// Text from the entry's own value, after quote and escape decoding.
     Literal {
-        /// Original-source region, when representable.
+        /// The source byte range the text was decoded from.
+        ///
+        /// When the text does not map to an exact range, this is the span of the
+        /// whole value.
         span: Range<usize>,
     },
-    /// A substituted variable reference.
+    /// The value of a variable, substituted for a reference.
+    ///
+    /// This appears when the variable's own value is used, with or without an
+    /// operator. When an operator uses its argument instead, as in
+    /// `${NAME:-default}` with `NAME` unset, the argument's segments appear in
+    /// its place.
     Variable {
-        /// Referenced name.
+        /// The variable name.
         name: String,
-        /// Whole reference span in the original source.
+        /// The byte range of the whole reference, such as `${HOST}`, in the
+        /// source.
         reference: Range<usize>,
-        /// Variable operator, when present.
+        /// The reference's operator, such as
+        /// [`ReferenceOperator::DefaultIfUnsetOrEmpty`] for `${HOST:-localhost}`;
+        /// `None` for a plain reference.
         operator: Option<ReferenceOperator>,
-        /// Direct value origin; absent for an empty unresolved substitution.
+        /// Where the value came from; always `Some(..)` in this release.
         origin: Option<ValueOrigin>,
-        /// Nested provenance of a file binding; empty for caller lookup.
+        /// The segments of the file value, nested; empty for a value from the
+        /// lookup closure or for a bare key read as empty.
         parts: Vec<ResolvedSegment>,
     },
-    /// An eligible reference left literal by [`Unresolved::Keep`].
+    /// A reference with no value, kept as written under [`Unresolved::Keep`].
     Unresolved {
-        /// Referenced name.
+        /// The variable name.
         name: String,
-        /// Whole reference span in the original source.
+        /// The byte range of the whole reference in the source.
         reference: Range<usize>,
     },
-    /// Output of a caller-supplied command callback.
+    /// The output of a command callback, substituted for a `$(command)` form.
     Command {
-        /// Whole `$(...)` reference span in the original source.
+        /// The byte range of the whole `$(...)` form in the source.
         reference: Range<usize>,
-        /// Raw command payload span in the original source.
+        /// The byte range of the command text in the source.
         payload: Range<usize>,
-        /// Caller-supplied source identity, if any.
+        /// The source identity passed to [`Document::resolve_with_commands`],
+        /// if any.
         source: Option<String>,
     },
 }
 
-/// One entry's resolved value and provenance.
+/// One entry's resolved value, with a record of where each part came from.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_strict, AssignmentState, ExpandOptions};
+///
+/// let doc = parse_strict("DEBUG\nLOG_DIR=${APP_DIR}/logs\n")?;
+/// let lookup = |name: &str| (name == "APP_DIR").then(|| "/srv/app".to_string());
+/// let resolved = doc.resolve(lookup, &ExpandOptions::portable())?;
+///
+/// let debug = &resolved.entries()[0];
+/// assert_eq!((debug.state, debug.value.as_deref()), (AssignmentState::Bare, None));
+///
+/// let log_dir = &resolved.entries()[1];
+/// assert_eq!(log_dir.value.as_deref(), Some("/srv/app/logs"));
+/// assert_eq!(log_dir.effective_value.as_deref(), Some("/srv/app/logs"));
+/// let joined: String = log_dir.segments.iter().map(|segment| segment.value.as_str()).collect();
+/// assert_eq!(joined, "/srv/app/logs");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ResolvedEntry {
-    /// Snapshot-local entry identity from the originating document.
+    /// The zero-based entry ID in the resolved document; see [`Entry::id`] and
+    /// [`Document::entry`].
     pub entry: usize,
-    /// Literal key.
+    /// The key, as returned by [`Entry::key`].
     pub key: String,
-    /// Original assignment state.
+    /// The entry's state in the source, as returned by [`Entry::state`].
+    ///
+    /// It describes the literal value, not the resolved one: `A=${MISSING}`
+    /// is [`AssignmentState::Value`] even when it resolves to an empty string.
     pub state: AssignmentState,
-    /// Resolved assigned value; `None` for a bare declaration.
+    /// The resolved value; `None` for a bare key.
     pub value: Option<String>,
-    /// Effective literal lookup value after participation and bare-key policy.
+    /// The resolved value this entry gives to lookup, after the dialect's
+    /// bare-key rule.
+    ///
+    /// It is `None` when the entry does not take part in lookup, and for a bare
+    /// key that stays unset; it is `Some("")` for a bare key under
+    /// [`BareKeys::Empty`]. The dialect's duplicate-key rule is not applied
+    /// here: each declaration of a repeated key has its own value.
     pub effective_value: Option<String>,
-    /// Ordered provenance segments; concatenation equals `value`.
+    /// The parts of the resolved value in order; their texts concatenate to
+    /// [`value`](Self::value). Empty for a bare key.
     pub segments: Vec<ResolvedSegment>,
 }
 
-/// All resolved entries in source order.
+/// The result of resolution: every entry's resolved value, in source order.
+///
+/// Returned by [`Document::resolve`] and [`Document::resolve_with_commands`].
+/// The parsed [`Document`] itself is not changed.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_strict, ExpandOptions};
+///
+/// let doc = parse_strict("# Service\nHOST=localhost\nURL=http://${HOST}/\n")?;
+/// let resolved = doc.resolve(|_| None, &ExpandOptions::portable())?;
+///
+/// assert_eq!(resolved.len(), 2);
+/// let values: Vec<_> = resolved.entries().iter().map(|entry| entry.value.as_deref()).collect();
+/// assert_eq!(values, [Some("localhost"), Some("http://localhost/")]);
+/// assert!(resolved.commands().is_empty());
+/// assert_eq!(doc.get("URL"), Some("http://${HOST}/"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedDocument {
     entries: Vec<ResolvedEntry>,
@@ -348,93 +714,130 @@ pub struct ResolvedDocument {
 }
 
 impl ResolvedDocument {
-    /// Resolved entries in source order.
+    /// Returns the resolved entries in source order, one per entry of the
+    /// document.
     #[must_use]
     pub fn entries(&self) -> &[ResolvedEntry] {
         &self.entries
     }
-    /// Command callbacks invoked during resolution, in invocation order.
+    /// Returns the command callback calls made during resolution, in call
+    /// order.
+    ///
+    /// Always empty for [`Document::resolve`].
     #[must_use]
     pub fn commands(&self) -> &[CommandCall] {
         &self.commands
     }
-    /// Number of resolved entries.
+    /// Returns the number of resolved entries.
     #[must_use]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
-    /// Whether there are no entries.
+    /// Returns `true` when there are no resolved entries.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 }
 
-/// A resolution failure.
+/// An error from [`Document::resolve`] or [`Document::resolve_with_commands`].
+///
+/// Resolution stops at the first error. Each variant names the `key` of the
+/// entry that was being resolved; under [`ExpandScope::WholeFile`] this can be
+/// a declaration reached through a reference rather than the entry the
+/// resolution started from. Spans are byte ranges in the source.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_strict, ExpandOptions, ResolveError};
+///
+/// let doc = parse_strict("DATABASE_URL=\"postgres://${DB_HOST:?set DB_HOST}/app\"\n")?;
+/// let error = doc.resolve(|_| None, &ExpandOptions::compose()).unwrap_err();
+///
+/// match &error {
+///     ResolveError::Required { key, name, message, .. } => {
+///         assert_eq!((key.as_str(), name.as_str()), ("DATABASE_URL", "DB_HOST"));
+///         assert_eq!(message, "set DB_HOST");
+///     }
+///     other => panic!("unexpected error: {other}"),
+/// }
+/// assert_eq!(
+///     error.to_string(),
+///     "required variable DB_HOST is unset or empty while resolving DATABASE_URL: set DB_HOST"
+/// );
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ResolveError {
-    /// An eligible variable had no value under [`Unresolved::Error`].
+    /// A plain reference had no value under [`Unresolved::Error`].
     Unresolved {
-        /// Entry being resolved.
+        /// The key of the entry being resolved.
         key: String,
-        /// Referenced name.
+        /// The variable name.
         name: String,
-        /// Reference span in the original source.
+        /// The byte range of the reference.
         span: Range<usize>,
     },
-    /// An `:?` or `?` operator required a value.
+    /// A `${NAME:?message}` reference found its variable unset or empty, or a
+    /// `${NAME?message}` reference found it unset.
     Required {
-        /// Entry being resolved.
+        /// The key of the entry being resolved.
         key: String,
-        /// Referenced name.
+        /// The variable name.
         name: String,
-        /// Operator message.
+        /// The text after `?`, decoded like the rest of the value but with any
+        /// references left as written; empty when there is none.
         message: String,
-        /// Reference span in the original source.
+        /// The byte range of the reference.
         span: Range<usize>,
     },
-    /// Reachable bindings formed a cycle.
+    /// File values refer to each other in a loop, under
+    /// [`ExpandScope::WholeFile`].
     Cycle {
-        /// Entry where the cycle was detected.
+        /// The key where the loop closes; the first and last key of `chain`.
         key: String,
-        /// Keys in cycle order, including the repeated final key.
+        /// The keys along the loop in resolution order, starting and ending
+        /// with `key`: `["A", "B", "A"]` for `A=${B}` and `B=${A}`.
         chain: Vec<String>,
     },
-    /// The configured depth limit was reached.
+    /// Nesting went deeper than [`ExpandOptions::max_depth`].
     DepthExceeded {
-        /// Entry being resolved.
+        /// The key of the entry being resolved when the limit was reached.
         key: String,
-        /// Configured limit.
+        /// The configured [`ExpandOptions::max_depth`].
         limit: usize,
-        /// Reference or entry span.
+        /// The byte range of the nested reference, or the statement of the
+        /// entry that would be resolved too deep.
         span: Range<usize>,
     },
-    /// One resolved value exceeded the configured byte limit.
+    /// A resolved value grew longer than [`ExpandOptions::max_value_bytes`].
     ValueTooLarge {
-        /// Entry being resolved.
+        /// The key of the entry being resolved.
         key: String,
-        /// Configured limit.
+        /// The configured [`ExpandOptions::max_value_bytes`].
         limit: usize,
-        /// Entry value or line span.
+        /// The byte range of the entry's statement.
         span: Range<usize>,
     },
-    /// The resolution output exceeded the configured byte budget.
+    /// The whole result grew larger than [`ExpandOptions::max_output_bytes`].
     OutputTooLarge {
-        /// Entry being resolved.
+        /// The key of the entry being resolved when the budget ran out.
         key: String,
-        /// Configured limit.
+        /// The configured [`ExpandOptions::max_output_bytes`].
         limit: usize,
-        /// Entry value or line span.
+        /// The byte range of the entry's value, or of its statement for a bare
+        /// key.
         span: Range<usize>,
     },
-    /// A command callback failed.
+    /// A command callback returned a [`CommandError`].
     Command {
-        /// Entry being resolved.
+        /// The key of the entry being resolved.
         key: String,
-        /// Whole `$(...)` reference span.
+        /// The byte range of the whole `$(...)` form.
         reference: Range<usize>,
-        /// Callback error message.
+        /// The message of the [`CommandError`].
         message: String,
     },
 }
@@ -492,28 +895,108 @@ impl fmt::Display for ResolveError {
 impl core::error::Error for ResolveError {}
 
 impl Document<'_> {
-    /// Resolve eligible variable references with an explicit caller lookup.
+    /// Substitutes variable references using the file's declarations and a
+    /// lookup closure.
     ///
-    /// The lookup closure is consulted only when the selected order reaches it;
-    /// no process environment, file or command access occurs. Command forms and
-    /// ineligible references remain literal in this slice. Every substituted
-    /// variable records its direct file or caller origin and, for file bindings,
-    /// nested provenance.
+    /// Parsing keeps every value literal; this method is the explicit, opt-in
+    /// step that expands references such as `$HOST` or `${PORT:-8080}`. It never
+    /// reads the process environment, files or the working directory, and never
+    /// runs commands: `$(command)` forms stay as written even when the rules
+    /// allow them (see [`Document::resolve_with_commands`]). The document is not
+    /// changed; the result holds one [`ResolvedEntry`] per entry, in source
+    /// order, and records where each part of every value came from.
+    ///
+    /// [`ExpandOptions::rules`] decides which references are eligible; the
+    /// others stay as written. For an eligible reference, the value of a name
+    /// comes from two places:
+    ///
+    /// - **The file**: a declaration of the name that takes part in lookup and
+    ///   is visible in the [`ExpandScope`] and selected by the dialect's
+    ///   duplicate-key rule: among the declarations before the entry in
+    ///   sequential scope (the preset), or among all declarations in whole-file
+    ///   scope. Its value is resolved first.
+    /// - **The lookup closure**: `lookup` is called with the variable name and
+    ///   returns `Some(value)` or `None`. Its values are used as they are and
+    ///   are not expanded again. It may be called more than once for the same
+    ///   name. To read the process environment, pass
+    ///   `|name| std::env::var(name).ok()`.
+    ///
+    /// [`LookupOrder`] picks which one is tried first: the file
+    /// ([`LookupOrder::FileFirst`], the preset) or the closure
+    /// ([`LookupOrder::CallerFirst`]). A variable is *unset* when this order
+    /// finds no value for it; under [`LookupOrder::FileFirst`] a visible bare
+    /// key also leaves it unset. An empty value still counts as set. Operator
+    /// forms, which need rules such as those of [`ExpandOptions::compose`],
+    /// work as follows:
+    ///
+    /// | Form | Result |
+    /// |---|---|
+    /// | `${NAME:-default}` | `default` when `NAME` is unset or empty, else its value |
+    /// | `${NAME-default}` | `default` when `NAME` is unset, else its value |
+    /// | `${NAME:+alternative}` | `alternative` when `NAME` is set and not empty, else empty |
+    /// | `${NAME+alternative}` | `alternative` when `NAME` is set, else empty |
+    /// | `${NAME:?message}` | [`ResolveError::Required`] when `NAME` is unset or empty, else its value |
+    /// | `${NAME?message}` | [`ResolveError::Required`] when `NAME` is unset, else its value |
+    ///
+    /// An argument is resolved only when it is used, and may contain further
+    /// references. A plain `$NAME` or `${NAME}` that is unset follows
+    /// [`ExpandOptions::unresolved`]: by default it stays as written.
+    ///
+    /// Every entry is resolved, including entries that nothing refers to.
+    /// Resolution never loops: in whole-file scope, file values that refer to
+    /// each other in a loop fail with [`ResolveError::Cycle`]. The limits
+    /// [`ExpandOptions::max_depth`], [`ExpandOptions::max_value_bytes`] and
+    /// [`ExpandOptions::max_output_bytes`] bound the nesting depth, the length
+    /// of each value and the total size of the result.
     ///
     /// # Errors
-    /// Returns a structured error for required variables, unresolved variables
-    /// under [`Unresolved::Error`], reachable cycles, or configured limits.
+    ///
+    /// Resolution stops at the first error and returns it:
+    ///
+    /// - [`ResolveError::Unresolved`] when a plain reference is unset and the
+    ///   policy is [`Unresolved::Error`];
+    /// - [`ResolveError::Required`] when a `${NAME:?message}` or
+    ///   `${NAME?message}` reference finds its variable without a value;
+    /// - [`ResolveError::Cycle`] when file values refer to each other in a loop
+    ///   (whole-file scope only);
+    /// - [`ResolveError::DepthExceeded`] when nesting goes deeper than
+    ///   [`ExpandOptions::max_depth`];
+    /// - [`ResolveError::ValueTooLarge`] when a resolved value grows longer
+    ///   than [`ExpandOptions::max_value_bytes`];
+    /// - [`ResolveError::OutputTooLarge`] when the whole result grows larger
+    ///   than [`ExpandOptions::max_output_bytes`].
     ///
     /// # Examples
     ///
     /// ```
     /// use adotenv::{parse_strict, ExpandOptions};
     ///
-    /// let doc = parse_strict("A=base\nB=${A}-suffix\n").unwrap();
-    /// let resolved = doc
-    ///     .resolve(|_| None, &ExpandOptions::portable())
-    ///     .unwrap();
-    /// assert_eq!(resolved.entries()[1].value.as_deref(), Some("base-suffix"));
+    /// let doc = parse_strict("HOST=localhost\nURL=http://${HOST}:${PORT}/\n")?;
+    /// let lookup = |name: &str| (name == "PORT").then(|| "8080".to_string());
+    ///
+    /// let resolved = doc.resolve(lookup, &ExpandOptions::portable())?;
+    /// assert_eq!(resolved.entries()[1].value.as_deref(), Some("http://localhost:8080/"));
+    ///
+    /// // The document still holds the literal text.
+    /// assert_eq!(doc.get("URL"), Some("http://${HOST}:${PORT}/"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// Operators need rules that accept them, such as the Compose rules:
+    ///
+    /// ```
+    /// use adotenv::{parse_strict, ExpandOptions};
+    ///
+    /// let doc = parse_strict("LOG_LEVEL=\nA=${LOG_LEVEL:-info}\nB=${LOG_LEVEL-info}\n")?;
+    ///
+    /// // `:-` replaces an empty value too; `-` replaces only an unset one.
+    /// let resolved = doc.resolve(|_| None, &ExpandOptions::compose())?;
+    /// assert_eq!(resolved.entries()[1].value.as_deref(), Some("info"));
+    /// assert_eq!(resolved.entries()[2].value.as_deref(), Some(""));
+    ///
+    /// let literal = doc.resolve(|_| None, &ExpandOptions::portable())?;
+    /// assert_eq!(literal.entries()[1].value.as_deref(), Some("${LOG_LEVEL:-info}"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn resolve<F>(
         &self,
@@ -526,17 +1009,67 @@ impl Document<'_> {
         Resolver::new(self, lookup, options, None, None).resolve_document()
     }
 
-    /// Resolve with an explicit command-substitution callback.
+    /// Substitutes references like [`Document::resolve`] and passes `$(command)`
+    /// forms to a callback.
     ///
-    /// Commands are invoked only when both [`ReferenceRules::commands`] and this
-    /// callback permit them. The callback receives the raw command text, source
-    /// spans and the supplied source identity. Outputs are literal resolved data.
-    /// Every call is recorded; [`ResolveFailure::commands`] retains calls made
-    /// before a later error. No shell, environment or file access is implied.
+    /// Variables resolve exactly as in [`Document::resolve`], with the same
+    /// options. In addition, each eligible `$(command)` form is passed to
+    /// `commands`, and the string it returns replaces the form. Command forms
+    /// are eligible only when [`ReferenceRules::commands`] is on, as in
+    /// [`ExpandOptions::dotenv_expand`]; otherwise they stay as written and the
+    /// callback is never called.
+    ///
+    /// This crate never starts a process itself: the callback decides what a
+    /// command means. It receives a [`CommandContext`] with the command text as
+    /// written between `$(` and `)`, its byte ranges and `source_identity`.
+    /// References inside the command text are not substituted, and the output
+    /// is used as it is, not expanded again. A command inside an operator
+    /// argument, as in `${REVISION:-$(git rev-parse HEAD)}`, runs only when the
+    /// argument is used. With the `exec` feature,
+    /// [`exec::Shell`](crate::exec::Shell) provides a callback that runs
+    /// commands through the system shell.
+    ///
+    /// `source_identity` is an optional name for the file, such as its path. It
+    /// is passed to the callback and recorded with each call unchanged; the
+    /// crate never fills it in itself.
+    ///
+    /// Every call is recorded as a [`CommandCall`], in call order: in
+    /// [`ResolvedDocument::commands`] on success and in
+    /// [`ResolveFailure::commands`] on failure. Calls made before an error are
+    /// not undone.
     ///
     /// # Errors
-    /// Returns the same structured errors as [`Self::resolve`], wraps callback
-    /// failures, and retains prior command-call provenance in [`ResolveFailure`].
+    ///
+    /// Returns a [`ResolveFailure`] whose [`error`](ResolveFailure::error) is
+    /// any error of [`Document::resolve`], or [`ResolveError::Command`] when the
+    /// callback returns a [`CommandError`]. Its
+    /// [`commands`](ResolveFailure::commands) lists the calls made before the
+    /// failure, including a failed call.
+    ///
+    /// # Examples
+    ///
+    /// The callback here returns a fixed string instead of running anything:
+    ///
+    /// ```
+    /// use adotenv::{parse_strict, CommandOutcome, ExpandOptions};
+    ///
+    /// let doc = parse_strict("REVISION=$(git rev-parse --short HEAD)\n")?;
+    /// let resolved = doc.resolve_with_commands(
+    ///     |_| None,
+    ///     |context| {
+    ///         assert_eq!(context.command, "git rev-parse --short HEAD");
+    ///         Ok("4f2a9c1".to_string())
+    ///     },
+    ///     Some("app.env"),
+    ///     &ExpandOptions::dotenv_expand(),
+    /// )?;
+    ///
+    /// assert_eq!(resolved.entries()[0].value.as_deref(), Some("4f2a9c1"));
+    /// let call = &resolved.commands()[0];
+    /// assert_eq!(call.outcome, CommandOutcome::Output("4f2a9c1".into()));
+    /// assert_eq!(call.source.as_deref(), Some("app.env"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn resolve_with_commands<F, C>(
         &self,
         lookup: F,

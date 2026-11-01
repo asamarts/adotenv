@@ -1,11 +1,11 @@
-//! Comment-aware key sorting within blank-line groups that keeps resolved
-//! values unchanged.
+//! Key sorting within blank-line groups that keeps comments with their
+//! declarations and resolved values unchanged.
 //!
-//! Sorting is a separate verified transformation from trivia formatting. It
-//! reorders whole group chunks so leading comments and inline comments travel
-//! with their entries. Keys that reference each other keep their relative
-//! order. A group is left untouched when it contains malformed data, duplicate
-//! or empty keys, a self-reference or a reference cycle.
+//! Sorting is a verified transformation separate from formatting. It reorders
+//! whole chunks of a group so leading comments and inline comments travel with
+//! their entries. Keys that reference each other keep their relative order. A
+//! group is left untouched when it contains invalid or ignored statements,
+//! duplicate or empty keys, a self-reference or a reference cycle.
 
 use alloc::{
     collections::{BTreeMap, BTreeSet},
@@ -37,49 +37,72 @@ struct Plan {
 }
 
 impl Document<'_> {
-    /// Sort declarations within each blank-line-separated group by key.
+    /// Sorts the declarations of each blank-line group by key and verifies the
+    /// output.
     ///
-    /// Comments before the first entry of a group stay at the top as a group
-    /// header. Comments immediately before later entries move with those entries.
-    /// Comments after the last entry stay at the bottom. Inline comments are part
-    /// of the moved entry.
+    /// A group is a run of items between blank lines; see [`Document::groups`].
+    /// Each group is sorted on its own, and blank lines stay where they are.
+    /// Keys compare by bytes, so uppercase letters sort before lowercase ones:
+    /// `b`, `B`, `a` sorts to `B`, `a`, `b`. Comments travel with the
+    /// declarations they belong to:
+    ///
+    /// - comments before the first declaration of a group stay at the top;
+    /// - comments between two declarations move with the declaration below
+    ///   them;
+    /// - comments after the last declaration stay at the bottom;
+    /// - inline comments and multiline values move with their declaration.
     ///
     /// When one key's value references another key of the same group (`$VAR`
-    /// or `${VAR...}`, including nested and quoted forms), the two keys keep
-    /// their current relative order. Every other key is ordered by key, so the
-    /// result is the key order that respects those pairs. Which declaration a
-    /// reference sees does not change, and [`Document::resolve`] returns the
-    /// same values before and after sorting under sequential and whole-file
-    /// scope. References to keys outside the group are not ordering
-    /// constraints.
+    /// or `${VAR...}`, including nested, quoted and escaped forms; see
+    /// [`Entry::references`]), the two keep their current relative order. At
+    /// each position the smallest key that these pairs allow comes next. A
+    /// reference therefore sees the same declaration after sorting, and
+    /// [`Document::resolve`] returns the same values before and after under
+    /// [`ExpandScope::Sequential`](crate::ExpandScope::Sequential) and
+    /// [`ExpandScope::WholeFile`](crate::ExpandScope::WholeFile). References to
+    /// keys outside the group do not constrain the order.
     ///
-    /// Groups with empty/duplicate keys, malformed or ignored items, a
-    /// self-reference or a reference cycle are left byte-for-byte unchanged, as
-    /// are groups where a declaration shares its physical line with the next
-    /// statement.
+    /// These groups are left unchanged, byte for byte:
+    ///
+    /// - groups with duplicate or empty keys;
+    /// - groups with invalid or ignored statements;
+    /// - groups with a self-reference or a reference cycle;
+    /// - groups where a declaration shares its physical line with the next
+    ///   statement.
     ///
     /// Sorting never adds or removes a final line ending. When the file ends
     /// without one and its last declaration moves up, that declaration takes
     /// the line ending of the declaration that becomes last.
     ///
-    /// The result is reparsed and verified before it is returned.
+    /// Sorting does not change spacing, expand values, read files or inspect
+    /// the environment; run [`Document::format`] on the parsed output when both
+    /// changes are wanted. The output is parsed again with this document's
+    /// dialect and checked before it is returned. [`FormatResult::edits`] holds
+    /// one edit for each reordered group.
     ///
     /// # Errors
-    /// Returns [`FormatError::WouldChangeMeaning`] if the generated text cannot
-    /// be verified.
+    ///
+    /// Returns [`FormatError::WouldChangeMeaning`] if the parsed output does not
+    /// keep the declarations, values and comments of every group. That happens
+    /// when moving a declaration changes how it reads. For example, in
+    /// [`Dialect::COMPOSE`](crate::Dialect::COMPOSE) a bare key on the last line
+    /// of a file without a final line ending reads differently, so sorting
+    /// `G\nB=2` fails.
     ///
     /// # Examples
     ///
     /// ```
-    /// use adotenv::parse_strict;
-    ///
     /// // B references A and stays above it; the other keys are sorted.
-    /// let doc = parse_strict("D=4\nB=${A}\nC=3\nA=1\n").unwrap();
-    /// let sorted = doc.sort().unwrap();
-    /// assert_eq!(sorted.as_str(), "B=${A}\nA=1\nC=3\nD=4\n");
+    /// let doc = adotenv::parse_strict("D=4\nB=${A}\nC=3\nA=1\n")?;
+    /// assert_eq!(doc.sort()?.as_str(), "B=${A}\nA=1\nC=3\nD=4\n");
     ///
-    /// let doc = parse_strict("B=2\nA=1").unwrap();
-    /// assert_eq!(doc.sort().unwrap().as_str(), "A=1\nB=2");
+    /// // Comments move with the declaration below them, groups sort on their
+    /// // own, and the file still ends without a line ending.
+    /// let doc = adotenv::parse_strict("# app\nPORT=8080\n# bind\nHOST=0.0.0.0\n\nZ=1\nY=2")?;
+    /// let sorted = doc.sort()?;
+    /// assert_eq!(sorted.as_str(), "# app\n# bind\nHOST=0.0.0.0\nPORT=8080\n\nY=2\nZ=1");
+    /// assert_eq!(sorted.edits().len(), 2);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn sort(&self) -> Result<FormatResult, FormatError> {
         let mut plans = Vec::new();

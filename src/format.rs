@@ -1,7 +1,8 @@
-//! Verified whitespace and line-ending formatting over the lossless model.
+//! Verified layout formatting: separator spacing, trailing whitespace, blank
+//! lines, value quoting and the final line ending.
 //!
-//! Formatting only changes syntax trivia selected by the caller. It reparses the
-//! complete result with the document's exact dialect and verifies that every
+//! Formatting changes only the layout that the caller selects. It parses the
+//! complete result again with the document's dialect and checks that every
 //! declaration's meaning is unchanged.
 
 use alloc::{string::String, vec, vec::Vec};
@@ -9,74 +10,189 @@ use core::fmt;
 
 use crate::{Document, ItemKind, Quote, TextEdit};
 
-/// Preferred spacing around assignment separators.
+/// The spacing that [`Document::format`] puts around assignment separators.
+///
+/// The spacing applies to the separator (`=`, or `:` in dialects that accept
+/// it) of every assignment; bare declarations have none. Declarations with an
+/// empty key and every declaration in a raw-value dialect such as
+/// [`Dialect::DOCKER_RAW`](crate::Dialect::DOCKER_RAW) keep their spacing. The
+/// space after the separator also stays when the value is empty or starts
+/// with `#` and no inline comment follows, because changing it could change
+/// the value.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{EqualsSpacing, FormatOptions};
+///
+/// let doc = adotenv::parse_strict("PORT =  8080\nHOST=localhost\n")?;
+/// let spaces = FormatOptions::default().with_equals_spacing(EqualsSpacing::Spaces);
+/// assert_eq!(doc.format(&spaces)?.as_str(), "PORT = 8080\nHOST = localhost\n");
+/// let none = FormatOptions::default().with_equals_spacing(EqualsSpacing::None);
+/// assert_eq!(doc.format(&none)?.as_str(), "PORT=8080\nHOST=localhost\n");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum EqualsSpacing {
-    /// Leave existing spacing untouched.
+    /// The spacing stays as it is.
     Preserve,
-    /// Use exactly one ASCII space before and after each applicable assignment
-    /// separator (`=` or a configured colon form).
+    /// Exactly one space before and one after the separator.
     Spaces,
-    /// Remove spaces around applicable assignment separators.
+    /// No space before or after the separator.
+    ///
+    /// On a line with an inline comment, the space after the separator stays.
     None,
 }
 
-/// Final-newline policy.
+/// What [`Document::format`] does with the line ending at the end of the file.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{FinalNewline, FormatOptions};
+///
+/// let doc = adotenv::parse_strict("PORT=8080")?;
+/// let ensure = FormatOptions::default().with_final_newline(FinalNewline::Ensure);
+/// assert_eq!(doc.format(&ensure)?.as_str(), "PORT=8080\n");
+///
+/// let doc = adotenv::parse_strict("PORT=8080\r\n")?;
+/// let remove = FormatOptions::default().with_final_newline(FinalNewline::Remove);
+/// assert_eq!(doc.format(&remove)?.as_str(), "PORT=8080");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum FinalNewline {
-    /// Leave the existing end-of-file bytes untouched.
+    /// The end of the file stays as it is.
     Preserve,
-    /// Ensure a final LF when the output does not already end in a line break,
-    /// including a line break exposed by collapsing a trailing blank-line run.
+    /// A final line ending: an LF is added when the output does not end with a
+    /// line break.
+    ///
+    /// The LF is added even in a CRLF file. Nothing is added to an empty
+    /// document, or when collapsing a trailing run of blank lines already
+    /// leaves the output ending in a line break. With trimming, a
+    /// whitespace-only last line becomes an empty blank line.
     Ensure,
-    /// Remove one final LF, CRLF or lone CR.
+    /// No final line ending: one final LF, CRLF or lone CR is removed.
+    ///
+    /// Nothing is removed when the last item is a blank line, because removing
+    /// its line ending would remove the blank line.
     Remove,
 }
 
-/// Blank-line grouping policy.
+/// What [`Document::format`] does with runs of blank lines.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{BlankLines, FormatOptions};
+///
+/// let doc = adotenv::parse_strict("PORT=8080\n\n\n\nHOST=localhost\n")?;
+/// let options = FormatOptions::default().with_blank_lines(BlankLines::Collapse);
+/// assert_eq!(doc.format(&options)?.as_str(), "PORT=8080\n\nHOST=localhost\n");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum BlankLines {
-    /// Leave every blank item untouched.
+    /// Blank lines stay as they are.
     Preserve,
-    /// Collapse every run of consecutive blank items to one blank line.
+    /// Each run of blank lines becomes one blank line.
+    ///
+    /// The first blank line of each run is kept, also for runs at the start
+    /// and the end of the file, so the blank-line groups of the document stay
+    /// the same.
     Collapse,
 }
 
-/// Preferred value quoting while formatting.
+/// The quoting that [`Document::format`] prefers for values.
+///
+/// A value is written in the preferred style only when its decoded text stays
+/// exactly the same; a value that the style cannot spell keeps its current
+/// quoting. Multiline values are included, so a style change can move a
+/// multiline value onto one line with an escaped line break, or the other way
+/// around. Empty values, bare declarations and declarations with an empty key
+/// keep their form, and values in raw-value dialects such as
+/// [`Dialect::DOCKER_RAW`](crate::Dialect::DOCKER_RAW) are never re-quoted.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{FormatOptions, QuoteStyle};
+///
+/// let doc = adotenv::parse_strict("A='x\ny'\nB=plain\nC=''\n")?;
+/// let options = FormatOptions::default().with_quote_style(QuoteStyle::Double);
+/// assert_eq!(doc.format(&options)?.as_str(), "A=\"x\\ny\"\nB=\"plain\"\nC=''\n");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum QuoteStyle {
-    /// Leave the existing quote style untouched.
+    /// Values keep their current quoting.
     Preserve,
-    /// Prefer a double-quoted value where the selected dialect can represent it.
+    /// Double quotes, where the dialect can spell the value in them.
     Double,
-    /// Prefer a single-quoted value where the selected dialect can represent it.
+    /// Single quotes, where the dialect can spell the value in them.
     Single,
-    /// Prefer an unquoted value where it remains unambiguous.
+    /// No quotes, where the value reads back the same without them.
+    ///
+    /// Removing quotes changes where a declaration ends, so this style applies
+    /// only when every other option keeps its default (`Preserve` or `false`).
+    /// Combined with any other change, it is skipped.
     Unquoted,
 }
 
-/// Formatting policy for trivia-only changes.
+/// The layout changes that [`Document::format`] makes.
+///
+/// [`FormatOptions::default`] changes nothing. Each field turns on one kind of
+/// change and has a `with_*` builder; [`normalize`](Self::normalize) and
+/// [`normalize_groups`](Self::normalize_groups) are ready-made presets.
+/// Whatever the options, formatting never changes keys, decoded values,
+/// `export` prefixes, indentation, the order of items, or invalid and ignored
+/// statements; see [`Document::format`].
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{BlankLines, EqualsSpacing, FinalNewline, FormatOptions};
+///
+/// let options = FormatOptions::default()
+///     .with_equals_spacing(EqualsSpacing::Spaces)
+///     .with_trim_trailing_whitespace(true)
+///     .with_blank_lines(BlankLines::Collapse)
+///     .with_final_newline(FinalNewline::Ensure);
+/// assert_eq!(options, FormatOptions::normalize_groups());
+///
+/// let doc = adotenv::parse_strict("# app   \nPORT=8080\n\n\nHOST =  localhost")?;
+/// let formatted = doc.format(&options)?;
+/// assert_eq!(formatted.as_str(), "# app\nPORT = 8080\n\nHOST = localhost\n");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct FormatOptions {
-    /// Spacing around assignment separators.
+    /// The spacing around assignment separators; see [`EqualsSpacing`].
     pub equals_spacing: EqualsSpacing,
-    /// Remove trailing spaces and tabs from blank, comment and final entry lines.
+    /// Whether to remove spaces and tabs at the end of blank lines, comment
+    /// lines and the last line of each declaration.
     ///
-    /// Whitespace inside multiline quoted values and invalid/ignored statements
-    /// is never changed. A whitespace-only last line without a line ending is
-    /// kept as is unless [`FinalNewline::Ensure`] is selected, because trimming
-    /// it would remove the line.
+    /// Whitespace inside multiline values and in invalid or ignored statements
+    /// is never changed. Declaration lines in raw-value dialects such as
+    /// [`Dialect::DOCKER_RAW`](crate::Dialect::DOCKER_RAW) keep their
+    /// whitespace, because it belongs to the value. A whitespace-only last
+    /// line without a line ending is kept as is unless [`FinalNewline::Ensure`]
+    /// is selected, because trimming it would remove the line. Lines that end
+    /// with or follow a lone CR line ending, and an empty or bare declaration
+    /// followed by an indented line (together with that line), are also left
+    /// alone, so the next parse reads the same lines.
     pub trim_trailing_whitespace: bool,
-    /// Blank-line grouping policy.
+    /// What happens to runs of blank lines; see [`BlankLines`].
     pub blank_lines: BlankLines,
-    /// Preferred value quoting.
+    /// The preferred quoting of values; see [`QuoteStyle`].
     pub quote_style: QuoteStyle,
-    /// Final-newline policy.
+    /// What happens to the line ending at the end of the file; see
+    /// [`FinalNewline`].
     pub final_newline: FinalNewline,
 }
 
@@ -93,31 +209,32 @@ impl Default for FormatOptions {
 }
 
 impl FormatOptions {
-    /// Use the given assignment-spacing policy.
+    /// Sets [`equals_spacing`](Self::equals_spacing) and returns the options.
     #[must_use]
     pub const fn with_equals_spacing(mut self, value: EqualsSpacing) -> Self {
         self.equals_spacing = value;
         self
     }
-    /// Enable or disable trailing horizontal whitespace trimming.
+    /// Sets [`trim_trailing_whitespace`](Self::trim_trailing_whitespace) and
+    /// returns the options.
     #[must_use]
     pub const fn with_trim_trailing_whitespace(mut self, value: bool) -> Self {
         self.trim_trailing_whitespace = value;
         self
     }
-    /// Use the given blank-line policy.
+    /// Sets [`blank_lines`](Self::blank_lines) and returns the options.
     #[must_use]
     pub const fn with_blank_lines(mut self, value: BlankLines) -> Self {
         self.blank_lines = value;
         self
     }
-    /// Use the given preferred quote style.
+    /// Sets [`quote_style`](Self::quote_style) and returns the options.
     #[must_use]
     pub const fn with_quote_style(mut self, value: QuoteStyle) -> Self {
         self.quote_style = value;
         self
     }
-    /// Use the given final-newline policy.
+    /// Sets [`final_newline`](Self::final_newline) and returns the options.
     #[must_use]
     pub const fn with_final_newline(mut self, value: FinalNewline) -> Self {
         self.final_newline = value;
@@ -125,7 +242,22 @@ impl FormatOptions {
     }
 }
 impl FormatOptions {
-    /// Normalize spacing, trim trailing whitespace and ensure a final LF.
+    /// A preset that puts one space around separators, trims trailing
+    /// whitespace and ensures a final line ending.
+    ///
+    /// It uses [`EqualsSpacing::Spaces`], trailing-whitespace trimming and
+    /// [`FinalNewline::Ensure`]. Blank lines and quotes stay as they are.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::FormatOptions;
+    ///
+    /// let doc = adotenv::parse_strict("# app   \n\n\nA=1   \nB =  2 # note   ")?;
+    /// let formatted = doc.format(&FormatOptions::normalize())?;
+    /// assert_eq!(formatted.as_str(), "# app\n\n\nA = 1\nB = 2 # note\n");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub const fn normalize() -> Self {
         Self {
@@ -137,8 +269,22 @@ impl FormatOptions {
         }
     }
 
-    /// Normalize spacing and trailing whitespace, collapse blank-line runs and
-    /// ensure a final LF.
+    /// The [`normalize`](Self::normalize) preset plus collapsed runs of blank
+    /// lines.
+    ///
+    /// It adds [`BlankLines::Collapse`] to [`normalize`](Self::normalize).
+    /// This is the profile that `adotenv-cli fmt` uses.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::FormatOptions;
+    ///
+    /// let doc = adotenv::parse_strict("# app\n\n\nA=1   \n\n\nB =  2")?;
+    /// let formatted = doc.format(&FormatOptions::normalize_groups())?;
+    /// assert_eq!(formatted.as_str(), "# app\n\nA = 1\n\nB = 2\n");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub const fn normalize_groups() -> Self {
         Self {
@@ -151,7 +297,36 @@ impl FormatOptions {
     }
 }
 
-/// A verified trivia-only formatting result.
+/// The verified output of [`Document::format`] or [`Document::sort`], with the
+/// text edits that produce it.
+///
+/// Before it is returned, the output was parsed again with the document's
+/// dialect and checked. Use [`as_str`](Self::as_str) or
+/// [`into_string`](Self::into_string) for the new text, and
+/// [`edits`](Self::edits) or [`into_edits`](Self::into_edits) to apply the
+/// change to a buffer that still holds the original source.
+/// [`is_empty`](Self::is_empty) tells whether anything changed.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::FormatOptions;
+///
+/// let doc = adotenv::parse_strict("PORT=8080   \nHOST =localhost\n")?;
+/// let formatted = doc.format(&FormatOptions::normalize())?;
+/// assert_eq!(formatted.as_str(), "PORT = 8080\nHOST = localhost\n");
+///
+/// let mut text = doc.source().to_string();
+/// for edit in formatted.edits().iter().rev() {
+///     text.replace_range(edit.range.clone(), &edit.replacement);
+/// }
+/// assert_eq!(text, formatted.as_str());
+///
+/// // Formatting the output again changes nothing.
+/// let again = adotenv::parse_strict(formatted.as_str())?;
+/// assert!(again.format(&FormatOptions::normalize())?.is_empty());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormatResult {
     edits: Vec<TextEdit>,
@@ -163,40 +338,68 @@ impl FormatResult {
         Self { edits, output }
     }
 
-    /// Text edits referring to the original source snapshot, sorted by start
-    /// offset without overlaps. Apply them in reverse order of this slice; see
-    /// [`TextEdit`].
+    /// Returns the text edits that turn the original source into the output.
+    ///
+    /// The edits are sorted by start offset and do not overlap. Their ranges
+    /// refer to the original [`Document::source`]. Apply them in reverse order
+    /// of this slice, from the last element to the first; see [`TextEdit`].
+    /// [`Document::sort`] returns one edit for each reordered group.
     #[must_use]
     pub fn edits(&self) -> &[TextEdit] {
         &self.edits
     }
-    /// Consume the result, retaining its edits.
+    /// Returns the text edits, consuming the result.
+    ///
+    /// The edits are in the same order as [`edits`](Self::edits) returns them.
     #[must_use]
     pub fn into_edits(self) -> Vec<TextEdit> {
         self.edits
     }
-    /// The verified formatted text.
+    /// Returns the complete verified output.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.output
     }
-    /// Consume the result, retaining its text.
+    /// Returns the complete verified output, consuming the result.
     #[must_use]
     pub fn into_string(self) -> String {
         self.output
     }
-    /// Whether formatting changed no bytes.
+    /// Returns `true` when nothing changed: there are no edits and the output
+    /// equals the source.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.edits.is_empty()
     }
 }
 
-/// A formatting request that could not be verified.
+/// The reason [`Document::format`] or [`Document::sort`] refused to return a
+/// result.
+///
+/// Both methods refuse rather than return output that reads differently from
+/// the source. They skip the changes they know to be risky, so this error is
+/// rare; it comes from inputs such as an unterminated quote that a quote
+/// change would close.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{FormatError, FormatOptions, QuoteStyle};
+///
+/// // The recovering parser keeps the unterminated quote as an invalid line.
+/// // A double quote added to the next value would close it.
+/// let (doc, _) = adotenv::parse("BROKEN=\"\nPORT='8080'\n");
+/// let options = FormatOptions::default().with_quote_style(QuoteStyle::Double);
+/// match doc.format(&options) {
+///     Err(FormatError::WouldChangeMeaning) => {}
+///     other => panic!("unexpected result: {other:?}"),
+/// }
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FormatError {
-    /// The edits would have changed declaration meaning or structure.
+    /// The output, parsed again, would change a declaration, a comment or the
+    /// item structure.
     WouldChangeMeaning,
 }
 
@@ -209,31 +412,58 @@ impl fmt::Display for FormatError {
 impl core::error::Error for FormatError {}
 
 impl Document<'_> {
-    /// Apply trivia-only formatting and verify that every declaration survives.
+    /// Formats the layout of this document as `options` select and verifies the
+    /// output.
     ///
-    /// Invalid and ignored statements are not rewritten. Trimming never touches
-    /// whitespace inside multiline value bodies; only final-line trivia,
-    /// whole-line comments and blank lines are trimmed. A quote style other
-    /// than [`QuoteStyle::Preserve`] re-encodes a value, multiline values
-    /// included, only when its decoded text stays the same. The complete output
-    /// is reparsed with this document's exact dialect before it is returned.
+    /// Formatting changes only these parts of the layout, each when its option
+    /// asks for it:
+    ///
+    /// - the spacing around separators ([`FormatOptions::equals_spacing`]);
+    /// - trailing spaces and tabs ([`FormatOptions::trim_trailing_whitespace`]);
+    /// - runs of blank lines ([`FormatOptions::blank_lines`]);
+    /// - the quoting of values ([`FormatOptions::quote_style`]);
+    /// - the line ending at the end of the file
+    ///   ([`FormatOptions::final_newline`]).
+    ///
+    /// It never changes keys, decoded values, assignment states, `export`
+    /// prefixes, lookup participation, indentation, the order of items, the
+    /// kind of line endings, the BOM, or the text of comments and inline
+    /// comments apart from trailing whitespace. Invalid and ignored statements
+    /// are never rewritten. Trimming never touches whitespace inside multiline
+    /// values. A quote style other than [`QuoteStyle::Preserve`] re-encodes a
+    /// value, multiline values included, only when its decoded text stays the
+    /// same. In raw-value dialects such as
+    /// [`Dialect::DOCKER_RAW`](crate::Dialect::DOCKER_RAW), declaration lines
+    /// stay untouched because every byte after `=` is part of the value;
+    /// comments and blank lines are still formatted.
+    ///
+    /// The complete output is parsed again with this document's dialect before
+    /// it is returned. Formatting does not reorder declarations; use
+    /// [`Document::sort`] for that.
     ///
     /// # Errors
-    /// Returns [`FormatError::WouldChangeMeaning`] if the complete output does
-    /// not preserve declaration keys, values, states, exports, lookup
-    /// participation, inline comments, item kinds or malformed statement
-    /// content, or quotes when the quote style is [`QuoteStyle::Preserve`].
+    ///
+    /// Returns [`FormatError::WouldChangeMeaning`] if the parsed output does not
+    /// keep the keys, values, assignment states, `export` prefixes, lookup
+    /// participation and inline comments of every declaration, the kind of
+    /// every item and the text of invalid and ignored statements, and also the
+    /// quoting when the quote style is [`QuoteStyle::Preserve`]. The formatter
+    /// skips the changes it knows to be risky, so this is rare; see
+    /// [`FormatError`] for an example.
     ///
     /// # Examples
     ///
     /// ```
-    /// use adotenv::{parse_strict, EqualsSpacing, FormatOptions};
+    /// use adotenv::{EqualsSpacing, FormatOptions};
     ///
-    /// let doc = parse_strict("A=1\nB =  2\n").unwrap();
-    /// let formatted = doc
-    ///     .format(&FormatOptions::default().with_equals_spacing(EqualsSpacing::Spaces))
-    ///     .unwrap();
-    /// assert_eq!(formatted.as_str(), "A = 1\nB = 2\n");
+    /// let doc = adotenv::parse_strict("# server   \nPORT=8080\nHOST =  localhost\n")?;
+    /// let options = FormatOptions::default().with_equals_spacing(EqualsSpacing::Spaces);
+    /// let formatted = doc.format(&options)?;
+    /// assert_eq!(formatted.as_str(), "# server   \nPORT = 8080\nHOST = localhost\n");
+    ///
+    /// let formatted = doc.format(&FormatOptions::normalize())?;
+    /// assert_eq!(formatted.as_str(), "# server\nPORT = 8080\nHOST = localhost\n");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn format(&self, options: &FormatOptions) -> Result<FormatResult, FormatError> {
         let mut edits = Vec::new();

@@ -1,9 +1,10 @@
-//! Opt-in `serde` deserialization of literal documents.
+//! Serde deserialization of documents and loaded environments, behind the
+//! `serde` feature.
 //!
-//! The deserializer exposes effective declarations as a string-valued map.
-//! Literal values are parsed into Serde primitives when requested; nested
-//! sequences/maps and enum representations are not invented. Errors carry the
-//! source line for value conversion failures.
+//! The effective declarations are presented as a map from key to literal
+//! value. A value converts to a scalar type when the target asks for one;
+//! sequences, nested maps, tuples and enums are rejected. A value or key that
+//! does not convert reports the line of its declaration.
 
 use alloc::{
     format,
@@ -18,7 +19,51 @@ use serde::de::{self, DeserializeOwned, Deserializer, MapAccess, Visitor};
 use crate::load::LoadedEnvironment;
 use crate::Document;
 
-/// A serde error tied to the literal document line where possible.
+/// An error from deserializing a [`Document`] or loaded environment with Serde.
+///
+/// Returned by [`Document::deserialize`] and, with the `load` feature,
+/// `LoadedEnvironment::deserialize`. [`line`](Self::line) and
+/// [`key`](Self::key) locate the problem:
+///
+/// - A value that does not convert has the one-based line of its declaration
+///   and its key.
+/// - A key that does not convert, such as `abc` read as a `u16` map key or an
+///   unknown field under `#[serde(deny_unknown_fields)]`, has the line of its
+///   declaration and an empty key, `Some("")`.
+/// - An error about the whole map, such as a missing field, has line `0` and
+///   no key.
+/// - From a loaded environment loaded without origins, a value error has
+///   line `0` but still names the key.
+///
+/// Its `Display` is `line {line}: {message} (key "{key}")` when the line is
+/// known, and the message alone when the line is `0`. Messages include the
+/// value that failed to convert, such as `expected a u16, found "abc"`, so
+/// treat them as secret when the values are secret.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::parse_strict;
+///
+/// #[derive(Debug, serde::Deserialize)]
+/// #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+/// struct Config {
+///     host: String,
+///     port: u16,
+/// }
+///
+/// let doc = parse_strict("HOST=localhost\nPORT=abc\n")?;
+/// let error = doc.deserialize::<Config>().unwrap_err();
+/// assert_eq!(error.line(), 2);
+/// assert_eq!(error.key(), Some("PORT"));
+/// assert_eq!(error.message(), r#"expected a u16, found "abc""#);
+/// assert_eq!(error.to_string(), r#"line 2: expected a u16, found "abc" (key "PORT")"#);
+///
+/// let missing = parse_strict("HOST=localhost\n")?.deserialize::<Config>().unwrap_err();
+/// assert_eq!((missing.line(), missing.key()), (0, None));
+/// assert_eq!(missing.message(), "missing field `PORT`");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeserializeError {
     line: usize,
@@ -48,18 +93,25 @@ impl DeserializeError {
         }
         self
     }
-    /// One-based source line, or zero when Serde produced a structural error
-    /// without a value location.
+    /// Returns the one-based line of the declaration, or `0` when it is
+    /// unknown.
+    ///
+    /// The line is `0` for an error about the whole map, such as a missing
+    /// field, and for any error from a loaded environment loaded without
+    /// origins.
     #[must_use]
     pub const fn line(&self) -> usize {
         self.line
     }
-    /// Key associated with the error, when available.
+    /// Returns the key of the declaration whose value did not convert.
+    ///
+    /// Returns `Some("")` when the key itself did not convert, and `None` for
+    /// an error about the whole map.
     #[must_use]
     pub fn key(&self) -> Option<&str> {
         self.key.as_deref()
     }
-    /// Human-readable error message.
+    /// Returns the error message, without the line and key.
     #[must_use]
     pub fn message(&self) -> &str {
         &self.message
@@ -93,16 +145,39 @@ impl de::Error for DeserializeError {
 }
 
 impl Document<'_> {
-    /// Deserialize effective literal declarations into a Serde type.
+    /// Deserializes the effective declarations into a Serde type.
     ///
-    /// Duplicate keys follow the selected dialect; nonparticipating
-    /// declarations and empty keys are ignored. Bare declarations are exposed
-    /// only when the dialect's `BareKeys::Empty` policy makes them effective
-    /// empty strings. Values remain literal and are never expanded.
+    /// The document is read as a map from each key to its effective value, the
+    /// value that [`Document::get`] returns. Duplicate keys follow the
+    /// dialect's rule. Declarations that do not take part in lookup and empty
+    /// keys are left out, and a bare key appears, as an empty string, only
+    /// under [`BareKeys::Empty`](crate::BareKeys::Empty). Values stay literal:
+    /// `${HOST}` is the text `${HOST}`. Keys the target type does not name are
+    /// ignored unless it uses `#[serde(deny_unknown_fields)]`.
+    ///
+    /// The top level must be a struct or a map. Each value converts like this:
+    ///
+    /// | Target type | Accepted values |
+    /// |---|---|
+    /// | `String` | Any value |
+    /// | `bool` | Exactly `true` or `false` |
+    /// | Integers and floats | Rust's `FromStr` syntax for the type |
+    /// | `char` | Exactly one character |
+    /// | `Option<T>` | `None` when the key is absent, otherwise `Some` of the converted value |
+    /// | `()` and unit structs | An empty value |
+    /// | Newtype structs | The rule of the inner type |
+    /// | Bytes | The UTF-8 bytes of the value |
+    ///
+    /// An empty value is still present: `PORT=` read as `Option<u16>` is an
+    /// error, not `None`. Sequences, nested maps, tuples and enums are rejected
+    /// as values, even enums with only unit variants; deserialize a `String`
+    /// and convert it yourself when a field needs another shape.
     ///
     /// # Errors
-    /// Returns [`DeserializeError`] when a value cannot be parsed as the
-    /// requested type. Value-conversion errors carry the declaration line.
+    ///
+    /// Returns a [`DeserializeError`] if a value or key does not convert, or if
+    /// the target type rejects the map, for example because a required field
+    /// is missing. A value error names the key and the line of its declaration.
     ///
     /// # Examples
     ///
@@ -110,15 +185,19 @@ impl Document<'_> {
     /// use adotenv::parse_strict;
     ///
     /// #[derive(serde::Deserialize)]
+    /// #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
     /// struct Config {
     ///     host: String,
     ///     port: u16,
+    ///     debug: Option<bool>,
     /// }
     ///
-    /// let doc = parse_strict("host=localhost\nport=8080\n").unwrap();
-    /// let config: Config = doc.deserialize().unwrap();
+    /// let doc = parse_strict("# web server\nHOST=localhost\nPORT=8080\n")?;
+    /// let config: Config = doc.deserialize()?;
     /// assert_eq!(config.host, "localhost");
     /// assert_eq!(config.port, 8080);
+    /// assert_eq!(config.debug, None);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn deserialize<T: DeserializeOwned>(&self) -> Result<T, DeserializeError> {
         T::deserialize(DocumentDeserializer { document: self })
@@ -127,30 +206,50 @@ impl Document<'_> {
 
 #[cfg(feature = "load")]
 impl LoadedEnvironment {
-    /// Deserialize final loaded values into a Serde type.
+    /// Deserializes the final values into a Serde type.
     ///
-    /// The map contains the effective values after cascade precedence and
-    /// dialect lookup policy, without expansion or process-environment access.
-    /// Value-conversion errors carry the one-based source line of the winning
-    /// declaration when an origin is available.
+    /// Needs the `load` and `serde` features. The map holds the values that
+    /// [`LoadedEnvironment::get`] returns, after the cascade order and the
+    /// dialect's lookup rules. They are literal, and nothing is read from the
+    /// process environment. Keys and values convert with the same rules as
+    /// [`Document::deserialize`].
+    ///
+    /// A value that does not convert reports the one-based line of its winning
+    /// declaration, but not the file; pass [`DeserializeError::key`] to
+    /// [`LoadedEnvironment::origin`] to find it. When the load used
+    /// [`LoadOptions::with_origins`](crate::load::LoadOptions::with_origins)
+    /// with `false`, the line is `0`.
     ///
     /// # Errors
-    /// Returns [`DeserializeError`] when a value cannot be parsed as the
-    /// requested type.
+    ///
+    /// Returns a [`DeserializeError`] if a value or key does not convert, or if
+    /// the target type rejects the map, for example because a required field
+    /// is missing.
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// With `PORT=3000` and `DATABASE_URL=postgres://localhost/dev` in `.env`,
+    /// and `PORT=8080` in `.env.production`:
+    ///
+    /// ```
     /// use adotenv::load::load_cascade;
     ///
     /// #[derive(serde::Deserialize)]
+    /// #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
     /// struct Config {
-    ///     host: String,
+    ///     database_url: String,
     ///     port: u16,
     /// }
     ///
-    /// let loaded = load_cascade("/srv/app", "production")?;
+    /// # let dir = std::env::temp_dir().join(format!("adotenv-doc-LoadedEnvironment-deserialize-{}", std::process::id()));
+    /// # std::fs::create_dir_all(&dir)?;
+    /// # std::fs::write(dir.join(".env"), "PORT=3000\nDATABASE_URL=postgres://localhost/dev\n")?;
+    /// # std::fs::write(dir.join(".env.production"), "PORT=8080\n")?;
+    /// let loaded = load_cascade(&dir, "production")?;
     /// let config: Config = loaded.deserialize()?;
+    /// assert_eq!(config.database_url, "postgres://localhost/dev");
+    /// assert_eq!(config.port, 8080);
+    /// # std::fs::remove_dir_all(&dir)?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn deserialize<T: DeserializeOwned>(&self) -> Result<T, DeserializeError> {

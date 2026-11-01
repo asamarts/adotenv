@@ -8,46 +8,82 @@ use core::{error::Error, fmt, ops::Range};
 
 use crate::{encode::encode_native, AssignmentState, Dialect, Document, ItemKind, Quote, Severity};
 
-/// A native byte-range replacement against the original document snapshot.
+/// A replacement of one byte range of the original source.
 ///
-/// Edit and formatting results return their edits as a slice sorted by
-/// `range.start`, with ranges that do not overlap. Edits can start at the same
-/// offset: an insertion (an empty range) then comes before the replacement
-/// that starts there. Apply the edits in reverse order of the slice, from its
-/// last element to its first, so each range still addresses unchanged text.
-/// Do not re-sort them by offset: a sort by start offset alone can swap edits
-/// that share a start and corrupt the result.
+/// [`VerifiedEdits::edits`] and [`FormatResult::edits`](crate::FormatResult::edits)
+/// return these for editors and language servers that apply a change to their
+/// own copy of the text. `range` is a byte range into the
+/// [`Document::source`] that produced the edits, never into the output, so the
+/// edits are only valid for that exact text. An editor whose buffer may have
+/// changed since it was parsed must check the buffer version first.
+///
+/// The edits of one result are sorted by `range.start` and do not overlap.
+/// Two edits can start at the same offset: an insertion (an empty range) then
+/// comes before the replacement that starts there. Apply the edits in reverse
+/// order of the slice, from its last element to its first, so each range
+/// still addresses unchanged text. Do not re-sort them by offset: a sort by
+/// start offset alone can swap edits that share a start and corrupt the
+/// result. See [`VerifiedEdits::edits`] for an example.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextEdit {
-    /// Original UTF-8 byte range to replace.
+    /// The byte range of the original source to replace; empty for an
+    /// insertion.
     pub range: Range<usize>,
-    /// Replacement text.
+    /// The text that replaces `range`; empty for a deletion.
     pub replacement: String,
 }
 
-/// An edit batch whose complete output has already been parsed and verified.
+/// The verified result of an edit: the complete output text and the text edits
+/// that produce it.
+///
+/// Every edit method of [`Document`] returns this type. Before it is returned,
+/// the complete output was parsed again with the document's dialect and
+/// checked: the requested changes happened, and unrelated declarations,
+/// comments, item kinds and invalid statements did not change.
+///
+/// Use [`as_str`](Self::as_str) or [`into_string`](Self::into_string) for the
+/// new text, for example to write a file back. Use [`edits`](Self::edits) or
+/// [`into_edits`](Self::into_edits) to apply the change to a buffer that still
+/// holds the original source. The [`Document`] itself is not modified; parse
+/// the output again to make further edits.
+///
+/// # Examples
+///
+/// ```
+/// let doc = adotenv::parse_strict("# server\nPORT=8080\n")?;
+/// let verified = doc.set("PORT", "9090")?;
+/// assert_eq!(verified.as_str(), "# server\nPORT=9090\n");
+/// assert_eq!(verified.edits()[0].range, 14..18);
+/// assert_eq!(verified.edits()[0].replacement, "9090");
+///
+/// // Parse the output again to keep editing.
+/// let doc = adotenv::parse_strict(verified.as_str())?;
+/// assert_eq!(doc.get("PORT"), Some("9090"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedEdits {
     edits: Vec<TextEdit>,
     output: String,
 }
 impl VerifiedEdits {
-    /// Replacements sorted by start offset, without overlaps.
+    /// Returns the text edits that turn the original source into the output.
     ///
-    /// Apply them in reverse order of this slice; see [`TextEdit`].
+    /// The edits are sorted by start offset and do not overlap. Their ranges
+    /// refer to the original [`Document::source`]. Apply them in reverse order
+    /// of this slice, from the last element to the first; see [`TextEdit`]. An
+    /// empty batch returns no edits.
     ///
     /// # Examples
     ///
     /// ```
-    /// use adotenv::{parse_strict, Edit};
+    /// use adotenv::Edit;
     ///
-    /// let doc = parse_strict("A=1\n").unwrap();
-    /// let verified = doc
-    ///     .edit(&[
-    ///         Edit::Export { entry: 0, enabled: true },
-    ///         Edit::Rename { entry: 0, key: "B" },
-    ///     ])
-    ///     .unwrap();
+    /// let doc = adotenv::parse_strict("A=1\n")?;
+    /// let verified = doc.edit(&[
+    ///     Edit::Export { entry: 0, enabled: true },
+    ///     Edit::Rename { entry: 0, key: "B" },
+    /// ])?;
     /// // Both edits start at offset 0; the insertion comes first.
     /// assert_eq!(verified.edits()[0].range, 0..0);
     /// assert_eq!(verified.edits()[1].range, 0..1);
@@ -58,59 +94,146 @@ impl VerifiedEdits {
     /// }
     /// assert_eq!(text, "export B=1\n");
     /// assert_eq!(text, verified.as_str());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
     pub fn edits(&self) -> &[TextEdit] {
         &self.edits
     }
-    /// Consume the result, retaining the native replacements.
+    /// Returns the text edits, consuming the result.
+    ///
+    /// The edits are in the same order as [`edits`](Self::edits) returns them.
     #[must_use]
     pub fn into_edits(self) -> Vec<TextEdit> {
         self.edits
     }
-    /// Consume the result, retaining the verified complete text.
+    /// Returns the complete verified output, consuming the result.
     #[must_use]
     pub fn into_string(self) -> String {
         self.output
     }
-    /// The verified complete text.
+    /// Returns the complete verified output.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.output
     }
 }
 
-/// A position for a new declaration in the original snapshot.
+/// Where [`Edit::Insert`] and [`Document::insert`] place a new declaration.
+///
+/// Positions refer to the original source. A new declaration goes on its own
+/// line and uses the line ending that is most common in the document, or LF
+/// when it has none. At the end of a file without a final line ending, the
+/// line break goes before the new declaration and the output still has no
+/// final line ending, except where the dialect needs one: a bare key added at
+/// the end of a Compose file gets a line ending.
+///
+/// Several insertions at the same offset keep their order in the batch. When
+/// all of them use [`Sorted`](Self::Sorted), they are ordered by key instead.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::InsertPosition;
+///
+/// let doc = adotenv::parse_strict("# app\nDEBUG=false\nPORT=8080\n")?;
+/// let sorted = doc.insert("HOST", Some("localhost"), InsertPosition::Sorted)?;
+/// assert_eq!(sorted.as_str(), "# app\nDEBUG=false\nHOST=localhost\nPORT=8080\n");
+///
+/// let after = doc.insert("TRACE", None, InsertPosition::AfterKey("DEBUG"))?;
+/// assert_eq!(after.as_str(), "# app\nDEBUG=false\nTRACE\nPORT=8080\n");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum InsertPosition<'a> {
-    /// After the last source item.
+    /// After the last item of the document.
     End,
-    /// After a uniquely named declaration.
+    /// After the only declaration of this key.
+    ///
+    /// The new declaration goes after the whole declaration, including a
+    /// multiline value, and before any comment that follows it. The batch
+    /// fails with [`EditError::Missing`] when no declaration has the key and
+    /// with [`EditError::Duplicate`] when several do; use
+    /// [`AfterEntry`](Self::AfterEntry) to pick one of them.
     AfterKey(&'a str),
-    /// After an explicitly selected declaration occurrence.
+    /// After one declaration, selected by its entry ID ([`Entry::id`]).
+    ///
+    /// The batch fails with [`EditError::InvalidTarget`] when the ID is out of
+    /// range.
+    ///
+    /// [`Entry::id`]: crate::Entry::id
     AfterEntry(usize),
-    /// Before the first lexically greater key, or at the end.
+    /// Before the first declaration, in source order, whose key sorts after
+    /// the new key, or at the end when there is none.
+    ///
+    /// Keys compare by bytes, so uppercase letters sort before lowercase ones.
+    /// The new line goes directly above that declaration, below any comments
+    /// over it. `Sorted` does not sort the file: in an unsorted file the new
+    /// declaration still goes before the first greater key it finds. Use
+    /// [`Document::sort`] to sort a file.
     Sorted,
 }
 
-/// An operation whose identities refer to the original document snapshot.
+/// One operation of a [`Document::edit`] batch.
+///
+/// Operations select their targets by entry ID ([`Entry::id`]) or item ID
+/// ([`Item::id`]) of the document that runs the batch, so a batch can change
+/// one of several declarations of the same key. Every ID and position refers
+/// to the original document, not to the output of earlier operations in the
+/// batch. The batch either applies every operation or fails as a whole.
+///
+/// The single-edit methods such as [`Document::set`] select a declaration by
+/// key and run a batch of one operation.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::Edit;
+///
+/// let doc = adotenv::parse_strict("PORT=8080\nPORT=9090\n")?;
+/// // `set` refuses to guess between duplicates; an entry ID picks one.
+/// assert!(doc.set("PORT", "3000").is_err());
+/// let second = doc.get_all("PORT").nth(1).unwrap();
+/// let verified = doc.edit(&[Edit::Set { entry: second.id(), value: "3000" }])?;
+/// assert_eq!(verified.as_str(), "PORT=8080\nPORT=3000\n");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// [`Entry::id`]: crate::Entry::id
+/// [`Item::id`]: crate::Item::id
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Edit<'a> {
-    /// Assign an exact literal value to one declaration.
+    /// A new literal value for one declaration.
+    ///
+    /// The value is written so that it reads back as exactly `value` in the
+    /// document's dialect, quoted or escaped as needed; references such as
+    /// `${HOST}` are written as text, not expanded. The declaration keeps its
+    /// quote style when that style can spell the value. A bare declaration gets
+    /// `=` and the value. The batch fails with [`EditError::Unencodable`] when
+    /// the dialect cannot spell the value in this position.
     Set {
-        /// The snapshot-local declaration identity.
+        /// The entry ID ([`Entry::id`](crate::Entry::id)) of the declaration.
         entry: usize,
-        /// The exact new literal value.
+        /// The new literal value.
         value: &'a str,
     },
-    /// Remove exactly one source item, without claiming neighboring comments.
+    /// The removal of one item, keeping the comments around it.
+    ///
+    /// The item's whole text is removed, including its line ending and every
+    /// line of a multiline value. Any item can be removed: a declaration,
+    /// comment, blank line, invalid statement or ignored statement.
     Remove {
-        /// The snapshot-local source item identity.
+        /// The item ID ([`Item::id`](crate::Item::id)) of the item.
         item: usize,
     },
-    /// Rename one declaration.
+    /// A new key for one declaration.
+    ///
+    /// The dialect must be able to spell the key, or the batch fails with
+    /// [`EditError::InvalidKey`]. In a dialect with quoted keys, such as
+    /// [`Dialect::PYTHON_DOTENV`], a quoted key keeps its quotes and a key
+    /// that needs quotes gets single quotes.
     ///
     /// The new key follows the same rule as [`Edit::Insert`]: it must name
     /// exactly one declaration of the output. The batch fails with
@@ -119,13 +242,35 @@ pub enum Edit<'a> {
     /// same batch declares it. Removing, commenting out or renaming away every
     /// existing declaration of the key in the same batch frees it, so a batch
     /// can swap two keys.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::{Edit, EditError};
+    ///
+    /// let doc = adotenv::parse_strict("A=1\nB=2\n")?;
+    /// assert_eq!(doc.rename("A", "B"), Err(EditError::Duplicate(2)));
+    ///
+    /// let swapped = doc.edit(&[
+    ///     Edit::Rename { entry: 0, key: "B" },
+    ///     Edit::Rename { entry: 1, key: "A" },
+    /// ])?;
+    /// assert_eq!(swapped.as_str(), "B=1\nA=2\n");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     Rename {
-        /// The snapshot-local declaration identity.
+        /// The entry ID ([`Entry::id`](crate::Entry::id)) of the declaration.
         entry: usize,
-        /// The new literal key name.
+        /// The new literal key.
         key: &'a str,
     },
-    /// Insert an assigned or bare declaration of a new key.
+    /// A new declaration of a key that is not declared yet.
+    ///
+    /// The new declaration has no `export` prefix, and its value is written
+    /// without quotes when the dialect allows it; see [`InsertPosition`] for
+    /// where it goes. The dialect must be able to spell the key and the value,
+    /// or the batch fails with [`EditError::InvalidKey`] or
+    /// [`EditError::Unencodable`].
     ///
     /// The key must not already be declared in the output. The batch fails
     /// with [`EditError::Duplicate`] when the document declares the key (any
@@ -135,50 +280,122 @@ pub enum Edit<'a> {
     /// key in the same batch frees it. Commented-out declarations are comments
     /// and never collide.
     Insert {
-        /// The new literal key name.
+        /// The new literal key.
         key: &'a str,
-        /// An assigned literal value, or `None` for a bare declaration.
+        /// The literal value, or `None` for a bare declaration.
         value: Option<&'a str>,
-        /// Placement in the original source snapshot.
+        /// Where the new declaration goes in the original source.
         position: InsertPosition<'a>,
     },
-    /// Prefix every physical line of one item with a comment marker.
+    /// A `# ` prefix on every physical line of one item.
+    ///
+    /// Any item can be commented out. A multiline value becomes one comment
+    /// item per line, so restoring it takes one [`Edit::Uncomment`] per line
+    /// in one batch.
     Comment {
-        /// The snapshot-local source item identity.
+        /// The item ID ([`Item::id`](crate::Item::id)) of the item.
         item: usize,
     },
-    /// Remove one comment marker (and one optional following space).
+    /// The removal of the comment marker from one comment item.
+    ///
+    /// The first `#` of the comment is removed, together with one space after
+    /// it if there is one. The item must be a comment, or the batch fails with
+    /// [`EditError::InvalidTarget`].
+    ///
+    /// The uncommented text must parse as valid items that end where the
+    /// selected comments end; otherwise the batch fails with
+    /// [`EditError::WouldChangeMeaning`]. That happens when the text is not
+    /// valid syntax, or when it opens a multiline value whose other lines stay
+    /// commented out: uncomment every line of such a value in one batch.
+    ///
+    /// Uncommenting does not check key collisions: the restored declaration
+    /// can duplicate a key that the document still declares.
     Uncomment {
-        /// The snapshot-local comment item identity.
+        /// The item ID ([`Item::id`](crate::Item::id)) of the comment.
         item: usize,
     },
-    /// Enable or disable a declaration's export prefix.
+    /// An added or removed `export` prefix on one declaration.
+    ///
+    /// Adding writes `export ` before the key, after any indentation. Removing
+    /// deletes `export` and the whitespace after it. Nothing changes when the
+    /// declaration already has the requested state. In a dialect without
+    /// `export`, such as [`Dialect::DOCKER_RAW`], adding it fails with
+    /// [`EditError::WouldChangeMeaning`].
     Export {
-        /// The snapshot-local declaration identity.
+        /// The entry ID ([`Entry::id`](crate::Entry::id)) of the declaration.
         entry: usize,
-        /// Whether the declaration should carry `export`.
+        /// `true` to add the `export` prefix, `false` to remove it.
         enabled: bool,
     },
 }
 
-/// Why a native edit could not be produced safely.
+/// The reason an edit was refused.
+///
+/// Edits never return partial results: when any operation of a batch fails,
+/// the whole batch returns one of these errors.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::EditError;
+///
+/// let doc = adotenv::parse_strict("PORT=8080\nPORT=9090\n")?;
+/// match doc.set("PORT", "3000") {
+///     Err(EditError::Duplicate(count)) => assert_eq!(count, 2),
+///     other => panic!("unexpected result: {other:?}"),
+/// }
+/// assert_eq!(doc.set("HOST", "localhost"), Err(EditError::Missing));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum EditError {
-    /// No valid declaration has the requested key.
+    /// No declaration has the requested key.
+    ///
+    /// Returned by the methods that select a declaration by key, such as
+    /// [`Document::set`] and [`adotenv::set`](crate::set), and for
+    /// [`InsertPosition::AfterKey`]. Invalid statements are not declarations,
+    /// so a key that appears only on an invalid line is missing.
     Missing,
-    /// A key-only selector matched this many declarations, or a rename or
-    /// insertion would leave its key with this many declarations.
+    /// The key has this many declarations where exactly one is needed.
+    ///
+    /// Either a method that selects a declaration by key, or
+    /// [`InsertPosition::AfterKey`], found this many declarations of the key
+    /// (select one by entry ID with [`Document::edit`] instead), or an
+    /// inserted or renamed key would have this many declarations in the
+    /// output (see [`Edit::Insert`] and [`Edit::Rename`]). Every declaration
+    /// counts, including bare ones and ones that do not take part in lookup.
     Duplicate(usize),
-    /// A snapshot-local identity or item kind is unsuitable.
+    /// An entry or item ID is out of range, or names the wrong kind of item.
+    ///
+    /// For example, [`Edit::Uncomment`] on an item that is not a comment, or
+    /// an [`InsertPosition::AfterEntry`] ID past the last declaration. IDs are
+    /// valid only for the document they came from.
     InvalidTarget,
-    /// The requested name cannot be represented by the selected key grammar.
+    /// The dialect cannot spell the key.
+    ///
+    /// Returned for an inserted or renamed key that the dialect cannot write,
+    /// not even in quotes where it accepts quoted keys. Examples are an empty
+    /// key and a key with a space in [`Dialect::PORTABLE`].
     InvalidKey,
-    /// The value cannot be represented in its selected dialect and source context.
+    /// The dialect cannot spell the value in this position.
+    ///
+    /// For example, a line break in a [`Dialect::DOCKER_RAW`] value, which
+    /// always ends at the end of its line.
     Unencodable,
-    /// Operations overlap or assign the same property more than once.
+    /// Operations of one batch overlap or change the same property twice.
+    ///
+    /// The value, key and `export` prefix of a declaration can each be changed
+    /// once per batch. An item that is removed, commented out or uncommented
+    /// cannot be changed in any other way in the same batch.
     ConflictingEdits,
-    /// The complete output would reinterpret unselected source or miss the request.
+    /// The output, parsed again, would change unrelated source or miss the
+    /// requested change.
+    ///
+    /// The edit was planned but failed verification. For example, uncommenting
+    /// one line of a commented-out multiline value, adding `export` in a dialect
+    /// without it, or removing a line so that a byte order mark on the next
+    /// line would start the file.
     WouldChangeMeaning,
 }
 impl fmt::Display for EditError {
@@ -556,10 +773,64 @@ impl<'a> Boundaries<'a> {
 }
 
 impl Document<'_> {
-    /// Plan and verify an entire snapshot-local batch atomically.
+    /// Applies a batch of edits and verifies the complete output once.
+    ///
+    /// Every operation refers to this document's source and IDs, not to the
+    /// output of earlier operations in the batch. The planned output is parsed
+    /// again with the same dialect and checked as a whole: every requested
+    /// change must come out as planned, and unrelated declarations, comments,
+    /// item kinds and invalid statements must not change. The batch either
+    /// succeeds completely or returns an error. The document is not modified;
+    /// the result holds the new text and the text edits. An empty batch returns
+    /// the source unchanged, with no text edits.
+    ///
+    /// Inserted and renamed keys must each name exactly one declaration of the
+    /// output; removing, commenting out or renaming away the existing
+    /// declarations in the same batch frees a key. See [`Edit::Insert`] and
+    /// [`Edit::Rename`].
     ///
     /// # Errors
-    /// Invalid selectors, conflicting operations and unintended reparsing are rejected.
+    ///
+    /// - [`EditError::InvalidTarget`] when an entry or item ID is out of range,
+    ///   or the target of [`Edit::Uncomment`] is not a comment.
+    /// - [`EditError::Missing`] or [`EditError::Duplicate`] when the key of an
+    ///   [`InsertPosition::AfterKey`] is not declared exactly once.
+    /// - [`EditError::Duplicate`] when an inserted or renamed key would have
+    ///   more than one declaration in the output.
+    /// - [`EditError::InvalidKey`] when the dialect cannot spell an inserted or
+    ///   renamed key.
+    /// - [`EditError::Unencodable`] when the dialect cannot spell a value in its
+    ///   position.
+    /// - [`EditError::ConflictingEdits`] when two operations change the same
+    ///   property of one declaration, or an item that is removed, commented out
+    ///   or uncommented is also changed in another way.
+    /// - [`EditError::WouldChangeMeaning`] when the parsed output differs from
+    ///   the plan.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::{Edit, InsertPosition};
+    ///
+    /// let source = "# database\nDB_HOST=localhost\nDB_PORT=5432\nDEBUG=true\n";
+    /// let doc = adotenv::parse_strict(source)?;
+    /// let host = doc.unique("DB_HOST")?;
+    /// let verified = doc.edit(&[
+    ///     Edit::Set { entry: host.id(), value: "db.internal" },
+    ///     Edit::Export { entry: host.id(), enabled: true },
+    ///     Edit::Remove { item: doc.unique("DEBUG")?.item_id() },
+    ///     Edit::Insert {
+    ///         key: "DB_NAME",
+    ///         value: Some("app"),
+    ///         position: InsertPosition::AfterKey("DB_PORT"),
+    ///     },
+    /// ])?;
+    /// assert_eq!(
+    ///     verified.as_str(),
+    ///     "# database\nexport DB_HOST=db.internal\nDB_PORT=5432\nDB_NAME=app\n"
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn edit(&self, operations: &[Edit<'_>]) -> Result<VerifiedEdits, EditError> {
         let keys = KeyLookup::new(self, operations);
         let mut plans: Vec<_> = self
@@ -1445,54 +1716,149 @@ impl Document<'_> {
         verify_new_keys(&parsed, new_keys)
     }
 
-    /// Set a uniquely named declaration's exact literal value.
+    /// Sets the literal value of the only declaration of `key`.
+    ///
+    /// The value is written so that it reads back as exactly `value` in the
+    /// document's dialect, quoted or escaped as needed; references such as
+    /// `${HOST}` are written as text, not expanded. The declaration keeps its
+    /// quote style when that style can spell the value. A bare declaration
+    /// becomes an assignment. Every other part of the file stays as it is.
+    ///
+    /// To change one of several declarations of a key, use [`Document::edit`]
+    /// with [`Edit::Set`].
     ///
     /// # Errors
-    /// Returns a selector, encoding or verification error.
+    ///
+    /// - [`EditError::Missing`] when no declaration has `key`.
+    /// - [`EditError::Duplicate`] when `key` has more than one declaration.
+    /// - [`EditError::Unencodable`] when the dialect cannot spell `value` here,
+    ///   such as a line break in a [`Dialect::DOCKER_RAW`] value.
+    /// - [`EditError::WouldChangeMeaning`] when the output fails verification.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let doc = adotenv::parse_strict("# server\nPORT=8080\nHOST='localhost'\n")?;
+    /// let verified = doc.set("PORT", "9090")?;
+    /// assert_eq!(verified.as_str(), "# server\nPORT=9090\nHOST='localhost'\n");
+    ///
+    /// // The value is quoted when it needs to be; single quotes are kept.
+    /// let verified = doc.set("PORT", "a #b")?;
+    /// assert_eq!(verified.as_str(), "# server\nPORT=\"a #b\"\nHOST='localhost'\n");
+    /// let verified = doc.set("HOST", "my host")?;
+    /// assert_eq!(verified.as_str(), "# server\nPORT=8080\nHOST='my host'\n");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn set(&self, key: &str, value: &str) -> Result<VerifiedEdits, EditError> {
         self.edit(&[Edit::Set {
             entry: self.unique(key)?.id(),
             value,
         }])
     }
-    /// Remove a uniquely named declaration, not its neighboring comments.
+    /// Removes the only declaration of `key`, keeping the comments around it.
+    ///
+    /// The whole declaration is removed, including its line ending and every
+    /// line of a multiline value. To remove a comment, a blank line or one of
+    /// several declarations of a key, use [`Document::edit`] with
+    /// [`Edit::Remove`].
     ///
     /// # Errors
-    /// Returns a selector or verification error.
+    ///
+    /// - [`EditError::Missing`] when no declaration has `key`.
+    /// - [`EditError::Duplicate`] when `key` has more than one declaration.
+    /// - [`EditError::WouldChangeMeaning`] when the output fails verification,
+    ///   for example when a byte order mark on the next line would start the
+    ///   file.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let source = "# database\nDATABASE_URL=postgres://localhost/app\nPORT=8080\n";
+    /// let doc = adotenv::parse_strict(source)?;
+    /// let verified = doc.remove("DATABASE_URL")?;
+    /// assert_eq!(verified.as_str(), "# database\nPORT=8080\n");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn remove(&self, key: &str) -> Result<VerifiedEdits, EditError> {
         self.edit(&[Edit::Remove {
             item: self.unique(key)?.item_id(),
         }])
     }
-    /// Rename a uniquely named declaration.
+    /// Renames the only declaration of `key` to `new_key`.
+    ///
+    /// Only the key changes; the value, `export` prefix, spacing and comments
+    /// stay. The new key must not be declared elsewhere in the document. To
+    /// swap two keys or rename one of several declarations, use
+    /// [`Document::edit`] with [`Edit::Rename`].
     ///
     /// # Errors
-    /// Returns a selector, key, collision or verification error.
+    ///
+    /// - [`EditError::Missing`] when no declaration has `key`.
+    /// - [`EditError::Duplicate`] when `key` has more than one declaration, or
+    ///   when `new_key` is already declared.
+    /// - [`EditError::InvalidKey`] when the dialect cannot spell `new_key`.
+    /// - [`EditError::WouldChangeMeaning`] when the output fails verification.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::EditError;
+    ///
+    /// let source = "export DB_URL=postgres://localhost/app # main\nPORT=8080\n";
+    /// let doc = adotenv::parse_strict(source)?;
+    /// let verified = doc.rename("DB_URL", "DATABASE_URL")?;
+    /// assert_eq!(
+    ///     verified.as_str(),
+    ///     "export DATABASE_URL=postgres://localhost/app # main\nPORT=8080\n"
+    /// );
+    /// assert_eq!(doc.rename("DB_URL", "PORT"), Err(EditError::Duplicate(2)));
+    /// assert_eq!(doc.rename("DB_URL", "DB URL"), Err(EditError::InvalidKey));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn rename(&self, key: &str, new_key: &str) -> Result<VerifiedEdits, EditError> {
         self.edit(&[Edit::Rename {
             entry: self.unique(key)?.id(),
             key: new_key,
         }])
     }
-    /// Insert an assigned or bare declaration of a key the document does not
-    /// declare.
+    /// Inserts a declaration of a key that the document does not declare yet.
+    ///
+    /// `value` is the literal value, or `None` for a bare declaration (`KEY`
+    /// without `=`). The new declaration has no `export` prefix, and its value
+    /// is written without quotes when the dialect allows it. `position` says
+    /// where it goes; see [`InsertPosition`]. Every existing declaration of
+    /// `key` counts, including duplicates and bare declarations, while a
+    /// commented-out declaration does not. To replace a key in one step,
+    /// remove its declarations and insert it in one [`Document::edit`] batch.
     ///
     /// # Errors
-    /// Returns a selector, key, encoding or verification error, or
-    /// [`EditError::Duplicate`] when the document already declares `key`.
+    ///
+    /// - [`EditError::InvalidKey`] when the dialect cannot spell `key`.
+    /// - [`EditError::Duplicate`] when the document already declares `key`;
+    ///   the count includes the new declaration.
+    /// - [`EditError::Missing`] or [`EditError::Duplicate`] when the key of an
+    ///   [`InsertPosition::AfterKey`] is not declared exactly once.
+    /// - [`EditError::InvalidTarget`] when an [`InsertPosition::AfterEntry`] ID
+    ///   is out of range.
+    /// - [`EditError::Unencodable`] when the dialect cannot spell `value` here.
+    /// - [`EditError::WouldChangeMeaning`] when the output fails verification,
+    ///   for example when the new text would close an unterminated quote on an
+    ///   earlier line.
     ///
     /// # Examples
     ///
     /// ```
-    /// use adotenv::{parse_strict, EditError, InsertPosition};
+    /// use adotenv::{EditError, InsertPosition};
     ///
-    /// let doc = parse_strict("A=1\nB=2\n").unwrap();
-    /// let inserted = doc.insert("C", Some("3"), InsertPosition::End).unwrap();
-    /// assert_eq!(inserted.as_str(), "A=1\nB=2\nC=3\n");
+    /// let doc = adotenv::parse_strict("PORT=8080\nHOST=localhost\n")?;
+    /// let inserted = doc.insert("DEBUG", Some("true"), InsertPosition::End)?;
+    /// assert_eq!(inserted.as_str(), "PORT=8080\nHOST=localhost\nDEBUG=true\n");
+    ///
     /// assert_eq!(
-    ///     doc.insert("A", Some("other"), InsertPosition::End),
+    ///     doc.insert("PORT", Some("9090"), InsertPosition::End),
     ///     Err(EditError::Duplicate(2))
     /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn insert(
         &self,
@@ -1506,26 +1872,94 @@ impl Document<'_> {
             position,
         }])
     }
-    /// Comment every physical line of a uniquely named declaration.
+    /// Comments out the only declaration of `key`, line by line.
+    ///
+    /// Every physical line of the declaration gets a `# ` prefix, so a
+    /// multiline value becomes one comment item per line. Restore it with
+    /// [`Document::uncomment`], or with one [`Edit::Uncomment`] per line in one
+    /// batch.
     ///
     /// # Errors
-    /// Returns a selector or verification error.
+    ///
+    /// - [`EditError::Missing`] when no declaration has `key`.
+    /// - [`EditError::Duplicate`] when `key` has more than one declaration.
+    /// - [`EditError::WouldChangeMeaning`] when the output fails verification.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let doc = adotenv::parse_strict("DEBUG=true\nKEY='line one\nline two'\n")?;
+    /// assert_eq!(doc.comment("DEBUG")?.as_str(), "# DEBUG=true\nKEY='line one\nline two'\n");
+    /// assert_eq!(doc.comment("KEY")?.as_str(), "DEBUG=true\n# KEY='line one\n# line two'\n");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn comment(&self, key: &str) -> Result<VerifiedEdits, EditError> {
         self.edit(&[Edit::Comment {
             item: self.unique(key)?.item_id(),
         }])
     }
-    /// Uncomment an explicitly selected comment item.
+    /// Removes the comment marker from the comment item with ID `item`.
+    ///
+    /// The first `#` of the comment is removed, together with one space after
+    /// it if there is one. `item` is an item ID ([`Item::id`]); comments have
+    /// no key to select them by. A commented-out multiline value spans several
+    /// comment items: uncomment all of them in one [`Document::edit`] batch of
+    /// [`Edit::Uncomment`] operations.
+    ///
+    /// Uncommenting does not check key collisions: the restored declaration
+    /// can duplicate a key that the document still declares.
     ///
     /// # Errors
-    /// Returns a target or verification error. Multiline restoration may require a batch.
+    ///
+    /// - [`EditError::InvalidTarget`] when `item` is out of range or is not a
+    ///   comment.
+    /// - [`EditError::WouldChangeMeaning`] when the uncommented text is not
+    ///   valid syntax or would continue onto a line that stays commented out,
+    ///   such as the first line of a multiline value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::{Edit, EditError};
+    ///
+    /// let doc = adotenv::parse_strict("# DEBUG=true\n# KEY='line one\n# line two'\n")?;
+    /// assert_eq!(doc.uncomment(0)?.as_str(), "DEBUG=true\n# KEY='line one\n# line two'\n");
+    ///
+    /// // One line of a multiline value cannot be restored on its own.
+    /// assert_eq!(doc.uncomment(1), Err(EditError::WouldChangeMeaning));
+    /// let restored = doc.edit(&[Edit::Uncomment { item: 1 }, Edit::Uncomment { item: 2 }])?;
+    /// assert_eq!(restored.as_str(), "# DEBUG=true\nKEY='line one\nline two'\n");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// [`Item::id`]: crate::Item::id
     pub fn uncomment(&self, item: usize) -> Result<VerifiedEdits, EditError> {
         self.edit(&[Edit::Uncomment { item }])
     }
-    /// Enable or disable export on a uniquely named declaration.
+    /// Adds or removes the `export` prefix of the only declaration of `key`.
+    ///
+    /// Adding writes `export ` before the key, after any indentation. Removing
+    /// deletes `export` and the whitespace after it. Nothing changes when the
+    /// declaration already has the requested state.
     ///
     /// # Errors
-    /// Returns a selector or verification error.
+    ///
+    /// - [`EditError::Missing`] when no declaration has `key`.
+    /// - [`EditError::Duplicate`] when `key` has more than one declaration.
+    /// - [`EditError::WouldChangeMeaning`] when the output fails verification,
+    ///   for example when adding `export` in a dialect without it, such as
+    ///   [`Dialect::DOCKER_RAW`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let doc = adotenv::parse_strict("PORT=8080\nexport HOST=localhost\n")?;
+    /// let exported = doc.set_export("PORT", true)?;
+    /// assert_eq!(exported.as_str(), "export PORT=8080\nexport HOST=localhost\n");
+    /// let plain = doc.set_export("HOST", false)?;
+    /// assert_eq!(plain.as_str(), "PORT=8080\nHOST=localhost\n");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn set_export(&self, key: &str, enabled: bool) -> Result<VerifiedEdits, EditError> {
         self.edit(&[Edit::Export {
             entry: self.unique(key)?.id(),
@@ -1534,19 +1968,59 @@ impl Document<'_> {
     }
 }
 
-/// Set a unique key in recovering input, verifying that unrelated items survive.
+/// Sets the literal value of the only declaration of `key` in `text`.
+///
+/// Parses `text` with the recovering [`Dialect::PORTABLE`] parser, as
+/// [`parse`](crate::parse) does, applies [`Document::set`] and returns the
+/// verified output. Invalid lines are allowed and stay as they are, but their
+/// reading must not change. For another dialect, or to make several changes,
+/// parse the text yourself and use the [`Document`] methods.
 ///
 /// # Errors
-/// Returns the native selector, encoding or verification error.
+///
+/// - [`EditError::Missing`] when no declaration has `key`; a key on an invalid
+///   line is not a declaration.
+/// - [`EditError::Duplicate`] when `key` has more than one declaration.
+/// - [`EditError::Unencodable`] when Portable cannot spell `value` here.
+/// - [`EditError::WouldChangeMeaning`] when the output fails verification.
+///
+/// # Examples
+///
+/// ```
+/// let text = "BAD LINE\nPORT=8080\n";
+/// assert_eq!(adotenv::set(text, "PORT", "9090")?, "BAD LINE\nPORT=9090\n");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn set(text: &str, key: &str, value: &str) -> Result<String, EditError> {
     crate::parser::parse_document(text, Dialect::PORTABLE)
         .set(key, value)
         .map(VerifiedEdits::into_string)
 }
-/// Remove a unique key in recovering input, without deleting adjacent comments.
+/// Removes the only declaration of `key` from `text`, keeping the comments
+/// around it.
+///
+/// Parses `text` with the recovering [`Dialect::PORTABLE`] parser, as
+/// [`parse`](crate::parse) does, applies [`Document::remove`] and returns the
+/// verified output. Invalid lines are allowed and stay as they are, but their
+/// reading must not change. For another dialect, or to make several changes,
+/// parse the text yourself and use the [`Document`] methods.
 ///
 /// # Errors
-/// Returns the native selector or verification error.
+///
+/// - [`EditError::Missing`] when no declaration has `key`; a key on an invalid
+///   line is not a declaration.
+/// - [`EditError::Duplicate`] when `key` has more than one declaration.
+/// - [`EditError::WouldChangeMeaning`] when the output fails verification,
+///   for example when a byte order mark on the next line would start the
+///   file.
+///
+/// # Examples
+///
+/// ```
+/// let text = "# server\nPORT=8080\nBAD LINE\n";
+/// assert_eq!(adotenv::remove(text, "PORT")?, "# server\nBAD LINE\n");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn remove(text: &str, key: &str) -> Result<String, EditError> {
     crate::parser::parse_document(text, Dialect::PORTABLE)
         .remove(key)

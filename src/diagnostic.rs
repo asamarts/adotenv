@@ -1,57 +1,207 @@
 use core::{error::Error, fmt, ops::Range};
 
-/// The importance of a parsing diagnostic.
+/// How serious a [`Diagnostic`] is.
+///
+/// Each [`DiagnosticCode`] has a fixed severity ([`DiagnosticCode::severity`]).
+/// The enum is non-exhaustive, so a `match` needs a wildcard arm.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::Severity;
+///
+/// let (_, diagnostics) = adotenv::parse("PORT=8080\nPORT=9090\nBAD KEY=1\n");
+/// let count = |severity: Severity| {
+///     diagnostics.iter().filter(|d| d.severity() == severity).count()
+/// };
+///
+/// assert_eq!(count(Severity::Error), 1);
+/// assert_eq!(count(Severity::Warning), 1);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Severity {
-    /// The statement or policy is invalid under the selected dialect.
+    /// The statement breaks the dialect's grammar or one of its policies.
+    ///
+    /// An error fails [`parse_strict`](crate::parse_strict),
+    /// [`parse_values`](crate::parse_values) and their `_with` variants. A
+    /// recovering [`parse`](crate::parse) keeps a malformed statement as an
+    /// [`ItemKind::Invalid`](crate::ItemKind::Invalid) item; a declaration
+    /// that breaks a policy, such as [`DiagnosticCode::ForbiddenBareKey`],
+    /// stays an entry with the diagnostic attached
+    /// ([`Item::diagnostic`](crate::Item::diagnostic)).
     Error,
-    /// Valid syntax whose interpretation is non-portable or ambiguous.
+    /// The text is accepted, but perhaps not as the author meant.
+    ///
+    /// Examples are a duplicate key, a `#` that is part of a value, and a
+    /// statement the dialect skips. A warning never fails a parse.
     Warning,
-    /// Source metadata that callers may want to display.
+    /// A neutral fact about the source, such as a byte-order mark.
     Info,
 }
 
-/// Stable diagnostic identities; messages are descriptive, not API identifiers.
+/// The kind of a [`Diagnostic`], as a stable identifier.
+///
+/// Match on codes, not on message text, which may change. Each code has a
+/// fixed [`Severity`] and a stable text form from [`DiagnosticCode::as_str`],
+/// such as `dotenv.duplicate-key`, which the CLI also prints.
+///
+/// In dialects that ignore malformed lines
+/// ([`MalformedLines::Ignore`](crate::MalformedLines::Ignore), as in Node
+/// dotenv), [`DiagnosticCode::IgnoredStatement`] replaces every error code
+/// except the four policy codes: [`DiagnosticCode::ForbiddenBareKey`],
+/// [`DiagnosticCode::ForbiddenByteOrderMark`],
+/// [`DiagnosticCode::InvalidEscape`] and [`DiagnosticCode::LineTooLong`].
+///
+/// The enum is non-exhaustive: a minor release can add codes. Handle an
+/// unknown code by its severity.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{DiagnosticCode, Severity};
+///
+/// let (_, diagnostics) = adotenv::parse("PORT=8080\nPORT=9090\n");
+/// let code = diagnostics[0].code();
+///
+/// assert_eq!(code, DiagnosticCode::DuplicateKey);
+/// assert_eq!(code.as_str(), "dotenv.duplicate-key");
+/// assert_eq!(code.severity(), Severity::Warning);
+///
+/// let advice = match code {
+///     DiagnosticCode::DuplicateKey => "remove one of the declarations",
+///     DiagnosticCode::InvalidKey => "rename the key",
+///     _ => code.message(),
+/// };
+/// assert_eq!(advice, "remove one of the declarations");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum DiagnosticCode {
-    /// A key is empty or contains a character outside the selected key alphabet.
+    /// A key is empty or contains a character the dialect does not allow.
+    ///
+    /// Error, `dotenv.invalid-key`. Portable keys use ASCII letters, digits,
+    /// `_`, `.` and `-`; other dialects set their own rules
+    /// ([`Dialect::keys`](crate::Dialect::keys)). A statement such as
+    /// `BAD KEY=value`, whose key would contain a space, is reported with this
+    /// code too. The statement becomes an
+    /// [`ItemKind::Invalid`](crate::ItemKind::Invalid) item.
     InvalidKey,
-    /// A quoted value has no matching delimiter before EOF.
+    /// A quoted value has no closing quote.
+    ///
+    /// Error, `dotenv.unterminated-quote`. The quote is not closed before the
+    /// end of the source, or before the end of the line when the dialect does
+    /// not let that quote span lines
+    /// ([`Dialect::multiline`](crate::Dialect::multiline)). Only the line with
+    /// the opening quote becomes an
+    /// [`ItemKind::Invalid`](crate::ItemKind::Invalid) item, and parsing
+    /// continues on the next line.
     UnterminatedQuote,
-    /// Non-comment text follows a closing quote.
+    /// Text other than a comment follows a closing quote, as in `A="x"y`.
+    ///
+    /// Error, `dotenv.trailing-text`, in dialects that reject such text, such
+    /// as Portable and Python dotenv
+    /// ([`QuotedTail::Error`](crate::QuotedTail::Error)). The whole statement
+    /// becomes an [`ItemKind::Invalid`](crate::ItemKind::Invalid) item.
     TrailingText,
-    /// An unknown double-quoted escape is retained literally.
+    /// A double-quoted escape that the dialect does not define is kept as
+    /// written.
+    ///
+    /// Warning, `dotenv.unknown-escape`, reported under
+    /// [`UnknownEscapes::Warn`](crate::UnknownEscapes::Warn), as in Portable.
+    /// For example `"\q"` keeps both the backslash and the `q`.
     UnknownEscape,
-    /// An earlier assignment has the same key.
+    /// An earlier declaration that takes part in lookup has the same key.
+    ///
+    /// Warning, `dotenv.duplicate-key`, reported on every later declaration
+    /// of the key. The primary span is the key of the later declaration and
+    /// the secondary span is the key of the first one. Which declaration wins
+    /// lookup depends on [`Dialect::duplicates`](crate::Dialect::duplicates).
     DuplicateKey,
-    /// A declaration has no equals sign or value.
+    /// A declaration has no `=` and no value, such as `DEBUG`.
+    ///
+    /// Warning, `dotenv.bare-key`, Portable syntax only. When the dialect
+    /// forbids bare keys, [`DiagnosticCode::ForbiddenBareKey`] is reported
+    /// instead.
     BareKey,
-    /// A key is not a POSIX shell variable name.
+    /// A key is accepted but is not a POSIX shell variable name, such as
+    /// `app.port` or `1A`.
+    ///
+    /// Warning, `dotenv.non-posix-key`, Portable syntax only. A POSIX name
+    /// uses ASCII letters, digits and `_` and does not start with a digit.
     NonPosixKey,
-    /// A hash attached to an unquoted value is literal, not a comment.
+    /// A `#` inside an unquoted value, without whitespace before it, is
+    /// literal text, not a comment, as in `A=a#b`.
+    ///
+    /// Warning, `dotenv.tight-hash`, Portable syntax only. Some dialects, such
+    /// as Node dotenv, start a comment at any `#`.
     TightHash,
-    /// Backticks are literal, not a Portable quoting style.
+    /// A backtick in an unquoted value is literal text, not a quote.
+    ///
+    /// Warning, `dotenv.backtick`, Portable syntax only, reported for each
+    /// backtick. Node dotenv reads backtick-quoted values.
     Backtick,
-    /// A UTF-8 byte-order mark precedes the source body.
+    /// The source starts with a UTF-8 byte-order mark.
+    ///
+    /// Info, `dotenv.bom`, reported when the dialect strips the mark
+    /// ([`BomPolicy::Strip`](crate::BomPolicy::Strip), used by every preset).
+    /// See [`Document::has_bom`](crate::Document::has_bom).
     ByteOrderMark,
-    /// A lone carriage return is retained as a source line ending.
+    /// A carriage return is not followed by a line feed.
+    ///
+    /// Warning, `dotenv.lone-cr`, Portable syntax with
+    /// [`LineBreaks::Universal`](crate::LineBreaks::Universal) only. Portable
+    /// ends a line at a lone CR. Every lone CR in the source is reported,
+    /// including one inside a quoted value.
     LoneCarriageReturn,
-    /// The selected policy forbids key-only declarations.
+    /// A declaration has no `=` and the dialect forbids that.
+    ///
+    /// Error, `dotenv.forbidden-bare-key`, under
+    /// [`BareKeys::Error`](crate::BareKeys::Error). The declaration stays an
+    /// entry with this diagnostic attached
+    /// ([`Item::diagnostic`](crate::Item::diagnostic)).
     ForbiddenBareKey,
-    /// The selected policy forbids a leading byte-order mark.
+    /// The source starts with a UTF-8 byte-order mark and the dialect forbids
+    /// that.
+    ///
+    /// Error, `dotenv.forbidden-bom`, under
+    /// [`BomPolicy::Error`](crate::BomPolicy::Error). The three bytes of the
+    /// mark become an [`ItemKind::Invalid`](crate::ItemKind::Invalid) item.
     ForbiddenByteOrderMark,
-    /// The selected policy rejects an unrecognized escape.
+    /// A double-quoted escape that the dialect does not define, in a dialect
+    /// that rejects such escapes.
+    ///
+    /// Error, `dotenv.invalid-escape`, under
+    /// [`UnknownEscapes::Error`](crate::UnknownEscapes::Error). The
+    /// declaration stays an entry with this diagnostic attached
+    /// ([`Item::diagnostic`](crate::Item::diagnostic)), and its value keeps
+    /// the escape as written.
     InvalidEscape,
-    /// A statement is retained but ignored by the selected dialect.
+    /// A statement is kept in the source, but the dialect ignores it.
+    ///
+    /// Warning, `dotenv.ignored-statement`. Dialects that ignore malformed
+    /// lines ([`MalformedLines::Ignore`](crate::MalformedLines::Ignore), as in
+    /// Node dotenv) report it in place of the error codes for malformed
+    /// statements, and [`QuotedTail::Skip`](crate::QuotedTail::Skip) reports
+    /// it for a statement with text after its closing quote. The statement
+    /// becomes an [`ItemKind::Ignored`](crate::ItemKind::Ignored) item.
     IgnoredStatement,
-    /// A source line exceeds the selected scanner's byte limit.
+    /// A line is longer than the dialect's byte limit.
+    ///
+    /// Error, `dotenv.line-too-long`, set with
+    /// [`Dialect::with_line_byte_limit`](crate::Dialect::with_line_byte_limit).
+    /// The Docker preset allows 65,535 bytes; the other presets have no limit.
+    /// The statement becomes an [`ItemKind::Invalid`](crate::ItemKind::Invalid)
+    /// item.
     LineTooLong,
 }
 
 impl DiagnosticCode {
-    /// Stable machine-readable identity, independent of enum order and wording.
+    /// Returns the stable text form of the code, such as
+    /// `"dotenv.duplicate-key"`.
+    ///
+    /// Use it to identify a code in logs, configuration or machine-readable
+    /// output. It does not change with the enum order or the message wording.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -74,7 +224,7 @@ impl DiagnosticCode {
         }
     }
 
-    /// The default severity assigned to this diagnostic identity.
+    /// Returns the severity of every diagnostic with this code.
     #[must_use]
     pub const fn severity(self) -> Severity {
         match self {
@@ -90,7 +240,10 @@ impl DiagnosticCode {
         }
     }
 
-    /// A human-readable explanation; callers should match codes, not this text.
+    /// Returns a short description of the code in English, for people to read.
+    ///
+    /// The text may change between releases; match on the code itself or on
+    /// [`DiagnosticCode::as_str`] instead.
     #[must_use]
     pub const fn message(self) -> &'static str {
         match self {
@@ -116,7 +269,37 @@ impl DiagnosticCode {
     }
 }
 
-/// A source-relative diagnostic. Its primary span always addresses original bytes.
+/// A problem or note that parsing reports about the source, with its location.
+///
+/// [`parse`](crate::parse) returns every diagnostic, ordered by position, and
+/// [`parse_strict`](crate::parse_strict) and
+/// [`parse_values`](crate::parse_values) return the first error as a
+/// `Diagnostic`, which implements [`Error`].
+///
+/// A diagnostic has a stable [`DiagnosticCode`], a [`Severity`] set by that
+/// code, a one-based line, a primary span and an optional secondary span.
+/// Spans are byte ranges into the original source, byte-order mark included.
+/// Match on [`Diagnostic::code`]; the message text may change. A diagnostic
+/// displays as `line N: message (code)`.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{DiagnosticCode, Severity};
+///
+/// let (_, diagnostics) = adotenv::parse("A=1\nA=2\n");
+/// let duplicate = &diagnostics[0];
+///
+/// assert_eq!(duplicate.code(), DiagnosticCode::DuplicateKey);
+/// assert_eq!(duplicate.severity(), Severity::Warning);
+/// assert_eq!(duplicate.line(), 2);
+/// assert_eq!(duplicate.span(), 4..5);
+/// assert_eq!(duplicate.secondary_span(), Some(0..1));
+/// assert_eq!(
+///     duplicate.to_string(),
+///     "line 2: duplicate key; lookup follows the selected dialect policy (dotenv.duplicate-key)"
+/// );
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub(crate) code: DiagnosticCode,
@@ -135,32 +318,43 @@ impl Diagnostic {
         }
     }
 
-    /// Stable identity of this diagnostic.
+    /// Returns the diagnostic's code.
     #[must_use]
     pub const fn code(&self) -> DiagnosticCode {
         self.code
     }
-    /// The severity of this diagnostic.
+    /// Returns the diagnostic's severity, which its code determines.
     #[must_use]
     pub const fn severity(&self) -> Severity {
         self.code.severity()
     }
-    /// The primary byte range, including BOM offsets.
+    /// Returns the byte range in the source that the diagnostic is about.
+    ///
+    /// Offsets count from the start of the source, byte-order mark included.
     #[must_use]
     pub fn span(&self) -> Range<usize> {
         self.span.clone()
     }
-    /// A related source location, such as the first occurrence of a duplicate.
+    /// Returns a related byte range in the source, if any.
+    ///
+    /// For [`DiagnosticCode::DuplicateKey`] it is the key of the first
+    /// declaration; other codes have none.
     #[must_use]
     pub fn secondary_span(&self) -> Option<Range<usize>> {
         self.secondary.clone()
     }
-    /// The explicitly one-based source line number of the primary span.
+    /// Returns the one-based line where the primary span starts.
+    ///
+    /// Lines are counted as [`LineIndex`](crate::LineIndex) counts them: LF,
+    /// CRLF and a lone CR each end a line, in every dialect.
     #[must_use]
     pub const fn line(&self) -> usize {
         self.line
     }
-    /// Descriptive text; use [`DiagnosticCode::as_str`] for machine matching.
+    /// Returns a short description in English, for people to read.
+    ///
+    /// This is the [`DiagnosticCode::message`] of the code. The text may
+    /// change between releases; match on [`Diagnostic::code`] instead.
     #[must_use]
     pub const fn message(&self) -> &'static str {
         self.code.message()

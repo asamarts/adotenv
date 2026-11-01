@@ -801,6 +801,43 @@ ul#mdbook-searchresults span.teaser {
     letter-spacing: -0.02em;
 }
 
+.sidebar a.sidebar-api,
+.sidebar a.sidebar-api:visited {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 14px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-small);
+    background: var(--bg);
+    color: var(--fg-strong);
+    font-size: 1.4rem;
+    font-weight: 550;
+    text-decoration: none;
+    transition: border-color 0.15s ease;
+}
+
+.sidebar a.sidebar-api:hover {
+    border-color: var(--accent-border);
+    color: var(--fg-strong);
+    text-decoration: none;
+}
+
+.sidebar-api-host {
+    margin-inline-start: auto;
+    color: var(--muted);
+    font-size: 1.25rem;
+    font-weight: 400;
+}
+
+.sidebar a.sidebar-api svg {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    color: var(--muted);
+}
+
 /* The sidebar shows the brand, so the menu bar title is only needed when the
    sidebar is closed. */
 html.sidebar-visible .menu-title {

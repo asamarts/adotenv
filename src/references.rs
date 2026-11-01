@@ -9,47 +9,69 @@ use core::ops::Range;
 
 use crate::{Dialect, DoubleEscapes, Entry, Quote, QuotedTail, Syntax};
 
-/// The kind of a raw reference candidate.
+/// Whether a reference candidate is a variable or a command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ReferenceKind {
-    /// A variable reference such as `$VAR` or `${VAR:-default}`.
+    /// A variable, such as `$VAR`, `${VAR}` or `${VAR:-default}`.
     Variable,
-    /// A command substitution such as `$(command)`.
+    /// A command substitution, such as `$(git rev-parse HEAD)`.
     Command,
 }
 
-/// A recognized variable-reference operator.
+/// The operator of a braced variable, such as `:-` in `${VAR:-default}`.
+///
+/// The text after the operator is the candidate's
+/// [`argument`](Reference::argument). Inspection only records the operator;
+/// [`Document::resolve`](crate::Document::resolve) applies it when the rules
+/// allow operators ([`OperatorSet::Compose`] or [`OperatorSet::DotenvExpand`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ReferenceOperator {
     /// `${VAR-default}`: use the argument when the variable is unset.
     DefaultIfUnset,
-    /// `${VAR:-default}`: use the argument when unset or empty.
+    /// `${VAR:-default}`: use the argument when the variable is unset or empty.
     DefaultIfUnsetOrEmpty,
     /// `${VAR?message}`: report an error when the variable is unset.
     ErrorIfUnset,
-    /// `${VAR:?message}`: report an error when unset or empty.
+    /// `${VAR:?message}`: report an error when the variable is unset or empty.
     ErrorIfUnsetOrEmpty,
     /// `${VAR+alternative}`: use the argument when the variable is set.
     AlternativeIfSet,
-    /// `${VAR:+alternative}`: use the argument when set and non-empty.
+    /// `${VAR:+alternative}`: use the argument when the variable is set and
+    /// not empty.
     AlternativeIfSetAndNonEmpty,
 }
 
-/// Variable-reference forms and operators eligible under one expansion policy.
+/// Which variable forms [`ReferenceRules`] accept.
+///
+/// | Set | `$VAR` | `${VAR}` | Operators, as in `${VAR:-x}` | Nested candidates |
+/// |---|---|---|---|---|
+/// | [`None`](Self::None) | no | no | no | no |
+/// | [`Braced`](Self::Braced) | no | yes | no | no |
+/// | [`Basic`](Self::Basic) | yes | yes | no | no |
+/// | [`Compose`](Self::Compose) | yes | yes | yes | yes |
+/// | [`DotenvExpand`](Self::DotenvExpand) | yes | yes | yes | yes |
+///
+/// A nested candidate sits inside an operator argument or a command, such as
+/// `$B` in `${A:-$B}`. Commands themselves depend on
+/// [`ReferenceRules::commands`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum OperatorSet {
-    /// No variable references are eligible.
+    /// No variable is eligible.
+    ///
+    /// A command at the top of a value can still be eligible when
+    /// [`ReferenceRules::commands`] is on.
     None,
-    /// Only braced variables such as `${VAR}`; no short or operator forms.
+    /// Only `${VAR}`, without operators or nested candidates.
     Braced,
-    /// `$VAR` and `${VAR}` without operators.
+    /// `$VAR` and `${VAR}`, without operators or nested candidates.
     Basic,
-    /// The full operator set, including nested defaults.
+    /// Every variable form and operator, and nested candidates.
     Compose,
-    /// dotenv-expand-style variables and operators, including nested forms.
+    /// The same forms as [`Compose`](Self::Compose), used by
+    /// [`ReferenceRules::DOTENV_EXPAND`].
     DotenvExpand,
 }
 
@@ -69,50 +91,85 @@ impl OperatorSet {
     }
 }
 
-/// Caller-selected rules for deciding whether a raw candidate could expand.
+/// Rules that decide which reference candidates could expand.
+///
+/// [`Reference::is_eligible`] checks one candidate against these rules, and
+/// [`ExpandOptions`](crate::ExpandOptions) uses them to resolve a document.
+/// The rules only classify candidates; nothing is looked up or run.
+///
+/// | Preset | Operators | Single quotes | Escaped `$` | Commands | Backticks |
+/// |---|---|---|---|---|---|
+/// | [`NONE`](Self::NONE) | [`None`](OperatorSet::None) | no | no | no | no |
+/// | [`PORTABLE`](Self::PORTABLE) (default) | [`Basic`](OperatorSet::Basic) | no | no | no | no |
+/// | [`COMPOSE`](Self::COMPOSE) | [`Compose`](OperatorSet::Compose) | no | no | no | no |
+/// | [`DOTENV_EXPAND`](Self::DOTENV_EXPAND) | [`DotenvExpand`](OperatorSet::DotenvExpand) | yes | no | yes | no |
+///
+/// The struct is `#[non_exhaustive]`, so start from a preset and change single
+/// fields with the `with_*` builders.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_strict, OperatorSet, ReferenceRules};
+///
+/// let doc = parse_strict("GREETING='hello ${USER:-guest}'\n")?;
+/// let references = doc.unique("GREETING")?.references();
+/// assert!(!references[0].is_eligible(ReferenceRules::PORTABLE));
+///
+/// let rules = ReferenceRules::PORTABLE
+///     .with_operators(OperatorSet::Compose)
+///     .with_single_quotes(true);
+/// assert!(references[0].is_eligible(rules));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 // These are independent policy switches, not states.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct ReferenceRules {
-    /// Variable forms and operators considered eligible.
+    /// Which variable forms and operators are eligible.
     pub operators: OperatorSet,
-    /// Whether references inside single-quoted values are eligible.
+    /// Whether candidates inside single-quoted values are eligible.
     pub single_quotes: bool,
-    /// Whether escaped-dollar candidates are eligible.
+    /// Whether escaped candidates are eligible, such as `\$VAR` in double
+    /// quotes.
+    ///
+    /// See [`Reference::escaped`].
     pub escaped_dollar: bool,
     /// Whether `$(command)` candidates are eligible.
+    ///
+    /// Candidates inside a command need it too.
     pub commands: bool,
-    /// Whether references inside backtick-quoted values are eligible.
+    /// Whether candidates inside backtick-quoted values are eligible.
     pub backtick_quotes: bool,
 }
 
 impl ReferenceRules {
-    /// Use the given variable/operator eligibility set.
+    /// Sets [`operators`](Self::operators): which variable forms are eligible.
     #[must_use]
     pub const fn with_operators(mut self, value: OperatorSet) -> Self {
         self.operators = value;
         self
     }
-    /// Enable or disable references inside single quotes.
+    /// Sets [`single_quotes`](Self::single_quotes): whether single-quoted candidates count.
     #[must_use]
     pub const fn with_single_quotes(mut self, value: bool) -> Self {
         self.single_quotes = value;
         self
     }
-    /// Enable or disable escaped-dollar candidates.
+    /// Sets [`escaped_dollar`](Self::escaped_dollar): whether escaped candidates count.
     #[must_use]
     pub const fn with_escaped_dollar(mut self, value: bool) -> Self {
         self.escaped_dollar = value;
         self
     }
-    /// Enable or disable command candidates.
+    /// Sets [`commands`](Self::commands): whether `$(command)` candidates count.
     #[must_use]
     pub const fn with_commands(mut self, value: bool) -> Self {
         self.commands = value;
         self
     }
-    /// Enable or disable references inside backticks.
+    /// Sets [`backtick_quotes`](Self::backtick_quotes): whether backtick-quoted candidates count.
     #[must_use]
     pub const fn with_backtick_quotes(mut self, value: bool) -> Self {
         self.backtick_quotes = value;
@@ -120,7 +177,7 @@ impl ReferenceRules {
     }
 }
 impl ReferenceRules {
-    /// No references are eligible.
+    /// No candidate is eligible.
     pub const NONE: Self = Self {
         operators: OperatorSet::None,
         single_quotes: false,
@@ -128,7 +185,11 @@ impl ReferenceRules {
         commands: false,
         backtick_quotes: false,
     };
-    /// Conservative Portable rules: basic variables only, no quotes or commands.
+    /// Portable rules: `$VAR` and `${VAR}` outside single quotes.
+    ///
+    /// No operators, nesting or commands. These are
+    /// [`ReferenceRules::default`] and the rules of
+    /// [`ExpandOptions::portable`](crate::ExpandOptions::portable).
     pub const PORTABLE: Self = Self {
         operators: OperatorSet::Basic,
         single_quotes: false,
@@ -136,10 +197,13 @@ impl ReferenceRules {
         commands: false,
         backtick_quotes: false,
     };
-    /// Compose-style variable operators and nesting; no command execution.
+    /// Compose-style rules: every variable form, operator and nesting, but no
+    /// commands.
     ///
-    /// These are eligibility rules, not Docker Compose interpolation: an
-    /// escaped `$$` is not eligible and resolution leaves it as written.
+    /// These are eligibility rules, not a copy of Docker Compose
+    /// interpolation. Under the Compose dialect an escaped `$$B` is not
+    /// eligible, so resolution leaves `$$B` as written, while Compose prints
+    /// `$B`.
     pub const COMPOSE: Self = Self {
         operators: OperatorSet::Compose,
         single_quotes: false,
@@ -147,7 +211,8 @@ impl ReferenceRules {
         commands: false,
         backtick_quotes: false,
     };
-    /// dotenv-expand-style variables, single quotes and command substitution.
+    /// dotenv-expand-style rules: every variable form, operator and nesting,
+    /// also inside single quotes, plus command substitution.
     pub const DOTENV_EXPAND: Self = Self {
         operators: OperatorSet::DotenvExpand,
         single_quotes: true,
@@ -232,50 +297,136 @@ fn operator_bit(operator: ReferenceOperator) -> u8 {
     }
 }
 
-/// A raw reference candidate in an entry's literal value.
+/// A `$` reference candidate found in an entry's value.
+///
+/// [`Entry::references`] finds candidates in the value as written: `$VAR`,
+/// `${VAR}`, the operator forms such as `${VAR:-default}`, and `$(command)`.
+/// A candidate is only an observation. Nothing is looked up, expanded or run,
+/// and escaped, single-quoted and malformed candidates are reported too.
+/// [`is_eligible`](Self::is_eligible) decides whether a candidate could
+/// expand under [`ReferenceRules`];
+/// [`Document::resolve`](crate::Document::resolve) expands eligible ones.
+///
+/// Every span is a byte range into the document's source
+/// ([`Document::source`](crate::Document::source)), not into the decoded
+/// value.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_strict, ReferenceKind, ReferenceOperator};
+///
+/// let source = "URL=${HOST:-localhost}:$PORT\n";
+/// let doc = parse_strict(source)?;
+/// let references = doc.unique("URL")?.references();
+/// assert_eq!(references.len(), 2);
+///
+/// let host = &references[0];
+/// assert_eq!(&source[host.span.clone()], "${HOST:-localhost}");
+/// assert_eq!(host.name.clone().map(|name| &source[name]), Some("HOST"));
+/// assert_eq!(host.operator, Some(ReferenceOperator::DefaultIfUnsetOrEmpty));
+/// assert_eq!(host.argument.clone().map(|text| &source[text]), Some("localhost"));
+///
+/// assert_eq!(&source[references[1].span.clone()], "$PORT");
+/// assert_eq!(references[1].kind, ReferenceKind::Variable);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Reference {
-    /// Variable or command form.
+    /// Whether this is a variable or a command.
     pub kind: ReferenceKind,
-    /// Whole candidate in original-source bytes, starting at `$`.
+    /// The byte range of the whole candidate in the source, starting at `$`.
+    ///
+    /// An unclosed form extends to the end of the value, or of the argument
+    /// or command that contains it.
     pub span: Range<usize>,
-    /// Quote context of the containing value.
+    /// The quote style of the value that contains the candidate.
+    ///
+    /// Text appended after a closing quote under
+    /// [`QuotedTail::Append`] counts as unquoted.
     pub quote: Quote,
-    /// Whether the dollar is escaped by backslashes under the selected quote
-    /// grammar, inside a nested expansion argument, or by Compose's `$$` escape.
+    /// Whether the `$` is escaped.
+    ///
+    /// An odd number of backslashes before the `$` escapes it in a
+    /// double-quoted value whose dialect decodes `\$`
+    /// ([`DoubleEscapes::DOLLAR`]), and inside an operator argument or command
+    /// of an unquoted value. Under the Compose grammar, the second `$` of
+    /// `$$` is escaped too. Escaped candidates are eligible only with
+    /// [`ReferenceRules::escaped_dollar`].
     pub escaped: bool,
-    /// Nesting depth; zero at the value's top level.
+    /// How deeply the candidate is nested.
+    ///
+    /// It is `0` at the top of the value and `1` inside the argument or
+    /// command of a top-level form.
     pub depth: usize,
-    /// Whether this is a braced `${...}` variable form.
+    /// Whether this is the braced variable form `${...}`.
     pub braced: bool,
     /// Whether the closing `}` or `)` was found.
+    ///
+    /// `$VAR` is always closed.
     pub closed: bool,
-    /// Index of the innermost containing variable-operator or command form in
-    /// the list returned with this candidate, or `None` at the value's top
-    /// level. The container comes earlier in the list, its span contains this
-    /// candidate's span, and its depth is one less.
+    /// The index of the innermost form that contains this candidate, or `None`
+    /// at the top of the value.
+    ///
+    /// The index points into the list returned by [`Entry::references`]. The
+    /// container is an operator form or a command; it comes earlier in the
+    /// list, its span contains this candidate's span, and its depth is one
+    /// less.
     pub parent: Option<usize>,
     /// The chain of containing forms, summarized for eligibility.
     enclosing: Enclosing,
-    /// Variable-name span for variable forms.
+    /// The byte range of the variable name, or `None` for a command.
+    ///
+    /// It is empty for `${}`. The spelling of a braced name is not checked.
     pub name: Option<Range<usize>>,
-    /// Variable operator, when present.
+    /// The operator of a braced variable, if it has one.
     pub operator: Option<ReferenceOperator>,
-    /// Operator span, when present.
+    /// The byte range of the operator, such as `:-`, if there is one.
     pub operator_span: Option<Range<usize>>,
-    /// Default, message or alternative span for an operator form.
+    /// The byte range of the text after the operator: the default, message or
+    /// alternative.
     pub argument: Option<Range<usize>>,
-    /// Raw command payload span between `$(` and `)`.
+    /// The byte range of the command text between `$(` and `)`, or `None` for
+    /// a variable.
     pub command: Option<Range<usize>>,
 }
 
 impl Reference {
-    /// Whether this candidate is eligible under the selected rules.
+    /// Checks whether this candidate could expand under `rules`.
     ///
-    /// Eligibility is local to the candidate's form, quote, escape and nesting
-    /// context. It does not resolve variables, validate braced-name spelling or
-    /// execute commands. Malformed candidates are never eligible.
+    /// The check looks only at the candidate and the forms that contain it.
+    /// A candidate is eligible when all of these hold:
+    ///
+    /// - it is closed, and a variable has a nonempty name;
+    /// - [`rules.operators`](ReferenceRules::operators) accepts its form and
+    ///   operator, and accepts nesting if the candidate is nested;
+    /// - it is single-quoted, backtick-quoted or escaped only where the rules
+    ///   allow that;
+    /// - it is a command only when [`rules.commands`](ReferenceRules::commands)
+    ///   is on;
+    /// - every form that contains it is closed, named and allowed by the same
+    ///   rules.
+    ///
+    /// It does not look up variables, check the spelling of braced names or
+    /// run commands.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::{parse_strict, ReferenceRules};
+    ///
+    /// let doc = parse_strict("URL=${HOST:-$FALLBACK}/api\n")?;
+    /// let references = doc.unique("URL")?.references();
+    /// assert_eq!(references.len(), 2);
+    ///
+    /// // Portable rules accept neither operators nor nesting.
+    /// assert!(!references[0].is_eligible(ReferenceRules::PORTABLE));
+    /// assert!(!references[1].is_eligible(ReferenceRules::PORTABLE));
+    /// assert!(references[0].is_eligible(ReferenceRules::COMPOSE));
+    /// assert!(references[1].is_eligible(ReferenceRules::COMPOSE));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub fn is_eligible(&self, rules: ReferenceRules) -> bool {
         if !self.closed {
@@ -323,12 +474,16 @@ impl Reference {
 }
 
 impl Entry<'_> {
-    /// Recognized variable and command candidates in this entry's literal value.
+    /// Returns the `$` reference candidates in this entry's value, in source order.
     ///
-    /// Candidates are returned in source order, including escaped dollars,
-    /// single-quoted observations, malformed unclosed forms and nested defaults.
-    /// Spans address the original source. No lookup, expansion, I/O or command
-    /// execution occurs; use [`Reference::is_eligible`] for a policy decision.
+    /// The value is scanned as written in the source, with its quote style:
+    /// `$VAR`, `${VAR}`, the operator forms such as `${VAR:-default}`, and
+    /// `$(command)`, including candidates nested in operator arguments and
+    /// commands. Escaped, single-quoted and malformed candidates are returned
+    /// too. Nothing is looked up, expanded or run: use
+    /// [`Reference::is_eligible`] to apply [`ReferenceRules`], or
+    /// [`Document::resolve`](crate::Document::resolve) to expand. A bare key
+    /// or a value without `$` has no candidates.
     ///
     /// Candidates are sorted by span start. A nested candidate's
     /// [`Reference::parent`] is the index of its innermost containing form,
@@ -336,9 +491,25 @@ impl Entry<'_> {
     /// any depth, are exactly the candidates after it whose spans start before
     /// its span ends, so they directly follow it.
     ///
-    /// The result holds at most one candidate per `$` in the value, and
-    /// scanning time is linear in the value length up to a logarithmic
-    /// factor. Resolution scans only one level past its depth limit.
+    /// The list holds at most one candidate per `$` in the value, and scanning
+    /// takes time linear in the value length, up to a logarithmic factor.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::{parse_strict, ReferenceKind};
+    ///
+    /// let source = "REVISION=${TAG:-$(git describe)}\n";
+    /// let doc = parse_strict(source)?;
+    /// let references = doc.unique("REVISION")?.references();
+    ///
+    /// let spans: Vec<_> = references.iter().map(|r| &source[r.span.clone()]).collect();
+    /// assert_eq!(spans, ["${TAG:-$(git describe)}", "$(git describe)"]);
+    /// assert_eq!(references[1].kind, ReferenceKind::Command);
+    /// assert_eq!(references[1].parent, Some(0));
+    /// assert_eq!(references[1].depth, 1);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub fn references(self) -> Vec<Reference> {
         self.references_within_depth(usize::MAX)

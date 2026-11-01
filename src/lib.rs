@@ -1,122 +1,159 @@
-//! Lossless, literal `.env` dialect parsing and verified native text edits.
+//! Literal, lossless `.env` parsing and verified editing.
 //!
-//! Parsing borrows UTF-8 source and retains every byte, including malformed
-//! statements. It never reads files, consults the environment, or expands values.
+//! adotenv reads `.env` files the way tools need them. It keeps every byte of the source,
+//! leaves values literal (`${HOME}` is text, not an expansion), gives every token a byte span
+//! and checks every edit by parsing the result again before returning it. It is built for
+//! linters, formatters, editors, scanners and other tools that maintain configuration files.
+//!
+//! The core never reads files or environment variables, never expands references and never
+//! runs commands. Each of those happens only through an explicit API or an optional feature.
+//!
+//! The [user guide](https://asamarts.github.io/adotenv/) explains the behavior in more depth.
+//! This reference documents each item.
+//!
+//! # Quick start
 //!
 //! ```
-//! use adotenv::{parse, parse_owned, parse_strict, Severity};
+//! let source = "# app\nexport PORT=8080\nURL=\"${HOST}/api\" # base\n";
+//! let doc = adotenv::parse_strict(source)?;
 //!
-//! let text = "# app\nexport PORT=8080\nURL=\"${HOST}/api\" # base\n";
-//! let (doc, diagnostics) = parse(text);
-//! assert!(!diagnostics.iter().any(|d| d.severity() == Severity::Error));
+//! // Values are literal: references are not expanded.
 //! assert_eq!(doc.get("PORT"), Some("8080"));
 //! assert_eq!(doc.get("URL"), Some("${HOST}/api"));
-//! let edits = doc.set("PORT", "9090")?;
-//! assert_eq!(edits.edits()[0].replacement, "9090");
-//! assert_eq!(parse_strict(edits.as_str())?.get("PORT"), Some("9090"));
-//! let (owned, _) = parse_owned(String::from("KEY='value'\n"));
-//! assert_eq!(owned.get("KEY"), Some("value"));
+//!
+//! // A document prints back the exact source.
+//! assert_eq!(doc.to_string(), source);
+//!
+//! // An edit returns the new text, already parsed again and checked.
+//! let edited = doc.set("PORT", "9090")?;
+//! assert_eq!(edited.as_str(), "# app\nexport PORT=9090\nURL=\"${HOST}/api\" # base\n");
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
-//! # Explicit dialects
+//! [`parse_strict`] stops at the first error. [`parse`] never fails: it returns a document and
+//! a list of [`Diagnostic`]s, so tools can inspect and report on a broken file without losing
+//! any of it.
 //!
-//! [`parse`], [`parse_owned`] and [`parse_strict`] retain Portable defaults.
-//! Their `_with` variants accept a [`Dialect`]; [`Document::reparse`] borrows
-//! retained source and rebuilds its interpretation. Presets never enable
-//! interpolation, inheritance, file loading or ambient environment access.
+//! ```
+//! use adotenv::{DiagnosticCode, ItemKind};
+//!
+//! let (doc, diagnostics) = adotenv::parse("BAD KEY=value\nGOOD=kept\n");
+//! assert_eq!(doc.get("GOOD"), Some("kept"));
+//! assert_eq!(doc.items().next().unwrap().kind(), ItemKind::Invalid);
+//! assert_eq!(diagnostics[0].code(), DiagnosticCode::InvalidKey);
+//! assert_eq!(diagnostics[0].line(), 1);
+//! ```
+//!
+//! # Where to start
+//!
+//! | Task | Start with |
+//! |---|---|
+//! | Parse text | [`parse`], [`parse_strict`], [`parse_owned`], [`parse_values`], and their `_with` variants that take a [`Dialect`] |
+//! | Look up values | [`Document::get`], [`Document::get_all`], [`Document::effective_entries`], [`Document::lookup_index`] |
+//! | Walk the source | [`Document::items`], [`Document::entries`], [`Item`], [`Entry`], [`EntryTokens`] |
+//! | Report problems | [`Diagnostic`], [`DiagnosticCode`], [`Severity`] |
+//! | Choose reading rules | [`Dialect`] and its presets |
+//! | Edit | [`Document::set`], [`Document::remove`], [`Document::rename`], [`Document::insert`], or [`Document::edit`] with a batch of [`Edit`]s |
+//! | Quote a value for a file | [`encode_value`], [`encode_value_with`] |
+//! | Format and sort | [`Document::format`] with [`FormatOptions`], [`Document::sort`] |
+//! | Compare two files | [`Document::compare`] |
+//! | Write an example file | [`Document::example`] |
+//! | Check portability across dialects | [`Document::portability`] |
+//! | Groups and comments | [`Document::groups`], [`Document::header`], [`Entry::leading_comments`] |
+//! | Lines and columns | [`Document::line_index`], [`LineIndex`], [`ColumnEncoding`] |
+//! | Find `$VAR` references | [`Entry::references`], [`ReferenceRules`] |
+//! | Resolve references | [`Document::resolve`] with [`ExpandOptions`] |
+//! | Load files from disk | the [`load`] module |
+//! | Deserialize into a struct | [`Document::deserialize`] |
+//! | Run command substitutions | [`Document::resolve_with_commands`] and the [`exec`] module |
+//!
+//! # Features
+//!
+//! | Feature | Default | Adds |
+//! |---|---|---|
+//! | `std` | yes | Standard library support. Required by `load` and `exec`. |
+//! | `load` | no | The [`load`] module, which reads `.env` cascades and file lists from disk. |
+//! | `serde` | no | [`Document::deserialize`] and [`DeserializeError`]; with `load` also [`load::LoadedEnvironment::deserialize`]. |
+//! | `exec` | no | The [`exec`] module, which runs command substitutions through the platform shell. |
+//!
+//! Without default features the crate is `no_std` and uses `alloc`:
+//!
+//! ```toml
+//! adotenv = { version = "1", default-features = false }
+//! ```
+//!
+//! The crate has no runtime dependencies and forbids unsafe code with every feature
+//! combination. It supports Rust 1.81 and later.
+//!
+//! # Dialects
+//!
+//! Every parse uses a [`Dialect`]: the syntax and literal lookup rules of one `.env` reader.
+//! The functions without a suffix use [`Dialect::PORTABLE`]. The other presets follow Node
+//! dotenv, python-dotenv, Docker Compose and Docker `--env-file`, and a custom dialect starts
+//! from a preset and changes single rules. A dialect never enables expansion, inheritance or
+//! file loading.
 //!
 //! ```
 //! use adotenv::{parse_with, Dialect};
+//!
 //! let (doc, _) = parse_with("A=a#b\n", Dialect::NODE_DOTENV);
 //! assert_eq!(doc.get("A"), Some("a"));
-//! assert_eq!(doc.dialect(), Dialect::NODE_DOTENV);
 //! assert_eq!(doc.reparse(Dialect::DOCKER_RAW).0.get("A"), Some("a#b"));
 //! ```
 //!
-//! [`Document::portability`] reparses the retained source once per unique
-//! configuration, includes the document's own reading first, and reports every
-//! physical line whose declarations, values, states, export prefixes, lookup
-//! participation or item grouping differ.
+//! # Source, spans and positions
 //!
-//! [`Entry::references`] reports raw `$VAR`, `${VAR:-default}` and `$(command)`
-//! candidates with original-source spans and quote/escape context. It never
-//! resolves a lookup or executes a command; [`Reference::is_eligible`] applies
-//! explicit caller-selected rules.
+//! A [`Document`] borrows its source, or owns it with [`parse_owned`]. Its items cover the
+//! whole source without gaps, malformed statements included, and every range is a byte range
+//! into the original text, BOM included. [`LineIndex`] converts byte offsets to zero-based
+//! lines and columns in UTF-8 bytes, Unicode scalar values or UTF-16 code units, and
+//! [`Position::one_based`] converts a position for display.
 //!
-//! [`Document::resolve`] performs opt-in variable substitution with a caller
-//! lookup closure. Sequential or whole-file scope, precedence, unresolved
-//! policy, operators, cycles and resource limits are explicit. Command forms
-//! stay literal unless [`Document::resolve_with_commands`] receives an explicit
-//! callback; callback calls are provenance-recorded and never run by default.
+//! # Verified edits
 //!
-//! # Structure and formatting
+//! Edits select declarations by key, or by item when keys repeat. Every edit and every batch
+//! is applied to the whole source, parsed again with the same dialect and checked: the
+//! requested change happened and nothing else changed meaning. [`VerifiedEdits`] then gives
+//! the new text and the source-relative [`TextEdit`]s, for example to send to an editor.
+//! [`Document::format`] and [`Document::sort`] are verified the same way.
 //!
-//! [`Document::groups`] exposes blank-line-separated item runs, and
-//! [`Document::header`] exposes the structural prefix before the first entry.
-//! [`Entry::leading_comments`] attaches only contiguous whole-line comments; a
-//! blank line breaks attachment. These are views over the selected dialect's
-//! lossless items and do not move or reinterpret source.
+//! # References and resolution
 //!
-//! [`Document::format`] applies explicit trivia-only [`FormatOptions`] and
-//! reparses the complete output with the exact selected dialect. It returns
-//! source-relative [`TextEdit`] values plus verified text. [`BlankLines`] can
-//! collapse group separators and [`QuoteStyle`] can prefer a quote style when
-//! the exact decoded value survives. Raw values, multiline bodies,
-//! invalid/ignored statements, empty assigned values and ambiguous mixed line
-//! endings are left untouched. [`Document::sort`] reorders groups with attached
-//! comments, keeps keys that reference each other in their relative order so
-//! resolved values do not change, then verifies the result.
+//! Values stay literal. [`Entry::references`] lists `$VAR`, `${VAR:-default}` and
+//! `$(command)` forms with their spans without resolving anything. [`Document::resolve`]
+//! substitutes references only on request, from a lookup closure you pass, with explicit
+//! scope, precedence and size limits. Commands run only through a callback you pass to
+//! [`Document::resolve_with_commands`].
 //!
-//! [`Document::compare`] reports effective-key differences, distinguishing
-//! missing keys, bare/empty/assigned states, decoded values and exports.
-//! [`Document::example`] removes assigned values while retaining comments and
-//! layout, and comments out malformed or ignored statements so their text cannot
-//! leak a value.
+//! # Secrets
 //!
-//! # Loading
+//! Values may be secrets. `Debug` output of documents, entries, loaded environments and
+//! resolved values includes them, and so do serde conversion errors. Do not log them where
+//! values are secret. [`Document::example`] removes assigned values but keeps comments.
 //!
-//! The opt-in std-only `load` feature provides `load::load_cascade` and
-//! `load::load_files`. They strictly read and validate every participating file
-//! before returning `load::LoadedEnvironment`, which carries final values,
-//! shared-file origins and raw winning tokens by default. Reports (entries,
-//! overrides, repeats and skipped declarations) are opt-in through
-//! `load::LoadOptions::full`. Values and report views borrow interned storage;
-//! `resolve_contextual` requires raw tokens, while `resolve_decoded` remains
-//! available. Single-source context-aware resolution remains
-//! [`Document::resolve`]. Loading performs no expansion or process-environment
-//! mutation by itself.
+//! # Related crates
 //!
-//! The opt-in `serde` feature adds `Document::deserialize`, mapping effective
-//! literal declarations into a Serde type with line/key-aware conversion errors.
-//! With `load` enabled as well, `LoadedEnvironment::deserialize` maps the final
-//! merged cascade into the same Serde types and preserves origin lines.
+//! - [`adotenv-process`](https://docs.rs/adotenv-process) applies a loaded environment to the
+//!   current process.
+//! - [`adotenv-config`](https://docs.rs/adotenv-config) and
+//!   [`adotenv-figment`](https://docs.rs/adotenv-figment) provide values to `config` and
+//!   Figment.
+//! - [`adotenv-cli`](https://crates.io/crates/adotenv-cli) checks, formats, compares and loads
+//!   files from a shell.
 //!
-//! # Source and positions
+//! # Stability
 //!
-//! Ranges always address the original source, BOM included. Item ranges plus
-//! the optional BOM partition it without gaps. A [`LineIndex`] offers checked
-//! zero-based byte, scalar and UTF-16 coordinates. One-based display conversion
-//! is explicit; scalar columns are not terminal-cell widths.
-//!
-//! # Editing and recovery
-//!
-//! Key-only helpers require unique declarations. [`Edit`] selects explicit
-//! occurrences and comments from one source snapshot. Every complete batch is
-//! reparsed and checked before [`VerifiedEdits`] exposes its output or native
-//! edits. Unrelated malformed statements may remain, but must not change their
-//! interpretation. Verification uses the exact selected dialect; values or
-//! contexts its grammar cannot represent are rejected. External appliers check
-//! versions.
-//!
-//! # Platform
-//!
-//! Zero runtime dependencies. Disable default features for `no_std` with `alloc`.
-//! Unsafe code is forbidden regardless of features. Reference resolution and
-//! process-environment mutation are not part of literal parsing; filesystem
-//! loading is available only through the opt-in `load` feature.
+//! The public API follows semantic versioning. Enums and option structs are
+//! `#[non_exhaustive]`, so a minor release can add variants, fields and builders.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+// Links to items behind optional features resolve only when those features are enabled.
+// docs.rs and CI build the documentation with every feature.
+#![cfg_attr(
+    not(all(feature = "load", feature = "serde", feature = "exec")),
+    allow(rustdoc::broken_intra_doc_links)
+)]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 

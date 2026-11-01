@@ -1,12 +1,172 @@
-//! Opt-in filesystem loading of `.env` cascades.
+//! Reads `.env` files from disk and merges them into one set of values.
 //!
-//! This module is compiled only with the `load` feature. It reads and validates
-//! every participating file before returning any values, and performs no
-//! process-environment mutation, expansion or command execution.
+//! This module needs the `load` feature:
 //!
-//! The default cascade is `.env`, `.env.local`, `.env.{mode}` and
-//! `.env.{mode}.local`, in that order. Later files override earlier files by
-//! effective key.
+//! ```toml
+//! adotenv = { version = "1", features = ["load"] }
+//! ```
+//!
+//! Loading only reads files. It never changes the process environment, never
+//! runs commands, and expands `${VAR}` references only when you call a resolve
+//! method. To give the values to a child process, pass
+//! [`LoadedEnvironment::values`] to [`Command::envs`](std::process::Command::envs).
+//! To set them in the current process, use the
+//! [`adotenv-process`](https://docs.rs/adotenv-process) crate.
+//!
+//! # Cascades
+//!
+//! [`load_cascade`] reads these files from one directory, in this order:
+//!
+//! 1. `.env`
+//! 2. `.env.local`
+//! 3. `.env.{mode}`
+//! 4. `.env.{mode}.local`
+//!
+//! Every file is parsed with the same dialect. Within one file, the dialect's
+//! duplicate-key and bare-key rules choose the effective value of each key.
+//! Across files, a later file's effective value replaces an earlier one, key by
+//! key. A bare key has no value under the Portable dialect, so a bare `PORT` in
+//! a later file keeps the earlier value of `PORT`.
+//!
+//! With `PORT=3000` and `DATABASE_URL=postgres://localhost/dev` in `.env`, and
+//! `PORT=8080` in `.env.production`:
+//!
+//! ```
+//! use adotenv::load::load_cascade;
+//!
+//! # let dir = std::env::temp_dir().join(format!("adotenv-doc-load-{}", std::process::id()));
+//! # std::fs::create_dir_all(&dir)?;
+//! # std::fs::write(dir.join(".env"), "PORT=3000\nDATABASE_URL=postgres://localhost/dev\n")?;
+//! # std::fs::write(dir.join(".env.production"), "PORT=8080\n")?;
+//! let loaded = load_cascade(&dir, "production")?;
+//! assert_eq!(loaded.get("PORT"), Some("8080"));
+//! assert_eq!(loaded.get("DATABASE_URL"), Some("postgres://localhost/dev"));
+//!
+//! let origin = loaded.origin("PORT").unwrap();
+//! assert_eq!(origin.path(), dir.join(".env.production"));
+//! assert_eq!(origin.line(), 1);
+//! # std::fs::remove_dir_all(&dir)?;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! ## Missing files and failures
+//!
+//! A cascade file that does not exist is skipped, so a directory with none of
+//! the files, or a directory that does not exist, loads an empty environment.
+//! A file that exists but cannot be read, is not valid UTF-8 or has an
+//! error-severity [`Diagnostic`] fails the whole load: the function returns a
+//! [`LoadError`] and no values. Warnings never fail a load.
+//!
+//! The functions that take an explicit file list, such as [`load_files`], read
+//! the files in the order given, and a file that does not exist is an error.
+//!
+//! ## Mode names
+//!
+//! The mode names the last two cascade files, for example `production` or
+//! `test`. It must not contain `/`, `\` or NUL and must not be exactly `.` or
+//! `..`, so it cannot name a file outside the directory. Such a mode returns
+//! [`LoadError::InvalidMode`] before any file is read. Other dots are allowed:
+//! mode `prod.eu` reads `.env.prod.eu` and `.env.prod.eu.local`. An empty mode
+//! reads only `.env` and `.env.local`.
+//!
+//! # Entry points
+//!
+//! | Function | Reads | Returns |
+//! |---|---|---|
+//! | [`load_cascade`] | Cascade, Portable dialect | [`LoadedEnvironment`] |
+//! | [`load_cascade_with`] | Cascade, chosen dialect | [`LoadedEnvironment`] |
+//! | [`load_cascade_with_options`] | Cascade, chosen [`LoadOptions`] | [`LoadedEnvironment`] |
+//! | [`load_files`] | File list, chosen dialect | [`LoadedEnvironment`] |
+//! | [`load_files_with_options`] | File list, chosen [`LoadOptions`] | [`LoadedEnvironment`] |
+//! | [`load_cascade_values`] | Cascade, Portable dialect | [`LoadedValues`] |
+//! | [`load_cascade_values_with`] | Cascade, chosen dialect | [`LoadedValues`] |
+//! | [`load_values`] | File list, chosen dialect | [`LoadedValues`] |
+//!
+//! A [`LoadedEnvironment`] holds the final values sorted by key and, by
+//! default, the [`LoadOrigin`] of each one: its file, the byte span of its
+//! value and its one-based line. With the `serde` feature,
+//! `LoadedEnvironment::deserialize` turns the values into a typed struct.
+//!
+//! # Options and reports
+//!
+//! [`LoadOptions`] chooses the dialect and what a [`LoadedEnvironment`] keeps.
+//! [`LoadOptions::new`], which the functions without an options argument use,
+//! keeps the values, their origins and the raw source text that
+//! [`LoadedEnvironment::resolve_contextual`] needs. [`LoadOptions::full`] also
+//! keeps four reports that explain how the values were chosen:
+//!
+//! - [`LoadedEnvironment::entries`]: the effective declaration of each key in
+//!   each file, including the ones a later file replaced ([`LoadedEntry`]).
+//! - [`LoadedEnvironment::overrides`]: each time a later file replaced a key
+//!   ([`LoadOverride`]).
+//! - [`LoadedEnvironment::repeated`]: keys declared more than once in one file
+//!   ([`LoadRepeated`]).
+//! - [`LoadedEnvironment::skipped`]: declarations that supplied no value, with
+//!   a [`SkipReason`] ([`LoadSkipped`]).
+//!
+//! # Resolution
+//!
+//! Loaded values are literal: `${HOST}` is the text `${HOST}`. Two methods
+//! resolve references across the merged values and return a
+//! [`ResolvedEnvironment`]:
+//!
+//! - [`LoadedEnvironment::resolve_contextual`] parses the raw source text of
+//!   each winning declaration again with the load dialect, so quotes and
+//!   escapes keep their meaning: a single-quoted `'${HOST}'` stays literal.
+//!   Prefer it unless the raw text was dropped with
+//!   [`LoadOptions::with_raw_tokens`].
+//! - [`LoadedEnvironment::resolve_decoded`] treats every final value as
+//!   unquoted text, so a reference resolves wherever it appears in the value,
+//!   even if the file quoted it.
+//!
+//! Both use whole-file scope only: a reference sees the final value of each
+//! key, whichever file set it. Every [`ExpandOptions`] preset uses sequential
+//! scope, so select [`ExpandScope::WholeFile`] explicitly; any other scope is
+//! an error. Names are also looked up with the `lookup` closure you pass; with
+//! the presets, the loaded values win over it. The process environment is read
+//! only if that closure reads it. Command substitutions such as `$(whoami)`
+//! stay literal. To run them, parse the file yourself and call
+//! [`Document::resolve_with_commands`](crate::Document::resolve_with_commands).
+//!
+//! ```
+//! use adotenv::load::load_cascade;
+//! use adotenv::{ExpandOptions, ExpandScope};
+//!
+//! # let dir = std::env::temp_dir().join(format!("adotenv-doc-load-resolve-{}", std::process::id()));
+//! # std::fs::create_dir_all(&dir)?;
+//! # std::fs::write(dir.join(".env"), "DB_HOST=localhost\nDATABASE_URL=postgres://${DB_HOST}/app\n")?;
+//! # std::fs::write(dir.join(".env.production"), "DB_HOST=db.internal\n")?;
+//! let loaded = load_cascade(&dir, "production")?;
+//! assert_eq!(loaded.get("DATABASE_URL"), Some("postgres://${DB_HOST}/app"));
+//!
+//! let options = ExpandOptions::portable().with_scope(ExpandScope::WholeFile);
+//! let resolved = loaded.resolve_contextual(|_| None, &options)?;
+//! assert_eq!(resolved.get("DATABASE_URL"), Some("postgres://db.internal/app"));
+//! # std::fs::remove_dir_all(&dir)?;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! # Values only
+//!
+//! [`load_cascade_values`], [`load_cascade_values_with`] and [`load_values`]
+//! read the same files with the same rules and errors, but return a
+//! [`LoadedValues`] that keeps only the final strings: no origins, reports or
+//! raw text, and no resolution. Use them when an application needs only the
+//! values; they use less memory.
+//!
+//! # Errors
+//!
+//! Loading returns a [`LoadError`]:
+//!
+//! - [`LoadError::Io`]: a file exists but cannot be read, or a file in an
+//!   explicit list does not exist.
+//! - [`LoadError::InvalidUtf8`]: a file is not valid UTF-8.
+//! - [`LoadError::Invalid`]: a file has an error under the dialect; the error
+//!   carries the first error-severity [`Diagnostic`].
+//! - [`LoadError::InvalidMode`]: the mode name is not allowed.
+//!
+//! Resolution returns a [`LoadedResolveError`], which names the key and the
+//! origin of its winning declaration when they are known.
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -23,10 +183,20 @@ use crate::{
     KeySyntax, ResolveError, Severity,
 };
 
-/// A borrowed file, source span and one-based line identifying a loaded value.
+/// Where a loaded declaration is: its file, byte span and one-based line.
 ///
-/// Origins produced by [`LoadedEnvironment`] borrow the environment's shared
-/// file table. Use the accessors to read the path, span and line.
+/// Returned by [`LoadedEnvironment::origin`], [`ResolvedEnvironment::origin`]
+/// and the report views, such as [`LoadedEntry::origin`]. It borrows the
+/// environment that returned it. [`LoadOriginOwned`] is the owned form that
+/// [`LoadedResolveError`] carries.
+///
+/// The span is a byte range into the file's text. It covers the value token as
+/// written, including any quotes. For a bare key, such as one that
+/// [`BareKeys::Empty`](crate::BareKeys::Empty) reads as an empty value, it
+/// covers the key name. The line is the one-based line of the declaration's
+/// key.
+///
+/// See [`LoadedEnvironment::origin`] for an example.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct LoadOrigin<'a> {
@@ -36,24 +206,32 @@ pub struct LoadOrigin<'a> {
 }
 
 impl<'a> LoadOrigin<'a> {
-    /// File path used for the load.
+    /// Returns the path of the file, as the load built or received it.
+    ///
+    /// For a cascade this is the directory joined with the file name, for an
+    /// explicit list the path as given. It is not canonicalized.
     #[must_use]
     pub const fn path(&self) -> &'a Path {
         self.path
     }
-    /// Original value span in that file.
+    /// Returns the byte range of the value token in the file, or of the key
+    /// for a bare key.
     #[must_use]
     pub const fn span(&self) -> &Range<usize> {
         &self.span
     }
-    /// One-based source line.
+    /// Returns the one-based line of the declaration's key.
     #[must_use]
     pub const fn line(&self) -> usize {
         self.line
     }
 }
 
-/// One effective declaration observed during a load.
+/// The effective declaration of one key in one file, from
+/// [`LoadedEnvironment::entries`].
+///
+/// Unlike [`LoadedEnvironment::get`], the entries also include values that a
+/// later file replaced. See [`LoadedEnvironment::entries`] for an example.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct LoadedEntry<'a> {
@@ -63,24 +241,29 @@ pub struct LoadedEntry<'a> {
 }
 
 impl<'a> LoadedEntry<'a> {
-    /// Declaration key.
+    /// Returns the decoded key.
     #[must_use]
     pub const fn key(&self) -> &'a str {
         self.key
     }
-    /// Decoded literal value.
+    /// Returns the decoded value, without any reference expanded.
     #[must_use]
     pub const fn value(&self) -> &'a str {
         self.value
     }
-    /// Where the declaration came from.
+    /// Returns where the declaration is.
     #[must_use]
     pub const fn origin(&self) -> &LoadOrigin<'a> {
         &self.origin
     }
 }
 
-/// A later file overriding an earlier effective key.
+/// A later file replacing the value of a key, from
+/// [`LoadedEnvironment::overrides`].
+///
+/// When three files set the same key, there are two overrides: the second file
+/// replaces the first, then the third replaces the second. See
+/// [`LoadedEnvironment::overrides`] for an example.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct LoadOverride<'a> {
@@ -90,24 +273,30 @@ pub struct LoadOverride<'a> {
 }
 
 impl<'a> LoadOverride<'a> {
-    /// Overridden key.
+    /// Returns the key whose value was replaced.
     #[must_use]
     pub const fn key(&self) -> &'a str {
         self.key
     }
-    /// Earlier active value.
+    /// Returns the origin of the value that was replaced.
     #[must_use]
     pub const fn previous(&self) -> &LoadOrigin<'a> {
         &self.previous
     }
-    /// Later active value.
+    /// Returns the origin of the value that replaced it.
     #[must_use]
     pub const fn replacement(&self) -> &LoadOrigin<'a> {
         &self.replacement
     }
 }
 
-/// Duplicate declarations for one key within a single file.
+/// A key declared more than once in one file, from
+/// [`LoadedEnvironment::repeated`].
+///
+/// Only declarations that take part in lookup count, and the key is reported
+/// only when at least two of them do. The dialect's duplicate-key rule chooses
+/// which one supplies the value: the last one under the Portable dialect. See
+/// [`LoadedEnvironment::repeated`] for an example.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct LoadRepeated<'a> {
@@ -117,12 +306,13 @@ pub struct LoadRepeated<'a> {
 }
 
 impl<'a> LoadRepeated<'a> {
-    /// Repeated key.
+    /// Returns the repeated key.
     #[must_use]
     pub const fn key(&self) -> &'a str {
         self.key
     }
-    /// Occurrences that take part in lookup, in source order.
+    /// Returns the origins of the declarations that take part in lookup, in
+    /// source order.
     pub fn origins(&self) -> impl Iterator<Item = LoadOrigin<'a>> + '_ {
         self.origins
             .iter()
@@ -130,19 +320,30 @@ impl<'a> LoadRepeated<'a> {
     }
 }
 
-/// Why a declaration was not loaded.
+/// Why a declaration supplied no value, from [`LoadSkipped::reason`].
+///
+/// See [`LoadedEnvironment::skipped`] for an example.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum SkipReason {
-    /// A key-only declaration has no literal value.
+    /// The declaration is a bare key, which has no value under the dialect.
+    ///
+    /// Under [`BareKeys::Empty`](crate::BareKeys::Empty) a bare key loads as
+    /// an empty value instead and is not skipped.
     Bare,
-    /// The selected dialect excludes this declaration from lookup.
+    /// The dialect excludes every declaration of this key from lookup.
+    ///
+    /// Examples are a bare key under [`BareKeys::Ignore`](crate::BareKeys::Ignore)
+    /// and `__proto__` under [`Dialect::NODE_DOTENV`].
     NonParticipating,
-    /// The declaration key is empty.
+    /// The key is empty, which some dialects, such as [`Dialect::COMPOSE`],
+    /// accept without an error.
     EmptyKey,
 }
 
-/// A declaration that was retained in the report but not loaded.
+/// A declaration that supplied no value, from [`LoadedEnvironment::skipped`].
+///
+/// See [`LoadedEnvironment::skipped`] for an example.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct LoadSkipped<'a> {
@@ -152,24 +353,30 @@ pub struct LoadSkipped<'a> {
 }
 
 impl<'a> LoadSkipped<'a> {
-    /// Key, if one was available.
+    /// Returns the key, or `None` for an empty key.
     #[must_use]
     pub const fn key(&self) -> Option<&'a str> {
         self.key
     }
-    /// File and position.
+    /// Returns where the declaration is.
+    ///
+    /// For [`SkipReason::NonParticipating`] this is the first declaration of
+    /// the key in the file. Each empty key is reported on its own.
     #[must_use]
     pub const fn origin(&self) -> &LoadOrigin<'a> {
         &self.origin
     }
-    /// Why it was skipped.
+    /// Returns why the declaration supplied no value.
     #[must_use]
     pub const fn reason(&self) -> SkipReason {
         self.reason
     }
 }
 
-/// An owned origin used by resolution errors.
+/// An owned [`LoadOrigin`], carried by [`LoadedResolveError::origin`].
+///
+/// It has the same path, span and line as the [`LoadOrigin`] of the key's
+/// winning declaration, but does not borrow the environment.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct LoadOriginOwned {
@@ -179,17 +386,18 @@ pub struct LoadOriginOwned {
 }
 
 impl LoadOriginOwned {
-    /// File path used for the load.
+    /// Returns the path of the file, as the load built or received it.
     #[must_use]
     pub fn path(&self) -> &Path {
         &self.path
     }
-    /// Original value span in that file.
+    /// Returns the byte range of the value token in the file, or of the key
+    /// for a bare key.
     #[must_use]
     pub const fn span(&self) -> &Range<usize> {
         &self.span
     }
-    /// One-based source line.
+    /// Returns the one-based line of the declaration's key.
     #[must_use]
     pub const fn line(&self) -> usize {
         self.line
@@ -237,11 +445,42 @@ struct SkippedRecord {
     reason: SkipReason,
 }
 
-/// Fully validated result of a file load.
+/// The merged values of a load, with their origins and optional reports.
 ///
-/// Values, shared-file origins and raw winning tokens are retained by default.
-/// Reports are opt-in through [`LoadOptions::with_reports`] or
-/// [`LoadOptions::full`]. Values and report views borrow the environment.
+/// Returned by [`load_cascade`], [`load_files`] and their variants. Every file
+/// was read and checked before it was built, so it always describes a complete
+/// load. The values are literal and sorted by key.
+///
+/// What else it keeps depends on the [`LoadOptions`]. By default it keeps the
+/// [`LoadOrigin`] of each value and the raw source text that
+/// [`resolve_contextual`](Self::resolve_contextual) needs. With
+/// [`LoadOptions::full`] it also keeps the reports returned by
+/// [`entries`](Self::entries), [`overrides`](Self::overrides),
+/// [`repeated`](Self::repeated) and [`skipped`](Self::skipped). The views it
+/// returns borrow it. [`into_values`](Self::into_values) keeps only the values.
+///
+/// # Examples
+///
+/// With `PORT=3000` and `DATABASE_URL=postgres://localhost/dev` in `.env`, and
+/// `PORT=8080` in `.env.production`:
+///
+/// ```
+/// use adotenv::load::load_cascade;
+///
+/// # let dir = std::env::temp_dir().join(format!("adotenv-doc-LoadedEnvironment-{}", std::process::id()));
+/// # std::fs::create_dir_all(&dir)?;
+/// # std::fs::write(dir.join(".env"), "PORT=3000\nDATABASE_URL=postgres://localhost/dev\n")?;
+/// # std::fs::write(dir.join(".env.production"), "PORT=8080\n")?;
+/// let loaded = load_cascade(&dir, "production")?;
+/// assert_eq!(loaded.len(), 2);
+/// assert_eq!(loaded.get("PORT"), Some("8080"));
+/// assert_eq!(loaded.get("DEBUG"), None);
+///
+/// let values: Vec<_> = loaded.values().collect();
+/// assert_eq!(values, [("DATABASE_URL", "postgres://localhost/dev"), ("PORT", "8080")]);
+/// # std::fs::remove_dir_all(&dir)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadedEnvironment {
     records: BTreeMap<Arc<str>, ValueRecord>,
@@ -256,22 +495,58 @@ pub struct LoadedEnvironment {
     origins_retained: bool,
 }
 
-/// Retention policy for loading.
+/// The dialect of a load and what the [`LoadedEnvironment`] keeps.
 ///
-/// [`LoadOptions::new`] retains values, shared-file origins and raw winning
-/// tokens while leaving reports empty. [`LoadOptions::full`] additionally
-/// retains entries, overrides, repeats and skipped declarations. Applications
-/// that only need values should use [`crate::load::load_values`].
+/// Start from [`LoadOptions::new`], which keeps values, origins and raw source
+/// text but no reports, or from [`LoadOptions::full`], which keeps everything.
+/// Then change single parts with the `with_*` methods.
+/// [`LoadOptions::default`] is `LoadOptions::new(Dialect::PORTABLE)`.
+///
+/// | Part | `new` | `full` | Needed for |
+/// |---|---|---|---|
+/// | Origins | Kept | Kept | [`LoadedEnvironment::origin`], [`LoadedEnvironment::overrides`], resolution and Serde error locations |
+/// | Raw source text | Kept | Kept | [`LoadedEnvironment::resolve_contextual`] |
+/// | Reports | Not kept | Kept | [`LoadedEnvironment::entries`], [`overrides`](LoadedEnvironment::overrides), [`repeated`](LoadedEnvironment::repeated), [`skipped`](LoadedEnvironment::skipped) |
+///
+/// Keeping less uses less memory. An application that needs only the values
+/// can use [`load_cascade_values`] or [`load_values`] instead.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::load::{load_cascade_with_options, LoadOptions};
+/// use adotenv::Dialect;
+///
+/// # let dir = std::env::temp_dir().join(format!("adotenv-doc-LoadOptions-{}", std::process::id()));
+/// # std::fs::create_dir_all(&dir)?;
+/// # std::fs::write(dir.join(".env"), "PORT=3000\n")?;
+/// # std::fs::write(dir.join(".env.local"), "PORT=8080\n")?;
+/// let options = LoadOptions::default()
+///     .with_dialect(Dialect::NODE_DOTENV)
+///     .with_reports(true)
+///     .with_raw_tokens(false);
+/// let loaded = load_cascade_with_options(&dir, "", options)?;
+/// assert_eq!(loaded.get("PORT"), Some("8080"));
+/// assert_eq!(loaded.overrides().count(), 1);
+/// assert!(!loaded.retains_raw_tokens());
+/// # std::fs::remove_dir_all(&dir)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct LoadOptions {
-    /// Dialect used to parse every file.
+    /// The dialect used to parse every file.
     pub dialect: Dialect,
-    /// Retain raw winning key/value tokens for contextual resolution.
+    /// Whether to keep the raw source text of each winning declaration, which
+    /// [`LoadedEnvironment::resolve_contextual`] needs.
     pub retain_raw_tokens: bool,
-    /// Retain loaded-entry, override, repeat and skipped reports.
+    /// Whether to keep the reports: [`LoadedEnvironment::entries`],
+    /// [`overrides`](LoadedEnvironment::overrides),
+    /// [`repeated`](LoadedEnvironment::repeated) and
+    /// [`skipped`](LoadedEnvironment::skipped).
     pub retain_reports: bool,
-    /// Retain the final origin map and cross-file override reports.
+    /// Whether to keep the origin of each final value, and with reports the
+    /// [`overrides`](LoadedEnvironment::overrides) report.
     pub retain_origins: bool,
 }
 
@@ -282,10 +557,10 @@ impl Default for LoadOptions {
 }
 
 impl LoadOptions {
-    /// Default retention using the selected dialect.
+    /// Returns options that keep values, origins and raw source text, but no
+    /// reports.
     ///
-    /// Values, shared-file origins and raw winning tokens are retained;
-    /// reports are disabled.
+    /// The load functions without an options argument use these options.
     #[must_use]
     pub const fn new(dialect: Dialect) -> Self {
         Self {
@@ -295,9 +570,8 @@ impl LoadOptions {
             retain_origins: true,
         }
     }
-    /// Full retention using the selected dialect.
-    ///
-    /// Includes entries, overrides, repeats and skipped-declaration reports.
+    /// Returns options that keep values, origins, raw source text and every
+    /// report.
     #[must_use]
     pub const fn full(dialect: Dialect) -> Self {
         Self {
@@ -307,25 +581,42 @@ impl LoadOptions {
             retain_origins: true,
         }
     }
-    /// Select a different dialect.
+    /// Sets the dialect used to parse every file.
     #[must_use]
     pub const fn with_dialect(mut self, dialect: Dialect) -> Self {
         self.dialect = dialect;
         self
     }
-    /// Control retention of raw winning tokens.
+    /// Sets whether to keep the raw source text of each winning declaration.
+    ///
+    /// Without it, [`LoadedEnvironment::resolve_contextual`] returns an error;
+    /// [`LoadedEnvironment::resolve_decoded`] still works.
     #[must_use]
     pub const fn with_raw_tokens(mut self, retain: bool) -> Self {
         self.retain_raw_tokens = retain;
         self
     }
-    /// Control retention of report vectors.
+    /// Sets whether to keep the reports.
+    ///
+    /// Without them, [`LoadedEnvironment::entries`],
+    /// [`overrides`](LoadedEnvironment::overrides),
+    /// [`repeated`](LoadedEnvironment::repeated) and
+    /// [`skipped`](LoadedEnvironment::skipped) yield nothing.
     #[must_use]
     pub const fn with_reports(mut self, retain: bool) -> Self {
         self.retain_reports = retain;
         self
     }
-    /// Control retention of the final origin map and override reports.
+    /// Sets whether to keep the origin of each final value.
+    ///
+    /// Without origins, [`LoadedEnvironment::origin`] and
+    /// [`ResolvedEnvironment::origin`] return `None`,
+    /// [`LoadedEnvironment::overrides`] yields nothing, a
+    /// [`LoadedResolveError`] has no origin, and a Serde error from
+    /// `LoadedEnvironment::deserialize` reports line `0`. The
+    /// [`entries`](LoadedEnvironment::entries),
+    /// [`repeated`](LoadedEnvironment::repeated) and
+    /// [`skipped`](LoadedEnvironment::skipped) reports keep their origins.
     #[must_use]
     pub const fn with_origins(mut self, retain: bool) -> Self {
         self.retain_origins = retain;
@@ -334,26 +625,75 @@ impl LoadOptions {
 }
 
 impl LoadedEnvironment {
-    /// Iterate final effective literal values in key order.
+    /// Returns the final values as `(key, value)` pairs, sorted by key.
+    ///
+    /// The pairs fit [`Command::envs`](std::process::Command::envs), which
+    /// passes them to a child process without changing the current one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::process::Command;
+    ///
+    /// use adotenv::load::load_cascade;
+    ///
+    /// # let dir = std::env::temp_dir().join(format!("adotenv-doc-LoadedEnvironment-values-{}", std::process::id()));
+    /// # std::fs::create_dir_all(&dir)?;
+    /// # std::fs::write(dir.join(".env"), "PORT=8080\nHOST=0.0.0.0\n")?;
+    /// let loaded = load_cascade(&dir, "")?;
+    /// assert_eq!(loaded.values().collect::<Vec<_>>(), [("HOST", "0.0.0.0"), ("PORT", "8080")]);
+    ///
+    /// let mut server = Command::new("my-server");
+    /// server.envs(loaded.values());
+    /// # assert_eq!(server.get_envs().count(), 2);
+    /// # std::fs::remove_dir_all(&dir)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn values(&self) -> impl Iterator<Item = (&str, &str)> + '_ {
         self.records
             .iter()
             .map(|(key, record)| (key.as_ref(), record.value.as_ref()))
     }
-    /// Whether raw winning tokens were retained for contextual resolution.
+    /// Returns `true` if the raw source text of each winning declaration was
+    /// kept.
+    ///
+    /// [`resolve_contextual`](Self::resolve_contextual) needs it. It is kept
+    /// unless the load used [`LoadOptions::with_raw_tokens`] with `false`.
     #[must_use]
     pub const fn retains_raw_tokens(&self) -> bool {
         self.raw_tokens
     }
-    /// Final value for one key.
+    /// Returns the final value of `key`, or `None` if no file set it.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&str> {
         self.records.get(key).map(|record| record.value.as_ref())
     }
-    /// Final origin for one effective key.
+    /// Returns where the final value of `key` was declared.
     ///
-    /// Returns `None` when loaded with [`LoadOptions::with_origins`] set to
-    /// `false`.
+    /// Returns `None` if no file set `key`, or if the load used
+    /// [`LoadOptions::with_origins`] with `false`.
+    ///
+    /// # Examples
+    ///
+    /// With a comment on line 1 and `DATABASE_URL="postgres://localhost/app"` on
+    /// line 2 of `.env`:
+    ///
+    /// ```
+    /// use adotenv::load::load_cascade;
+    ///
+    /// # let dir = std::env::temp_dir().join(format!("adotenv-doc-LoadedEnvironment-origin-{}", std::process::id()));
+    /// # std::fs::create_dir_all(&dir)?;
+    /// # std::fs::write(dir.join(".env"), "# database\nDATABASE_URL=\"postgres://localhost/app\"\n")?;
+    /// let loaded = load_cascade(&dir, "")?;
+    /// let origin = loaded.origin("DATABASE_URL").unwrap();
+    /// assert_eq!(origin.path(), dir.join(".env"));
+    /// assert_eq!(origin.line(), 2);
+    ///
+    /// let source = std::fs::read_to_string(origin.path())?;
+    /// assert_eq!(&source[origin.span().clone()], "\"postgres://localhost/app\"");
+    /// # std::fs::remove_dir_all(&dir)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub fn origin(&self, key: &str) -> Option<LoadOrigin<'_>> {
         if self.origins_retained {
@@ -372,10 +712,35 @@ impl LoadedEnvironment {
             line: origin.line,
         })
     }
-    /// The effective declaration of each key in each file, in load order,
-    /// including declarations that a later file overrides.
+    /// Returns the effective declaration of each key in each file, including
+    /// the ones a later file replaced.
     ///
-    /// Empty when loaded with [`LoadOptions::with_reports`] set to `false`.
+    /// Entries come file by file, in load order. Within a file, each key
+    /// appears once, at the position of its first declaration, with its
+    /// effective value. A key that supplied no value is in
+    /// [`skipped`](Self::skipped) instead. Yields nothing unless the load kept
+    /// reports, for example with [`LoadOptions::full`].
+    ///
+    /// # Examples
+    ///
+    /// With `PORT=3000` and `HOST=localhost` in `.env`, and `PORT=8080` in
+    /// `.env.local`:
+    ///
+    /// ```
+    /// use adotenv::load::{load_cascade_with_options, LoadOptions};
+    /// use adotenv::Dialect;
+    ///
+    /// # let dir = std::env::temp_dir().join(format!("adotenv-doc-LoadedEnvironment-entries-{}", std::process::id()));
+    /// # std::fs::create_dir_all(&dir)?;
+    /// # std::fs::write(dir.join(".env"), "PORT=3000\nHOST=localhost\n")?;
+    /// # std::fs::write(dir.join(".env.local"), "PORT=8080\n")?;
+    /// let loaded = load_cascade_with_options(&dir, "", LoadOptions::full(Dialect::PORTABLE))?;
+    /// let entries: Vec<_> = loaded.entries().map(|entry| (entry.key(), entry.value())).collect();
+    /// assert_eq!(entries, [("PORT", "3000"), ("HOST", "localhost"), ("PORT", "8080")]);
+    /// assert_eq!(loaded.get("PORT"), Some("8080"));
+    /// # std::fs::remove_dir_all(&dir)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn entries(&self) -> impl Iterator<Item = LoadedEntry<'_>> + '_ {
         self.entries.iter().map(|entry| LoadedEntry {
             key: entry.key.as_ref(),
@@ -383,9 +748,32 @@ impl LoadedEnvironment {
             origin: view_origin(&self.files, &entry.origin),
         })
     }
-    /// Cross-file overrides in load order.
+    /// Returns each replacement of a key's value by a later file, in load
+    /// order.
     ///
-    /// Empty when reports or origins are disabled.
+    /// Yields nothing unless the load kept both reports and origins, as
+    /// [`LoadOptions::full`] does.
+    ///
+    /// # Examples
+    ///
+    /// With `PORT=3000` in `.env` and `PORT=8080` in `.env.local`:
+    ///
+    /// ```
+    /// use adotenv::load::{load_cascade_with_options, LoadOptions};
+    /// use adotenv::Dialect;
+    ///
+    /// # let dir = std::env::temp_dir().join(format!("adotenv-doc-LoadedEnvironment-overrides-{}", std::process::id()));
+    /// # std::fs::create_dir_all(&dir)?;
+    /// # std::fs::write(dir.join(".env"), "PORT=3000\n")?;
+    /// # std::fs::write(dir.join(".env.local"), "PORT=8080\n")?;
+    /// let loaded = load_cascade_with_options(&dir, "", LoadOptions::full(Dialect::PORTABLE))?;
+    /// let change = loaded.overrides().next().unwrap();
+    /// assert_eq!(change.key(), "PORT");
+    /// assert_eq!(change.previous().path(), dir.join(".env"));
+    /// assert_eq!(change.replacement().path(), dir.join(".env.local"));
+    /// # std::fs::remove_dir_all(&dir)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn overrides(&self) -> impl Iterator<Item = LoadOverride<'_>> + '_ {
         self.overrides.iter().map(|override_report| LoadOverride {
             key: override_report.key.as_ref(),
@@ -393,9 +781,30 @@ impl LoadedEnvironment {
             replacement: view_origin(&self.files, &override_report.replacement),
         })
     }
-    /// Duplicate declarations within individual files.
+    /// Returns the keys declared more than once within one file.
     ///
-    /// Empty when loaded with [`LoadOptions::with_reports`] set to `false`.
+    /// Each [`LoadRepeated`] covers one key in one file. Yields nothing unless
+    /// the load kept reports, for example with [`LoadOptions::full`].
+    ///
+    /// # Examples
+    ///
+    /// With `PORT=3000` on line 1 and `PORT=8080` on line 2 of `.env`:
+    ///
+    /// ```
+    /// use adotenv::load::{load_cascade_with_options, LoadOptions};
+    /// use adotenv::Dialect;
+    ///
+    /// # let dir = std::env::temp_dir().join(format!("adotenv-doc-LoadedEnvironment-repeated-{}", std::process::id()));
+    /// # std::fs::create_dir_all(&dir)?;
+    /// # std::fs::write(dir.join(".env"), "PORT=3000\nPORT=8080\n")?;
+    /// let loaded = load_cascade_with_options(&dir, "", LoadOptions::full(Dialect::PORTABLE))?;
+    /// let repeated = loaded.repeated().next().unwrap();
+    /// assert_eq!(repeated.key(), "PORT");
+    /// assert_eq!(repeated.origins().map(|origin| origin.line()).collect::<Vec<_>>(), [1, 2]);
+    /// assert_eq!(loaded.get("PORT"), Some("8080"));
+    /// # std::fs::remove_dir_all(&dir)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn repeated(&self) -> impl Iterator<Item = LoadRepeated<'_>> + '_ {
         self.repeated.iter().map(|repeated| LoadRepeated {
             key: repeated.key.as_ref(),
@@ -403,9 +812,30 @@ impl LoadedEnvironment {
             files: &self.files,
         })
     }
-    /// Declarations that were inspected but not loaded.
+    /// Returns the declarations that supplied no value, in load order.
     ///
-    /// Empty when loaded with [`LoadOptions::with_reports`] set to `false`.
+    /// Each [`LoadSkipped`] says why with a [`SkipReason`]. Yields nothing
+    /// unless the load kept reports, for example with [`LoadOptions::full`].
+    ///
+    /// # Examples
+    ///
+    /// With a bare `DEBUG` and `PORT=8080` in `.env`:
+    ///
+    /// ```
+    /// use adotenv::load::{load_cascade_with_options, LoadOptions, SkipReason};
+    /// use adotenv::Dialect;
+    ///
+    /// # let dir = std::env::temp_dir().join(format!("adotenv-doc-LoadedEnvironment-skipped-{}", std::process::id()));
+    /// # std::fs::create_dir_all(&dir)?;
+    /// # std::fs::write(dir.join(".env"), "DEBUG\nPORT=8080\n")?;
+    /// let loaded = load_cascade_with_options(&dir, "", LoadOptions::full(Dialect::PORTABLE))?;
+    /// let skipped = loaded.skipped().next().unwrap();
+    /// assert_eq!(skipped.key(), Some("DEBUG"));
+    /// assert_eq!(skipped.reason(), SkipReason::Bare);
+    /// assert_eq!(loaded.get("DEBUG"), None);
+    /// # std::fs::remove_dir_all(&dir)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn skipped(&self) -> impl Iterator<Item = LoadSkipped<'_>> + '_ {
         self.skipped.iter().map(|skipped| LoadSkipped {
             key: skipped.key.as_deref(),
@@ -413,17 +843,35 @@ impl LoadedEnvironment {
             reason: skipped.reason,
         })
     }
-    /// Number of effective values.
+    /// Returns the number of final values.
     #[must_use]
     pub fn len(&self) -> usize {
         self.records.len()
     }
-    /// Whether no effective values were loaded.
+    /// Returns `true` if no file supplied a value.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.records.is_empty()
     }
-    /// Drop provenance and reports, retaining only final effective values.
+    /// Converts the environment into a [`LoadedValues`] with only the final
+    /// values.
+    ///
+    /// Origins, reports and raw source text are dropped.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::load::load_cascade;
+    ///
+    /// # let dir = std::env::temp_dir().join(format!("adotenv-doc-LoadedEnvironment-into_values-{}", std::process::id()));
+    /// # std::fs::create_dir_all(&dir)?;
+    /// # std::fs::write(dir.join(".env"), "PORT=8080\n")?;
+    /// let loaded = load_cascade(&dir, "")?;
+    /// let values = loaded.into_values();
+    /// assert_eq!(values.get("PORT"), Some("8080"));
+    /// # std::fs::remove_dir_all(&dir)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub fn into_values(self) -> LoadedValues {
         LoadedValues {
@@ -444,49 +892,73 @@ fn view_origin<'a>(files: &'a [PathBuf], origin: &CompactOrigin) -> LoadOrigin<'
     }
 }
 
-/// A compact values-only result of loading one or more files.
+/// The merged values of a load, without origins, reports or raw source text.
 ///
-/// This drops origins, raw winning tokens, skipped/repeated reports and
-/// cross-file override reports. Use [`LoadedEnvironment`] when that provenance
-/// or contextual resolution is required.
+/// Returned by [`load_cascade_values`], [`load_cascade_values_with`],
+/// [`load_values`] and [`LoadedEnvironment::into_values`]. It holds the same
+/// final values that a [`LoadedEnvironment`] from the same files holds, sorted
+/// by key, and uses less memory. Use a [`LoadedEnvironment`] to find where a
+/// value came from or to resolve references.
+///
+/// # Examples
+///
+/// With `PORT=3000` in `.env` and `PORT=8080` in `.env.production`:
+///
+/// ```
+/// use adotenv::load::load_cascade_values;
+///
+/// # let dir = std::env::temp_dir().join(format!("adotenv-doc-LoadedValues-{}", std::process::id()));
+/// # std::fs::create_dir_all(&dir)?;
+/// # std::fs::write(dir.join(".env"), "PORT=3000\n")?;
+/// # std::fs::write(dir.join(".env.production"), "PORT=8080\n")?;
+/// let values = load_cascade_values(&dir, "production")?;
+/// assert_eq!(values.len(), 1);
+/// assert_eq!(values.get("PORT"), Some("8080"));
+///
+/// let map = values.into_values();
+/// assert_eq!(map["PORT"], "8080");
+/// # std::fs::remove_dir_all(&dir)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LoadedValues {
     values: BTreeMap<String, String>,
 }
 
 impl LoadedValues {
-    /// Final effective literal values.
+    /// Returns the final values as a map sorted by key.
     #[must_use]
     pub fn values(&self) -> &BTreeMap<String, String> {
         &self.values
     }
-    /// Final value for one key.
+    /// Returns the final value of `key`, or `None` if no file set it.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&str> {
         self.values.get(key).map(String::as_str)
     }
-    /// Number of effective values.
+    /// Returns the number of final values.
     #[must_use]
     pub fn len(&self) -> usize {
         self.values.len()
     }
-    /// Whether no effective values were loaded.
+    /// Returns `true` if no file supplied a value.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.values.is_empty()
     }
-    /// Consume the result and return its map.
+    /// Returns the map of final values, consuming `self`.
     #[must_use]
     pub fn into_values(self) -> BTreeMap<String, String> {
         self.values
     }
 }
 
-/// A resolved loaded environment.
+/// The values of a [`LoadedEnvironment`] after their references were
+/// resolved.
 ///
-/// Values have been processed by [`LoadedEnvironment::resolve_contextual`] or
-/// [`LoadedEnvironment::resolve_decoded`]. Origins identify the winning
-/// declaration that supplied the original value.
+/// Returned by [`LoadedEnvironment::resolve_contextual`] and
+/// [`LoadedEnvironment::resolve_decoded`]. It has every loaded key, sorted by
+/// key. See those methods for examples.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedEnvironment {
     values: BTreeMap<String, String>,
@@ -495,36 +967,73 @@ pub struct ResolvedEnvironment {
 }
 
 impl ResolvedEnvironment {
-    /// Final resolved values.
+    /// Returns the resolved values as a map sorted by key.
     #[must_use]
     pub fn values(&self) -> &BTreeMap<String, String> {
         &self.values
     }
-    /// One resolved value.
+    /// Returns the resolved value of `key`, or `None` if no file set it.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&str> {
         self.values.get(key).map(String::as_str)
     }
-    /// Origin of the winning declaration for one key.
+    /// Returns where the winning declaration of `key` is.
+    ///
+    /// The origin locates the value as written in the file, before
+    /// resolution. Returns `None` if no file set `key`, or if the load used
+    /// [`LoadOptions::with_origins`] with `false`.
     #[must_use]
     pub fn origin(&self, key: &str) -> Option<LoadOrigin<'_>> {
         self.origins
             .get(key)
             .map(|origin| view_origin(&self.files, origin))
     }
-    /// Number of resolved values.
+    /// Returns the number of resolved values.
     #[must_use]
     pub fn len(&self) -> usize {
         self.values.len()
     }
-    /// Whether no values remain.
+    /// Returns `true` if there are no values.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.values.is_empty()
     }
 }
 
-/// Failure from loaded-environment resolution.
+/// An error from [`LoadedEnvironment::resolve_contextual`] or
+/// [`LoadedEnvironment::resolve_decoded`].
+///
+/// When the error is about one key, [`key`](Self::key) names it and
+/// [`origin`](Self::origin) locates its winning declaration, if origins were
+/// kept. Its `Display` is `{path}:{line}: {message}` when the origin is known,
+/// and the message alone otherwise.
+///
+/// # Examples
+///
+/// With `DATABASE_URL=postgres://${DB_HOST}/app` in `.env` and no `DB_HOST`
+/// anywhere:
+///
+/// ```
+/// use adotenv::load::load_cascade;
+/// use adotenv::{ExpandOptions, ExpandScope, Unresolved};
+///
+/// # let dir = std::env::temp_dir().join(format!("adotenv-doc-LoadedResolveError-{}", std::process::id()));
+/// # std::fs::create_dir_all(&dir)?;
+/// # std::fs::write(dir.join(".env"), "DATABASE_URL=postgres://${DB_HOST}/app\n")?;
+/// let loaded = load_cascade(&dir, "")?;
+/// let options = ExpandOptions::portable()
+///     .with_scope(ExpandScope::WholeFile)
+///     .with_unresolved(Unresolved::Error);
+/// let error = loaded.resolve_contextual(|_| None, &options).unwrap_err();
+/// assert_eq!(error.key(), Some("DATABASE_URL"));
+/// assert_eq!(error.message(), "unresolved variable DB_HOST while resolving DATABASE_URL");
+///
+/// let origin = error.origin().unwrap();
+/// assert_eq!(origin.path(), dir.join(".env"));
+/// assert_eq!(origin.line(), 1);
+/// # std::fs::remove_dir_all(&dir)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadedResolveError {
     key: Option<String>,
@@ -544,17 +1053,25 @@ impl LoadedResolveError {
             message: message.into(),
         }
     }
-    /// Key being resolved when available.
+    /// Returns the key that failed, or `None` when the error is not about one
+    /// key.
+    ///
+    /// The key is `None` for a scope other than whole-file, for missing raw
+    /// source text and when the merged values cannot be prepared for
+    /// resolution.
     #[must_use]
     pub fn key(&self) -> Option<&str> {
         self.key.as_deref()
     }
-    /// Origin of the winning declaration when available.
+    /// Returns where the winning declaration of the failed key is.
+    ///
+    /// Returns `None` when [`key`](Self::key) is `None`, or if the load used
+    /// [`LoadOptions::with_origins`] with `false`.
     #[must_use]
     pub fn origin(&self) -> Option<&LoadOriginOwned> {
         self.origin.as_ref()
     }
-    /// Human-readable failure message.
+    /// Returns the error message, without the file and line.
     #[must_use]
     pub fn message(&self) -> &str {
         &self.message
@@ -573,28 +1090,70 @@ impl fmt::Display for LoadedResolveError {
 impl std::error::Error for LoadedResolveError {}
 
 impl LoadedEnvironment {
-    /// Resolve variable references in the final decoded values.
+    /// Resolves references in the final values, treating each value as
+    /// unquoted text.
     ///
-    /// This is the explicit **decoded-value** policy: loaded values are treated
-    /// as unquoted decoded text, and the original quote, escape and dialect
-    /// context is ignored. Use [`Self::resolve_contextual`] to keep that
-    /// context.
+    /// The quotes and escapes of the original files are ignored: a reference
+    /// resolves wherever it appears in the decoded value, even in a value the
+    /// file single-quoted. Use [`resolve_contextual`](Self::resolve_contextual)
+    /// to keep their meaning. This method works without raw source text, so it
+    /// also works after [`LoadOptions::with_raw_tokens`] with `false`.
     ///
-    /// Only [`ExpandScope::WholeFile`] is accepted. The synthetic resolution
-    /// order is lexicographic by key, but whole-file bindings do not depend on
-    /// order. Command substitutions stay literal; to run them, resolve a parsed
-    /// document with [`crate::Document::resolve_with_commands`].
+    /// A reference sees the final value of every loaded key, whichever file
+    /// set it. Names are looked up in those values and in `lookup`, in the
+    /// `lookup_order` of `options`; the presets try the values first. `lookup`
+    /// returns `None` for a name it does not know. Only
+    /// [`ExpandScope::WholeFile`] is accepted, and every [`ExpandOptions`]
+    /// preset uses sequential scope, so set the scope explicitly. The reference
+    /// forms, unresolved-reference handling and limits also come from
+    /// `options`. Command substitutions stay literal; to run them, parse the
+    /// file and call
+    /// [`Document::resolve_with_commands`](crate::Document::resolve_with_commands).
     ///
-    /// Keys take part exactly as loaded, whatever dialect read them, so a
-    /// braced reference such as `${A B}` finds a quoted key `A B`. A key is
-    /// never reinterpreted as a different key: one that the synthetic source
-    /// cannot represent, such as a key that contains both an apostrophe and
-    /// whitespace, is an error naming that key.
+    /// Keys take part exactly as loaded, whatever dialect read them, so
+    /// `${A B}` finds a key `A B` that a dialect with quoted keys read. A key
+    /// is never read as a different key: one that cannot be written back
+    /// exactly, such as a key with both an apostrophe and whitespace, is an
+    /// error naming that key.
     ///
     /// # Errors
-    /// Returns [`LoadedResolveError`] for unsupported sequential scope, keys or
-    /// values that cannot be represented exactly, or resolution failures. The
-    /// error retains the winning declaration origin when available.
+    ///
+    /// Returns a [`LoadedResolveError`]:
+    ///
+    /// - without a key, if `options.scope` is not [`ExpandScope::WholeFile`];
+    /// - naming the key, if a key or value cannot be written back exactly,
+    ///   such as a value with a control character other than tab, CR or LF;
+    /// - naming the key, if resolution fails, for example an unset name under
+    ///   [`Unresolved::Error`](crate::Unresolved::Error), a cycle or a size
+    ///   limit; the message is the [`ResolveError`] message.
+    ///
+    /// The error carries the origin of the key's winning declaration when
+    /// origins were kept.
+    ///
+    /// # Examples
+    ///
+    /// With `HOST=db.internal` and `TEMPLATE='${HOST}'` in `.env`:
+    ///
+    /// ```
+    /// use adotenv::load::load_cascade;
+    /// use adotenv::{ExpandOptions, ExpandScope};
+    ///
+    /// # let dir = std::env::temp_dir().join(format!("adotenv-doc-LoadedEnvironment-resolve_decoded-{}", std::process::id()));
+    /// # std::fs::create_dir_all(&dir)?;
+    /// # std::fs::write(dir.join(".env"), "HOST=db.internal\nTEMPLATE='${HOST}'\n")?;
+    /// let loaded = load_cascade(&dir, "")?;
+    /// assert_eq!(loaded.get("TEMPLATE"), Some("${HOST}"));
+    ///
+    /// let options = ExpandOptions::portable().with_scope(ExpandScope::WholeFile);
+    /// let decoded = loaded.resolve_decoded(|_| None, &options)?;
+    /// assert_eq!(decoded.get("TEMPLATE"), Some("db.internal"));
+    ///
+    /// // The single quotes keep the reference literal in contextual resolution.
+    /// let contextual = loaded.resolve_contextual(|_| None, &options)?;
+    /// assert_eq!(contextual.get("TEMPLATE"), Some("${HOST}"));
+    /// # std::fs::remove_dir_all(&dir)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn resolve_decoded<F>(
         &self,
         lookup: F,
@@ -672,27 +1231,68 @@ impl LoadedEnvironment {
         })
     }
 
-    /// Resolve references in final values using each winning declaration's
-    /// original literal context.
+    /// Resolves references in the final values, keeping the quotes and escapes
+    /// of the files they came from.
     ///
-    /// The winning key/value tokens are reconstructed in cascade order and
-    /// parsed with the dialect used at load time. Quote, escape and bare-key
-    /// context therefore match the source that won the cascade. The synthetic
-    /// source has no original file offsets; errors retain the winning
-    /// declaration's [`LoadOrigin`], key and message. It returns an error when
-    /// the environment was loaded with raw-token retention disabled; use
-    /// [`Self::resolve_decoded`] in that case.
+    /// The raw source text of each winning declaration is parsed again with
+    /// the load dialect, so a value resolves as it would in its own file: a
+    /// single-quoted `'${HOST}'` stays literal and an escaped `\$HOST` in
+    /// double quotes stays `$HOST`. This needs the raw source text, which
+    /// [`LoadOptions::new`] and [`LoadOptions::full`] keep; without it, use
+    /// [`resolve_decoded`](Self::resolve_decoded).
     ///
-    /// Only [`ExpandScope::WholeFile`] is accepted, as for
-    /// [`Self::resolve_decoded`]. The winning declarations come from different
-    /// files, so no single declaration order gives sequential scope its
-    /// meaning: a reference to a key that a later file overrides would see no
-    /// earlier binding.
+    /// A reference sees the final value of every loaded key, whichever file
+    /// set it. Names are looked up in those values and in `lookup`, in the
+    /// `lookup_order` of `options`; the presets try the values first. `lookup`
+    /// returns `None` for a name it does not know. The reference forms,
+    /// unresolved-reference handling and limits also come from `options`.
+    /// Command substitutions stay literal; to run them, parse the file and
+    /// call
+    /// [`Document::resolve_with_commands`](crate::Document::resolve_with_commands).
+    ///
+    /// Only [`ExpandScope::WholeFile`] is accepted, and every [`ExpandOptions`]
+    /// preset uses sequential scope, so set the scope explicitly. The winning
+    /// declarations come from different files, so no single order gives
+    /// sequential scope a meaning. With `B=1` and `A=${B}/x` in `.env` and
+    /// `B=2` in `.env.local`, a sequential reference from `A` would see no
+    /// earlier `B`; whole-file scope resolves `A` to `2/x`.
     ///
     /// # Errors
-    /// Returns [`LoadedResolveError`] for unsupported sequential scope, if raw
-    /// tokens were not retained, if the reconstructed source cannot be parsed,
-    /// or if resolution fails.
+    ///
+    /// Returns a [`LoadedResolveError`]:
+    ///
+    /// - without a key, if `options.scope` is not [`ExpandScope::WholeFile`];
+    /// - without a key, if the raw source text was not kept;
+    /// - without a key, if the winning declarations cannot be parsed again;
+    /// - naming the key, if resolution fails, for example an unset name under
+    ///   [`Unresolved::Error`](crate::Unresolved::Error), a cycle or a size
+    ///   limit; the message is the [`ResolveError`] message.
+    ///
+    /// The error carries the origin of the key's winning declaration when
+    /// origins were kept.
+    ///
+    /// # Examples
+    ///
+    /// With `DB_HOST=localhost` and `DATABASE_URL=postgres://${DB_USER}@${DB_HOST}/app`
+    /// in `.env`, and `DB_HOST=db.internal` in `.env.production`:
+    ///
+    /// ```
+    /// use adotenv::load::load_cascade;
+    /// use adotenv::{ExpandOptions, ExpandScope};
+    ///
+    /// # let dir = std::env::temp_dir().join(format!("adotenv-doc-LoadedEnvironment-resolve_contextual-{}", std::process::id()));
+    /// # std::fs::create_dir_all(&dir)?;
+    /// # std::fs::write(dir.join(".env"), "DB_HOST=localhost\nDATABASE_URL=postgres://${DB_USER}@${DB_HOST}/app\n")?;
+    /// # std::fs::write(dir.join(".env.production"), "DB_HOST=db.internal\n")?;
+    /// let loaded = load_cascade(&dir, "production")?;
+    /// let options = ExpandOptions::portable().with_scope(ExpandScope::WholeFile);
+    /// let lookup = |name: &str| (name == "DB_USER").then(|| "app".to_string());
+    /// let resolved = loaded.resolve_contextual(lookup, &options)?;
+    /// assert_eq!(resolved.get("DATABASE_URL"), Some("postgres://app@db.internal/app"));
+    /// assert_eq!(resolved.origin("DATABASE_URL").unwrap().path(), dir.join(".env"));
+    /// # std::fs::remove_dir_all(&dir)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn resolve_contextual<F>(
         &self,
         lookup: F,
@@ -797,30 +1397,65 @@ fn resolve_error_key(error: &ResolveError) -> &str {
     }
 }
 
-/// File loading failure.
+/// An error that stops a load.
+///
+/// A load either reads and checks every file or returns this error and no
+/// values. Its `Display` names the file, for example
+/// `/srv/my-app/.env: line 2: key does not match the selected dialect (dotenv.invalid-key)`.
+///
+/// # Examples
+///
+/// With `PORT=8080` on line 1 and `BAD KEY=1` on line 2 of `.env`:
+///
+/// ```
+/// use adotenv::load::{load_cascade, LoadError};
+/// use adotenv::DiagnosticCode;
+///
+/// # let dir = std::env::temp_dir().join(format!("adotenv-doc-LoadError-{}", std::process::id()));
+/// # std::fs::create_dir_all(&dir)?;
+/// # std::fs::write(dir.join(".env"), "PORT=8080\nBAD KEY=1\n")?;
+/// match load_cascade(&dir, "") {
+///     Err(LoadError::Invalid { path, diagnostic }) => {
+///         assert_eq!(path, dir.join(".env"));
+///         assert_eq!(diagnostic.code(), DiagnosticCode::InvalidKey);
+///         assert_eq!(diagnostic.line(), 2);
+///     }
+///     other => panic!("expected an invalid file, got {other:?}"),
+/// }
+///
+/// assert!(matches!(load_cascade(&dir, "../secrets"), Err(LoadError::InvalidMode)));
+/// # std::fs::remove_dir_all(&dir)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum LoadError {
     /// A file could not be read.
+    ///
+    /// A cascade skips a file that does not exist, but a file in an explicit
+    /// list that does not exist is this error, with
+    /// [`ErrorKind::NotFound`](std::io::ErrorKind::NotFound).
     Io {
-        /// Path that failed.
+        /// The file that could not be read.
         path: PathBuf,
-        /// OS error.
+        /// The I/O error, also returned by [`Error::source`](std::error::Error::source).
         source: io::Error,
     },
-    /// A file was not valid UTF-8.
+    /// A file is not valid UTF-8.
     InvalidUtf8 {
-        /// Path that failed.
+        /// The file that is not valid UTF-8.
         path: PathBuf,
     },
-    /// A file contained a syntax or policy error.
+    /// A file has an error-severity diagnostic under the dialect.
+    ///
+    /// Warnings never cause this error.
     Invalid {
-        /// Path that failed.
+        /// The file that has the error.
         path: PathBuf,
-        /// First error in source order.
+        /// The first error-severity diagnostic in the file, in source order.
         diagnostic: Diagnostic,
     },
-    /// A mode name could escape the cascade or is otherwise invalid.
+    /// The mode contains `/`, `\` or NUL, or is exactly `.` or `..`.
     InvalidMode,
 }
 
@@ -851,14 +1486,47 @@ impl std::error::Error for LoadError {
     }
 }
 
-/// Load the standard `.env` cascade from `directory` using Portable syntax.
+/// Loads the `.env` cascade from `directory` with the Portable dialect.
 ///
-/// Missing cascade files are skipped. A file that exists but cannot be read,
-/// decoded, or parsed invalidates the complete load.
+/// Reads `.env`, `.env.local`, `.env.{mode}` and `.env.{mode}.local` from
+/// `directory`, in that order. A later file's value replaces an earlier one,
+/// key by key. Files that do not exist are skipped, and an empty `mode` reads
+/// only `.env` and `.env.local`. The [module documentation](crate::load)
+/// describes the cascade in full.
+///
+/// The result keeps origins and the raw source text for
+/// [`LoadedEnvironment::resolve_contextual`], but no reports. Use
+/// [`load_cascade_with`] for another dialect, [`load_cascade_with_options`]
+/// for reports and [`load_cascade_values`] when only the values are needed.
 ///
 /// # Errors
-/// Returns [`LoadError`] for invalid mode names, I/O errors, invalid UTF-8 or
-/// syntax/policy errors.
+///
+/// - [`LoadError::InvalidMode`] if `mode` contains `/`, `\` or NUL, or is
+///   `.` or `..`. No file is read.
+/// - [`LoadError::Io`] if a cascade file exists but cannot be read.
+/// - [`LoadError::InvalidUtf8`] if a cascade file is not valid UTF-8.
+/// - [`LoadError::Invalid`] if a cascade file has an error-severity
+///   diagnostic.
+///
+/// # Examples
+///
+/// With `PORT=3000` in `.env` and `PORT=8080` in `.env.production`:
+///
+/// ```
+/// use adotenv::load::load_cascade;
+///
+/// # let dir = std::env::temp_dir().join(format!("adotenv-doc-load_cascade-{}", std::process::id()));
+/// # std::fs::create_dir_all(&dir)?;
+/// # std::fs::write(dir.join(".env"), "PORT=3000\n")?;
+/// # std::fs::write(dir.join(".env.production"), "PORT=8080\n")?;
+/// let loaded = load_cascade(&dir, "production")?;
+/// assert_eq!(loaded.get("PORT"), Some("8080"));
+///
+/// let development = load_cascade(&dir, "development")?;
+/// assert_eq!(development.get("PORT"), Some("3000"));
+/// # std::fs::remove_dir_all(&dir)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn load_cascade<P: AsRef<Path>>(
     directory: P,
     mode: &str,
@@ -866,11 +1534,36 @@ pub fn load_cascade<P: AsRef<Path>>(
     load_cascade_with(directory, mode, Dialect::PORTABLE)
 }
 
-/// Load the standard cascade with an explicit dialect.
+/// Loads the `.env` cascade from `directory` with the given dialect.
+///
+/// Works like [`load_cascade`], but parses every file with `dialect`.
 ///
 /// # Errors
-/// Returns [`LoadError`] for invalid mode names, I/O errors, invalid UTF-8 or
-/// syntax/policy errors.
+///
+/// - [`LoadError::InvalidMode`] if `mode` contains `/`, `\` or NUL, or is
+///   `.` or `..`. No file is read.
+/// - [`LoadError::Io`] if a cascade file exists but cannot be read.
+/// - [`LoadError::InvalidUtf8`] if a cascade file is not valid UTF-8.
+/// - [`LoadError::Invalid`] if a cascade file has an error-severity
+///   diagnostic under `dialect`.
+///
+/// # Examples
+///
+/// Node dotenv reads backticks as quotes. With `` GREETING=`hello world` `` in
+/// `.env`:
+///
+/// ```
+/// use adotenv::load::load_cascade_with;
+/// use adotenv::Dialect;
+///
+/// # let dir = std::env::temp_dir().join(format!("adotenv-doc-load_cascade_with-{}", std::process::id()));
+/// # std::fs::create_dir_all(&dir)?;
+/// # std::fs::write(dir.join(".env"), "GREETING=`hello world`\n")?;
+/// let loaded = load_cascade_with(&dir, "", Dialect::NODE_DOTENV)?;
+/// assert_eq!(loaded.get("GREETING"), Some("hello world"));
+/// # std::fs::remove_dir_all(&dir)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn load_cascade_with<P: AsRef<Path>>(
     directory: P,
     mode: &str,
@@ -879,11 +1572,43 @@ pub fn load_cascade_with<P: AsRef<Path>>(
     load_cascade_with_options(directory, mode, LoadOptions::new(dialect))
 }
 
-/// Load the standard cascade with explicit retention options.
+/// Loads the `.env` cascade from `directory` with the given options.
+///
+/// Works like [`load_cascade`], but parses every file with
+/// `options.dialect` and keeps what `options` selects, such as the reports of
+/// [`LoadOptions::full`].
 ///
 /// # Errors
-/// Returns [`LoadError`] for invalid mode names, I/O errors, invalid UTF-8 or
-/// syntax/policy errors.
+///
+/// - [`LoadError::InvalidMode`] if `mode` contains `/`, `\` or NUL, or is
+///   `.` or `..`. No file is read.
+/// - [`LoadError::Io`] if a cascade file exists but cannot be read.
+/// - [`LoadError::InvalidUtf8`] if a cascade file is not valid UTF-8.
+/// - [`LoadError::Invalid`] if a cascade file has an error-severity
+///   diagnostic under `options.dialect`.
+///
+/// # Examples
+///
+/// With `PORT=3000` in `.env` and `PORT=8080` in `.env.production`:
+///
+/// ```
+/// use adotenv::load::{load_cascade_with_options, LoadOptions};
+/// use adotenv::Dialect;
+///
+/// # let dir = std::env::temp_dir().join(format!("adotenv-doc-load_cascade_with_options-{}", std::process::id()));
+/// # std::fs::create_dir_all(&dir)?;
+/// # std::fs::write(dir.join(".env"), "PORT=3000\n")?;
+/// # std::fs::write(dir.join(".env.production"), "PORT=8080\n")?;
+/// let options = LoadOptions::full(Dialect::PORTABLE);
+/// let loaded = load_cascade_with_options(&dir, "production", options)?;
+///
+/// let change = loaded.overrides().next().unwrap();
+/// assert_eq!(change.key(), "PORT");
+/// assert_eq!(change.previous().path(), dir.join(".env"));
+/// assert_eq!(change.replacement().path(), dir.join(".env.production"));
+/// # std::fs::remove_dir_all(&dir)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn load_cascade_with_options<P: AsRef<Path>>(
     directory: P,
     mode: &str,
@@ -901,14 +1626,40 @@ pub fn load_cascade_with_options<P: AsRef<Path>>(
     load_paths(paths, options, true)
 }
 
-/// Load an explicit ordered list of files, with later files overriding earlier
-/// files by key.
+/// Loads the listed files in order with the given dialect.
 ///
-/// Every listed file must exist. Use [`load_cascade`] for optional standard
-/// filenames.
+/// A later file's value replaces an earlier one, key by key, as in a cascade.
+/// Every listed file must exist; use [`load_cascade`] for the standard file
+/// names, which may be missing. An empty list loads an empty environment.
 ///
 /// # Errors
-/// Returns [`LoadError`] for I/O errors, invalid UTF-8 or syntax/policy errors.
+///
+/// - [`LoadError::Io`] if a listed file does not exist or cannot be read.
+/// - [`LoadError::InvalidUtf8`] if a listed file is not valid UTF-8.
+/// - [`LoadError::Invalid`] if a listed file has an error-severity
+///   diagnostic under `dialect`.
+///
+/// # Examples
+///
+/// With `PORT=3000` in `base.env` and `PORT=8080` in `production.env`:
+///
+/// ```
+/// use adotenv::load::{load_files, LoadError};
+/// use adotenv::Dialect;
+///
+/// # let dir = std::env::temp_dir().join(format!("adotenv-doc-load_files-{}", std::process::id()));
+/// # std::fs::create_dir_all(&dir)?;
+/// # std::fs::write(dir.join("base.env"), "PORT=3000\n")?;
+/// # std::fs::write(dir.join("production.env"), "PORT=8080\n")?;
+/// let files = [dir.join("base.env"), dir.join("production.env")];
+/// let loaded = load_files(&files, Dialect::PORTABLE)?;
+/// assert_eq!(loaded.get("PORT"), Some("8080"));
+///
+/// let missing = load_files([dir.join("missing.env")], Dialect::PORTABLE);
+/// assert!(matches!(missing, Err(LoadError::Io { .. })));
+/// # std::fs::remove_dir_all(&dir)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn load_files<I, P>(paths: I, dialect: Dialect) -> Result<LoadedEnvironment, LoadError>
 where
     I: IntoIterator<Item = P>,
@@ -917,10 +1668,38 @@ where
     load_files_with_options(paths, LoadOptions::new(dialect))
 }
 
-/// Load an explicit ordered file list with explicit retention options.
+/// Loads the listed files in order with the given options.
+///
+/// Works like [`load_files`], but parses every file with `options.dialect` and
+/// keeps what `options` selects.
 ///
 /// # Errors
-/// Returns [`LoadError`] for I/O errors, invalid UTF-8 or syntax/policy errors.
+///
+/// - [`LoadError::Io`] if a listed file does not exist or cannot be read.
+/// - [`LoadError::InvalidUtf8`] if a listed file is not valid UTF-8.
+/// - [`LoadError::Invalid`] if a listed file has an error-severity
+///   diagnostic under `options.dialect`.
+///
+/// # Examples
+///
+/// With `PORT=3000` in `base.env` and `PORT=8080` in `production.env`:
+///
+/// ```
+/// use adotenv::load::{load_files_with_options, LoadOptions};
+/// use adotenv::Dialect;
+///
+/// # let dir = std::env::temp_dir().join(format!("adotenv-doc-load_files_with_options-{}", std::process::id()));
+/// # std::fs::create_dir_all(&dir)?;
+/// # std::fs::write(dir.join("base.env"), "PORT=3000\n")?;
+/// # std::fs::write(dir.join("production.env"), "PORT=8080\n")?;
+/// let files = [dir.join("base.env"), dir.join("production.env")];
+/// let options = LoadOptions::new(Dialect::PORTABLE).with_origins(false);
+/// let loaded = load_files_with_options(&files, options)?;
+/// assert_eq!(loaded.get("PORT"), Some("8080"));
+/// assert!(loaded.origin("PORT").is_none());
+/// # std::fs::remove_dir_all(&dir)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn load_files_with_options<I, P>(
     paths: I,
     options: LoadOptions,
@@ -932,17 +1711,39 @@ where
     load_paths(paths, options, false)
 }
 
-/// Load the standard cascade while retaining only final effective values.
+/// Loads the `.env` cascade from `directory` with the Portable dialect,
+/// keeping only the final values.
 ///
-/// This is the compact application-loading path. It applies the same strict
-/// read/validate and override semantics as [`load_cascade`], then drops
-/// origins, raw winning tokens and reports. The shared parser projects only
-/// effective values, so no lossless document is retained. Missing cascade files
-/// are skipped.
+/// Reads the same files with the same rules and errors as [`load_cascade`]
+/// and returns the same values, but keeps no origins, reports or raw source
+/// text, and builds no [`Document`](crate::Document) for any file. This uses
+/// less memory, so prefer it when an application needs only the values.
 ///
 /// # Errors
-/// Returns [`LoadError`] for invalid mode names, I/O errors, invalid UTF-8 or
-/// syntax/policy errors.
+///
+/// - [`LoadError::InvalidMode`] if `mode` contains `/`, `\` or NUL, or is
+///   `.` or `..`. No file is read.
+/// - [`LoadError::Io`] if a cascade file exists but cannot be read.
+/// - [`LoadError::InvalidUtf8`] if a cascade file is not valid UTF-8.
+/// - [`LoadError::Invalid`] if a cascade file has an error-severity
+///   diagnostic.
+///
+/// # Examples
+///
+/// With `PORT=3000` in `.env` and `PORT=8080` in `.env.production`:
+///
+/// ```
+/// use adotenv::load::load_cascade_values;
+///
+/// # let dir = std::env::temp_dir().join(format!("adotenv-doc-load_cascade_values-{}", std::process::id()));
+/// # std::fs::create_dir_all(&dir)?;
+/// # std::fs::write(dir.join(".env"), "PORT=3000\n")?;
+/// # std::fs::write(dir.join(".env.production"), "PORT=8080\n")?;
+/// let values = load_cascade_values(&dir, "production")?;
+/// assert_eq!(values.get("PORT"), Some("8080"));
+/// # std::fs::remove_dir_all(&dir)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn load_cascade_values<P: AsRef<Path>>(
     directory: P,
     mode: &str,
@@ -950,11 +1751,37 @@ pub fn load_cascade_values<P: AsRef<Path>>(
     load_cascade_values_with(directory, mode, Dialect::PORTABLE)
 }
 
-/// Load the standard cascade with an explicit dialect, retaining only values.
+/// Loads the `.env` cascade from `directory` with the given dialect, keeping
+/// only the final values.
+///
+/// Works like [`load_cascade_values`], but parses every file with `dialect`.
 ///
 /// # Errors
-/// Returns [`LoadError`] for invalid mode names, I/O errors, invalid UTF-8 or
-/// syntax/policy errors.
+///
+/// - [`LoadError::InvalidMode`] if `mode` contains `/`, `\` or NUL, or is
+///   `.` or `..`. No file is read.
+/// - [`LoadError::Io`] if a cascade file exists but cannot be read.
+/// - [`LoadError::InvalidUtf8`] if a cascade file is not valid UTF-8.
+/// - [`LoadError::Invalid`] if a cascade file has an error-severity
+///   diagnostic under `dialect`.
+///
+/// # Examples
+///
+/// Node dotenv reads backticks as quotes. With `` GREETING=`hello world` `` in
+/// `.env`:
+///
+/// ```
+/// use adotenv::load::load_cascade_values_with;
+/// use adotenv::Dialect;
+///
+/// # let dir = std::env::temp_dir().join(format!("adotenv-doc-load_cascade_values_with-{}", std::process::id()));
+/// # std::fs::create_dir_all(&dir)?;
+/// # std::fs::write(dir.join(".env"), "GREETING=`hello world`\n")?;
+/// let values = load_cascade_values_with(&dir, "", Dialect::NODE_DOTENV)?;
+/// assert_eq!(values.get("GREETING"), Some("hello world"));
+/// # std::fs::remove_dir_all(&dir)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn load_cascade_values_with<P: AsRef<Path>>(
     directory: P,
     mode: &str,
@@ -972,16 +1799,43 @@ pub fn load_cascade_values_with<P: AsRef<Path>>(
     load_value_paths(paths, dialect, true)
 }
 
-/// Load an explicit ordered file list while retaining only final effective
-/// values.
+/// Loads the listed files in order with the given dialect, keeping only the
+/// final values.
 ///
-/// Every listed file must exist, and later files override earlier files by
-/// key. The shared parser projects only effective values, so no lossless
-/// document is retained. Use [`load_cascade_values`] for optional standard
-/// filenames.
+/// Reads the same files with the same rules and errors as [`load_files`] and
+/// returns the same values, but keeps no origins, reports or raw source text.
+/// Every listed file must exist; use [`load_cascade_values`] for the standard
+/// file names, which may be missing.
 ///
 /// # Errors
-/// Returns [`LoadError`] for I/O errors, invalid UTF-8 or syntax/policy errors.
+///
+/// - [`LoadError::Io`] if a listed file does not exist or cannot be read.
+/// - [`LoadError::InvalidUtf8`] if a listed file is not valid UTF-8.
+/// - [`LoadError::Invalid`] if a listed file has an error-severity
+///   diagnostic under `dialect`.
+///
+/// # Examples
+///
+/// With `PORT=3000` and `HOST=localhost` in `base.env`, and `PORT=8080` in
+/// `production.env`:
+///
+/// ```
+/// use std::collections::BTreeMap;
+///
+/// use adotenv::load::load_values;
+/// use adotenv::Dialect;
+///
+/// # let dir = std::env::temp_dir().join(format!("adotenv-doc-load_values-{}", std::process::id()));
+/// # std::fs::create_dir_all(&dir)?;
+/// # std::fs::write(dir.join("base.env"), "PORT=3000\nHOST=localhost\n")?;
+/// # std::fs::write(dir.join("production.env"), "PORT=8080\n")?;
+/// let files = [dir.join("base.env"), dir.join("production.env")];
+/// let map: BTreeMap<String, String> = load_values(&files, Dialect::PORTABLE)?.into_values();
+/// assert_eq!(map["HOST"], "localhost");
+/// assert_eq!(map["PORT"], "8080");
+/// # std::fs::remove_dir_all(&dir)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn load_values<I, P>(paths: I, dialect: Dialect) -> Result<LoadedValues, LoadError>
 where
     I: IntoIterator<Item = P>,

@@ -1,9 +1,16 @@
-//! Opt-in system-shell command callback for trusted files.
+//! A command callback that runs `$(command)` forms through the system shell.
 //!
-//! This module is available only with the `exec` feature. It runs arbitrary
-//! commands through the platform shell in an explicit working directory. Only
-//! pass trusted files and review every command. No implicit host working
-//! directory or environment lookup is added by the core resolver.
+//! This module exists only with the `exec` feature. [`Shell`] is a ready-made
+//! callback for
+//! [`Document::resolve_with_commands`](crate::Document::resolve_with_commands):
+//! it runs each command with `sh -c`, or `cmd /C` on Windows, in a directory
+//! you name, and returns its standard output.
+//!
+//! A command in a `.env` file is arbitrary code that runs with the permissions
+//! of your process. Use [`Shell`] only with files you trust like your own code,
+//! and review the commands they contain. Nothing else in this crate starts a
+//! process: without this module, commands run only through a callback you
+//! write.
 
 use std::{collections::BTreeMap, path::PathBuf, process::Command};
 
@@ -18,11 +25,49 @@ const SHELL: &str = "sh";
 #[cfg(not(windows))]
 const SHELL_FLAG: &str = "-c";
 
-/// A shell callback with an explicit default directory and optional source map.
+/// A command runner that executes `$(command)` forms through the system shell.
 ///
-/// Commands run exactly as written. Standard output is returned with one
-/// trailing newline removed (including the preceding carriage return for CRLF).
-/// Nonzero status and non-UTF-8 output are errors.
+/// [`Shell::callback`] turns it into the callback that
+/// [`Document::resolve_with_commands`](crate::Document::resolve_with_commands)
+/// takes. Each command:
+///
+/// - runs as `sh -c <command>`, or as `cmd /C <command>` on Windows, with the
+///   command text exactly as written between `$(` and `)`, so it uses that
+///   shell's syntax;
+/// - runs in the directory given to [`Shell::new`], or in the directory that
+///   [`Shell::with_origins`] maps its source identity to;
+/// - inherits the environment of the current process. The shell expands
+///   variable references in the command from that environment, not from the
+///   file or the lookup closure;
+/// - gets an empty standard input. Its standard error is captured and appears
+///   only in the error message of a failed command.
+///
+/// The result is the command's standard output with one trailing newline
+/// removed (`\n` or `\r\n`). A command that cannot start, exits with a nonzero
+/// status or prints output that is not UTF-8 fails with a [`CommandError`],
+/// and resolution stops with
+/// [`ResolveError::Command`](crate::ResolveError::Command).
+///
+/// Commands run with the permissions of your process. Use `Shell` only with
+/// trusted files, and wrap [`Shell::run`] in your own callback when you want to
+/// allow only some commands.
+///
+/// # Examples
+///
+/// ```no_run
+/// use adotenv::{exec::Shell, parse_strict, ExpandOptions};
+///
+/// let doc = parse_strict("REVISION=$(git rev-parse --short HEAD)\n")?;
+/// let shell = Shell::new("/srv/app");
+/// let resolved = doc.resolve_with_commands(
+///     |_| None,
+///     shell.callback(),
+///     None,
+///     &ExpandOptions::dotenv_expand(),
+/// )?;
+/// assert_eq!(resolved.commands().len(), 1);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone)]
 pub struct Shell {
     directory: PathBuf,
@@ -30,11 +75,12 @@ pub struct Shell {
 }
 
 impl Shell {
-    /// Construct a callback with an explicit working directory.
+    /// Creates a runner that uses `directory` for every command.
     ///
-    /// The directory is used for every command unless a source-specific origin
-    /// is configured with [`Self::with_origins`]. An invalid directory is
-    /// reported when a command runs; there is no host-cwd fallback.
+    /// A directory that does not exist is reported as an error when a command
+    /// runs; the current directory of the process is never used instead. A
+    /// relative path is taken relative to the current directory at the time
+    /// each command starts.
     #[must_use]
     pub fn new(directory: impl Into<PathBuf>) -> Self {
         Self {
@@ -43,11 +89,37 @@ impl Shell {
         }
     }
 
-    /// Construct a callback with a default directory and source-identity origins.
+    /// Creates a runner that picks the working directory by source identity.
     ///
-    /// A context whose `source` matches a map entry runs in that directory;
-    /// otherwise the default directory is used. Source identity stays opaque in
-    /// the core and is only matched here for explicit execution policy.
+    /// A command whose [`CommandContext::source`] is a key of `origins` runs in
+    /// the mapped directory; any other command, including one without a source
+    /// identity, runs in `directory`. Keys must match the `source_identity`
+    /// passed to
+    /// [`Document::resolve_with_commands`](crate::Document::resolve_with_commands)
+    /// exactly. This lets commands from each file run next to that file.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::{collections::BTreeMap, path::PathBuf};
+    ///
+    /// use adotenv::{exec::Shell, parse_strict, ExpandOptions};
+    ///
+    /// let mut origins = BTreeMap::new();
+    /// origins.insert("api/.env".to_string(), PathBuf::from("/srv/app/api"));
+    /// let shell = Shell::with_origins("/srv/app", origins);
+    ///
+    /// // This command runs in /srv/app/api.
+    /// let doc = parse_strict("REVISION=$(git rev-parse HEAD)\n")?;
+    /// let resolved = doc.resolve_with_commands(
+    ///     |_| None,
+    ///     shell.callback(),
+    ///     Some("api/.env"),
+    ///     &ExpandOptions::dotenv_expand(),
+    /// )?;
+    /// assert_eq!(resolved.commands().len(), 1);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub fn with_origins(directory: impl Into<PathBuf>, origins: BTreeMap<String, PathBuf>) -> Self {
         Self {
@@ -56,17 +128,54 @@ impl Shell {
         }
     }
 
-    /// Return a `resolve_with_commands` callback borrowing this configuration.
+    /// Returns a callback for
+    /// [`Document::resolve_with_commands`](crate::Document::resolve_with_commands)
+    /// that runs each command with [`Shell::run`].
+    ///
+    /// The callback borrows this `Shell`. See the [`Shell`] example.
     #[must_use = "callbacks are lazy and do nothing unless passed to resolution"]
     pub fn callback(&self) -> impl FnMut(CommandContext<'_>) -> Result<String, CommandError> + '_ {
         move |context| self.run(&context)
     }
 
-    /// Run one command and return its standard output.
+    /// Runs one command and returns its standard output without one trailing
+    /// newline.
+    ///
+    /// This is what [`Shell::callback`] calls for each command. Call it from
+    /// your own callback to decide first which commands may run.
     ///
     /// # Errors
-    /// Returns [`CommandError`] for an invalid directory, spawn failure, nonzero
-    /// status or non-UTF-8 standard output.
+    ///
+    /// Returns a [`CommandError`] when:
+    ///
+    /// - the working directory does not exist or cannot be used, or the shell
+    ///   cannot start;
+    /// - the command exits with a nonzero status or is ended by a signal; the
+    ///   message includes its standard error;
+    /// - its standard output is not valid UTF-8.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use adotenv::{exec::Shell, parse_strict, CommandError, ExpandOptions};
+    ///
+    /// let shell = Shell::new("/srv/app");
+    /// let doc = parse_strict("REVISION=$(git rev-parse HEAD)\n")?;
+    /// let resolved = doc.resolve_with_commands(
+    ///     |_| None,
+    ///     |context| {
+    ///         if context.command.starts_with("git ") {
+    ///             shell.run(&context)
+    ///         } else {
+    ///             Err(CommandError::new(format!("not allowed: {}", context.command)))
+    ///         }
+    ///     },
+    ///     None,
+    ///     &ExpandOptions::dotenv_expand(),
+    /// )?;
+    /// assert_eq!(resolved.commands().len(), 1);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn run(&self, context: &CommandContext<'_>) -> Result<String, CommandError> {
         let directory = context
             .source

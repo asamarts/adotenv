@@ -24,6 +24,7 @@ include = ["/src/**/*.rs", "/benches/**/*.rs", "/README.md", "/CHANGELOG.md", "/
 
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["std"]

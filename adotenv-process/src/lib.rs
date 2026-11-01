@@ -1,27 +1,122 @@
-//! Explicit process-environment application for loaded `.env` values.
+//! Sets values loaded by [`adotenv`] in the current process environment.
 //!
-//! This crate deliberately lives outside `adotenv`: the core forbids unsafe code
-//! and never mutates the process environment. Callers must use [`apply`]
-//! deliberately, after loading has completed and validation has succeeded.
+//! [`adotenv::load`] reads `.env` files into a [`LoadedEnvironment`] but never
+//! changes the process environment. This crate adds that step: [`apply`]. It is
+//! a separate crate because changing the environment is unsafe. The
+//! environment is shared by every thread of the process, and on some platforms
+//! reading it while another thread writes it is undefined behavior. The core
+//! `adotenv` crate forbids unsafe code.
+//!
+//! ```toml
+//! [dependencies]
+//! adotenv = { version = "1", features = ["load"] }
+//! adotenv-process = "1"
+//! ```
+//!
+//! The crate has no features of its own and supports Rust 1.81.
+//!
+//! # Prefer passing values explicitly
+//!
+//! Most programs do not need to change their own environment. Read values
+//! with [`LoadedEnvironment::get`], deserialize them with the `serde` feature
+//! of `adotenv`, or pass them to a child process:
+//!
+//! ```no_run
+//! use std::process::Command;
+//!
+//! use adotenv::load::load_cascade;
+//!
+//! let loaded = load_cascade("/srv/my-app", "production")?;
+//! let status = Command::new("my-server").envs(loaded.values()).status()?;
+//! # let _ = status;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! Use [`apply`] only when code you do not control reads the process
+//! environment, such as a library that calls [`std::env::var`].
+//!
+//! # Applying a loaded environment
+//!
+//! [`apply`] checks every key and value, then sets each loaded key. A loaded
+//! key replaces a variable of the same name. Other variables are kept and
+//! nothing is removed. Values are set as loaded: `${HOME}` is not expanded.
+//! The changes cannot be rolled back.
+//!
+//! The caller must guarantee that no other thread reads or writes the process
+//! environment while [`apply`] runs. In practice, call it at the start of
+//! `main`, before starting threads or an async runtime.
+//!
+//! ```
+//! use adotenv::load::load_cascade;
+//!
+//! # let dir = std::env::temp_dir().join(format!("adotenv-process-doc-crate-{}", std::process::id()));
+//! # std::fs::create_dir_all(&dir)?;
+//! # std::fs::write(dir.join(".env"), "APP_PORT=3000\n")?;
+//! # std::fs::write(dir.join(".env.production"), "APP_PORT=8080\n")?;
+//! let loaded = load_cascade(&dir, "production")?;
+//!
+//! // SAFETY: called at startup, before any other thread exists.
+//! unsafe { adotenv_process::apply(&loaded)? };
+//! assert_eq!(std::env::var("APP_PORT")?, "8080");
+//! # std::fs::remove_dir_all(&dir)?;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! [`validate`] runs the same checks without changing anything, and is safe
+//! to call from any thread. Both return an [`ApplyError`] for the first key or
+//! value that the process environment cannot hold.
+//!
+//! `apply` takes a [`LoadedEnvironment`]. To set resolved values, resolve them
+//! with [`LoadedEnvironment::resolve_contextual`] and set them yourself.
 
 use std::{env, fmt};
 
 use adotenv::load::LoadedEnvironment;
 
-/// Validation or application failure.
+/// A key or value that the process environment cannot hold.
+///
+/// Returned by [`validate`], and by [`apply`] before it changes anything. It
+/// reports the first problem, in key order. These are the inputs for which
+/// [`std::env::set_var`] may panic. The error names the key but never includes
+/// the value.
+///
+/// # Examples
+///
+/// Python dotenv lets a quoted key contain `=`. With `'APP=PORT'=8080` in
+/// `.env`:
+///
+/// ```
+/// use adotenv::load::load_cascade_with;
+/// use adotenv::Dialect;
+/// use adotenv_process::{validate, ApplyError};
+///
+/// # let dir = std::env::temp_dir().join(format!("adotenv-process-doc-ApplyError-{}", std::process::id()));
+/// # std::fs::create_dir_all(&dir)?;
+/// # std::fs::write(dir.join(".env"), "'APP=PORT'=8080\n")?;
+/// let loaded = load_cascade_with(&dir, "", Dialect::PYTHON_DOTENV)?;
+/// match validate(&loaded) {
+///     Err(ApplyError::InvalidKey { key }) => assert_eq!(key, "APP=PORT"),
+///     other => panic!("expected an invalid key, got {other:?}"),
+/// }
+/// # std::fs::remove_dir_all(&dir)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ApplyError {
-    /// A key was empty.
+    /// A key is empty.
+    ///
+    /// The `adotenv` loaders skip empty keys, so a loaded environment does not
+    /// produce this error; the check is a safeguard.
     EmptyKey,
-    /// A key contained a NUL or `=`.
+    /// A key contains NUL or `=`.
     InvalidKey {
-        /// Offending key.
+        /// The key, as loaded.
         key: String,
     },
-    /// A value contained a NUL.
+    /// A value contains NUL.
     InvalidValue {
-        /// Key whose value is invalid.
+        /// The key whose value contains NUL.
         key: String,
     },
 }
@@ -42,11 +137,39 @@ impl fmt::Display for ApplyError {
 
 impl std::error::Error for ApplyError {}
 
-/// Validate every loaded key and value without mutating the environment.
+/// Checks that the process environment can hold every loaded key and value.
+///
+/// Runs the checks of [`apply`] without changing anything, so it is safe to
+/// call from any thread, for example to report a bad `.env` file early. A key
+/// must not be empty and must not contain NUL or `=`. A value must not contain
+/// NUL. Keys are checked in sorted order.
 ///
 /// # Errors
-/// Returns [`ApplyError`] when a key is empty or contains NUL/`=`, or a value
-/// contains NUL.
+///
+/// Returns the first problem found:
+///
+/// - [`ApplyError::EmptyKey`] if a key is empty.
+/// - [`ApplyError::InvalidKey`] if a key contains NUL or `=`.
+/// - [`ApplyError::InvalidValue`] if a value contains NUL.
+///
+/// # Examples
+///
+/// With `PORT=8080` and a `TOKEN` value that contains a NUL byte in `.env`:
+///
+/// ```
+/// use adotenv::load::load_cascade;
+/// use adotenv_process::{validate, ApplyError};
+///
+/// # let dir = std::env::temp_dir().join(format!("adotenv-process-doc-validate-{}", std::process::id()));
+/// # std::fs::create_dir_all(&dir)?;
+/// # std::fs::write(dir.join(".env"), "PORT=8080\nTOKEN=abc\0def\n")?;
+/// let loaded = load_cascade(&dir, "")?;
+/// let error = validate(&loaded).unwrap_err();
+/// assert_eq!(error, ApplyError::InvalidValue { key: "TOKEN".to_string() });
+/// assert_eq!(error.to_string(), r#"environment value for "TOKEN" contains NUL"#);
+/// # std::fs::remove_dir_all(&dir)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn validate(environment: &LoadedEnvironment) -> Result<(), ApplyError> {
     for (key, value) in environment.values() {
         if key.is_empty() {
@@ -66,21 +189,51 @@ pub fn validate(environment: &LoadedEnvironment) -> Result<(), ApplyError> {
     Ok(())
 }
 
-/// Apply every loaded value to the current process environment.
+/// Sets every loaded key to its loaded value in the current process
+/// environment.
 ///
-/// This sets only the keys present in the loaded environment. It does not clear
-/// or remove any existing process variables. Every key and value is validated
-/// before the first mutation.
+/// First runs [`validate`], so an environment it rejects changes nothing. Then
+/// sets each key with [`std::env::set_var`], in sorted order. A loaded key
+/// replaces a variable of the same name. Other variables are kept and nothing
+/// is removed. Values are set as loaded, without expanding references such as
+/// `${HOME}`. The changes cannot be rolled back.
 ///
-/// # Safety
-/// The process environment is global and not thread-safe on all platforms. The
-/// caller must ensure that no other thread is concurrently reading or writing
-/// the process environment and must accept that process-environment changes
-/// cannot be rolled back. Prefer consuming [`LoadedEnvironment::values`] as a
-/// map unless process-global mutation is actually required.
+/// Prefer passing [`LoadedEnvironment::values`] to a child process, or reading
+/// the values directly, unless code you do not control reads the process
+/// environment. See the [crate documentation](crate).
 ///
 /// # Errors
-/// Returns [`ApplyError`] before changing anything when validation fails.
+///
+/// Returns the [`ApplyError`] from [`validate`], before changing anything.
+///
+/// # Safety
+///
+/// No other thread may read or write the process environment while `apply`
+/// runs. That includes [`std::env::var`] and C functions such as `getenv` and
+/// `setenv` called by libraries. On some platforms such concurrent access is
+/// undefined behavior. In practice, call `apply` at the start of `main`, before
+/// starting threads or an async runtime.
+///
+/// # Examples
+///
+/// With `APP_PORT=8080` and `APP_HOST=0.0.0.0` in `.env`:
+///
+/// ```
+/// use adotenv::load::load_cascade;
+/// use adotenv_process::apply;
+///
+/// # let dir = std::env::temp_dir().join(format!("adotenv-process-doc-apply-{}", std::process::id()));
+/// # std::fs::create_dir_all(&dir)?;
+/// # std::fs::write(dir.join(".env"), "APP_PORT=8080\nAPP_HOST=0.0.0.0\n")?;
+/// let loaded = load_cascade(&dir, "")?;
+///
+/// // SAFETY: called at startup, before any other thread exists.
+/// unsafe { apply(&loaded)? };
+/// assert_eq!(std::env::var("APP_PORT")?, "8080");
+/// assert_eq!(std::env::var("APP_HOST")?, "0.0.0.0");
+/// # std::fs::remove_dir_all(&dir)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub unsafe fn apply(environment: &LoadedEnvironment) -> Result<(), ApplyError> {
     validate(environment)?;
     for (key, value) in environment.values() {

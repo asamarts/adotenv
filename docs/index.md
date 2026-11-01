@@ -54,13 +54,13 @@ assert_eq!(values.get("A").map(String::as_str), Some("2"));
 
 ## Crates
 
-| Crate | Use it to |
-|---|---|
-| [`adotenv`](https://crates.io/crates/adotenv) | Parse, inspect, edit, format, sort, compare and resolve `.env` files. Optional features load files, deserialize with Serde and run commands. |
-| [`adotenv-cli`](https://crates.io/crates/adotenv-cli) | Check, format, compare and load files from a shell or a CI job. |
-| [`adotenv-process`](https://crates.io/crates/adotenv-process) | Apply a loaded environment to the current process. |
-| [`adotenv-config`](https://crates.io/crates/adotenv-config) | Use values as a `config` source. |
-| [`adotenv-figment`](https://crates.io/crates/adotenv-figment) | Use values as a Figment provider. |
+| Crate | Use it to | Reference |
+|---|---|---|
+| [`adotenv`](https://crates.io/crates/adotenv) | Parse, inspect, edit, format, sort, compare and resolve `.env` files. Optional features load files, deserialize with Serde and run commands. | [API](https://docs.rs/adotenv) |
+| [`adotenv-cli`](https://crates.io/crates/adotenv-cli) | Check, format, compare and load files from a shell or a CI job. | [Commands](design/cli.md) |
+| [`adotenv-process`](https://crates.io/crates/adotenv-process) | Apply a loaded environment to the current process. | [API](https://docs.rs/adotenv-process) |
+| [`adotenv-config`](https://crates.io/crates/adotenv-config) | Use values as a `config` source. | [API](https://docs.rs/adotenv-config) |
+| [`adotenv-figment`](https://crates.io/crates/adotenv-figment) | Use values as a Figment provider. | [API](https://docs.rs/adotenv-figment) |
 
 ## Explore
 

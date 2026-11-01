@@ -1,228 +1,580 @@
 //! Explicit literal syntax configuration. Presets perform no expansion or I/O.
 
-/// The statement grammar used to recognize bindings.
+/// The statement grammar: how a line splits into key, separator and value.
+///
+/// Each grammar follows one tool's parser, including its quirks. The other
+/// [`Dialect`] fields refine it: for example [`Dialect::keys`] decides which
+/// keys are valid and [`Dialect::inline_comments`] where comments start. Each
+/// preset pairs its grammar with matching settings, so most callers pick a
+/// preset rather than a grammar.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_strict_with, Dialect, Syntax};
+///
+/// assert_eq!(Dialect::DOCKER_RAW.syntax, Syntax::Docker);
+///
+/// // Portable accepts spaces before `=`; the Docker grammar keeps them in the key.
+/// let docker = Dialect::PORTABLE.with_syntax(Syntax::Docker);
+/// assert_eq!(parse_strict_with("PORT =8080\n", Dialect::PORTABLE)?.get("PORT"), Some("8080"));
+/// assert!(parse_strict_with("PORT =8080\n", docker).is_err());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Syntax {
-    /// The crate's conservative, lossless default grammar.
+    /// This crate's strict grammar, described on [`Dialect::PORTABLE`].
+    ///
+    /// It is the only grammar that reports Portable warnings such as
+    /// [`DiagnosticCode::NonPosixKey`](crate::DiagnosticCode::NonPosixKey),
+    /// [`DiagnosticCode::BareKey`](crate::DiagnosticCode::BareKey) and
+    /// [`DiagnosticCode::TightHash`](crate::DiagnosticCode::TightHash).
     Portable,
-    /// Node dotenv's default regular-expression grammar.
+    /// Node dotenv's default regular-expression parser.
+    ///
+    /// Its quirks are kept: for example, whitespace and even line breaks may
+    /// separate `=` from an opening quote.
     Node,
-    /// Python dotenv's stream grammar.
+    /// python-dotenv's stream parser.
+    ///
+    /// For example, `export # note` is a comment line rather than a malformed
+    /// statement.
     Python,
-    /// Compose's dotenv grammar, without interpolation.
+    /// Docker Compose's env-file parser, without interpolation.
+    ///
+    /// With [`KeySyntax::Compose`], a bare key on a last line that has no line
+    /// ending is read as a value with an empty key, as Compose does. In
+    /// [`Entry::references`](crate::Entry::references), `$$` is an escaped
+    /// dollar.
     Compose,
-    /// Docker's raw key/value-file grammar.
+    /// The Docker CLI `--env-file` parser.
+    ///
+    /// Only leading whitespace is skipped. A key is everything up to `=`, so
+    /// `A =1` has the key `A ` (with a space).
     Docker,
 }
 
-/// Recognition of inline comments (whole-statement comments are always enabled).
+/// Where a `#` inside a line starts a comment.
+///
+/// A line whose first non-blank character is `#` is always a comment. This
+/// policy decides when a later `#` starts an inline comment: inside an
+/// unquoted value and after a closing quote. The characters that count as
+/// whitespace come from [`Dialect::whitespace`].
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_with, Dialect, InlineComments};
+///
+/// let source = "COLOR=#ff0000 # red\n";
+/// let (portable, _) = parse_with(source, Dialect::PORTABLE);
+/// assert_eq!(portable.get("COLOR"), Some("#ff0000"));
+///
+/// let any_hash = Dialect::PORTABLE.with_inline_comments(InlineComments::AnyHash);
+/// assert_eq!(parse_with(source, any_hash).0.get("COLOR"), Some(""));
+///
+/// let literal = Dialect::PORTABLE.with_inline_comments(InlineComments::None);
+/// assert_eq!(parse_with(source, literal).0.get("COLOR"), Some("#ff0000 # red"));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum InlineComments {
-    /// A hash preceded by configured whitespace.
+    /// A `#` after whitespace starts a comment.
+    ///
+    /// `A=a #b` reads `a`, and `A=a#b` reads `a#b`. Portable uses this.
     Whitespace,
-    /// A hash preceded by a literal ASCII space within the value/header tail.
+    /// A `#` after an ASCII space starts a comment, but not at the start of a
+    /// value.
+    ///
+    /// `A=a #b` reads `a`, while `A=a\t#b` and `A= #b` keep the hash.
+    /// Compose uses this.
     Space,
-    /// Any hash starts a comment.
+    /// Every `#` starts a comment.
+    ///
+    /// `A=a#b` reads `a`. Node dotenv uses this.
     AnyHash,
-    /// Whitespace-delimited values, but any hash after a bare key (Python).
+    /// Like [`Whitespace`](Self::Whitespace) in values, but any `#` right after
+    /// a bare key starts a comment.
+    ///
+    /// With the Python grammar, `KEY#note` is the bare key `KEY`. python-dotenv
+    /// uses this.
     Python,
-    /// Hashes in values are literal.
+    /// A `#` in a value or after a closing quote is literal text.
+    ///
+    /// `A=a #b` reads `a #b`. Docker uses this.
     None,
 }
 
-/// Independently enabled double-quoted escape sequences.
+/// The set of escape sequences that double-quoted values decode.
+///
+/// Each constant enables one sequence. Combine them with
+/// [`union`](Self::union) and test them with [`contains`](Self::contains). A
+/// backslash pair that is not in the set is handled by
+/// [`Dialect::unknown_escapes`]. Single-quoted and backtick-quoted values do
+/// not use this set.
+///
+/// | Set | Sequences |
+/// |---|---|
+/// | [`PORTABLE`](Self::PORTABLE) | `\n` `\r` `\t` `\\` `\"` `\$` |
+/// | [`NODE`](Self::NODE) | `\n` `\r` |
+/// | [`PYTHON`](Self::PYTHON) | `\n` `\r` `\t` `\\` `\"` `\'` `\a` `\b` `\f` `\v` |
+/// | [`COMPOSE`](Self::COMPOSE) | `\n` `\r` `\t` `\\` `\"` `\$` `\a` `\b` `\f` `\v` `\0` |
+///
+/// Compose's octal escape is `\0` followed by three octal digits, such as
+/// `\0101` for `A`. Otherwise, for example with fewer than three octal digits
+/// or a number above 255, only the `0` is removed, so `\012` reads `\12`.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_with, Dialect, DoubleEscapes};
+///
+/// let escapes = DoubleEscapes::PORTABLE.union(DoubleEscapes::BELL);
+/// assert!(escapes.contains(DoubleEscapes::LF));
+///
+/// let dialect = Dialect::PORTABLE.with_double_escapes(escapes);
+/// let (doc, _) = parse_with("ALERT=\"ding\\a\"\n", dialect);
+/// assert_eq!(doc.get("ALERT"), Some("ding\u{7}"));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DoubleEscapes(u16);
 impl DoubleEscapes {
-    /// No recognized escapes.
+    /// No escape sequences: every backslash pair is unknown.
     pub const NONE: Self = Self(0);
-    /// `\n`.
+    /// `\n` becomes a line feed (LF).
     pub const LF: Self = Self(1);
-    /// `\r`.
+    /// `\r` becomes a carriage return (CR).
     pub const CR: Self = Self(1 << 1);
-    /// `\t`.
+    /// `\t` becomes a tab.
     pub const TAB: Self = Self(1 << 2);
-    /// `\\`.
+    /// `\\` becomes one backslash.
     pub const BACKSLASH: Self = Self(1 << 3);
-    /// `\"`.
+    /// `\"` becomes a double quote.
     pub const DOUBLE_QUOTE: Self = Self(1 << 4);
-    /// `\$` (literal dollar, not interpolation).
+    /// `\$` becomes a dollar sign, and the reference after it counts as escaped.
     pub const DOLLAR: Self = Self(1 << 5);
-    /// `\'`.
+    /// `\'` becomes a single quote.
     pub const SINGLE_QUOTE: Self = Self(1 << 6);
-    /// `\a`.
+    /// `\a` becomes the bell character (U+0007).
     pub const BELL: Self = Self(1 << 7);
-    /// `\b`.
+    /// `\b` becomes a backspace (U+0008).
     pub const BACKSPACE: Self = Self(1 << 8);
-    /// `\f`.
+    /// `\f` becomes a form feed (U+000C).
     pub const FORM_FEED: Self = Self(1 << 9);
-    /// `\v`.
+    /// `\v` becomes a vertical tab (U+000B).
     pub const VERTICAL_TAB: Self = Self(1 << 10);
-    /// Compose's `\0` followed by up to three octal digits.
+    /// Compose's octal escape: `\0` followed by three octal digits.
     pub const OCTAL: Self = Self(1 << 11);
-    /// Portable's newline, carriage return, tab, backslash, quote and dollar escapes.
+    /// Portable's set: `\n`, `\r`, `\t`, `\\`, `\"` and `\$`.
     pub const PORTABLE: Self = Self(0x3f);
-    /// Node's newline and carriage return substitutions.
+    /// Node dotenv's set: `\n` and `\r`.
     pub const NODE: Self = Self(3);
-    /// Python dotenv's recognized double-quoted escapes.
+    /// python-dotenv's set: Portable's without `\$`, plus `\'`, `\a`, `\b`, `\f` and `\v`.
     pub const PYTHON: Self = Self(0x7df);
-    /// Compose's recognized escapes, including its octal-prefix behavior.
+    /// Compose's set: Portable's plus `\a`, `\b`, `\f`, `\v` and the octal `\0` escape.
     pub const COMPOSE: Self = Self(0xfbf);
-    /// Enable every sequence enabled by either set.
+    /// Returns the set of sequences enabled in either `self` or `other`.
     #[must_use]
     pub const fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)
     }
-    /// Whether every sequence in `other` is enabled.
+    /// Checks whether every sequence in `other` is also enabled in `self`.
     #[must_use]
     pub const fn contains(self, other: Self) -> bool {
         self.0 & other.0 == other.0
     }
 }
 
-/// Handling of unrecognized double-quoted escapes.
+/// What a double-quoted value does with a backslash pair it does not decode.
+///
+/// A pair is unknown when [`Dialect::double_escapes`] does not include it,
+/// such as `\d` in Portable.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_with, Dialect, UnknownEscapes};
+///
+/// let source = "PATTERN=\"\\d+\"\n";
+/// assert_eq!(parse_with(source, Dialect::PORTABLE).0.get("PATTERN"), Some("\\d+"));
+///
+/// let drop = Dialect::PORTABLE.with_unknown_escapes(UnknownEscapes::DropBackslash);
+/// assert_eq!(parse_with(source, drop).0.get("PATTERN"), Some("d+"));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum UnknownEscapes {
-    /// Keep both characters literally.
+    /// Both characters stay in the value: `"\q"` reads `\q`.
+    ///
+    /// Node dotenv, python-dotenv, Compose and Docker use this.
     Preserve,
-    /// Keep both characters and issue a warning.
+    /// Both characters stay in the value, with a warning.
+    ///
+    /// The warning is [`DiagnosticCode::UnknownEscape`](crate::DiagnosticCode::UnknownEscape).
+    /// Portable uses this.
     Warn,
-    /// Remove the backslash only.
+    /// The backslash is removed: `"\q"` reads `q`.
     DropBackslash,
-    /// Retain the binding but report an error.
+    /// Both characters stay, and the entry gets an error.
+    ///
+    /// The error is [`DiagnosticCode::InvalidEscape`](crate::DiagnosticCode::InvalidEscape),
+    /// so [`parse_strict_with`](crate::parse_strict_with) fails.
     Error,
 }
-/// Escapes recognized inside single quotes.
+/// The escape sequences that single-quoted values decode.
+///
+/// An escaped quote does not close the value, so with
+/// [`Quote`](Self::Quote) the source `'it\'s'` is one value.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_strict_with, Dialect, SingleEscapes};
+///
+/// let source = "MESSAGE='it\\'s here'\n";
+/// assert!(parse_strict_with(source, Dialect::PORTABLE).is_err());
+///
+/// let dialect = Dialect::PORTABLE.with_single_escapes(SingleEscapes::Quote);
+/// assert_eq!(parse_strict_with(source, dialect)?.get("MESSAGE"), Some("it's here"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum SingleEscapes {
-    /// No single-quoted escapes.
+    /// Nothing is decoded, and the first `'` closes the value.
+    ///
+    /// `'a\b'` reads `a\b`. Portable, Node dotenv and Docker use this.
     None,
-    /// Decode escaped apostrophes.
+    /// `\'` becomes `'`.
+    ///
+    /// `'it\'s'` reads `it's`. Compose uses this.
     Quote,
-    /// Decode escaped apostrophes and backslashes.
+    /// `\'` becomes `'` and `\\` becomes `\`.
+    ///
+    /// python-dotenv uses this.
     QuoteAndBackslash,
 }
-/// Colon assignment separators.
+/// Whether a colon can separate a key from its value, as in `KEY: value`.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_with, ColonSeparator, Dialect};
+///
+/// let colon = Dialect::PORTABLE.with_colon(ColonSeparator::Whitespace);
+/// let (doc, _) = parse_with("HOST: localhost\n", colon);
+/// assert_eq!(doc.get("HOST"), Some("localhost"));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ColonSeparator {
-    /// Only equals signs separate keys and values.
+    /// Only `=` separates a key from its value.
+    ///
+    /// `A: b` is invalid in Portable. Portable, python-dotenv and Docker use
+    /// this.
     None,
-    /// A colon separates only when followed by configured whitespace.
+    /// A colon followed by whitespace also separates.
+    ///
+    /// `A: b` reads `b`, but `A:b` does not use the colon. Node dotenv uses
+    /// this.
     Whitespace,
     /// Any colon separates.
+    ///
+    /// `A:b` reads `b`. Compose uses this.
     Any,
 }
-/// Validation of unquoted key bodies.
+/// Which characters an unquoted key may contain.
+///
+/// A key that does not match makes its statement malformed; see
+/// [`Dialect::malformed_lines`]. A single-quoted key, allowed by
+/// [`Dialect::quoted_keys`], is not checked: it only has to be nonempty.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_strict_with, Dialect, KeySyntax};
+///
+/// assert!(parse_strict_with("app.port=8080\n", Dialect::PORTABLE).is_ok());
+///
+/// let posix = Dialect::PORTABLE.with_keys(KeySyntax::Posix);
+/// assert!(parse_strict_with("app.port=8080\n", posix).is_err());
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum KeySyntax {
-    /// ASCII letters/underscore followed by letters, digits or underscore.
+    /// A POSIX shell name: an ASCII letter or `_`, then ASCII letters, digits
+    /// or `_`.
+    ///
+    /// `APP_PORT` and `_x` match; `1A` and `app.port` do not.
     Posix,
-    /// Nonempty ASCII letters, digits, underscore, dot or hyphen.
+    /// One or more ASCII letters, digits, `_`, `.` or `-`.
+    ///
+    /// `app.port` and `1A` match. The Portable grammar accepts them with a
+    /// [`DiagnosticCode::NonPosixKey`](crate::DiagnosticCode::NonPosixKey)
+    /// warning. Portable and Node dotenv use this.
     Portable,
-    /// Unicode 17 letters/numbers, underscore, dot or hyphen.
+    /// One or more Unicode 17.0 letters or numbers, `_`, `.` or `-`.
+    ///
+    /// `ключ` matches.
     Unicode,
-    /// Nonempty, excluding Unicode whitespace and equals signs.
+    /// One or more characters other than `=` and whitespace.
+    ///
+    /// Whitespace here is Rust's [`char::is_whitespace`]. `a/b@c` matches.
     NonWhitespace,
-    /// Nonempty, excluding Python whitespace, equals signs and hashes.
+    /// One or more characters other than `=`, `#` and
+    /// [Python whitespace](Whitespace::Python).
+    ///
+    /// python-dotenv uses this.
     Python,
-    /// Compose's Unicode letters/numbers, punctuation and horizontal whitespace.
+    /// Compose's key characters: Unicode letters and numbers, `_`, `.`, `-`,
+    /// `[` and `]`.
+    ///
+    /// [Compose whitespace](Whitespace::Compose) other than an ASCII space is
+    /// also allowed inside a key. Compose uses this.
     Compose,
-    /// Nonempty, excluding literal ASCII space, tab and equals signs.
+    /// One or more characters other than an ASCII space, a tab and `=`.
+    ///
+    /// Other whitespace and control characters are allowed. Docker uses this.
     Docker,
 }
-/// Effective treatment of declarations with no assignment separator.
+/// How lookup treats a bare key: a declaration such as `DEBUG` with no `=`.
+///
+/// Every policy keeps the declaration as an entry whose
+/// [`Entry::value`](crate::Entry::value) is `None` and whose state is
+/// [`AssignmentState::Bare`](crate::AssignmentState::Bare); only lookup and
+/// diagnostics change. No policy reads the process environment, even where
+/// Docker or Compose would.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_with, BareKeys, Dialect};
+///
+/// let source = "DEBUG=1\nDEBUG\n";
+/// assert_eq!(parse_with(source, Dialect::PORTABLE).0.get("DEBUG"), None);
+///
+/// let ignore = Dialect::PORTABLE.with_bare_keys(BareKeys::Ignore);
+/// assert_eq!(parse_with(source, ignore).0.get("DEBUG"), Some("1"));
+///
+/// let empty = Dialect::PORTABLE.with_bare_keys(BareKeys::Empty);
+/// assert_eq!(parse_with(source, empty).0.get("DEBUG"), Some(""));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum BareKeys {
-    /// Retain a participating declaration whose value is absent.
+    /// The bare key takes part in lookup with no value.
+    ///
+    /// When it wins, [`Document::get`](crate::Document::get) returns `None`,
+    /// even after an earlier `KEY=value`. Portable and python-dotenv use this.
     Preserve,
-    /// Retain syntax but exclude it from lookup.
+    /// The bare key does not take part in lookup.
+    ///
+    /// An earlier `KEY=value` still wins. Node dotenv, Compose and Docker use
+    /// this.
     Ignore,
-    /// Look up the declaration as an empty string without changing its syntax.
+    /// The bare key takes part in lookup and reads as an empty string.
     Empty,
-    /// Retain syntax and report an error.
+    /// The bare key takes part in lookup like [`Preserve`](Self::Preserve)
+    /// and its entry gets an error.
+    ///
+    /// The error is [`DiagnosticCode::ForbiddenBareKey`](crate::DiagnosticCode::ForbiddenBareKey),
+    /// so [`parse_strict_with`](crate::parse_strict_with) fails.
     Error,
 }
-/// Physical line recognition.
+/// Which characters end a physical line.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_with, Dialect, LineBreaks};
+///
+/// let source = "A=1\rB=2\n";
+/// assert_eq!(parse_with(source, Dialect::PORTABLE).0.get("B"), Some("2"));
+///
+/// let lf = Dialect::PORTABLE.with_line_breaks(LineBreaks::Lf);
+/// assert_eq!(parse_with(source, lf).0.get("A"), Some("1\rB=2"));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum LineBreaks {
-    /// LF, CRLF and lone CR terminate lines.
+    /// LF, CRLF and a lone CR each end a line.
+    ///
+    /// Portable, Node dotenv and python-dotenv use this.
     Universal,
-    /// LF terminates lines; one final CR belongs to the line ending.
+    /// Only LF ends a line.
+    ///
+    /// A CR right before LF, or at the very end of the source, belongs to the
+    /// line ending; any other CR is ordinary text. Compose and Docker use this.
     Lf,
 }
-/// Treatment of an initial UTF-8 byte-order mark.
+/// What happens to a UTF-8 byte-order mark (U+FEFF) at the start of the source.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_strict_with, BomPolicy, DiagnosticCode, Dialect};
+///
+/// let source = "\u{feff}PORT=8080\n";
+/// let doc = parse_strict_with(source, Dialect::PORTABLE)?;
+/// assert_eq!(doc.get("PORT"), Some("8080"));
+/// assert_eq!(doc.bom_span(), Some(0..3));
+///
+/// let forbid = Dialect::PORTABLE.with_bom(BomPolicy::Error);
+/// let error = parse_strict_with(source, forbid).unwrap_err();
+/// assert_eq!(error.code(), DiagnosticCode::ForbiddenByteOrderMark);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum BomPolicy {
-    /// Retain it as a separate prelude and diagnose it informationally.
+    /// The mark is set apart from the items.
+    ///
+    /// It belongs to no item, [`Document::bom_span`](crate::Document::bom_span)
+    /// returns its range, and an informational
+    /// [`DiagnosticCode::ByteOrderMark`](crate::DiagnosticCode::ByteOrderMark)
+    /// is reported. [`Document::source`](crate::Document::source) still
+    /// contains it. Every preset uses this.
     Strip,
-    /// Treat it as ordinary statement text.
+    /// The mark is ordinary text at the start of the first line.
+    ///
+    /// With Portable keys it makes the first key invalid.
     Keep,
-    /// Retain it as an invalid item and report an error.
+    /// The mark becomes an invalid item of its own, with an error.
+    ///
+    /// The error is
+    /// [`DiagnosticCode::ForbiddenByteOrderMark`](crate::DiagnosticCode::ForbiddenByteOrderMark).
+    /// The rest of the first line is read normally.
     Error,
 }
-/// Which participating duplicate declaration wins lookup.
+/// Which declaration wins when a key is declared more than once.
+///
+/// Only declarations that take part in lookup count; see
+/// [`Entry::participates_in_lookup`](crate::Entry::participates_in_lookup).
+/// Every declaration stays in the document, and
+/// [`Document::get_all`](crate::Document::get_all) returns them all.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_with, Dialect, Duplicates};
+///
+/// let source = "PORT=8080\nPORT=9090\n";
+/// assert_eq!(parse_with(source, Dialect::PORTABLE).0.get("PORT"), Some("9090"));
+///
+/// let first = Dialect::PORTABLE.with_duplicates(Duplicates::First);
+/// assert_eq!(parse_with(source, first).0.get("PORT"), Some("8080"));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Duplicates {
     /// The first declaration wins.
     First,
     /// The last declaration wins.
+    ///
+    /// Every preset uses this.
     Last,
 }
-/// Handling of noncomment text following a closing quote.
+/// What happens to text after a closing quote, as in `A="x"y`.
+///
+/// Whitespace and an inline comment after the quote are not affected; this
+/// policy covers any other text.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_strict_with, Dialect, QuotedTail};
+///
+/// let source = "GREETING=\"hello\"world\n";
+/// assert!(parse_strict_with(source, Dialect::PORTABLE).is_err());
+///
+/// let append = Dialect::PORTABLE.with_quoted_tail(QuotedTail::Append);
+/// assert_eq!(parse_strict_with(source, append)?.get("GREETING"), Some("helloworld"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum QuotedTail {
-    /// Reject the statement.
-    Error,
-    /// Keep the tail token but omit it from the decoded value.
-    Ignore,
-    /// Append the literal tail to the decoded quoted body.
-    Append,
-    /// Reinterpret the opening physical line as an unquoted value.
-    LiteralFallback,
-    /// Ignore the complete statement with a warning.
-    Skip,
-    /// Parse the text after the quote as another statement on the same line.
+    /// The statement is invalid, with an error.
     ///
-    /// When only whitespace or a comment follows, it stays with the quoted
-    /// declaration's item together with the line ending.
+    /// The error is [`DiagnosticCode::TrailingText`](crate::DiagnosticCode::TrailingText).
+    /// Portable and python-dotenv use this.
+    Error,
+    /// The text stays in the source but not in the value.
+    ///
+    /// `A="x"y` reads `x`; the `y` is in
+    /// [`EntryTokens::quoted_tail`](crate::EntryTokens::quoted_tail).
+    Ignore,
+    /// The text is added to the value.
+    ///
+    /// `A="x"y` reads `xy`.
+    Append,
+    /// The value is read again as unquoted text, starting at the opening quote.
+    ///
+    /// `A="x"y` reads `"x"y`. A quote that never closes falls back the same
+    /// way. Node dotenv uses this.
+    LiteralFallback,
+    /// The whole statement is skipped, with a warning.
+    ///
+    /// It becomes an [`ItemKind::Ignored`](crate::ItemKind::Ignored) item with
+    /// [`DiagnosticCode::IgnoredStatement`](crate::DiagnosticCode::IgnoredStatement).
+    Skip,
+    /// The text starts another statement on the same line.
+    ///
+    /// `A="x"B=y` reads `A` as `x` and `B` as `y`. When only whitespace or a
+    /// comment follows the quote, it stays in the quoted entry's item together
+    /// with the line ending. Compose uses this.
     NextStatement,
 }
-/// Independently enabled multiline quote forms.
+/// Which quote styles may contain line breaks.
+///
+/// When a style may not span lines, its quote must close on the same line. A
+/// quote left open is a
+/// [`DiagnosticCode::UnterminatedQuote`](crate::DiagnosticCode::UnterminatedQuote)
+/// error, or an unquoted value under [`QuotedTail::LiteralFallback`], and the
+/// next line starts a new statement.
+///
+/// Start from [`ALL`](Self::ALL) or [`NONE`](Self::NONE) and change single
+/// styles with the `with_*` builders.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_with, Dialect, Multiline};
+///
+/// let source = "KEY='line one\nline two'\n";
+/// assert_eq!(parse_with(source, Dialect::PORTABLE).0.get("KEY"), Some("line one\nline two"));
+///
+/// let double_only = Multiline::NONE.with_double(true);
+/// assert!(double_only.double && !double_only.single);
+/// let dialect = Dialect::PORTABLE.with_multiline(double_only);
+/// assert_eq!(parse_with(source, dialect).0.get("KEY"), None);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct Multiline {
-    /// Permit line endings inside single quotes.
+    /// Whether single-quoted values may span lines.
     pub single: bool,
-    /// Permit line endings inside double quotes.
+    /// Whether double-quoted values may span lines.
     pub double: bool,
-    /// Permit line endings inside backticks.
+    /// Whether backtick-quoted values may span lines, when
+    /// [`Dialect::backticks`] is on.
     pub backtick: bool,
 }
 impl Multiline {
-    /// Permit or forbid line endings inside single quotes.
+    /// Sets whether single-quoted values may span lines.
     #[must_use]
     pub const fn with_single(mut self, value: bool) -> Self {
         self.single = value;
         self
     }
-    /// Permit or forbid line endings inside double quotes.
+    /// Sets whether double-quoted values may span lines.
     #[must_use]
     pub const fn with_double(mut self, value: bool) -> Self {
         self.double = value;
         self
     }
-    /// Permit or forbid line endings inside backticks.
+    /// Sets whether backtick-quoted values may span lines.
     #[must_use]
     pub const fn with_backtick(mut self, value: bool) -> Self {
         self.backtick = value;
@@ -230,99 +582,277 @@ impl Multiline {
     }
 }
 impl Multiline {
-    /// Permit multiline content in every quote form.
+    /// Every quote style may span lines.
+    ///
+    /// Portable, Node dotenv, python-dotenv and Compose use this.
     pub const ALL: Self = Self {
         single: true,
         double: true,
         backtick: true,
     };
-    /// Forbid multiline content in every quote form.
+    /// No quote style may span lines.
+    ///
+    /// Docker uses this.
     pub const NONE: Self = Self {
         single: false,
         double: false,
         backtick: false,
     };
 }
-/// Whitespace classification used by syntax policies.
+/// Which characters count as whitespace around keys, separators, values and
+/// comments.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_with, Dialect, Whitespace};
+///
+/// let source = "NAME=app\u{a0}\n"; // ends with a no-break space
+/// assert_eq!(parse_with(source, Dialect::PORTABLE).0.get("NAME"), Some("app\u{a0}"));
+///
+/// let unicode = Dialect::PORTABLE.with_whitespace(Whitespace::Unicode);
+/// assert_eq!(parse_with(source, unicode).0.get("NAME"), Some("app"));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Whitespace {
     /// ASCII space and tab.
+    ///
+    /// Portable uses this.
     Ascii,
-    /// Rust's Unicode `White_Space` classification.
+    /// Every character with the Unicode `White_Space` property.
+    ///
+    /// This is Rust's [`char::is_whitespace`]. Docker uses this.
     Unicode,
-    /// ECMAScript whitespace, including BOM but excluding NEL.
+    /// JavaScript's whitespace: Unicode `White_Space` without U+0085, plus
+    /// U+FEFF.
+    ///
+    /// Node dotenv uses this.
     EcmaScript,
-    /// Unicode `White_Space` plus U+001C through U+001F.
+    /// Python's whitespace: Unicode `White_Space` plus U+001C to U+001F.
+    ///
+    /// python-dotenv uses this.
     Python,
-    /// Compose's horizontal whitespace classification.
+    /// Compose's whitespace: tab, vertical tab, form feed, CR, space, U+0085
+    /// and U+00A0.
+    ///
+    /// With the Compose grammar, leading whitespace and the end of an unquoted
+    /// value are trimmed by [`Unicode`](Self::Unicode) whitespace instead.
+    /// Compose uses this.
     Compose,
 }
-/// Handling of malformed statements, excluding explicit policy violations.
+/// What happens to a statement that cannot be read.
+///
+/// Errors that a policy asks for stay errors under both choices: a forbidden
+/// bare key or byte-order mark, a rejected escape, and a line over
+/// [`Dialect::line_byte_limit`].
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_strict_with, Dialect, ItemKind, MalformedLines};
+///
+/// let source = "NOT A KEY=1\nPORT=8080\n";
+/// assert!(parse_strict_with(source, Dialect::PORTABLE).is_err());
+///
+/// let skip = Dialect::PORTABLE.with_malformed_lines(MalformedLines::Ignore);
+/// let doc = parse_strict_with(source, skip)?;
+/// assert_eq!(doc.items().next().map(|item| item.kind()), Some(ItemKind::Ignored));
+/// assert_eq!(doc.get("PORT"), Some("8080"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum MalformedLines {
-    /// Retain invalid syntax and report an error.
+    /// The statement becomes an [`ItemKind::Invalid`](crate::ItemKind::Invalid)
+    /// item with an error.
+    ///
+    /// [`parse_strict_with`](crate::parse_strict_with) fails. Every preset
+    /// except Node dotenv uses this.
     Error,
-    /// Retain ignored syntax and report a warning.
+    /// The statement becomes an [`ItemKind::Ignored`](crate::ItemKind::Ignored)
+    /// item with a warning.
+    ///
+    /// The warning is
+    /// [`DiagnosticCode::IgnoredStatement`](crate::DiagnosticCode::IgnoredStatement).
+    /// Node dotenv uses this.
     Ignore,
 }
 
-/// Complete, explicit literal parsing and lookup configuration.
+/// The complete set of rules for reading a `.env` file and looking up its values.
+///
+/// There is no single `.env` standard: tools disagree about comments, quotes,
+/// escapes, duplicate keys and keys without values. A dialect states every
+/// one of these rules. Each [`Document`](crate::Document) keeps the dialect it
+/// was read with ([`Document::dialect`](crate::Document::dialect)), and
+/// [`Document::reparse`](crate::Document::reparse) reads the same source with
+/// another one. Functions without a dialect argument, such as
+/// [`parse`](crate::parse), use [`Dialect::PORTABLE`], which is also
+/// [`Dialect::default`].
+///
+/// A dialect covers parsing and literal lookup only. No preset expands
+/// `$VAR` references, reads the process environment or loads files; those are
+/// separate, explicit steps such as
+/// [`Document::resolve`](crate::Document::resolve).
+///
+/// # Presets
+///
+/// | Preset | Reads like | Pinned version |
+/// |---|---|---|
+/// | [`PORTABLE`](Self::PORTABLE) | A strict, literal format for files shared between tools | None |
+/// | [`NODE_DOTENV`](Self::NODE_DOTENV) | The default parser of Node `dotenv` | `dotenv` 18.0.8 |
+/// | [`PYTHON_DOTENV`](Self::PYTHON_DOTENV) | `python-dotenv`, without interpolation | `python-dotenv` 1.2.4 |
+/// | [`COMPOSE`](Self::COMPOSE) | Docker Compose env files, without interpolation | Compose 5.6.0, `compose-go` 2.16.1 |
+/// | [`DOCKER_RAW`](Self::DOCKER_RAW) | The Docker CLI `--env-file` parser | Docker CLI 29.8.2 |
+///
+/// The pinned versions are the upstream releases that this crate's
+/// conformance tests were recorded against.
+///
+/// ```
+/// use adotenv::{parse_with, Dialect};
+///
+/// let source = "A=a#b\nB=`two words`\n";
+/// let (node, _) = parse_with(source, Dialect::NODE_DOTENV);
+/// assert_eq!(node.get("A"), Some("a"));
+/// assert_eq!(node.get("B"), Some("two words"));
+///
+/// let (docker, _) = node.reparse(Dialect::DOCKER_RAW);
+/// assert_eq!(docker.get("A"), Some("a#b"));
+/// assert_eq!(docker.get("B"), Some("`two words`"));
+/// ```
+///
+/// # Custom dialects
+///
+/// Every field is public and has a `const` builder of the same name with a
+/// `with_` prefix. The struct is `#[non_exhaustive]`, so start from a preset
+/// and change single rules:
+///
+/// ```
+/// use adotenv::{parse_with, BareKeys, Dialect, InlineComments};
+///
+/// const STRICT_NODE: Dialect = Dialect::NODE_DOTENV
+///     .with_inline_comments(InlineComments::None)
+///     .with_bare_keys(BareKeys::Empty)
+///     .with_line_byte_limit(Some(4096));
+///
+/// let (doc, _) = parse_with("A=one#two\nBARE\n", STRICT_NODE);
+/// assert_eq!(doc.get("A"), Some("one#two"));
+/// assert_eq!(doc.get("BARE"), Some(""));
+/// ```
+///
+/// [`Document::portability`](crate::Document::portability) shows the lines
+/// that several dialects read differently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 // These orthogonal syntax switches are independently overrideable, not states.
 #[allow(clippy::struct_excessive_bools)]
 #[non_exhaustive]
 pub struct Dialect {
-    /// Statement grammar.
+    /// The statement grammar: how a line splits into key, separator and value.
     pub syntax: Syntax,
-    /// Unquoted inline comment recognition.
+    /// Where a `#` inside a line starts a comment.
     pub inline_comments: InlineComments,
-    /// Recognized double-quoted escapes.
+    /// The escape sequences that double-quoted values decode.
     pub double_escapes: DoubleEscapes,
-    /// Unrecognized double-quoted escape policy.
+    /// What double quotes do with a backslash pair outside
+    /// [`double_escapes`](Self::double_escapes).
     pub unknown_escapes: UnknownEscapes,
-    /// Single-quoted escape policy.
+    /// The escape sequences that single-quoted values decode.
     pub single_escapes: SingleEscapes,
-    /// Recognize backtick-quoted values.
+    /// Whether backticks quote values.
+    ///
+    /// When `true`, `` A=`two words` `` reads `two words`, with no escapes
+    /// decoded. When `false`, backticks are ordinary text.
     pub backticks: bool,
-    /// Colon assignment separator policy.
+    /// Whether a colon can separate a key from its value.
     pub colon: ColonSeparator,
-    /// Unquoted key validation.
+    /// Which characters an unquoted key may contain.
     pub keys: KeySyntax,
-    /// Bare declaration lookup/error policy.
+    /// How lookup treats a declaration without `=`.
     pub bare_keys: BareKeys,
-    /// Keep all bytes after the separator as a literal value.
+    /// Whether the value is every byte after the separator, unchanged.
+    ///
+    /// When `true`, quotes, escapes, `#` and surrounding whitespace are all
+    /// part of the value: `A= "x" # c` reads ` "x" # c`.
     pub raw_values: bool,
-    /// Physical line recognition.
+    /// Which characters end a physical line.
     pub line_breaks: LineBreaks,
-    /// Leading byte-order mark policy.
+    /// What happens to a byte-order mark at the start of the source.
     pub bom: BomPolicy,
-    /// Winning duplicate declaration.
+    /// Which declaration wins when a key is declared more than once.
     pub duplicates: Duplicates,
-    /// Noncomment text following a quote.
+    /// What happens to text after a closing quote, as in `A="x"y`.
     pub quoted_tail: QuotedTail,
-    /// Multiline quote permissions.
+    /// Which quote styles may contain line breaks.
     pub multiline: Multiline,
-    /// Whitespace classification.
+    /// Which characters count as whitespace.
     pub whitespace: Whitespace,
-    /// Recognize the export prefix.
+    /// Whether an `export ` prefix before a key is recognized.
+    ///
+    /// When `false`, `export A=1` does not declare `A`; the presets' key rules
+    /// reject it as malformed.
     pub export: bool,
-    /// Permit single-quoted key tokens.
+    /// Whether a key may be written in single quotes, as in `'APP NAME'=demo`.
+    ///
+    /// A quoted key is not checked against [`keys`](Self::keys).
     pub quoted_keys: bool,
-    /// Permit comments immediately after closing quotes.
+    /// Whether a `#` directly after a closing quote starts a comment.
+    ///
+    /// When `true`, `A="x"#note` reads `x`. When `false`, the comment needs
+    /// whitespace before it, as [`inline_comments`](Self::inline_comments)
+    /// decides.
     pub quoted_comments: bool,
-    /// Normalize decoded CRLF and CR to LF, preserving original source maps.
+    /// Whether CRLF and a lone CR in a decoded value become LF.
+    ///
+    /// Spans still address the original bytes.
     pub normalize_newlines: bool,
-    /// Malformed statement policy.
+    /// What happens to a statement that cannot be read.
     pub malformed_lines: MalformedLines,
-    /// Exclude Node's special `__proto__` property from lookup.
+    /// Whether the key `__proto__` is left out of lookup, as Node dotenv does.
+    ///
+    /// The entry stays in the document.
     pub node_object_keys: bool,
-    /// Maximum bytes per physical line before its final LF, including CR.
+    /// The longest physical line accepted, in bytes, or `None` for no limit.
+    ///
+    /// The count leaves out the line's final LF but includes a CR before it.
+    /// An item with a longer line becomes invalid, with a
+    /// [`DiagnosticCode::LineTooLong`](crate::DiagnosticCode::LineTooLong)
+    /// error.
     pub line_byte_limit: Option<usize>,
 }
 impl Dialect {
-    /// Conservative Portable syntax; the default configuration.
+    /// Portable rules: a strict, literal format for files shared between tools.
+    ///
+    /// This is the default dialect. In short:
+    ///
+    /// - Keys use ASCII letters, digits, `_`, `.` and `-`. A key that is not a
+    ///   POSIX shell name, such as `app.port`, gets a warning.
+    /// - An `export ` prefix and spaces or tabs around `=` are accepted.
+    /// - `#` starts a comment at the start of a line or after whitespace, so
+    ///   `A=a#b` reads `a#b`, with a warning.
+    /// - Single quotes are literal. Double quotes decode `\n`, `\r`, `\t`,
+    ///   `\\`, `\"` and `\$`; other backslash pairs stay as written, with a
+    ///   warning.
+    /// - Quoted values may span lines. After a closing quote only whitespace
+    ///   and a comment may follow.
+    /// - Backticks are ordinary text.
+    /// - A bare `KEY` takes part in lookup with no value. `KEY=` and `KEY=""`
+    ///   are empty.
+    /// - The last duplicate wins, with a warning.
+    /// - LF, CRLF and a lone CR end lines. A leading byte-order mark is set
+    ///   apart from the items.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::{parse_strict_with, Dialect};
+    ///
+    /// let source = "export PORT=8080\nNAME=\"two words\" # note\nTAG=a#b\n";
+    /// let doc = parse_strict_with(source, Dialect::PORTABLE)?;
+    /// assert_eq!(doc.get("PORT"), Some("8080"));
+    /// assert_eq!(doc.get("NAME"), Some("two words"));
+    /// assert_eq!(doc.get("TAG"), Some("a#b"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub const PORTABLE: Self = Self {
         syntax: Syntax::Portable,
         inline_comments: InlineComments::Whitespace,
@@ -348,7 +878,33 @@ impl Dialect {
         node_object_keys: false,
         line_byte_limit: None,
     };
-    /// Node dotenv 18's default grammar and literal substitutions.
+    /// Node dotenv 18.0.8 parsing rules, from its default parser.
+    ///
+    /// Differences from Portable:
+    ///
+    /// - Any `#` in an unquoted value starts a comment: `A=a#b` reads `a`.
+    /// - Backticks quote values, and a colon followed by whitespace works like
+    ///   `=`, as in `KEY: value`.
+    /// - Double quotes decode only `\n` and `\r`.
+    /// - Text after a closing quote makes the value literal: `A="x"y` reads
+    ///   `"x"y`.
+    /// - CRLF and CR inside decoded values become LF.
+    /// - Malformed lines are ignored with a warning instead of failing.
+    /// - Bare keys and the key `__proto__` stay in the document but take no
+    ///   part in lookup.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::{parse_with, Dialect};
+    ///
+    /// let source = "A=a#b\nB=`two words`\nC: three\nD=1\nD\n";
+    /// let (doc, _) = parse_with(source, Dialect::NODE_DOTENV);
+    /// assert_eq!(doc.get("A"), Some("a"));
+    /// assert_eq!(doc.get("B"), Some("two words"));
+    /// assert_eq!(doc.get("C"), Some("three"));
+    /// assert_eq!(doc.get("D"), Some("1"));
+    /// ```
     pub const NODE_DOTENV: Self = Self {
         syntax: Syntax::Node,
         whitespace: Whitespace::EcmaScript,
@@ -365,7 +921,35 @@ impl Dialect {
         node_object_keys: true,
         ..Self::PORTABLE
     };
-    /// Python dotenv 1.2's stream grammar, without interpolation.
+    /// python-dotenv 1.2.4 parsing rules, without interpolation.
+    ///
+    /// Differences from Portable:
+    ///
+    /// - Double quotes decode `\n`, `\r`, `\t`, `\\`, `\"`, `\'`, `\a`, `\b`,
+    ///   `\f` and `\v`, but not `\$`. Other pairs stay as written, without a
+    ///   warning.
+    /// - Single quotes decode `\'` and `\\`.
+    /// - A comment may follow a closing quote directly, as in `A="x"#note`,
+    ///   and any `#` right after a bare key starts a comment.
+    /// - Keys may contain any character except whitespace, `=` and `#`, and
+    ///   may be single-quoted.
+    /// - Whitespace follows Python's definition.
+    ///
+    /// `$VAR` and `${VAR}` stay literal. Use
+    /// [`Document::resolve`](crate::Document::resolve) to expand them.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::{parse_strict_with, Dialect};
+    ///
+    /// let source = "A='it\\'s'\nB=\"x\"#note\nC=${HOME}/app\n";
+    /// let doc = parse_strict_with(source, Dialect::PYTHON_DOTENV)?;
+    /// assert_eq!(doc.get("A"), Some("it's"));
+    /// assert_eq!(doc.get("B"), Some("x"));
+    /// assert_eq!(doc.get("C"), Some("${HOME}/app"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub const PYTHON_DOTENV: Self = Self {
         syntax: Syntax::Python,
         whitespace: Whitespace::Python,
@@ -378,7 +962,37 @@ impl Dialect {
         quoted_comments: true,
         ..Self::PORTABLE
     };
-    /// Compose dotenv's grammar and escapes, without interpolation or inheritance.
+    /// Docker Compose 5.6.0 env-file rules (`compose-go` 2.16.1), without
+    /// interpolation.
+    ///
+    /// Differences from Portable:
+    ///
+    /// - `#` starts a comment only after an ASCII space: `A=a\t#b` keeps the
+    ///   hash.
+    /// - Any colon separates a key from its value: `A:b` reads `b`.
+    /// - Keys may use Unicode letters and numbers, `[` and `]`.
+    /// - Double quotes also decode `\a`, `\b`, `\f`, `\v` and octal `\0`
+    ///   escapes. Single quotes decode `\'`.
+    /// - Text after a closing quote starts another statement on the same line.
+    /// - Only LF ends a line.
+    /// - Bare keys take no part in lookup. A bare key on a last line without a
+    ///   line ending reads as a value with an empty key, as Compose does.
+    ///
+    /// `$VAR` stays literal, and no value comes from the process environment.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::{parse_strict_with, Dialect};
+    ///
+    /// let source = "A:b\nB=\"x\" C=y\nD=a\t#b\n";
+    /// let doc = parse_strict_with(source, Dialect::COMPOSE)?;
+    /// assert_eq!(doc.get("A"), Some("b"));
+    /// assert_eq!(doc.get("B"), Some("x"));
+    /// assert_eq!(doc.get("C"), Some("y"));
+    /// assert_eq!(doc.get("D"), Some("a\t#b"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub const COMPOSE: Self = Self {
         syntax: Syntax::Compose,
         whitespace: Whitespace::Compose,
@@ -394,7 +1008,29 @@ impl Dialect {
         quoted_comments: true,
         ..Self::PORTABLE
     };
-    /// Docker CLI's raw kvfile grammar, with no environment inheritance.
+    /// Docker CLI 29.8.2 `--env-file` rules, without reading the process
+    /// environment.
+    ///
+    /// - The value is every byte after `=`, unchanged: quotes, `#`,
+    ///   backslashes and spaces are part of it.
+    /// - A key is everything before `=` and may not contain an ASCII space or
+    ///   tab.
+    /// - There is no `export` prefix and no multiline value. Only LF ends a
+    ///   line.
+    /// - Bare keys stay in the document but take no part in lookup.
+    /// - A line longer than 65,535 bytes is an error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::{parse_strict_with, Dialect};
+    ///
+    /// let source = "GREETING= \"hello\" # kept\nPORT=8080\n";
+    /// let doc = parse_strict_with(source, Dialect::DOCKER_RAW)?;
+    /// assert_eq!(doc.get("GREETING"), Some(" \"hello\" # kept"));
+    /// assert_eq!(doc.get("PORT"), Some("8080"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub const DOCKER_RAW: Self = Self {
         syntax: Syntax::Docker,
         whitespace: Whitespace::Unicode,
@@ -412,139 +1048,139 @@ impl Dialect {
     };
 }
 impl Dialect {
-    /// Use the given statement grammar.
+    /// Sets [`syntax`](Self::syntax), the statement grammar.
     #[must_use]
     pub const fn with_syntax(mut self, syntax: Syntax) -> Self {
         self.syntax = syntax;
         self
     }
-    /// Use the given unquoted inline-comment policy.
+    /// Sets [`inline_comments`](Self::inline_comments): where a `#` starts a comment.
     #[must_use]
     pub const fn with_inline_comments(mut self, value: InlineComments) -> Self {
         self.inline_comments = value;
         self
     }
-    /// Use the given double-quoted escape set.
+    /// Sets [`double_escapes`](Self::double_escapes), the escapes double quotes decode.
     #[must_use]
     pub const fn with_double_escapes(mut self, value: DoubleEscapes) -> Self {
         self.double_escapes = value;
         self
     }
-    /// Use the given unknown-escape policy.
+    /// Sets [`unknown_escapes`](Self::unknown_escapes): what happens to unknown pairs.
     #[must_use]
     pub const fn with_unknown_escapes(mut self, value: UnknownEscapes) -> Self {
         self.unknown_escapes = value;
         self
     }
-    /// Use the given single-quoted escape policy.
+    /// Sets [`single_escapes`](Self::single_escapes), the escapes single quotes decode.
     #[must_use]
     pub const fn with_single_escapes(mut self, value: SingleEscapes) -> Self {
         self.single_escapes = value;
         self
     }
-    /// Enable or disable backtick-quoted values.
+    /// Sets [`backticks`](Self::backticks): whether backticks quote values.
     #[must_use]
     pub const fn with_backticks(mut self, value: bool) -> Self {
         self.backticks = value;
         self
     }
-    /// Use the given colon-separator policy.
+    /// Sets [`colon`](Self::colon): whether a colon can separate key and value.
     #[must_use]
     pub const fn with_colon(mut self, value: ColonSeparator) -> Self {
         self.colon = value;
         self
     }
-    /// Use the given unquoted key syntax.
+    /// Sets [`keys`](Self::keys), the characters an unquoted key may contain.
     #[must_use]
     pub const fn with_keys(mut self, value: KeySyntax) -> Self {
         self.keys = value;
         self
     }
-    /// Use the given bare-key policy.
+    /// Sets [`bare_keys`](Self::bare_keys): how lookup treats keys without `=`.
     #[must_use]
     pub const fn with_bare_keys(mut self, value: BareKeys) -> Self {
         self.bare_keys = value;
         self
     }
-    /// Enable or disable raw value retention.
+    /// Sets [`raw_values`](Self::raw_values): whether values are kept byte for byte.
     #[must_use]
     pub const fn with_raw_values(mut self, value: bool) -> Self {
         self.raw_values = value;
         self
     }
-    /// Use the given physical line-break policy.
+    /// Sets [`line_breaks`](Self::line_breaks): which characters end a line.
     #[must_use]
     pub const fn with_line_breaks(mut self, value: LineBreaks) -> Self {
         self.line_breaks = value;
         self
     }
-    /// Use the given byte-order-mark policy.
+    /// Sets [`bom`](Self::bom): what happens to a leading byte-order mark.
     #[must_use]
     pub const fn with_bom(mut self, value: BomPolicy) -> Self {
         self.bom = value;
         self
     }
-    /// Use the given duplicate lookup policy.
+    /// Sets [`duplicates`](Self::duplicates): which duplicate declaration wins.
     #[must_use]
     pub const fn with_duplicates(mut self, value: Duplicates) -> Self {
         self.duplicates = value;
         self
     }
-    /// Use the given quoted-tail policy.
+    /// Sets [`quoted_tail`](Self::quoted_tail): what happens to text after a quote.
     #[must_use]
     pub const fn with_quoted_tail(mut self, value: QuotedTail) -> Self {
         self.quoted_tail = value;
         self
     }
-    /// Use the given multiline quote permissions.
+    /// Sets [`multiline`](Self::multiline): which quote styles may span lines.
     #[must_use]
     pub const fn with_multiline(mut self, value: Multiline) -> Self {
         self.multiline = value;
         self
     }
-    /// Use the given whitespace classification.
+    /// Sets [`whitespace`](Self::whitespace): which characters count as whitespace.
     #[must_use]
     pub const fn with_whitespace(mut self, value: Whitespace) -> Self {
         self.whitespace = value;
         self
     }
-    /// Enable or disable the export prefix.
+    /// Sets [`export`](Self::export): whether an `export ` prefix is recognized.
     #[must_use]
     pub const fn with_export(mut self, value: bool) -> Self {
         self.export = value;
         self
     }
-    /// Enable or disable quoted key tokens.
+    /// Sets [`quoted_keys`](Self::quoted_keys): whether keys may be single-quoted.
     #[must_use]
     pub const fn with_quoted_keys(mut self, value: bool) -> Self {
         self.quoted_keys = value;
         self
     }
-    /// Enable or disable comments after closing quotes.
+    /// Sets [`quoted_comments`](Self::quoted_comments): whether `#` may touch a quote.
     #[must_use]
     pub const fn with_quoted_comments(mut self, value: bool) -> Self {
         self.quoted_comments = value;
         self
     }
-    /// Enable or disable decoded newline normalization.
+    /// Sets [`normalize_newlines`](Self::normalize_newlines): whether CR becomes LF.
     #[must_use]
     pub const fn with_normalize_newlines(mut self, value: bool) -> Self {
         self.normalize_newlines = value;
         self
     }
-    /// Use the given malformed-line policy.
+    /// Sets [`malformed_lines`](Self::malformed_lines): errors or ignored lines.
     #[must_use]
     pub const fn with_malformed_lines(mut self, value: MalformedLines) -> Self {
         self.malformed_lines = value;
         self
     }
-    /// Enable or disable Node object-key exclusions.
+    /// Sets [`node_object_keys`](Self::node_object_keys): whether to skip `__proto__`.
     #[must_use]
     pub const fn with_node_object_keys(mut self, value: bool) -> Self {
         self.node_object_keys = value;
         self
     }
-    /// Set the optional per-line byte limit.
+    /// Sets [`line_byte_limit`](Self::line_byte_limit), the longest line in bytes.
     #[must_use]
     pub const fn with_line_byte_limit(mut self, value: Option<usize>) -> Self {
         self.line_byte_limit = value;

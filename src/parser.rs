@@ -24,13 +24,70 @@ mod node;
 mod python;
 mod unicode;
 
-/// Parse Portable syntax, retaining the complete source and ordered diagnostics.
+/// Parses `.env` text with the Portable dialect, recovering from errors.
+///
+/// This never fails. A statement with an error is kept as an
+/// [`ItemKind::Invalid`] item and reported in the returned diagnostics, and
+/// parsing recovers at the smallest safe boundary, usually the end of the
+/// line, so one broken line does not hide the rest of the file. Diagnostics of
+/// every [`Severity`] are returned, ordered by their position in the source.
+/// The document borrows `source`; values are literal and nothing is expanded,
+/// read from files or taken from the environment.
+///
+/// The other parse functions differ from this one as follows:
+///
+/// - [`parse_strict`] returns the document without diagnostics, or the first
+///   error.
+/// - [`parse_owned`] takes a `String` and returns a `Document<'static>` that
+///   owns it, with every diagnostic.
+/// - [`parse_values`] returns only the effective values, or the first error.
+///   It keeps no items or spans and uses much less memory.
+///
+/// All four use [`Dialect::PORTABLE`]. Their `_with` variants, such as
+/// [`parse_with`], take the [`Dialect`] to use instead.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{DiagnosticCode, ItemKind};
+///
+/// let source = "BAD KEY=value\nGOOD=kept\n";
+/// let (doc, diagnostics) = adotenv::parse(source);
+///
+/// assert_eq!(doc.get("GOOD"), Some("kept"));
+/// assert_eq!(doc.items().next().unwrap().kind(), ItemKind::Invalid);
+/// assert_eq!(diagnostics[0].code(), DiagnosticCode::InvalidKey);
+/// assert_eq!(diagnostics[0].line(), 1);
+/// assert_eq!(doc.source(), source);
+/// ```
 #[must_use]
 pub fn parse(source: &str) -> (Document<'_>, Vec<Diagnostic>) {
     parse_with(source, Dialect::PORTABLE)
 }
 
-/// Parse literal bindings under an explicit configuration, without expansion or I/O.
+/// Parses `.env` text with the given dialect, recovering from errors.
+///
+/// This is [`parse`] with an explicit [`Dialect`]: a preset such as
+/// [`Dialect::NODE_DOTENV`] or [`Dialect::COMPOSE`], or a preset changed with
+/// its `with_` methods. The dialect sets both the syntax and the lookup rules,
+/// and the document remembers it ([`Document::dialect`]). No dialect expands
+/// values, reads files or uses the environment.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::Dialect;
+///
+/// let source = "COLOR=blue#green\n";
+///
+/// // Portable reads a `#` without whitespace before it as part of the value.
+/// let (portable, _) = adotenv::parse_with(source, Dialect::PORTABLE);
+/// assert_eq!(portable.get("COLOR"), Some("blue#green"));
+///
+/// // Node dotenv starts a comment at any `#`.
+/// let (node, _) = adotenv::parse_with(source, Dialect::NODE_DOTENV);
+/// assert_eq!(node.get("COLOR"), Some("blue"));
+/// ```
 #[must_use]
 pub fn parse_with(source: &str, dialect: Dialect) -> (Document<'_>, Vec<Diagnostic>) {
     parse_impl::<true>(source, dialect)
@@ -59,30 +116,75 @@ fn parse_impl<const D: bool>(source: &str, dialect: Dialect) -> (Document<'_>, V
     (parser.document, diagnostics)
 }
 
-/// Parse only the effective literal values using Portable syntax.
+/// Parses `.env` text with the Portable dialect into a map of effective
+/// values.
 ///
-/// This shares the statement grammar and duplicate policy of [`parse`], but it
-/// does not retain items, entries or raw spans. Warnings are discarded. The
-/// first error is returned.
+/// Use this when only the final values matter. The map holds the same keys
+/// and values as [`Document::effective_entries`] of the document that
+/// [`parse`] would build: the dialect's duplicate-key and bare-key rules
+/// apply, and a bare key is left out unless the dialect reads it as empty.
+/// No items, spans or diagnostics are kept, so it uses much less memory than
+/// a [`Document`]. Warnings are dropped. The map is sorted by key, not by
+/// source order.
+///
+/// See [`parse_values_with`] to choose the dialect.
 ///
 /// # Errors
-/// Returns the first error-severity diagnostic.
+///
+/// Returns the first error-severity [`Diagnostic`] in source order, the same
+/// one [`parse_strict`] returns, for example [`DiagnosticCode::InvalidKey`]
+/// for `BAD KEY=1`.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::DiagnosticCode;
+///
+/// let values = adotenv::parse_values("PORT=8080\nPORT=9090\nHOST=localhost\nDEBUG\n")?;
+/// assert_eq!(values["PORT"], "9090");
+/// assert_eq!(values.len(), 2);
+///
+/// let error = adotenv::parse_values("PORT=8080\nBAD KEY=1\n").unwrap_err();
+/// assert_eq!(error.code(), DiagnosticCode::InvalidKey);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn parse_values(source: &str) -> Result<BTreeMap<String, String>, Diagnostic> {
     parse_values_with(source, Dialect::PORTABLE)
 }
 
-/// Parse only the effective literal values under an explicit configuration.
+/// Parses `.env` text with the given dialect into a map of effective values.
 ///
-/// This is the values-only counterpart to [`parse_with`]. It avoids retaining
-/// item and entry metadata and keeps peak memory close to the final map size.
-/// Warnings are discarded. The first error is returned.
+/// This is [`parse_values`] with an explicit [`Dialect`]. Its peak memory use
+/// stays close to the size of the final map.
 ///
 /// # Errors
-/// Returns the first error-severity diagnostic.
+///
+/// Returns the first error-severity [`Diagnostic`] in source order, the same
+/// one [`parse_strict_with`] returns. In dialects that ignore malformed lines
+/// ([`MalformedLines::Ignore`], as in Node dotenv), only the policy errors
+/// fail: [`DiagnosticCode::ForbiddenBareKey`],
+/// [`DiagnosticCode::ForbiddenByteOrderMark`],
+/// [`DiagnosticCode::InvalidEscape`] and [`DiagnosticCode::LineTooLong`].
 ///
 /// # Panics
-/// Panics only if the projection parser is created without its internal
-/// projection state. This cannot happen through this API.
+///
+/// Panics only if an internal invariant is broken, which cannot happen
+/// through this API.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{BareKeys, Dialect};
+///
+/// let dialect = Dialect::PORTABLE.with_bare_keys(BareKeys::Empty);
+/// let values = adotenv::parse_values_with("DEBUG\nPORT=8080\n", dialect)?;
+/// assert_eq!(values["DEBUG"], "");
+///
+/// // Node dotenv skips the malformed line instead of failing.
+/// let values = adotenv::parse_values_with("BAD LINE\nPORT=8080\n", Dialect::NODE_DOTENV)?;
+/// assert_eq!(values["PORT"], "8080");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn parse_values_with(
     source: &str,
     dialect: Dialect,
@@ -98,13 +200,46 @@ pub fn parse_values_with(
     }
 }
 
-/// Consume owned UTF-8 source without copying the source bytes.
+/// Parses an owned `String` with the Portable dialect, recovering from
+/// errors.
+///
+/// This is [`parse`], except that the string moves into the document without
+/// being copied, so the result is a `Document<'static>` that can outlive the
+/// place where the text was read, for example a function that reads a file
+/// and returns the document. [`Document::into_owned`] converts a borrowing
+/// document instead.
+///
+/// # Examples
+///
+/// ```
+/// fn load() -> adotenv::Document<'static> {
+///     // For example, text from `std::fs::read_to_string`.
+///     let text = String::from("PORT=8080\n");
+///     let (doc, _) = adotenv::parse_owned(text);
+///     doc
+/// }
+///
+/// assert_eq!(load().get("PORT"), Some("8080"));
+/// ```
 #[must_use]
 pub fn parse_owned(source: String) -> (Document<'static>, Vec<Diagnostic>) {
     parse_owned_with(source, Dialect::PORTABLE)
 }
 
-/// Consume owned source using the selected literal configuration.
+/// Parses an owned `String` with the given dialect, recovering from errors.
+///
+/// This is [`parse_owned`] with an explicit [`Dialect`], or [`parse_with`]
+/// for an owned string.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::Dialect;
+///
+/// let text = String::from("COLOR=blue#green\n");
+/// let (doc, _) = adotenv::parse_owned_with(text, Dialect::NODE_DOTENV);
+/// assert_eq!(doc.get("COLOR"), Some("blue"));
+/// ```
 #[must_use]
 pub fn parse_owned_with(source: String, dialect: Dialect) -> (Document<'static>, Vec<Diagnostic>) {
     let (items, entries, bom, has_duplicate_keys, diagnostics) = {
@@ -130,18 +265,67 @@ pub fn parse_owned_with(source: String, dialect: Dialect) -> (Document<'static>,
     )
 }
 
-/// Parse Portable syntax, returning the first error in source order.
+/// Parses `.env` text with the Portable dialect, failing on the first error.
+///
+/// On success the document is the same one [`parse`] builds. Only diagnostics
+/// with [`Severity::Error`] fail; warnings and info diagnostics are not
+/// returned, so use [`parse`] when you want to show them.
+///
+/// See [`parse_strict_with`] to choose the dialect.
 ///
 /// # Errors
-/// Returns the first error-severity diagnostic; warnings do not fail parsing.
+///
+/// Returns the first error-severity [`Diagnostic`] in source order, for
+/// example [`DiagnosticCode::InvalidKey`] for `BAD KEY=1` or
+/// [`DiagnosticCode::UnterminatedQuote`] for a quote that is never closed.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::DiagnosticCode;
+///
+/// let doc = adotenv::parse_strict("PORT=8080\nHOST=localhost\n")?;
+/// assert_eq!(doc.get("PORT"), Some("8080"));
+///
+/// let error = adotenv::parse_strict("PORT=8080\nBAD KEY=1\n").unwrap_err();
+/// assert_eq!(error.code(), DiagnosticCode::InvalidKey);
+/// assert_eq!(error.line(), 2);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn parse_strict(source: &str) -> Result<Document<'_>, Diagnostic> {
     parse_strict_with(source, Dialect::PORTABLE)
 }
 
-/// Parse with an explicit configuration, returning the first error in source order.
+/// Parses `.env` text with the given dialect, failing on the first error.
+///
+/// This is [`parse_strict`] with an explicit [`Dialect`]. On success the
+/// document is the same one [`parse_with`] builds.
 ///
 /// # Errors
-/// Returns the first malformed statement or explicit policy violation.
+///
+/// Returns the first error-severity [`Diagnostic`] in source order: a
+/// malformed statement or a broken dialect policy. In dialects that ignore
+/// malformed lines ([`MalformedLines::Ignore`], as in Node dotenv), malformed
+/// statements are skipped with a warning, so only the policy errors fail:
+/// [`DiagnosticCode::ForbiddenBareKey`],
+/// [`DiagnosticCode::ForbiddenByteOrderMark`],
+/// [`DiagnosticCode::InvalidEscape`] and [`DiagnosticCode::LineTooLong`].
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{BareKeys, DiagnosticCode, Dialect};
+///
+/// // Node dotenv skips the malformed line.
+/// let doc = adotenv::parse_strict_with("BAD LINE\nPORT=8080\n", Dialect::NODE_DOTENV)?;
+/// assert_eq!(doc.get("PORT"), Some("8080"));
+///
+/// // A broken policy fails in every dialect.
+/// let dialect = Dialect::PORTABLE.with_bare_keys(BareKeys::Error);
+/// let error = adotenv::parse_strict_with("DEBUG\n", dialect).unwrap_err();
+/// assert_eq!(error.code(), DiagnosticCode::ForbiddenBareKey);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn parse_strict_with(source: &str, dialect: Dialect) -> Result<Document<'_>, Diagnostic> {
     let document = parse_document(source, dialect);
     let error = document

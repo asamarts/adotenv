@@ -84,4 +84,4 @@ field needs another shape.
 - A structural error, such as a missing field, has line `0` and no key.
 
 Error messages include the value that failed to convert, such as
-`expected u16, found "abc"`. Treat them as secret when values are secret.
+`expected a u16, found "abc"`. Treat them as secret when values are secret.

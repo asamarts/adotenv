@@ -58,6 +58,16 @@
             '<rect x="36" y="42" width="10" height="7" rx="3.5"/></g></svg>' +
             '<span class="sidebar-brand-name">adotenv</span>';
         scrollbox.insertBefore(brand, scrollbox.firstChild);
+
+        const api = document.createElement("a");
+        api.className = "sidebar-api";
+        api.href = "https://docs.rs/adotenv";
+        api.innerHTML =
+            '<span>API reference</span><span class="sidebar-api-host">docs.rs</span>' +
+            '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3h7v7M13 3 4 12" ' +
+            'fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" ' +
+            'stroke-linejoin="round"/></svg>';
+        brand.insertAdjacentElement("afterend", api);
     }
 
     function chapterTitle(href) {

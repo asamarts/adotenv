@@ -1,38 +1,61 @@
 //! Safe example-text generation.
 //!
-//! An example keeps comments, blank lines, keys and formatting while removing
-//! assigned values. Malformed or ignored statements are converted to comments so
-//! a generated example cannot leak a value from a line the parser could not
-//! interpret.
+//! An example keeps comments, blank lines, keys and layout while removing
+//! assigned values. Invalid or ignored statements become comments, so a
+//! generated example cannot leak a value from a line the parser could not
+//! read.
 
 use alloc::string::String;
 
 use crate::{Document, InlineComments, ItemKind};
 
 impl Document<'_> {
-    /// Generate a new example text with every assigned value removed.
+    /// Returns a copy of the source with every assigned value removed.
     ///
-    /// Whole-line comments, blank lines, keys, export prefixes, spacing, line
-    /// endings and the BOM are retained. Bare declarations remain bare.
-    /// Assigned values become `Empty`; an empty quoted placeholder keeps an
-    /// inline comment attached when the grammar requires a value body before it.
-    /// Invalid or ignored statements, and entries with an empty key, become
-    /// indentation-preserving `#` comments so their raw text cannot leak a
-    /// value. No expansion, environment access or I/O is performed.
+    /// The result is meant for files such as `.env.example`. It keeps:
+    ///
+    /// - whole-line comments and blank lines;
+    /// - keys, `export` prefixes and the spacing before each value;
+    /// - inline comments;
+    /// - line endings and a BOM;
+    /// - bare declarations, which stay bare.
+    ///
+    /// Every assigned value becomes empty
+    /// ([`AssignmentState::Empty`](crate::AssignmentState::Empty)), and the
+    /// rest of its line is dropped unless it is an inline comment. Where an
+    /// empty value would change how the line reads, the value becomes `""`
+    /// instead of nothing: when the separator is `:`, when the value spans
+    /// lines, when another statement follows on the same line, or when the
+    /// entry has an inline comment in a dialect that lets comments follow
+    /// quotes (Node, Python and Compose). Raw-value dialects such as Docker
+    /// never get a placeholder. In a custom dialect where an inline comment
+    /// cannot follow an empty value, the comment moves to its own line.
+    ///
+    /// Invalid statements, ignored statements and entries with an empty key
+    /// become `#` comments that keep only their indentation and line ending, so
+    /// no value text from them can leak into the output. Statements that shared
+    /// one physical line are put on separate lines.
+    ///
+    /// Comments are kept verbatim, including anything secret written in them.
+    /// The result is meant for examples and documentation, not for use as a
+    /// runtime configuration. No expansion, environment access or I/O is
+    /// performed.
     ///
     /// # Panics
-    /// Panics only if an internal document-snapshot invariant is broken; an
-    /// `Entry` item always has an entry view.
+    ///
+    /// Does not panic in practice: the method expects every entry item to have
+    /// a declaration, which the parser guarantees.
     ///
     /// # Examples
     ///
     /// ```
-    /// use adotenv::parse;
+    /// let source = "# app\nA=1\nB=\"two\" # note\nBARE\nBAD KEY=secret\n";
+    /// let (doc, _) = adotenv::parse(source);
+    /// assert_eq!(doc.example(), "# app\nA=\nB= # note\nBARE\n#\n");
     ///
-    /// let source = "# app\nA=1\nB=\"x\" # note\nBARE\nBAD KEY=secret\n";
-    /// let (doc, _) = parse(source);
-    /// let example = doc.example();
-    /// assert_eq!(example, "# app\nA=\nB= # note\nBARE\n#\n");
+    /// // Node lets a comment follow quotes, so the empty value keeps them.
+    /// let (doc, _) = adotenv::parse_with("PORT=8080 # note\n", adotenv::Dialect::NODE_DOTENV);
+    /// assert_eq!(doc.example(), "PORT=\"\" # note\n");
     /// ```
     #[must_use]
     pub fn example(&self) -> String {

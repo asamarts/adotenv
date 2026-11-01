@@ -9,91 +9,137 @@ use core::ops::Range;
 
 use crate::{AssignmentState, BareKeys, Dialect, Document, Duplicates, Entry, ItemKind};
 
-/// A declaration as read by one dialect on a physical line.
+/// A declaration as one dialect reads it, inside a [`PortabilityReading`].
+///
+/// Two readings of a line differ when any field differs. The quote style and
+/// the spelling of the value are not recorded, so `A=x` and `A="x"` read the
+/// same.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PortabilityDeclaration {
-    /// Literal key name, excluding any key quotes.
+    /// The key, without the quotes of a quoted key.
     pub key: String,
-    /// Decoded literal value; `None` is a bare declaration.
+    /// The decoded value, or `None` for a bare key.
     pub value: Option<String>,
-    /// Bare, empty or non-empty assignment state.
+    /// Whether the declaration is bare, empty or has a value.
     pub state: AssignmentState,
     /// Whether the declaration has an `export` prefix.
     pub exported: bool,
-    /// Whether the declaration participates in effective key lookup.
-    pub participates: bool,
-    /// Value this declaration contributes to effective lookup.
+    /// Whether the declaration takes part in lookup.
     ///
-    /// This includes `BareKeys::Empty` for bare declarations. It is `None` when
-    /// the declaration does not participate, or when a participating bare
-    /// declaration has no effective value. A declaration can carry a value
-    /// here without winning its key; see [`Self::wins_lookup`].
+    /// See [`Entry::participates_in_lookup`].
+    pub participates: bool,
+    /// The value lookup returns for this declaration if it wins.
+    ///
+    /// It is `None` when the declaration does not take part in lookup, or when
+    /// it is a bare key and the dialect gives bare keys no value. Under
+    /// [`BareKeys::Empty`] a bare key has `Some("")` here. A declaration can
+    /// have a value here and still lose to a duplicate; see
+    /// [`wins_lookup`](Self::wins_lookup).
     pub effective_value: Option<String>,
-    /// Whether this declaration wins its key's effective lookup.
+    /// Whether this declaration wins lookup for its key, under the dialect's
+    /// duplicate rule.
     pub wins_lookup: bool,
 }
 
-/// One part of a physical line under one dialect.
+/// One item, or the part of one, on a physical line as one dialect reads it.
+///
+/// A line can hold several parts when statements share it, as with
+/// [`QuotedTail::NextStatement`](crate::QuotedTail::NextStatement).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PortabilityPart {
-    /// A recognized declaration.
+    /// A declaration, with the details that lookup depends on.
     Declaration(PortabilityDeclaration),
     /// A blank line.
     Blank,
     /// A whole-line comment.
     Comment,
-    /// Malformed syntax retained as invalid.
+    /// A malformed statement, kept as an [`ItemKind::Invalid`] item.
     Invalid,
-    /// Syntax ignored by the selected dialect.
+    /// A statement the dialect skips, kept as an [`ItemKind::Ignored`] item.
     Ignored,
-    /// A continuation line of a multiline item that began earlier.
+    /// A later line of an item that started on an earlier line, such as a
+    /// multiline quoted value.
     Continuation,
 }
 
-/// One dialect's reading of a differing physical line.
+/// How one dialect reads one differing physical line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PortabilityReading {
-    /// The exact configuration that produced this reading.
+    /// The dialect that produced this reading.
     pub dialect: Dialect,
-    /// Ordered line parts. Multiple statements can share one physical line.
+    /// The parts of the line in source order.
     pub parts: Vec<PortabilityPart>,
 }
 
-/// One physical line whose meaning differs across the compared dialects.
+/// A physical line that the compared dialects read differently.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PortabilityDifference {
-    /// Exact original-source bytes of the line content, excluding its ending.
+    /// The byte range of the line in the source, without its line ending.
+    ///
+    /// On line 1 it includes a leading byte-order mark.
     pub span: Range<usize>,
-    /// Explicitly one-based physical line number.
+    /// The one-based line number.
     pub first_line: usize,
-    /// Explicitly one-based final line number; equal to `first_line` today.
+    /// The one-based number of the last line covered, which is always
+    /// [`first_line`](Self::first_line) today.
     pub last_line: usize,
-    /// One reading per unique compared dialect, in comparison order.
+    /// One reading per compared dialect, in comparison order.
+    ///
+    /// The first reading is the document's own dialect.
     pub readings: Vec<PortabilityReading>,
 }
 
-/// Differences between a document's interpretation and selected dialects.
+/// The lines of a document that several dialects read differently.
+///
+/// [`Document::portability`] returns it. An empty report means that every
+/// compared dialect reads every line the same way.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_strict, Dialect, PortabilityPart};
+///
+/// let doc = parse_strict("PORT=8080\nTAG=v1#beta\n")?;
+/// let report = doc.portability(&[Dialect::NODE_DOTENV]);
+/// assert_eq!(report.len(), 1);
+///
+/// let difference = &report.differences()[0];
+/// assert_eq!(difference.first_line, 2);
+/// assert_eq!(&doc.source()[difference.span.clone()], "TAG=v1#beta");
+///
+/// // Portable reads the hash as text; Node dotenv starts a comment there.
+/// let values: Vec<_> = difference
+///     .readings
+///     .iter()
+///     .map(|reading| match &reading.parts[..] {
+///         [PortabilityPart::Declaration(declaration)] => declaration.value.as_deref(),
+///         _ => None,
+///     })
+///     .collect();
+/// assert_eq!(values, [Some("v1#beta"), Some("v1")]);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortabilityReport {
     differences: Vec<PortabilityDifference>,
 }
 
 impl PortabilityReport {
-    /// Whether every compared dialect agreed on every physical line.
+    /// Returns `true` when every compared dialect reads every line the same way.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.differences.is_empty()
     }
-    /// Number of differing physical lines.
+    /// Returns the number of lines that differ.
     #[must_use]
     pub fn len(&self) -> usize {
         self.differences.len()
     }
-    /// Differing physical lines in source order.
+    /// Returns the lines that differ, in source order.
     #[must_use]
     pub fn differences(&self) -> &[PortabilityDifference] {
         &self.differences
@@ -101,31 +147,41 @@ impl PortabilityReport {
 }
 
 impl Document<'_> {
-    /// Compare this document's exact configuration and additional dialects.
+    /// Compares how this document's dialect and other dialects read each line.
     ///
-    /// The document's own configuration is always the first reading; duplicate
-    /// configurations are ignored. Each unique configuration parses the retained
-    /// source once. A difference is reported for every physical line whose
-    /// declarations, decoded values, assignment states, export prefixes, lookup
-    /// participation, duplicate lookup winner or item grouping differ. Quote
-    /// style alone is not a difference. No expansion, lookup, I/O or environment
-    /// access occurs.
+    /// The document's own dialect is always the first reading, followed by
+    /// `dialects` in order; a dialect equal to one already compared is
+    /// skipped. Each dialect parses the document's source again.
     ///
-    /// Differences are per physical line and ordered by line. A multiline item
-    /// contributes a declaration on its first line and [`PortabilityPart::Continuation`]
-    /// parts on its later lines, so grouping changes remain visible.
+    /// The report has one [`PortabilityDifference`] per physical line whose
+    /// readings differ in the items on the line (blank, comment, invalid,
+    /// ignored or declaration) or, for a declaration, in its key, decoded
+    /// value, assignment state, `export` prefix, lookup participation,
+    /// effective value or duplicate winner. Quote style alone is not a
+    /// difference: `A=x` and `A="x"` read the same.
+    ///
+    /// Lines are split at LF, CRLF and a lone CR, whatever the dialects' line
+    /// break rules. A multiline item gives a declaration on its first line and
+    /// [`PortabilityPart::Continuation`] parts on its later lines, so a change
+    /// in how lines group into items shows on every line involved.
+    ///
+    /// The comparison is literal: nothing is expanded, and no environment or
+    /// file is read.
     ///
     /// # Examples
     ///
     /// ```
-    /// use adotenv::{parse_with, Dialect};
+    /// use adotenv::{parse_strict, Dialect};
     ///
-    /// let (doc, _) = parse_with("A=a#b\n", Dialect::PORTABLE);
-    /// let report = doc.portability(&[Dialect::NODE_DOTENV]);
-    /// assert_eq!(report.len(), 1);
-    /// let difference = &report.differences()[0];
-    /// assert_eq!(difference.first_line, 1);
-    /// assert_eq!(difference.readings.len(), 2);
+    /// let doc = parse_strict("A=a#b\nDEBUG\nPORT=8080\n")?;
+    /// let report = doc.portability(&[Dialect::NODE_DOTENV, Dialect::DOCKER_RAW]);
+    ///
+    /// // Line 1: Node dotenv starts a comment at `#`.
+    /// // Line 2: Node dotenv and Docker leave bare keys out of lookup.
+    /// let lines: Vec<_> = report.differences().iter().map(|d| d.first_line).collect();
+    /// assert_eq!(lines, [1, 2]);
+    /// assert_eq!(report.differences()[0].readings.len(), 3);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
     pub fn portability(&self, dialects: &[Dialect]) -> PortabilityReport {

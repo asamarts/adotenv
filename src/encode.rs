@@ -12,11 +12,32 @@ use crate::{
     Whitespace,
 };
 
-/// A value has no exact literal spelling in the selected grammar and context.
+/// The error returned when a value has no exact spelling in a dialect.
+///
+/// [`encode_value_with`] returns it. Edits such as
+/// [`Document::set`](crate::Document::set) report the same problem as
+/// [`EditError::Unencodable`](crate::EditError::Unencodable).
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{encode_value_with, Dialect, EncodeError};
+///
+/// // A Docker env file cannot hold a line break inside a value.
+/// let error = encode_value_with("line one\nline two", Dialect::DOCKER_RAW).unwrap_err();
+/// assert!(matches!(error, EncodeError::Unrepresentable));
+/// assert_eq!(
+///     error.to_string(),
+///     "value cannot be represented exactly in the selected dialect and context"
+/// );
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum EncodeError {
-    /// No spelling preserves the value, statement boundaries and resource limits.
+    /// No spelling of the value reads back exactly in the dialect.
+    ///
+    /// A spelling must read back as exactly the value, as one declaration,
+    /// and fit within [`Dialect::line_byte_limit`].
     Unrepresentable,
 }
 impl fmt::Display for EncodeError {
@@ -26,18 +47,55 @@ impl fmt::Display for EncodeError {
 }
 impl core::error::Error for EncodeError {}
 
-/// Encode an exact standalone value under an explicit literal dialect.
+/// Returns a token that reads back as exactly `value` in `dialect`.
 ///
-/// The returned token is verified in both `A=<token>\n` and `A=<token>`.
-/// The canonical `A=` header consumes two bytes of the first physical line's
-/// byte budget. A Node token may begin with a line break when a first-line cap
-/// cannot fit the opening quote; that line break is trivia between `=` and the
-/// value. This is not a context-safe edit or an interpolation guarantee.
-/// LF-only raw grammars may require an extra terminal CR as syntax padding;
-/// appending CRLF instead of LF requires context-aware native encoding.
+/// Write the token after `KEY=`. The encoder prefers an unquoted token and
+/// quotes the value only when the unquoted form does not read back exactly;
+/// the quote style depends on what the dialect can decode. In Portable, `a b`
+/// stays unquoted, while ` lead` (with a leading space) and `a #b` are
+/// double-quoted.
+///
+/// Every token is checked before it is returned: both `A=<token>` followed by
+/// LF and `A=<token>` at the end of the source must parse with `dialect` to a
+/// single entry whose value is exactly `value`, without errors. The check has
+/// limits:
+///
+/// - Only those two contexts are checked. To change a value inside an
+///   existing file, use [`Document::set`](crate::Document::set) or
+///   [`Document::edit`](crate::Document::edit), which check the whole result.
+/// - The token is literal for this crate. The encoder does not escape `$`, so
+///   a tool that expands references still expands `$HOME`.
+/// - With a [`Dialect::line_byte_limit`], the two bytes of `A=` count toward
+///   the first line, so a longer key leaves less room. With the Node grammar,
+///   the token may start with a line break when the opening quote does not
+///   fit on the first line; Node dotenv reads it as whitespace before the
+///   quote.
+/// - Under [`LineBreaks::Lf`], a token that would end with CR gets one more
+///   CR, because a CR right before the final LF belongs to the line ending.
+///   Follow such a token with LF, not CRLF.
 ///
 /// # Errors
-/// Returns [`EncodeError::Unrepresentable`] when no exact spelling is available.
+///
+/// Returns [`EncodeError::Unrepresentable`] when no spelling reads back as
+/// `value`: for example, a line break in a [`Dialect::DOCKER_RAW`] value, or a
+/// value longer than the dialect's line byte limit.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{encode_value_with, parse_strict_with, Dialect};
+///
+/// let value = "two words # not a comment";
+/// let token = encode_value_with(value, Dialect::PYTHON_DOTENV)?;
+/// assert_eq!(token, "\"two words # not a comment\"");
+///
+/// let source = format!("GREETING={token}\n");
+/// let doc = parse_strict_with(&source, Dialect::PYTHON_DOTENV)?;
+/// assert_eq!(doc.get("GREETING"), Some(value));
+///
+/// assert!(encode_value_with("two\nlines", Dialect::DOCKER_RAW).is_err());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn encode_value_with(value: &str, dialect: Dialect) -> Result<String, EncodeError> {
     let mut context = Context::standalone(value, dialect);
     match encode(context.clone(), Quote::None) {
@@ -75,10 +133,28 @@ pub fn encode_value_with(value: &str, dialect: Dialect) -> Result<String, Encode
     Err(EncodeError::Unrepresentable)
 }
 
-/// Encode a standalone Portable value, retaining the original control policy.
+/// Returns a Portable token that reads back as `value`, quoting conservatively.
 ///
-/// Controls other than CR, LF and tab return `None`. Use [`encode_value_with`]
-/// to encode every control the selected literal grammar can represent.
+/// Unlike [`encode_value_with`], this helper quotes every value that contains
+/// whitespace, `#` or a control character, or that starts with a quote, using
+/// double quotes where possible. Other values stay unquoted when that reads
+/// back exactly. The token is checked the same way as with
+/// [`encode_value_with`] and [`Dialect::PORTABLE`].
+///
+/// Returns `None` when the value contains a control character other than tab,
+/// CR and LF. [`encode_value_with`] with [`Dialect::PORTABLE`] can spell those
+/// too.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::encode_value;
+///
+/// assert_eq!(encode_value("8080").as_deref(), Some("8080"));
+/// assert_eq!(encode_value("two words").as_deref(), Some("\"two words\""));
+/// assert_eq!(encode_value("one\ntwo").as_deref(), Some("\"one\\ntwo\""));
+/// assert_eq!(encode_value("bell\u{7}"), None);
+/// ```
 #[must_use]
 pub fn encode_value(value: &str) -> Option<String> {
     if value
