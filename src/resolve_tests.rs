@@ -345,6 +345,27 @@ fn compose_operands_follow_operand_grammar() {
 }
 
 #[test]
+fn dotenv_expand_operands_follow_operand_grammar() {
+    let resolved = resolve("A=${B:-do'nt}\n", |_| None, &ExpandOptions::dotenv_expand()).unwrap();
+    assert_eq!(value(&resolved, 0), Some("do'nt"));
+
+    let error = resolve(
+        "A=${B:?can't continue}\n",
+        |_| None,
+        &ExpandOptions::dotenv_expand(),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        ResolveError::Required {
+            ref name,
+            ref message,
+            ..
+        } if name == "B" && message == "can't continue"
+    ));
+}
+
+#[test]
 fn unresolved_policy_controls_missing_references() {
     let doc = parse_strict("A=${MISSING}\n").unwrap();
     let keep = doc.resolve(|_| None, &ExpandOptions::portable()).unwrap();

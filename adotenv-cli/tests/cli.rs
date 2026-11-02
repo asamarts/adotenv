@@ -683,6 +683,73 @@ fn recursive_check_continues_after_an_unreadable_directory() {
     assert!(stderr(&output).contains("locked"), "{}", stderr(&output));
 }
 
+#[test]
+fn recursive_check_reports_a_missing_root_without_files() {
+    let dir = TempDir::new();
+    let missing = dir.path().join("missing");
+
+    let output = run(&[
+        "check",
+        "--format",
+        "json",
+        "--recursive",
+        missing.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    let json = stdout(&output);
+    assert_eq!(json.lines().count(), 1);
+    parse_json(&json);
+    assert!(json.contains("missing"), "{json}");
+    assert!(json.contains("\"ok\":false"), "{json}");
+
+    let output = run(&[
+        "check",
+        "--format",
+        "github",
+        "--recursive",
+        missing.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stdout(&output).contains("::error file="),
+        "{}",
+        stdout(&output)
+    );
+
+    let output = run(&["check", "--recursive", missing.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("missing"), "{}", stderr(&output));
+    assert!(!stderr(&output).contains("no .env files found"));
+}
+
+#[test]
+fn recursive_fmt_reports_a_missing_root_without_files() {
+    let dir = TempDir::new();
+    let missing = dir.path().join("missing");
+    let output = run(&["fmt", "--write", "--recursive", missing.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("missing"), "{}", stderr(&output));
+    assert!(!stderr(&output).contains("no .env files found"));
+}
+
+#[cfg(unix)]
+#[test]
+fn unchanged_fmt_keeps_a_symlink_and_its_target() {
+    use std::os::unix::fs::{symlink, MetadataExt};
+
+    let dir = TempDir::new();
+    let real = dir.file_at("real/app.env", "A = 1\n");
+    let link = dir.path().join("link.env");
+    symlink("real/app.env", &link).unwrap();
+    let before = fs::metadata(&real).unwrap().ino();
+
+    let output = run(&["fmt", "--write", link.to_str().unwrap()]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(is_symlink(&link));
+    assert_eq!(fs::metadata(&real).unwrap().ino(), before);
+    assert_eq!(fs::read_to_string(&real).unwrap(), "A = 1\n");
+}
+
 #[cfg(unix)]
 #[test]
 fn recursive_discovery_does_not_follow_symlinks() {

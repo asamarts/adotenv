@@ -338,6 +338,13 @@ fn remove_final_cr_trims_the_final_line_once() {
         assert_eq!(formatted.as_str(), source, "{source:?}");
         assert!(formatted.is_empty(), "{source:?}");
     }
+
+    // Raw-value dialects keep trailing spaces, but the final CR still goes.
+    let (docker, _) = parse_with("A=x  \r", Dialect::DOCKER_RAW);
+    let formatted = docker.format(&options).unwrap();
+    assert_eq!(formatted.as_str(), "A=x  ");
+    let (after, _) = parse_with(formatted.as_str(), Dialect::DOCKER_RAW);
+    assert!(after.format(&options).unwrap().is_empty());
 }
 
 #[test]
