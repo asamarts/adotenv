@@ -72,11 +72,13 @@ Values may be secrets. These outputs include them:
 
 ## File writes
 
-`adotenv-cli fmt --write` and `set` replace a file through a temporary file in
-the same directory. On Unix the temporary file is created with mode `0600`
-before anything is written, then receives the original mode, owner and group
-where the user may set them. Hard links, extended attributes and ACLs are not
-kept. On Windows the fallback replace is not crash-atomic. See
+`adotenv-cli fmt --write` and `set` leave an unchanged file untouched, so its
+inode, hard links, timestamps, extended attributes and ACLs stay. They replace a
+changed file through a temporary file in the same directory. On Unix the
+temporary file is created with mode `0600` before anything is written, then
+receives the original mode, owner and group where the user may set them. Hard
+links, extended attributes and ACLs are not kept across a replace. On Windows
+the fallback replace is not crash-atomic. See
 [input and output](../design/cli.md#input-and-output) for the details.
 
 ## Reporting a vulnerability
