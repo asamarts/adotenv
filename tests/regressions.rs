@@ -133,6 +133,18 @@ mod loaded {
         assert_eq!(contextual.get("A"), Some("x\r"));
         assert_eq!(contextual.get("B"), Some("x\rz"));
 
+        // Multiline quoted values survive the synthetic parse.
+        let dir = TempDir::new();
+        dir.write("A=\"one\ntwo\"\nB=${A}\n");
+        let loaded =
+            load_cascade_with_options(dir.path(), "", LoadOptions::full(Dialect::PORTABLE))
+                .unwrap();
+        let contextual = loaded.resolve_contextual(|_| None, &whole_file()).unwrap();
+        let decoded = loaded.resolve_decoded(|_| None, &whole_file()).unwrap();
+        assert_eq!(contextual.values(), decoded.values());
+        assert_eq!(contextual.get("A"), Some("one\ntwo"));
+        assert_eq!(contextual.get("B"), Some("one\ntwo"));
+
         // A BOM that belongs to a later key is not stripped from a synthetic
         // first line.
         let dir = TempDir::new();
