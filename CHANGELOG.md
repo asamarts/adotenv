@@ -14,8 +14,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   naming the key instead of resolving a changed key or value.
 - Reference scanning ends a `${...}` operand at the first `}` outside a
   nested form, as Compose and dotenv-expand do. Quotes and backslashes inside
-  a default, message or
-  alternative are ordinary text, so `${VAR:-do'nt}` expands and
+  a default, message or alternative are ordinary text, so
+  `${VAR:-do'nt}` expands and
   `${VAR:?can't continue}` raises `ResolveError::Required` instead of staying
   literal. A backslash before a nested `$` in an operand no longer marks it as
   escaped; `Reference::escaped` and `ReferenceRules::escaped_dollar` describe
