@@ -157,6 +157,19 @@ fn unchanged_fmt_and_set_keep_the_inode_and_hard_links() {
         "set left the inode alone"
     );
     assert_eq!(fs::read_to_string(&link).unwrap(), "A = 1\n");
+
+    let sorted = dir.file("sorted.env", "A = 1\nB = 2\n");
+    let sorted_link = dir.path().join("sorted-link.env");
+    fs::hard_link(&sorted, &sorted_link).unwrap();
+    let sorted_before = fs::metadata(&sorted).unwrap();
+    let output = run(&["fmt", "--write", "--sort", sorted.to_str().unwrap()]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(
+        fs::metadata(&sorted).unwrap().ino(),
+        sorted_before.ino(),
+        "sorted fmt left the inode alone"
+    );
+    assert_eq!(fs::read_to_string(&sorted_link).unwrap(), "A = 1\nB = 2\n");
 }
 
 #[test]
