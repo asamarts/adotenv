@@ -26,6 +26,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `diff` human output starts each candidate with a `baseline -> file` header
   and prints `(no differences)` when a candidate matches, including when there
   is exactly one candidate.
+- `check` and `fmt --recursive` continue after a missing, unreadable or refused
+  path and report it instead of aborting with no output. `check --format json`
+  adds an `ok:false` entry, GitHub output adds an annotation, and differing
+  spellings of the same file are removed by resolved path.
 
 ### Documentation
 

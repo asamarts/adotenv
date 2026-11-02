@@ -108,10 +108,10 @@ spans are stable.
 | Object | Field | Type | Meaning |
 |---|---|---|---|
 | check report | `version` | number | Schema version, `1`. |
-| check report | `files` | array of check file | One entry per file, in argument order. With `--recursive`, found files are sorted and duplicates removed. |
-| check file | `path` | string | The path as given or found, or `-` or `--stdin` for standard input. Bytes that are not UTF-8 become U+FFFD. |
-| check file | `ok` | boolean | `false` when the file has an error diagnostic or could not be read. |
-| check file | `error` | string | Present only when the file could not be read or is not UTF-8. The message includes the path. |
+| check report | `files` | array of check file | One entry per found file, in argument order. With `--recursive`, found files are sorted and duplicates resolved to the same path are removed. A path that could not be searched comes first, with `ok:false` and an `error`. |
+| check file | `path` | string | The path as given or found, the path that could not be searched, or `-` or `--stdin` for standard input. Bytes that are not UTF-8 become U+FFFD. |
+| check file | `ok` | boolean | `false` when the file has an error diagnostic, could not be read, or its search path failed. |
+| check file | `error` | string | Present only when the file could not be read, is not UTF-8, or its search path failed. The message includes the path. |
 | check file | `diagnostics` | array of diagnostic | The file's diagnostics. Empty when `error` is present. |
 | diagnostic | `line` | number | One-based line of the primary span. |
 | diagnostic | `severity` | string | `error`, `warning` or `info`. |
@@ -135,7 +135,7 @@ One GitHub Actions workflow command per line:
 
 The first form reports a diagnostic. `<level>` is `error`, `warning` or `notice`
 for an `info` diagnostic. `<column>` is one-based and counts Unicode scalar
-values. The second form reports a file that could not be read. In `<path>` and
+values. The second form reports a file that could not be read or a path that could not be searched. In `<path>` and
 `<code>`, `%`, CR, LF, `:` and `,` are percent-encoded. In `<message>` and
 `<error>`, `%`, CR and LF are percent-encoded. This format is stable.
 
@@ -254,10 +254,17 @@ Without `--recursive`, every path argument must be a file. A directory is a
 read failure, and `check` or `fmt` with no path is a usage error.
 
 The search skips `.git`, `target`, `node_modules` and symbolic links. A
-directory argument that is a symbolic link is refused. When the search finds
-no files, `check` prints an empty report (`{"version":1,"files":[]}` for JSON),
-`no .env files found` goes to standard error, and the exit code is `0`. `fmt`
-behaves the same way.
+directory argument that is a symbolic link is refused.
+
+A path that cannot be searched, such as a missing root, a refused symbolic
+link or an unreadable directory, is reported. Human output writes it to
+standard error, JSON adds a `files` entry with `ok:false` and `error`, and
+GitHub output writes an `::error` annotation. The remaining paths are still
+searched and processed, and the command exits `2`.
+
+When the search finds no files and no path failed, `check` prints an empty
+report (`{"version":1,"files":[]}` for JSON), `no .env files found` goes to
+standard error, and the exit code is `0`. `fmt` behaves the same way.
 
 `--exclude <path>` needs `--recursive` and can be repeated. Each exclude is
 relative to each directory argument, or to the parent directory of a file

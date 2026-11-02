@@ -53,6 +53,10 @@ Releases within 1.x keep the API. These fixes change results:
   `baseline -> file` header and prints `(no differences)` when it matches,
   including when there is exactly one candidate. Before, one candidate printed
   neither.
+- 1.1.1: recursive `check` and `fmt` continue after a missing, unreadable or
+  refused path. `check --format json` reports it as a `files` entry with
+  `ok:false`, GitHub output adds an annotation, and the command exits `2`.
+  Differing spellings that resolve to the same file are reported once.
 
 ## From 0.11
 

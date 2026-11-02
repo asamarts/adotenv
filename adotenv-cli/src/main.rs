@@ -239,33 +239,66 @@ fn is_excluded(base: &Path, path: &Path, excludes: &[PathBuf]) -> bool {
     })
 }
 
+struct Discovery {
+    paths: Vec<PathBuf>,
+    errors: Vec<DiscoveryError>,
+}
+
+struct DiscoveryError {
+    path: PathBuf,
+    message: String,
+}
+
 fn walk_env_files(
     base: &Path,
     directory: &Path,
     excludes: &[PathBuf],
     found: &mut Vec<PathBuf>,
-) -> Result<(), String> {
-    let entries =
-        fs::read_dir(directory).map_err(|error| format!("{}: {error}", directory.display()))?;
-    let mut entries = entries
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("{}: {error}", directory.display()))?;
+    errors: &mut Vec<DiscoveryError>,
+) {
+    let reader = match fs::read_dir(directory) {
+        Ok(reader) => reader,
+        Err(error) => {
+            errors.push(DiscoveryError {
+                path: directory.to_path_buf(),
+                message: error.to_string(),
+            });
+            return;
+        }
+    };
+    let mut entries = Vec::new();
+    for entry in reader {
+        match entry {
+            Ok(entry) => entries.push(entry),
+            Err(error) => errors.push(DiscoveryError {
+                path: directory.to_path_buf(),
+                message: error.to_string(),
+            }),
+        }
+    }
     entries.sort_by_key(std::fs::DirEntry::file_name);
     for entry in entries {
         let path = entry.path();
         if is_excluded(base, &path, excludes) {
             continue;
         }
-        let file_type = entry
-            .file_type()
-            .map_err(|error| format!("{}: {error}", path.display()))?;
+        let file_type = match entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(error) => {
+                errors.push(DiscoveryError {
+                    path,
+                    message: error.to_string(),
+                });
+                continue;
+            }
+        };
         if file_type.is_symlink() {
             continue;
         }
         if file_type.is_dir() {
             let name = entry.file_name();
             if !is_ignored_dir(&name.to_string_lossy()) {
-                walk_env_files(base, &path, excludes, found)?;
+                walk_env_files(base, &path, excludes, found, errors);
             }
         } else if file_type.is_file() {
             let name = entry.file_name();
@@ -274,48 +307,77 @@ fn walk_env_files(
             }
         }
     }
-    Ok(())
 }
 
-fn expand_paths(
-    paths: &[String],
-    recursive: bool,
-    excludes: &[PathBuf],
-) -> Result<Vec<PathBuf>, String> {
+fn expand_paths(paths: &[String], recursive: bool, excludes: &[PathBuf]) -> Discovery {
     if !recursive {
-        return Ok(paths.iter().map(PathBuf::from).collect());
+        return Discovery {
+            paths: paths.iter().map(PathBuf::from).collect(),
+            errors: Vec::new(),
+        };
     }
     let roots: Vec<PathBuf> = if paths.is_empty() {
         vec![PathBuf::from(".")]
     } else {
         paths.iter().map(PathBuf::from).collect()
     };
-    let mut found = Vec::new();
+    let mut discovery = Discovery {
+        paths: Vec::new(),
+        errors: Vec::new(),
+    };
     for root_path in roots {
         if is_stdin_path(&root_path) {
-            found.push(root_path);
+            discovery.paths.push(root_path);
             continue;
         }
-        let root = root_path.display().to_string();
-        let metadata =
-            fs::symlink_metadata(&root_path).map_err(|error| format!("{root}: {error}"))?;
+        let metadata = match fs::symlink_metadata(&root_path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                discovery.errors.push(DiscoveryError {
+                    path: root_path,
+                    message: error.to_string(),
+                });
+                continue;
+            }
+        };
         if metadata.file_type().is_symlink() {
-            return Err(format!("{root}: refusing to follow symbolic links"));
+            discovery.errors.push(DiscoveryError {
+                path: root_path,
+                message: "refusing to follow symbolic links".to_string(),
+            });
+            continue;
         }
         if metadata.is_file() {
             let base = root_path.parent().unwrap_or_else(|| Path::new("."));
             if !is_excluded(base, &root_path, excludes) {
-                found.push(root_path);
+                discovery.paths.push(root_path);
             }
         } else if metadata.is_dir() {
-            walk_env_files(&root_path, &root_path, excludes, &mut found)?;
+            walk_env_files(
+                &root_path,
+                &root_path,
+                excludes,
+                &mut discovery.paths,
+                &mut discovery.errors,
+            );
         } else {
-            return Err(format!("{root}: not a regular file or directory"));
+            discovery.errors.push(DiscoveryError {
+                path: root_path,
+                message: "not a regular file or directory".to_string(),
+            });
         }
     }
-    found.sort();
-    found.dedup();
-    Ok(found)
+    discovery.paths.sort();
+    let mut seen_paths = BTreeSet::new();
+    discovery.paths.retain(|path| {
+        let key = fs::canonicalize(path).unwrap_or_else(|_| path.clone());
+        seen_paths.insert(key)
+    });
+    let mut seen_errors = BTreeSet::new();
+    discovery
+        .errors
+        .retain(|error| seen_errors.insert((error.path.clone(), error.message.clone())));
+    discovery
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -467,26 +529,48 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
         );
         return FAILURE;
     }
-    let paths = match expand_paths(&raw_paths, recursive, &excludes) {
-        Ok(paths) => paths,
-        Err(error) => {
-            errln!("{error}");
-            return FAILURE;
-        }
+    let Discovery {
+        paths,
+        errors: discovery_errors,
+    } = expand_paths(&raw_paths, recursive, &excludes);
+    let mut code = if discovery_errors.is_empty() {
+        SUCCESS
+    } else {
+        FAILURE
     };
-    if paths.is_empty() {
-        errln!("no .env files found");
-        if format == CheckFormat::Json {
-            outln!("{{\"version\":1,\"files\":[]}}");
+    let mut files = Vec::new();
+    for error in &discovery_errors {
+        let message = format!("{}: {}", error.path.display(), error.message);
+        match format {
+            CheckFormat::Json => files.push(format!(
+                "{{\"path\":{},\"ok\":false,\"error\":{},\"diagnostics\":[]}}",
+                json_string(&error.path.to_string_lossy()),
+                json_string(&message)
+            )),
+            CheckFormat::Human => errln!("{message}"),
+            CheckFormat::Github => outln!(
+                "{}",
+                github_read_error(&error.path.to_string_lossy(), &error.message)
+            ),
         }
-        return SUCCESS;
+    }
+    if paths.is_empty() {
+        if discovery_errors.is_empty() {
+            errln!("no .env files found");
+            if format == CheckFormat::Json {
+                outln!("{{\"version\":1,\"files\":[]}}");
+            }
+            return SUCCESS;
+        }
+        if format == CheckFormat::Json {
+            outln!("{{\"version\":1,\"files\":[{}]}}", files.join(","));
+        }
+        return FAILURE;
     }
     if paths.iter().filter(|path| is_stdin_path(path)).count() > 1 {
         errln!("standard input may be used at most once");
         return FAILURE;
     }
-    let mut code = SUCCESS;
-    let mut files = Vec::new();
     let mut errors = 0usize;
     let mut warnings = 0usize;
     let mut infos = 0usize;
@@ -794,16 +878,24 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
         );
         return FAILURE;
     }
-    let paths = match expand_paths(&raw_paths, recursive, &excludes) {
-        Ok(paths) => paths,
-        Err(error) => {
-            errln!("{error}");
-            return FAILURE;
-        }
+    let Discovery {
+        paths,
+        errors: discovery_errors,
+    } = expand_paths(&raw_paths, recursive, &excludes);
+    let mut code = if discovery_errors.is_empty() {
+        SUCCESS
+    } else {
+        FAILURE
     };
+    for error in &discovery_errors {
+        errln!("{}: {}", error.path.display(), error.message);
+    }
     if paths.is_empty() {
-        errln!("no .env files found");
-        return SUCCESS;
+        if discovery_errors.is_empty() {
+            errln!("no .env files found");
+            return SUCCESS;
+        }
+        return FAILURE;
     }
     if write && check {
         errln!("--write and --check are mutually exclusive");
@@ -817,7 +909,6 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
         errln!("--write cannot write standard input");
         return FAILURE;
     }
-    let mut code = SUCCESS;
     for path in &paths {
         let source = match read_text(path) {
             Ok(source) => source,

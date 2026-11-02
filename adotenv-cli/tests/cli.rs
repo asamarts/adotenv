@@ -568,6 +568,121 @@ fn recursive_discovery_applies_env_names_ignores_and_excludes() {
     assert!(output.status.success());
 }
 
+#[test]
+fn recursive_check_reports_a_missing_root_and_continues() {
+    let dir = TempDir::new();
+    dir.file_at("valid/.env", "A=1\n");
+    let missing = dir.path().join("missing");
+    let valid = dir.path().join("valid");
+
+    let output = run(&[
+        "check",
+        "--format",
+        "json",
+        "--recursive",
+        missing.to_str().unwrap(),
+        valid.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    let json = stdout(&output);
+    assert_eq!(json.lines().count(), 1);
+    parse_json(&json);
+    assert!(json.contains("missing"), "{json}");
+    assert!(json.contains("\"ok\":false"), "{json}");
+    assert!(json.contains("valid/.env"), "{json}");
+    assert!(json.contains("\"ok\":true"), "{json}");
+
+    let output = run(&[
+        "check",
+        "--recursive",
+        missing.to_str().unwrap(),
+        valid.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("missing"), "{}", stderr(&output));
+
+    let output = run(&[
+        "check",
+        "--format",
+        "github",
+        "--recursive",
+        missing.to_str().unwrap(),
+        valid.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    let annotations = stdout(&output);
+    assert!(annotations.contains("::error file="), "{annotations}");
+    assert!(annotations.contains("missing"), "{annotations}");
+}
+
+#[test]
+fn recursive_fmt_reports_a_missing_root_and_continues() {
+    let dir = TempDir::new();
+    let file = dir.file_at("valid/.env", "A=1\n");
+    let missing = dir.path().join("missing");
+    let valid = dir.path().join("valid");
+
+    let output = run(&[
+        "fmt",
+        "--write",
+        "--recursive",
+        missing.to_str().unwrap(),
+        valid.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("missing"), "{}", stderr(&output));
+    assert_eq!(fs::read_to_string(file).unwrap(), "A = 1\n");
+}
+
+#[test]
+fn recursive_check_deduplicates_differently_spelled_roots() {
+    let dir = TempDir::new();
+    dir.file_at("sub/.env", "A=1\n");
+
+    let output = run_in(
+        dir.path(),
+        &["check", "--format", "json", "--recursive", ".", "sub"],
+    );
+    assert!(output.status.success(), "{}", stderr(&output));
+    let json = stdout(&output);
+    assert_eq!(json.matches("\"path\":").count(), 1, "{json}");
+    parse_json(&json);
+}
+
+#[cfg(unix)]
+#[test]
+fn recursive_check_continues_after_an_unreadable_directory() {
+    let dir = TempDir::new();
+    let walk = dir.path().join("walk");
+    dir.file_at("walk/ok/.env", "BAD KEY=value\n");
+    dir.file_at("walk/locked/.env", "A=1\n");
+    let locked = UnreadableDirectory::new(walk.join("locked"));
+    if fs::read_dir(&locked.0).is_ok() {
+        eprintln!("skipping unreadable directory test: permissions are not enforced");
+        return;
+    }
+
+    let output = run(&[
+        "check",
+        "--format",
+        "json",
+        "--recursive",
+        walk.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    let json = stdout(&output);
+    assert_eq!(json.lines().count(), 1);
+    parse_json(&json);
+    assert!(json.contains("locked"), "{json}");
+    assert!(json.contains("\"ok\":false"), "{json}");
+    assert!(json.contains("ok/.env"), "{json}");
+    assert!(json.contains("dotenv.invalid-key"), "{json}");
+
+    let output = run(&["check", "--recursive", walk.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("locked"), "{}", stderr(&output));
+}
+
 #[cfg(unix)]
 #[test]
 fn recursive_discovery_does_not_follow_symlinks() {
@@ -1304,6 +1419,27 @@ impl ReadOnlyDirectory {
 
 #[cfg(unix)]
 impl Drop for ReadOnlyDirectory {
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o755));
+    }
+}
+
+/// Makes a directory unreadable and restores it when dropped.
+#[cfg(unix)]
+struct UnreadableDirectory(PathBuf);
+
+#[cfg(unix)]
+impl UnreadableDirectory {
+    fn new(path: PathBuf) -> Self {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+        Self(path)
+    }
+}
+
+#[cfg(unix)]
+impl Drop for UnreadableDirectory {
     fn drop(&mut self) {
         use std::os::unix::fs::PermissionsExt;
         let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o755));
