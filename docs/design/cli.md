@@ -41,7 +41,8 @@ run <directory> [mode] -- <program> [args...]
 | `run` | Loads a cascade and runs a program with the loaded values. |
 
 `set` changes an existing declaration. The key must be declared exactly once;
-a missing or duplicated key is an error, and `set` never adds a key.
+a missing or duplicated key is an error, and `set` never adds a key. When the
+value is already current, `set` leaves the file untouched.
 
 `--json` is short for `--format json`, `--format=<value>` is accepted, and `-r`
 is short for `--recursive`. Two different formats in one command are a usage
@@ -208,9 +209,9 @@ change that would alter meaning is refused and exits `2`.
 
 With several files, printed output starts each file with a `==> path <==`
 header. `--check` prints `path: would reformat` for each file that would
-change and exits `1` if any would. `--write` rewrites changed files in place.
-Diagnostics are reported on standard error, and a file with error diagnostics
-is still formatted.
+change and exits `1` if any would. `--write` rewrites changed files in place
+and leaves an unchanged file untouched. Diagnostics are reported on standard
+error, and a file with error diagnostics is still formatted.
 
 ## `load` output
 
@@ -269,8 +270,12 @@ below an absolute directory argument.
 File-reading commands accept `-` or `--stdin` for standard input, at most once
 per command. `set` and `fmt --write` need a file and refuse standard input.
 
-`fmt --write` and `set` replace a file through a temporary file in the same
-directory:
+When the result is unchanged, `fmt --write` and `set` do not replace the
+file. Its inode, hard links, timestamps, permissions and extended attributes
+stay as they are.
+
+`fmt --write` and `set` replace a changed file through a temporary file in the
+same directory:
 
 - When the path is a symbolic link, the file it finally points to is replaced in
   that file's directory, and the link is kept.

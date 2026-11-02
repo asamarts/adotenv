@@ -128,6 +128,37 @@ fn fmt_writes_sorted_normalized_output() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "A = 1\nB = 2\n\n");
 }
 
+#[cfg(unix)]
+#[test]
+fn unchanged_fmt_and_set_keep_the_inode_and_hard_links() {
+    use std::os::unix::fs::MetadataExt;
+
+    let dir = TempDir::new();
+    let file = dir.file("app.env", "A = 1\n");
+    let link = dir.path().join("link.env");
+    fs::hard_link(&file, &link).unwrap();
+    let before = fs::metadata(&file).unwrap();
+
+    let output = run(&["fmt", "--write", file.to_str().unwrap()]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(
+        fs::metadata(&file).unwrap().ino(),
+        before.ino(),
+        "fmt left the inode alone"
+    );
+    assert_eq!(fs::metadata(&link).unwrap().ino(), before.ino());
+    assert_eq!(fs::read_to_string(&link).unwrap(), "A = 1\n");
+
+    let output = run(&["set", file.to_str().unwrap(), "A", "1"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(
+        fs::metadata(&file).unwrap().ino(),
+        before.ino(),
+        "set left the inode alone"
+    );
+    assert_eq!(fs::read_to_string(&link).unwrap(), "A = 1\n");
+}
+
 #[test]
 fn fmt_without_write_prints_output() {
     let dir = TempDir::new();
@@ -1240,6 +1271,7 @@ impl Drop for ReadOnlyDirectory {
 fn exit_code_contract_covers_write_failures() {
     let dir = exit_code_fixture();
     dir.file_at("locked/app.env", "A=1\n");
+    dir.file_at("locked/formatted.env", "A = 1\n");
     let locked = ReadOnlyDirectory::new(dir.path().join("locked"));
     if fs::File::create(locked.0.join("probe")).is_ok() {
         eprintln!("skipping write failure cases: permissions are not enforced");
@@ -1251,11 +1283,18 @@ fn exit_code_contract_covers_write_failures() {
             (vec!["fmt", "--write", "locked/app.env"], 2),
             (vec!["fmt", "--write", "bad.env", "locked/app.env"], 2),
             (vec!["set", "locked/app.env", "A", "2"], 2),
+            // No write is needed, so a read-only directory is not a failure.
+            (vec!["fmt", "--write", "locked/formatted.env"], 0),
+            (vec!["set", "locked/formatted.env", "A", "1"], 0),
         ],
     );
     assert_eq!(
         fs::read_to_string(locked.0.join("app.env")).unwrap(),
         "A=1\n"
+    );
+    assert_eq!(
+        fs::read_to_string(locked.0.join("formatted.env")).unwrap(),
+        "A = 1\n"
     );
 }
 

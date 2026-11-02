@@ -868,8 +868,10 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
                 code = code.max(FINDINGS);
             }
         } else if write {
-            if let Err(error) = write_atomic(path, formatted.as_str()) {
-                code = code.max(fail(format!("{}: {error}", path.display())));
+            if formatted.as_str() != source {
+                if let Err(error) = write_atomic(path, formatted.as_str()) {
+                    code = code.max(fail(format!("{}: {error}", path.display())));
+                }
             }
         } else if paths.len() > 1 {
             outln!("==> {} <==", path.display());
@@ -1352,8 +1354,10 @@ fn set(args: &[String], dialect: Dialect) -> u8 {
         Ok(edited) => edited,
         Err(error) => return fail(format!("{}: {error}", args[0])),
     };
-    if let Err(error) = write_atomic(Path::new(&args[0]), edited.as_str()) {
-        return fail(format!("{}: {error}", args[0]));
+    if edited.as_str() != source {
+        if let Err(error) = write_atomic(Path::new(&args[0]), edited.as_str()) {
+            return fail(format!("{}: {error}", args[0]));
+        }
     }
     SUCCESS
 }

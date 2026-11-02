@@ -20,6 +20,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   literal. A backslash before a nested `$` in an operand no longer marks it as
   escaped; `Reference::escaped` and `ReferenceRules::escaped_dollar` describe
   the remaining contexts.
+- `fmt --write` and `set` leave a file untouched when the formatted text or
+  the value would not change it. The file keeps its inode, hard links,
+  timestamps, permissions and extended attributes.
 
 ### Documentation
 
