@@ -54,11 +54,42 @@ Compared with the 0.10.4 record from 2026-10-27, on the same host and compiler:
 once. The index uses a compact open-addressed table with an ordered fallback
 for collision-heavy input.
 
+### 1.1.1 development-host check
+
+Recorded on 2026-11-02 from release commit `bc0106e` on the development host,
+an AMD Ryzen 9 3900X with 24 threads and rustc 1.97.1. The benchmark process
+was pinned to one CPU. These values are a smoke check, not a new reference
+record, and are not comparable with the reference-host table above:
+
+```console
+taskset -c 3 cargo bench -p adotenv --bench core --locked -- \
+  --sample-size 10 --measurement-time 1
+```
+
+| Workload | 8 entries | 128 entries | 65,536 entries |
+|---|---:|---:|---:|
+| parse | 6.54 us | 90.8 us | 85.4 ms |
+| lookup index build | 131.8 ns | 4.15 us | 8.77 ms |
+| indexed get, 64 keys | 234.4 ns | 2.03 us | 2.49 us |
+| portability, 4 presets | 54.6 us | 955 us | 878 ms |
+| references | 332.5 ns | 7.62 us | 3.98 ms |
+| resolve | 3.92 us | 77.2 us | 73.3 ms |
+| sort | 3.52 us | 261 us | 226 ms |
+| format normalize | 7.85 us | 145.9 us | 97.7 ms |
+| native set | 10.2 us | 101.8 us | 74.1 ms |
+| native batch | 7.50 us | 96.8 us | 75.7 ms |
+
+CI runs the same benchmark once as a smoke test. The reference-host record
+above remains the last comparable release measurement.
+
 ## Memory and instructions
 
 Measured for 1.0.0 on 2026-10-31, from commit `0a2e5c5`, on the simple
 65,536-declaration fixture (a 1.8 MB source), with 0.10.4 measured in the same
-session for comparison:
+session for comparison. The separate memory and instruction harness was not
+re-run for 1.1.1; the 1.1.1 changes touch loading, references, formatting edge
+cases and the CLI, not the parser and edit hot loops. The 1.0.0 record remains
+the last reference-host record:
 
 | Profile | Instructions | Peak RSS | Retained RSS | 0.10.4 instructions | 0.10.4 retained |
 |---|---:|---:|---:|---:|---:|
