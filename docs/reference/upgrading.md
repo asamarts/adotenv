@@ -64,6 +64,9 @@ Releases within 1.x keep the API. These fixes change results:
 - 1.1.1: `encode_value_with` represents a Node literal-fallback value that
   needs an escaped terminal control character at the line cap, instead of
   returning `EncodeError::Unrepresentable`.
+- 1.1.2: `encode_value_with` represents a Node value whose only legal token
+  needs a repeated backtick run to survive quote recovery, instead of returning
+  `EncodeError::Unrepresentable`.
 
 ## From 0.11
 

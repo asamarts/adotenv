@@ -16,7 +16,7 @@ The current release provides:
 
 ## Current status
 
-`adotenv`, `adotenv-process` and `adotenv-cli` are at 1.1.1; `adotenv-config`
+`adotenv`, `adotenv-process` and `adotenv-cli` are at 1.1.2; `adotenv-config`
 and `adotenv-figment` are at 0.12.0. A pre-release audit of 0.10.4 found
 defects in behavior that 1.0 would freeze. They were fixed in 0.11.0, apart from
 the rename collision rule, which shipped in 1.0.0. The fixes are listed in

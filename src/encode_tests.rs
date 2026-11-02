@@ -392,6 +392,28 @@ fn node_literal_fallback_escapes_a_terminal_tab_at_the_byte_cap() {
 }
 
 #[test]
+fn node_backtick_recovery_at_the_line_cap() {
+    let dialect = Dialect {
+        inline_comments: InlineComments::None,
+        double_escapes: DoubleEscapes::BACKSLASH,
+        unknown_escapes: UnknownEscapes::Preserve,
+        single_escapes: SingleEscapes::None,
+        backticks: true,
+        quoted_tail: QuotedTail::Error,
+        multiline: Multiline::ALL
+            .with_single(true)
+            .with_double(true)
+            .with_backtick(false),
+        normalize_newlines: true,
+        line_breaks: LineBreaks::Universal,
+        line_byte_limit: Some(98),
+        ..Dialect::NODE_DOTENV
+    };
+    let value = "\0\u{4}\0\0C\0'\0\u{2028}`````\u{2029}A=\"#";
+    assert_encodes(value, dialect);
+}
+
+#[test]
 fn node_first_line_cap_moves_the_opener_to_the_next_line() {
     for (limit, values) in [
         (2, &["\n", "\n\n", "a\nb"][..]),

@@ -87,7 +87,6 @@ are exercised by unit and integration tests, including the failure cases.
 3. Mutation testing last ran before the 1.0 changes to edit verification. The
    surviving mutants then were triaged as defensive branches; the next run
    should confirm that for the 1.1 code.
-4. `encode_value_with` still has one known custom-dialect false negative,
-   recorded as AUD-29. A parsed value whose only witness token depends on
-   Node parser recovery can be rejected as `Unrepresentable`. This is tracked
-   for 1.1.2 and is not covered by a passing fuzz run yet.
+4. `encode_value_with` has a backtick-recovery fallback for the custom-dialect
+   case recorded as AUD-29. The regression and encoding fuzz run pass; the
+   four clean release fuzz runs are recorded with the 1.1.2 release.

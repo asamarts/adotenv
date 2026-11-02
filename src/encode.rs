@@ -130,7 +130,37 @@ pub fn encode_value_with(value: &str, dialect: Dialect) -> Result<String, Encode
             }
         }
     }
+    // Node backtick recovery can make a token with a longer run of backticks
+    // read back as a shorter run. Try such witnesses only after every normal
+    // spelling has failed; `verify` still requires the exact value in both
+    // contexts.
+    if dialect.syntax == Syntax::Node && dialect.backticks && value.contains('`') {
+        for extra in 1..=4 {
+            let candidate = expand_backtick_runs(value, extra);
+            if candidate != value && context.verify(&candidate).is_some() {
+                return Ok(candidate);
+            }
+        }
+    }
     Err(EncodeError::Unrepresentable)
+}
+
+fn expand_backtick_runs(value: &str, extra: usize) -> String {
+    let mut output = String::with_capacity(value.len() + extra);
+    let mut chars = value.chars().peekable();
+    while let Some(current) = chars.next() {
+        output.push(current);
+        if current == '`' {
+            while chars.peek() == Some(&'`') {
+                output.push('`');
+                chars.next();
+            }
+            for _ in 0..extra {
+                output.push('`');
+            }
+        }
+    }
+    output
 }
 
 /// Returns a Portable token that reads back as `value`, quoting conservatively.

@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-11-02
+
+A patch release of `adotenv`, `adotenv-process` and `adotenv-cli` with one
+encoding fix found by post-release fuzzing. See
+[Within 1.x](https://github.com/asamarts/adotenv/blob/v1.1.2/docs/reference/upgrading.md#within-1x).
+`adotenv-config` and `adotenv-figment` are unchanged.
+
+### Fixed
+
+- `encode_value_with` represents a Node value whose only legal token needs a
+  repeated backtick run to survive Node's quote recovery, instead of returning
+  `EncodeError::Unrepresentable`.
+
 ## [1.1.1] - 2026-11-02
 
 A patch release of `adotenv`, `adotenv-process` and `adotenv-cli` with the
