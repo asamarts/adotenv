@@ -10,7 +10,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 A patch release of `adotenv`, `adotenv-process` and `adotenv-cli` with the
 fixes from the 1.1 audit. Some results change; see
-[Within 1.x](docs/reference/upgrading.md#within-1x). `adotenv-config` and
+[Within 1.x](https://github.com/asamarts/adotenv/blob/v1.1.1/docs/reference/upgrading.md#within-1x). `adotenv-config` and
 `adotenv-figment` are unchanged.
 
 ### Fixed
