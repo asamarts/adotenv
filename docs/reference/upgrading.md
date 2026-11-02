@@ -42,10 +42,13 @@ Releases within 1.x keep the API. These fixes change results:
   changed one.
 - 1.1.1: reference scanning ends a `${...}` operand at the first `}` outside
   a nested form, as Compose and dotenv-expand do. Quotes and backslashes inside
-  a default,
-  message or alternative are ordinary text. `${VAR:?can't continue}` now
-  raises `ResolveError::Required` instead of staying literal, and a backslash
-  before a nested `$` in an operand no longer marks it as escaped.
+  a default, message or alternative are ordinary text.
+  `${VAR:?can't continue}` now raises `ResolveError::Required` instead of
+  staying literal, and a backslash before a nested `$` in an operand no longer
+  marks it as escaped.
+- 1.1.1: `fmt --write` and `set` leave a file untouched when the result is
+  unchanged. The file keeps its inode, hard links, timestamps, permissions and
+  extended attributes.
 
 ## From 0.11
 
