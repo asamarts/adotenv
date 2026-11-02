@@ -76,7 +76,8 @@ CR, even in a CRLF file. It adds nothing to a document with no items, or when
 collapsing a trailing blank-line run already leaves the output ending in a line
 break. `FinalNewline::Remove` removes one final LF, CRLF or lone CR. It removes
 nothing when the last item is a blank line, because that would remove the
-blank line.
+blank line. It also removes nothing when the remaining text would still end
+with a line ending, as with several CRs in an LF-only dialect.
 
 ### Quote styles
 

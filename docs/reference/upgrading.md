@@ -57,6 +57,10 @@ Releases within 1.x keep the API. These fixes change results:
   refused path. `check --format json` reports it as a `files` entry with
   `ok:false`, GitHub output adds an annotation, and the command exits `2`.
   Differing spellings that resolve to the same file are reported once.
+- 1.1.1: `Document::format` with `FinalNewline::Remove` and trailing-whitespace
+  trimming removes a final lone CR and the trailing whitespace in one pass.
+  When several trailing CRs would leave another line ending behind, the file
+  is left unchanged.
 
 ## From 0.11
 

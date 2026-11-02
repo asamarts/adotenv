@@ -30,6 +30,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   path and report it instead of aborting with no output. `check --format json`
   adds an `ok:false` entry, GitHub output adds an annotation, and differing
   spellings of the same file are removed by resolved path.
+- `Document::format` with `FinalNewline::Remove` and trailing-whitespace
+  trimming is idempotent at a final lone CR: the CR and the trailing
+  whitespace are removed in one pass. When several trailing CRs would leave
+  another line ending behind, the file is left unchanged.
 
 ### Documentation
 

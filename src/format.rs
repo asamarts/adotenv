@@ -79,7 +79,9 @@ pub enum FinalNewline {
     /// No final line ending: one final LF, CRLF or lone CR is removed.
     ///
     /// Nothing is removed when the last item is a blank line, because removing
-    /// its line ending would remove the blank line.
+    /// its line ending would remove the blank line. Nothing is removed when the
+    /// remaining text would still end with a line ending either, as with
+    /// several CRs in an LF-only dialect.
     Remove,
 }
 
@@ -504,6 +506,7 @@ impl Document<'_> {
                 options.final_newline == FinalNewline::Ensure,
                 &mut edits,
             );
+            self.plan_final_cr_trim(*options, &mut edits);
         }
         self.plan_final_newline(*options, &removed, &mut edits);
         edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
@@ -777,6 +780,42 @@ impl Document<'_> {
         }
     }
 
+    /// Trim the final line when [`FinalNewline::Remove`] also removes its lone
+    /// CR. `plan_trailing_whitespace` leaves lines that end with a CR alone,
+    /// but removing that CR in the same pass would expose the trailing
+    /// whitespace and make a second format pass change the output.
+    fn plan_final_cr_trim(&self, options: FormatOptions, edits: &mut Vec<TextEdit>) {
+        if options.final_newline != FinalNewline::Remove {
+            return;
+        }
+        let Some(item) = self.items().next_back() else {
+            return;
+        };
+        if item.kind() == ItemKind::Blank || item.line_ending() != crate::LineEnding::Cr {
+            return;
+        }
+        if item.kind() == ItemKind::Entry && self.dialect().raw_values {
+            return;
+        }
+        let source = self.source();
+        let end = source.len().saturating_sub(1);
+        if source[..end].ends_with('\n') || source[..end].ends_with('\r') {
+            // The final newline is not removed in this pass, so its line keeps
+            // its trailing whitespace.
+            return;
+        }
+        match item.kind() {
+            ItemKind::Blank | ItemKind::Comment | ItemKind::Entry => {
+                let content = item.content_span();
+                let trimmed = trim_end(self.source(), content.clone());
+                if trimmed != content.end {
+                    push(self.source(), edits, trimmed..content.end, String::new());
+                }
+            }
+            ItemKind::Invalid | ItemKind::Ignored => {}
+        }
+    }
+
     fn plan_final_newline(
         &self,
         options: FormatOptions,
@@ -819,12 +858,17 @@ impl Document<'_> {
                         usize::from(source.ends_with('\n') || source.ends_with('\r'))
                     };
                     if remove != 0 {
-                        push(
-                            source,
-                            edits,
-                            source.len() - remove..source.len(),
-                            String::new(),
-                        );
+                        let end = source.len() - remove;
+                        // In an LF-only dialect a CR at the end is itself a
+                        // line ending. Removing one final ending can expose
+                        // another ending, or turn a trailing value CR into one.
+                        // Keep the source unchanged rather than removing one
+                        // ending per pass.
+                        let remainder_ends_with_line_ending =
+                            source[..end].ends_with('\n') || source[..end].ends_with('\r');
+                        if !remainder_ends_with_line_ending {
+                            push(source, edits, end..source.len(), String::new());
+                        }
                     }
                 }
             }

@@ -302,13 +302,11 @@ fn check_result(source: &str, document: &adotenv::Document<'_>, options: &Format
     }
     assert_eq!(reversed, formatted.as_str());
 
-    if options.final_newline != FinalNewline::Remove {
-        let again = after
-            .format(options)
-            .expect("verified formatting is representable again");
-        assert!(again.is_empty());
-        assert_eq!(again.as_str(), formatted.as_str());
-    }
+    let again = after
+        .format(options)
+        .expect("verified formatting is representable again");
+    assert!(again.is_empty());
+    assert_eq!(again.as_str(), formatted.as_str());
 }
 
 // One option combination derived from the input, so a run covers every

@@ -302,6 +302,45 @@ fn final_newline_policies_are_exact() {
 }
 
 #[test]
+fn remove_final_cr_trims_the_final_line_once() {
+    let options = FormatOptions::default()
+        .with_trim_trailing_whitespace(true)
+        .with_final_newline(FinalNewline::Remove);
+    for (source, expected) in [
+        ("U=\"multi\nline\" \r", "U=\"multi\nline\""),
+        ("# a comment  \r", "# a comment"),
+        ("A=1  \r", "A=1"),
+        ("A=1\r", "A=1"),
+        ("A=\"x  \" \r", "A=\"x  \""),
+        ("A=1  \r\n", "A=1"),
+        ("  \r", "  \r"),
+    ] {
+        let doc = parse_strict(source).unwrap();
+        let formatted = doc.format(&options).unwrap();
+        assert_eq!(formatted.as_str(), expected, "{source:?}");
+        let (after, _) = parse_with(formatted.as_str(), Dialect::PORTABLE);
+        assert!(
+            after.format(&options).unwrap().is_empty(),
+            "{source:?} formatted to {:?} and then changed",
+            formatted.as_str()
+        );
+    }
+
+    let preserve = FormatOptions::default().with_trim_trailing_whitespace(true);
+    let doc = parse_strict("A=1  \r").unwrap();
+    assert_eq!(doc.format(&preserve).unwrap().as_str(), "A=1  \r");
+
+    // In an LF-only dialect, removing one final CR can expose another CR as a
+    // line ending. Leave the file unchanged instead of removing one per pass.
+    for source in ["A=1\r\r", "A=1\r\r\n", "A=1  \r\r"] {
+        let (doc, _) = parse_with(source, Dialect::COMPOSE);
+        let formatted = doc.format(&options).unwrap();
+        assert_eq!(formatted.as_str(), source, "{source:?}");
+        assert!(formatted.is_empty(), "{source:?}");
+    }
+}
+
+#[test]
 fn normalize_is_idempotent_and_replays_to_verified_text() {
     let source = "# header   \n\nA=1   \nB =  2\n";
     let doc = parse_strict(source).unwrap();
@@ -565,16 +604,14 @@ proptest! {
                 reversed.replace_range(edit.range.clone(), &edit.replacement);
             }
             prop_assert_eq!(reversed.as_str(), formatted.as_str());
-            if options.final_newline != FinalNewline::Remove {
-                let again = after.format(&options);
-                prop_assert!(
-                    again.as_ref().is_ok_and(FormatResult::is_empty),
-                    "{:?} formatted to {:?}, then {:?}",
-                    source,
-                    formatted.as_str(),
-                    again.map(FormatResult::into_string)
-                );
-            }
+            let again = after.format(&options);
+            prop_assert!(
+                again.as_ref().is_ok_and(FormatResult::is_empty),
+                "{:?} formatted to {:?}, then {:?}",
+                source,
+                formatted.as_str(),
+                again.map(FormatResult::into_string)
+            );
         }
     }
 }
