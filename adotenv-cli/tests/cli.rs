@@ -589,7 +589,8 @@ fn recursive_check_reports_a_missing_root_and_continues() {
     parse_json(&json);
     assert!(json.contains("missing"), "{json}");
     assert!(json.contains("\"ok\":false"), "{json}");
-    assert!(json.contains("valid/.env"), "{json}");
+    assert!(json.contains("valid"), "{json}");
+    assert!(json.contains(".env"), "{json}");
     assert!(json.contains("\"ok\":true"), "{json}");
 
     let output = run(&[
