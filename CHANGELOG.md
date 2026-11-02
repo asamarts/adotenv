@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Documentation
+
+- Recorded the 1.1 audit in [docs/design/1.1-audit.md](docs/design/1.1-audit.md),
+  with the verified findings, the corrections to the first review, the release
+  plan and the evidence commands.
+
 ## [1.1.0] - 2026-11-01
 
 A minor release of `adotenv`, `adotenv-process` and `adotenv-cli` with the

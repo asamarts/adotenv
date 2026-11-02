@@ -315,4 +315,6 @@ pub mod book_doctests {
     pub struct Readiness;
     #[doc = include_str!("../docs/design/1.0-fix-round.md")]
     pub struct FixRound;
+    #[doc = include_str!("../docs/design/1.1-audit.md")]
+    pub struct Audit;
 }

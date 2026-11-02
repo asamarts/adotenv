@@ -33,3 +33,4 @@
 - [Performance](design/performance.md)
 - [1.0 readiness](design/1.0-readiness.md)
 - [1.0 fix round](design/1.0-fix-round.md)
+- [1.1 audit](design/1.1-audit.md)

@@ -28,13 +28,16 @@ collected again on the fixed code
 
 1. Keep the public API stable. Additive changes use non-exhaustive types and
    builders.
-2. Work through the "After 1.0" list in
+2. Work through the 1.1 audit in
+   [1.1-audit.md](docs/design/1.1-audit.md). The 1.1.1 correctness fixes come
+   first.
+3. Work through the "After 1.0" list in
    [1.0-fix-round.md](docs/design/1.0-fix-round.md).
-3. Start the optional linter and LSP prototypes in
+4. Start the optional linter and LSP prototypes in
    [#14](https://github.com/asamarts/adotenv/issues/14).
-4. Expand conformance cases only when a real upstream behavior is pinned and
+5. Expand conformance cases only when a real upstream behavior is pinned and
    reproducible.
-5. Keep the core dependency-free. New I/O, process or third-party behavior
+6. Keep the core dependency-free. New I/O, process or third-party behavior
    belongs in opt-in features or companion crates.
 
 ## 1.0 criteria
