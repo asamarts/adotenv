@@ -22,7 +22,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the remaining contexts.
 - `fmt --write` and `set` leave a file untouched when the formatted text or
   the value would not change it. The file keeps its inode, hard links,
-  timestamps, permissions and extended attributes.
+  modification time, permissions and extended attributes.
 
 ### Documentation
 

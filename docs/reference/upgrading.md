@@ -47,8 +47,8 @@ Releases within 1.x keep the API. These fixes change results:
   staying literal, and a backslash before a nested `$` in an operand no longer
   marks it as escaped.
 - 1.1.1: `fmt --write` and `set` leave a file untouched when the result is
-  unchanged. The file keeps its inode, hard links, timestamps, permissions and
-  extended attributes.
+  unchanged. The file keeps its inode, hard links, modification time,
+  permissions and extended attributes.
 
 ## From 0.11
 

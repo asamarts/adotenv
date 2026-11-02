@@ -271,8 +271,8 @@ File-reading commands accept `-` or `--stdin` for standard input, at most once
 per command. `set` and `fmt --write` need a file and refuse standard input.
 
 When the result is unchanged, `fmt --write` and `set` do not replace the
-file. Its inode, hard links, timestamps, permissions and extended attributes
-stay as they are.
+file. Its inode, hard links, modification time, permissions and extended
+attributes stay as they are.
 
 `fmt --write` and `set` replace a changed file through a temporary file in the
 same directory:

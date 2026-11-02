@@ -73,7 +73,8 @@ Values may be secrets. These outputs include them:
 ## File writes
 
 `adotenv-cli fmt --write` and `set` leave an unchanged file untouched, so its
-inode, hard links, timestamps, extended attributes and ACLs stay. They replace a
+inode, hard links, modification time, extended attributes and ACLs stay. They
+replace a
 changed file through a temporary file in the same directory. On Unix the
 temporary file is created with mode `0600` before anything is written, then
 receives the original mode, owner and group where the user may set them. Hard
