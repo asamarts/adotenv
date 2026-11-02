@@ -1359,8 +1359,7 @@ impl LoadedEnvironment {
         // Every loaded key must come back exactly, with its exact value, so
         // resolution can never bind a different key or start from a changed
         // value. This matches the check in `resolve_decoded`.
-        let mut parsed = std::collections::BTreeSet::new();
-        let mut parsed_count = 0usize;
+        let mut parsed = BTreeMap::new();
         for entry in document.entries() {
             let Some(record) = self.records.get(entry.key()) else {
                 return Err(LoadedResolveError::new(
@@ -1375,12 +1374,17 @@ impl LoadedEnvironment {
                     "value cannot be represented exactly",
                 ));
             }
-            parsed.insert(entry.key());
-            parsed_count += 1;
+            if parsed.insert(entry.key(), entry.value()).is_some() {
+                return Err(LoadedResolveError::new(
+                    Some(entry.key().to_string()),
+                    self.owned_origin(entry.key()),
+                    "cannot prepare resolution: duplicate declaration",
+                ));
+            }
         }
-        if parsed_count != self.records.len() {
+        if parsed.len() != self.records.len() {
             for key in self.records.keys() {
-                if !parsed.contains(&**key) {
+                if !parsed.contains_key(&**key) {
                     return Err(unrepresentable(key, "key cannot be represented exactly"));
                 }
             }
