@@ -132,8 +132,9 @@ pub struct ReferenceRules {
     /// Whether candidates inside single-quoted values are eligible.
     pub single_quotes: bool,
     /// Whether escaped candidates are eligible, such as `\$VAR` in double
-    /// quotes.
+    /// quotes or `\$` inside a command.
     ///
+    /// A backslash inside a `${...}` operand is ordinary text, not an escape.
     /// See [`Reference::escaped`].
     pub escaped_dollar: bool,
     /// Whether `$(command)` candidates are eligible.
@@ -350,11 +351,13 @@ pub struct Reference {
     ///
     /// An odd number of backslashes before the `$` escapes it in a
     /// double-quoted value whose dialect decodes `\$`
-    /// ([`DoubleEscapes::DOLLAR`]), and inside an operator argument or command
-    /// of an unquoted value. At the top of an unquoted value a backslash does
-    /// not escape: in `A=\$HOME` the candidate `$HOME` is not escaped. Under
-    /// the Compose grammar, the second `$` of `$$` is escaped too. Escaped
-    /// candidates are eligible only with [`ReferenceRules::escaped_dollar`].
+    /// ([`DoubleEscapes::DOLLAR`]), and inside a command of an unquoted value.
+    /// At the top of an unquoted value a backslash does not escape: in
+    /// `A=\$HOME` the candidate `$HOME` is not escaped. A backslash inside a
+    /// `${...}` operand is ordinary text, as in Compose and dotenv-expand.
+    /// Under the Compose grammar, the second `$` of `$$` is escaped too.
+    /// Escaped candidates are eligible only with
+    /// [`ReferenceRules::escaped_dollar`].
     pub escaped: bool,
     /// How deeply the candidate is nested.
     ///
@@ -486,6 +489,10 @@ impl Entry<'_> {
     /// [`Document::resolve`](crate::Document::resolve) to expand. A bare key
     /// or a value without `$` has no candidates.
     ///
+    /// Inside `${...}`, the operand ends at the first `}` outside a nested
+    /// form. Quotes and backslashes are ordinary text there, as in Compose
+    /// and dotenv-expand. Inside `$(...)`, shell quoting applies.
+    ///
     /// Candidates are sorted by span start. A nested candidate's
     /// [`Reference::parent`] is the index of its innermost containing form,
     /// which comes earlier in the list. The candidates nested in a form, at
@@ -535,9 +542,9 @@ impl Entry<'_> {
         if !has_dollar(&body) && !tail.as_ref().is_some_and(has_dollar) {
             return Vec::new();
         }
-        let mut pending = vec![(body, self.quote(), Level::TOP)];
+        let mut pending = vec![(body, self.quote(), Level::TOP, true)];
         if let Some(tail) = tail {
-            pending.push((tail, Quote::None, Level::TOP));
+            pending.push((tail, Quote::None, Level::TOP, true));
         }
         let mut scanner = Scanner {
             source,
@@ -547,8 +554,8 @@ impl Entry<'_> {
             pending,
             closes: Closes::default(),
         };
-        while let Some((range, quote, level)) = scanner.pending.pop() {
-            scanner.scan(&range, quote, level);
+        while let Some((range, quote, level, backslash_escapes)) = scanner.pending.pop() {
+            scanner.scan(&range, quote, level, backslash_escapes);
         }
         in_source_order(scanner.references)
     }
@@ -615,12 +622,12 @@ struct Scanner<'a> {
     dialect: Dialect,
     max_depth: usize,
     references: Vec<Reference>,
-    pending: Vec<(Range<usize>, Quote, Level)>,
+    pending: Vec<(Range<usize>, Quote, Level, bool)>,
     closes: Closes,
 }
 
 impl Scanner<'_> {
-    fn scan(&mut self, range: &Range<usize>, quote: Quote, level: Level) {
+    fn scan(&mut self, range: &Range<usize>, quote: Quote, level: Level, backslash_escapes: bool) {
         let source = self.source;
         let dialect = self.dialect;
         let bytes = source.as_bytes();
@@ -640,7 +647,18 @@ impl Scanner<'_> {
                 _ => preceding(bytes, range.start, at, b'$'),
             };
             previous_dollar = Some((at, dollars));
-            let escaped = escaped_at(source, range, at, quote, dialect, depth > 0, dollars);
+            let escaped = escaped_at(
+                source,
+                range,
+                at,
+                quote,
+                dialect,
+                EscapeMode {
+                    nested: depth > 0,
+                    backslash: backslash_escapes,
+                },
+                dollars,
+            );
             if at + 1 < range.end && bytes[at + 1] == b'{' {
                 let (reference, nested) =
                     braced(source, range, at, quote, escaped, level, &mut self.closes);
@@ -648,7 +666,7 @@ impl Scanner<'_> {
                 let inner = level.inside(self.references.len(), &reference);
                 self.references.push(reference);
                 if let Some(nested) = nested.filter(|_| nest) {
-                    self.pending.push((nested, quote, inner));
+                    self.pending.push((nested, quote, inner, false));
                 }
                 at = end;
                 continue;
@@ -660,7 +678,7 @@ impl Scanner<'_> {
                 let inner = level.inside(self.references.len(), &reference);
                 self.references.push(reference);
                 if let Some(nested) = nested.filter(|_| nest) {
-                    self.pending.push((nested, quote, inner));
+                    self.pending.push((nested, quote, inner, true));
                 }
                 at = end;
                 continue;
@@ -958,6 +976,30 @@ fn matching_delimited(
     let mut at = start;
     let mut quote = None;
     while at < end {
+        // A brace form uses the operand grammar of Compose and dotenv-expand:
+        // the first `}` outside a nested form closes it, and quotes and
+        // backslashes are ordinary text. A command keeps shell grammar, where
+        // quotes and backslashes protect the closing `)`.
+        if top(&stack) == Some(Delimiter::Brace) {
+            match bytes[at] {
+                b'$' if bytes.get(at + 1) == Some(&b'{') => {
+                    stack.push((Delimiter::Brace, Some(at)));
+                    at += 2;
+                }
+                b'$' if bytes.get(at + 1) == Some(&b'(') => {
+                    stack.push((Delimiter::Paren, Some(at)));
+                    at += 2;
+                }
+                b'}' => {
+                    if close_form(&mut stack, at, end, closes) {
+                        return (Some(at), at);
+                    }
+                    at += 1;
+                }
+                _ => at += 1,
+            }
+            continue;
+        }
         match quote {
             Some(b'\'') => {
                 if bytes[at] == b'\'' {
@@ -1073,20 +1115,27 @@ fn close_form(
     stack.is_empty()
 }
 
+#[derive(Clone, Copy)]
+struct EscapeMode {
+    nested: bool,
+    backslash: bool,
+}
+
 fn escaped_at(
     source: &str,
     range: &Range<usize>,
     at: usize,
     quote: Quote,
     dialect: Dialect,
-    nested: bool,
+    mode: EscapeMode,
     dollars: usize,
 ) -> bool {
     let bytes = source.as_bytes();
     let backslashes = preceding(bytes, range.start, at, b'\\');
-    let backslash = backslashes % 2 == 1
+    let backslash = mode.backslash
+        && backslashes % 2 == 1
         && ((quote == Quote::Double && dialect.double_escapes.contains(DoubleEscapes::DOLLAR))
-            || (quote == Quote::None && nested));
+            || (quote == Quote::None && mode.nested));
     let dollar = dialect.syntax == Syntax::Compose && (dollars + 1) % 2 == 0;
     backslash || dollar
 }

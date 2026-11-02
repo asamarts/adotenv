@@ -39,6 +39,11 @@ its innermost containing form, which comes earlier in the list, and the
 candidates nested in a form directly follow it. The list holds at most one
 candidate per `$`, so its size is linear in the value length.
 
+Inside `${...}`, the operand ends at the first `}` outside a nested form.
+Quotes and backslashes are ordinary text there, as in Compose and
+dotenv-expand. Inside `$(...)`, shell quoting applies, so a quoted or escaped
+`)` does not close the command.
+
 Single-quoted, escaped and malformed candidates remain visible. Being
 visible does not make a reference eligible.
 
@@ -54,7 +59,7 @@ form is eligible too.
 |---|---|
 | `operators` | `OperatorSet::None`, `Braced` (`${VAR}` only), `Basic` (`$VAR` and `${VAR}`), `Compose` or `DotenvExpand` (all operators and nesting) |
 | `single_quotes` | References inside single quotes are eligible |
-| `escaped_dollar` | Escaped candidates are eligible: `\$VAR` in double quotes when the dialect decodes `\$`, `\$` inside an operator argument or command, and the `$B` of `$$B` under the Compose grammar |
+| `escaped_dollar` | Escaped candidates are eligible: `\$VAR` in double quotes when the dialect decodes `\$`, `\$` inside a command, and the `$B` of `$$B` under the Compose grammar. A backslash inside a `${...}` operand is ordinary text |
 | `commands` | `$(command)` forms are eligible |
 | `backtick_quotes` | References inside backticks are eligible |
 

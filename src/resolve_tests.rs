@@ -295,6 +295,56 @@ fn nested_defaults_are_conditional_and_expanded() {
 }
 
 #[test]
+fn compose_operands_follow_operand_grammar() {
+    // Observations from Compose 5.6.0 with compose-go 2.16.1. The operand ends
+    // at the first `}`, and quotes and backslashes are ordinary text.
+    for (source, expected) in [
+        ("A=${B:-do'nt}\n", "do'nt"),
+        ("A=${B:-\"quoted\"}\n", "\"quoted\""),
+        ("A=${B:-a\\}b}\n", "a\\b}"),
+        ("A=${B:-a b}\n", "a b"),
+        ("A=${B:-a#b}\n", "a#b"),
+    ] {
+        let resolved = resolve(source, |_| None, &ExpandOptions::compose()).unwrap();
+        assert_eq!(value(&resolved, 0), Some(expected), "{source:?}");
+    }
+
+    // A backslash before a nested variable is literal text, and the variable
+    // still expands, as in the Compose oracle.
+    let resolved = resolve(
+        "A=${B:-\\$C}\n",
+        |key| (key == "C").then(|| "see".to_string()),
+        &ExpandOptions::compose(),
+    )
+    .unwrap();
+    assert_eq!(value(&resolved, 0), Some("\\see"));
+    let resolved = resolve(
+        "A=${B:-\\${C}}\n",
+        |key| (key == "C").then(|| "see".to_string()),
+        &ExpandOptions::compose(),
+    )
+    .unwrap();
+    assert_eq!(value(&resolved, 0), Some("\\see"));
+
+    // The `:?` operator runs even when its message contains an apostrophe.
+    let error = resolve(
+        "A=${B:?can't continue}\n",
+        |_| None,
+        &ExpandOptions::compose(),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        ResolveError::Required {
+            ref key,
+            ref name,
+            ref message,
+            ..
+        } if key == "A" && name == "B" && message == "can't continue"
+    ));
+}
+
+#[test]
 fn unresolved_policy_controls_missing_references() {
     let doc = parse_strict("A=${MISSING}\n").unwrap();
     let keep = doc.resolve(|_| None, &ExpandOptions::portable()).unwrap();

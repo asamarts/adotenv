@@ -3,8 +3,8 @@ use core::ops::Range;
 use proptest::prelude::*;
 
 use crate::{
-    parse, parse_with, Dialect, OperatorSet, Quote, QuotedTail, Reference, ReferenceKind,
-    ReferenceOperator, ReferenceRules,
+    parse, parse_strict, parse_with, Dialect, OperatorSet, Quote, QuotedTail, Reference,
+    ReferenceKind, ReferenceOperator, ReferenceRules,
 };
 
 fn text<'a>(source: &'a str, span: &Range<usize>) -> &'a str {
@@ -155,6 +155,68 @@ fn commands_and_nested_commands_keep_payload_spans() {
 }
 
 #[test]
+fn brace_operands_use_operand_grammar() {
+    // A brace form closes at the first `}`, and quotes and backslashes are
+    // ordinary text, as in Compose and dotenv-expand. See the Compose
+    // observations in the resolution tests.
+    let source = "A=${B:-do'nt}\n";
+    let doc = parse_strict(source).unwrap();
+    let references = doc.unique("A").unwrap().references();
+    assert_eq!(references.len(), 1);
+    assert!(references[0].closed);
+    assert_eq!(text(source, &references[0].span), "${B:-do'nt}");
+    assert_eq!(
+        text(source, references[0].argument.as_ref().unwrap()),
+        "do'nt"
+    );
+    assert!(references[0].is_eligible(ReferenceRules::COMPOSE));
+
+    let source = "A=${B:?can't continue}\n";
+    let doc = parse_strict(source).unwrap();
+    let references = doc.unique("A").unwrap().references();
+    assert_eq!(references.len(), 1);
+    assert!(references[0].closed);
+    assert_eq!(
+        references[0].operator,
+        Some(ReferenceOperator::ErrorIfUnsetOrEmpty)
+    );
+    assert_eq!(
+        text(source, references[0].argument.as_ref().unwrap()),
+        "can't continue"
+    );
+
+    let source = "A=${B:-a\\}b}\n";
+    let doc = parse_strict(source).unwrap();
+    let references = doc.unique("A").unwrap().references();
+    assert_eq!(references.len(), 1);
+    assert!(references[0].closed);
+    assert_eq!(text(source, &references[0].span), "${B:-a\\}");
+    assert_eq!(
+        text(source, references[0].argument.as_ref().unwrap()),
+        "a\\"
+    );
+
+    let source = "A=${B:-\"quoted\"}\n";
+    let doc = parse_strict(source).unwrap();
+    let references = doc.unique("A").unwrap().references();
+    assert_eq!(references.len(), 1);
+    assert!(references[0].closed);
+    assert_eq!(
+        text(source, references[0].argument.as_ref().unwrap()),
+        "\"quoted\""
+    );
+
+    for (source, nested) in [("A=${B:-\\$C}\n", "$C"), ("A=${B:-\\${C}}\n", "${C}")] {
+        let doc = parse_strict(source).unwrap();
+        let references = doc.unique("A").unwrap().references();
+        assert_eq!(references.len(), 2, "{source:?}");
+        assert!(!references[1].escaped, "{source:?}");
+        assert!(references[1].is_eligible(ReferenceRules::COMPOSE));
+        assert_eq!(text(source, &references[1].span), nested);
+    }
+}
+
+#[test]
 fn nested_braces_and_commands_do_not_close_early() {
     let source = "A=${B:-$(echo })}\n";
     let (doc, _) = parse(source);
@@ -198,9 +260,9 @@ fn escaped_literal_braces_do_not_close_the_outer_form() {
         "\\${C}"
     );
     assert_eq!(text(source, &references[1].span), "${C}");
-    assert!(references[1].escaped);
+    assert!(!references[1].escaped);
     assert_eq!(references[1].depth, 1);
-    assert!(!references[1].is_eligible(ReferenceRules::COMPOSE));
+    assert!(references[1].is_eligible(ReferenceRules::COMPOSE));
 }
 
 #[test]
@@ -437,17 +499,23 @@ fn reference_rule_builders_and_defaults_are_complete() {
 
 #[test]
 fn escaped_and_unclosed_containers_control_nested_eligibility() {
-    let source = "A=\"${B:-\\$C}\"\n";
+    // A backslash escapes a nested candidate inside a command, where shell
+    // grammar applies. A brace operand treats it as ordinary text.
+    let source = "A=$(echo \\$C)\n";
     let (doc, _) = parse(source);
     let references = doc.unique("A").unwrap().references();
     assert_eq!(references.len(), 2);
     let nested = &references[1];
     assert!(nested.escaped);
     assert_eq!(nested.depth, 1);
-    assert!(!nested.is_eligible(ReferenceRules::COMPOSE));
+    let commands = ReferenceRules {
+        commands: true,
+        ..ReferenceRules::COMPOSE
+    };
+    assert!(!nested.is_eligible(commands));
     let escaped = ReferenceRules {
         escaped_dollar: true,
-        ..ReferenceRules::COMPOSE
+        ..commands
     };
     assert!(nested.is_eligible(escaped));
 
@@ -495,7 +563,7 @@ fn deep_nesting_scans_each_level_once() {
     let depth = 2_000;
     let filler = "x".repeat(2_000_000);
     assert_completes_within(core::time::Duration::from_secs(30), || {
-        for (open, escaped) in [("${X:-", false), ("${X:-\\", true), ("${X:-\"", false)] {
+        for open in ["${X:-", "${X:-\\", "${X:-\""] {
             let mut source = String::from("A=");
             for _ in 0..depth {
                 source.push_str(open);
@@ -515,7 +583,7 @@ fn deep_nesting_scans_each_level_once() {
                     reference.operator,
                     Some(ReferenceOperator::DefaultIfUnsetOrEmpty)
                 );
-                assert_eq!(reference.escaped, escaped && level > 0);
+                assert!(!reference.escaped);
             }
         }
     });

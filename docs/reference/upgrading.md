@@ -35,6 +35,17 @@ Releases within 1.x keep the API. These fixes change results:
   `dotenv.lone-cr`, `EditError::InvalidTarget` and
   `EditError::WouldChangeMeaning` changed. Match on the error or diagnostic
   code, not on its text.
+- 1.1.1: `LoadedEnvironment::resolve_contextual` keeps a value that ends with a
+  carriage return in an LF-only dialect and a key that begins with a
+  byte-order mark. It now returns a `LoadedResolveError` naming the key when a
+  loaded key or value cannot be reproduced exactly, instead of resolving a
+  changed one.
+- 1.1.1: reference scanning ends a `${...}` operand at the first `}` outside
+  a nested form, as Compose and dotenv-expand do. Quotes and backslashes inside
+  a default,
+  message or alternative are ordinary text. `${VAR:?can't continue}` now
+  raises `ResolveError::Required` instead of staying literal, and a backslash
+  before a nested `$` in an operand no longer marks it as escaped.
 
 ## From 0.11
 
