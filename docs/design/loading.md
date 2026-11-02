@@ -159,7 +159,9 @@ Two methods resolve references in a loaded environment. Both return a
   winning declaration again with the load dialect, so quotes and escapes keep
   their meaning: a single-quoted `'${HOST}'` stays literal, and an escaped
   `\$HOST` in double quotes stays `$HOST`. It needs the raw source text, which
-  the default options keep.
+  the default options keep. The rebuilt declarations are checked against the
+  loaded keys and values; a key or value that cannot be reproduced exactly is
+  an error naming the key.
 - `resolve_decoded(lookup, options)` treats every final value as unquoted
   text, so a reference resolves wherever it appears, even where the file
   quoted it. Keys take part exactly as loaded, whatever dialect read them, so

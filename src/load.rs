@@ -182,7 +182,7 @@ use std::{
 
 use crate::{
     encode_value, parse_strict_with, parse_with, Diagnostic, Dialect, ExpandOptions, ExpandScope,
-    KeySyntax, ResolveError, Severity,
+    KeySyntax, LineBreaks, ResolveError, Severity,
 };
 
 /// Where a loaded declaration is: its file, byte span and one-based line.
@@ -1251,6 +1251,11 @@ impl LoadedEnvironment {
     /// [`LoadOptions::new`] and [`LoadOptions::full`] keep; without it, use
     /// [`resolve_decoded`](Self::resolve_decoded).
     ///
+    /// The rebuilt declarations are checked against the loaded keys and
+    /// values. A key or value that cannot be reproduced exactly is an error
+    /// naming the key, so contextual resolution never binds a different key or
+    /// starts from a changed value.
+    ///
     /// A reference sees the final value of every loaded key, whichever file
     /// set it. Names are looked up in those values and in `lookup`, in the
     /// `lookup_order` of `options`; the presets try the values first. `lookup`
@@ -1274,6 +1279,8 @@ impl LoadedEnvironment {
     /// - without a key, if `options.scope` is not [`ExpandScope::WholeFile`];
     /// - without a key, if the raw source text was not kept;
     /// - without a key, if the winning declarations cannot be parsed again;
+    /// - naming the key, if a loaded key or value cannot be reproduced
+    ///   exactly;
     /// - naming the key, if resolution fails, for example an unset name under
     ///   [`Unresolved::Error`](crate::Unresolved::Error), a cycle or a size
     ///   limit; the message is the [`ResolveError`] message.
@@ -1321,6 +1328,9 @@ impl LoadedEnvironment {
                 "raw token context was not retained; load with raw tokens or use resolve_decoded",
             ));
         }
+        let unrepresentable = |key: &str, message: &str| {
+            LoadedResolveError::new(Some(key.to_string()), self.owned_origin(key), message)
+        };
         let mut entries: Vec<_> = self
             .records
             .values()
@@ -1328,15 +1338,58 @@ impl LoadedEnvironment {
             .collect();
         entries.sort_unstable_by_key(|(order, _, _)| *order);
         let mut source = String::new();
+        // A leading blank line keeps a byte-order mark that belongs to the
+        // first key from being read as the file's mark.
+        source.push('\n');
         for (_, key_range, value_range) in entries {
             source.push_str(&self.raw_source[key_range.clone()]);
             source.push('=');
-            source.push_str(&self.raw_source[value_range.clone()]);
+            let value = &self.raw_source[value_range.clone()];
+            source.push_str(value);
+            // In an LF-only dialect a CR right before the line feed belongs to
+            // the line ending. Add one CR so a value that ends with CR keeps it.
+            if self.dialect.line_breaks == LineBreaks::Lf && value.ends_with('\r') {
+                source.push('\r');
+            }
             source.push('\n');
         }
         let document = parse_strict_with(&source, self.dialect).map_err(|error| {
             LoadedResolveError::new(None, None, format!("cannot prepare resolution: {error}"))
         })?;
+        // Every loaded key must come back exactly, with its exact value, so
+        // resolution can never bind a different key or start from a changed
+        // value. This matches the check in `resolve_decoded`.
+        let mut parsed = std::collections::BTreeSet::new();
+        let mut parsed_count = 0usize;
+        for entry in document.entries() {
+            let Some(record) = self.records.get(entry.key()) else {
+                return Err(LoadedResolveError::new(
+                    Some(entry.key().to_string()),
+                    self.owned_origin(entry.key()),
+                    "cannot prepare resolution: unexpected declaration",
+                ));
+            };
+            if entry.value() != Some(record.value.as_ref()) {
+                return Err(unrepresentable(
+                    entry.key(),
+                    "value cannot be represented exactly",
+                ));
+            }
+            parsed.insert(entry.key());
+            parsed_count += 1;
+        }
+        if parsed_count != self.records.len() {
+            for key in self.records.keys() {
+                if !parsed.contains(&**key) {
+                    return Err(unrepresentable(key, "key cannot be represented exactly"));
+                }
+            }
+            return Err(LoadedResolveError::new(
+                None,
+                None,
+                "cannot prepare resolution: unexpected declaration",
+            ));
+        }
         let resolved = document.resolve(lookup, options).map_err(|error| {
             let key = resolve_error_key(&error).to_string();
             let origin = self.owned_origin(&key);

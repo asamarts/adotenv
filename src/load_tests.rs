@@ -11,7 +11,7 @@ use crate::{
         load_cascade_with_options, load_files, load_files_with_options, load_values, LoadError,
         LoadOptions, SkipReason,
     },
-    Dialect, ExpandOptions, ExpandScope, Unresolved,
+    BareKeys, Dialect, ExpandOptions, ExpandScope, Unresolved,
 };
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -422,6 +422,74 @@ fn contextual_resolution_preserves_quote_and_escape_context() {
     assert_eq!(resolved.get("C"), Some("$B"));
     assert_eq!(resolved.get("D"), Some("value"));
     assert_eq!(resolved.origin("D").unwrap().line(), 4);
+}
+
+#[test]
+fn contextual_resolution_keeps_a_trailing_carriage_return() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=x\r\r\nB=${A}z\n");
+    let loaded = full_cascade_with(dir.path(), "", Dialect::DOCKER_RAW);
+    assert_eq!(loaded.get("A"), Some("x\r"));
+    let contextual = loaded.resolve_contextual(|_| None, &whole_file()).unwrap();
+    let decoded = loaded.resolve_decoded(|_| None, &whole_file()).unwrap();
+    assert_eq!(contextual.values(), decoded.values());
+    assert_eq!(contextual.get("A"), Some("x\r"));
+    assert_eq!(contextual.get("B"), Some("x\rz"));
+}
+
+#[test]
+fn contextual_resolution_keeps_a_key_that_starts_with_a_bom() {
+    let dir = TempDir::new();
+    dir.write(".env", "# c\n\u{feff}B=1\nA=${B}\n");
+    let loaded = full_cascade_with(dir.path(), "", Dialect::PYTHON_DOTENV);
+    assert_eq!(loaded.get("\u{feff}B"), Some("1"));
+    let contextual = loaded.resolve_contextual(|_| None, &whole_file()).unwrap();
+    let decoded = loaded.resolve_decoded(|_| None, &whole_file()).unwrap();
+    assert_eq!(contextual.values(), decoded.values());
+    assert_eq!(contextual.get("\u{feff}B"), Some("1"));
+    assert_eq!(contextual.get("B"), None);
+    assert_eq!(contextual.get("A"), Some("${B}"));
+}
+
+#[test]
+fn contextual_resolution_keeps_a_docker_key_that_starts_with_a_bom() {
+    let dir = TempDir::new();
+    dir.write(".env", "# c\n\u{feff}B=1\nA=${B}\n");
+    let loaded = full_cascade_with(dir.path(), "", Dialect::DOCKER_RAW);
+    assert_eq!(loaded.get("\u{feff}B"), Some("1"));
+    let contextual = loaded.resolve_contextual(|_| None, &whole_file()).unwrap();
+    let decoded = loaded.resolve_decoded(|_| None, &whole_file()).unwrap();
+    assert_eq!(contextual.values(), decoded.values());
+    assert_eq!(contextual.get("\u{feff}B"), Some("1"));
+    assert_eq!(contextual.get("B"), None);
+    assert_eq!(contextual.get("A"), Some("${B}"));
+}
+
+#[test]
+fn contextual_resolution_keeps_a_key_that_is_only_a_bom() {
+    let dir = TempDir::new();
+    dir.write(".env", "# c\n\u{feff}=1\nA=x\n");
+    let loaded = full_cascade_with(dir.path(), "", Dialect::PYTHON_DOTENV);
+    assert_eq!(loaded.get("\u{feff}"), Some("1"));
+    let contextual = loaded.resolve_contextual(|_| None, &whole_file()).unwrap();
+    let decoded = loaded.resolve_decoded(|_| None, &whole_file()).unwrap();
+    assert_eq!(contextual.values(), decoded.values());
+    assert_eq!(contextual.get("\u{feff}"), Some("1"));
+    assert_eq!(contextual.get("A"), Some("x"));
+}
+
+#[test]
+fn contextual_resolution_keeps_a_bare_key_read_as_empty() {
+    let dir = TempDir::new();
+    dir.write(".env", "A\nB=${A}x\n");
+    let dialect = Dialect::PORTABLE.with_bare_keys(BareKeys::Empty);
+    let loaded = load_cascade_with_options(dir.path(), "", LoadOptions::full(dialect)).unwrap();
+    assert_eq!(loaded.get("A"), Some(""));
+    let contextual = loaded.resolve_contextual(|_| None, &whole_file()).unwrap();
+    let decoded = loaded.resolve_decoded(|_| None, &whole_file()).unwrap();
+    assert_eq!(contextual.values(), decoded.values());
+    assert_eq!(contextual.get("A"), Some(""));
+    assert_eq!(contextual.get("B"), Some("x"));
 }
 
 #[test]

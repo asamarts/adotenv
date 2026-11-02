@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `LoadedEnvironment::resolve_contextual` keeps a value that ends with a
+  carriage return in an LF-only dialect and a key that begins with a
+  byte-order mark. It checks every rebuilt key and value and returns an error
+  naming the key instead of resolving a changed key or value.
+
 ### Documentation
 
 - Recorded the 1.1 audit in [docs/design/1.1-audit.md](docs/design/1.1-audit.md),
