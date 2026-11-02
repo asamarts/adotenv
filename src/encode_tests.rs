@@ -366,6 +366,32 @@ fn node_literal_fallback_inverts_inner_quote_boundaries() {
 }
 
 #[test]
+fn node_literal_fallback_escapes_a_terminal_tab_at_the_byte_cap() {
+    let dialect = Dialect {
+        inline_comments: InlineComments::Python,
+        double_escapes: DoubleEscapes::OCTAL
+            .union(DoubleEscapes::DOLLAR)
+            .union(DoubleEscapes::DOUBLE_QUOTE)
+            .union(DoubleEscapes::TAB),
+        unknown_escapes: UnknownEscapes::Preserve,
+        single_escapes: SingleEscapes::None,
+        quoted_tail: QuotedTail::LiteralFallback,
+        multiline: Multiline::ALL
+            .with_single(false)
+            .with_double(true)
+            .with_backtick(false),
+        normalize_newlines: true,
+        line_breaks: LineBreaks::Lf,
+        line_byte_limit: Some(18),
+        backticks: false,
+        ..Dialect::NODE_DOTENV
+    };
+    let value = "\"#\"\"&'x0X\t\".aa\t";
+    assert_encodes(value, dialect);
+    assert!(assert_inverse("\"#\"\"&'x0X\t\".aa\\t", dialect));
+}
+
+#[test]
 fn node_first_line_cap_moves_the_opener_to_the_next_line() {
     for (limit, values) in [
         (2, &["\n", "\n\n", "a\nb"][..]),

@@ -49,8 +49,24 @@ fn check_inverse(token: &str, dialect: Dialect) {
     let entry = document.entries().next().unwrap();
     if entry.key() == "A" {
         if let Some(value) = entry.value() {
-            // Unlike conditional round trips this rejects false negatives: a
-            // legal public-parser token is a witness that the value exists.
+            // A token that is legal only with a following LF can still depend
+            // on that line ending. `encode_value_with` also requires the token
+            // to read the same at EOF, so require the witness to hold there
+            // too before asking for a standalone encoding.
+            let eof_source = format!("A={token}");
+            let (eof, eof_diagnostics) = parse_with(&eof_source, dialect);
+            if eof_diagnostics
+                .iter()
+                .any(|d| d.severity() == Severity::Error)
+                || eof.entries().len() != 1
+                || eof
+                    .items()
+                    .any(|item| matches!(item.kind(), ItemKind::Invalid | ItemKind::Ignored))
+                || eof.entries().next().and_then(|entry| entry.value()) != Some(value)
+            {
+                return;
+            }
+            // A legal public-parser token is a witness that the value exists.
             require_encoding(value, dialect);
         }
     }

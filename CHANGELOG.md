@@ -40,6 +40,9 @@ fixes from the 1.1 audit. Some results change; see
   trimming is idempotent at a final lone CR: the CR and the trailing
   whitespace are removed in one pass. When several trailing CRs would leave
   another line ending behind, the file is left unchanged.
+- `encode_value_with` represents a Node literal-fallback value that needs an
+  escaped terminal control character at the line cap, instead of returning
+  `EncodeError::Unrepresentable`.
 
 ### Documentation
 

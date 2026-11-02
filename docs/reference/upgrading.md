@@ -61,6 +61,9 @@ Releases within 1.x keep the API. These fixes change results:
   trimming removes a final lone CR and the trailing whitespace in one pass.
   When several trailing CRs would leave another line ending behind, the file
   is left unchanged.
+- 1.1.1: `encode_value_with` represents a Node literal-fallback value that
+  needs an escaped terminal control character at the line cap, instead of
+  returning `EncodeError::Unrepresentable`.
 
 ## From 0.11
 

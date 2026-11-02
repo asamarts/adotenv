@@ -389,6 +389,28 @@ fn encode_node_literal_fallback(context: &mut Context<'_>) -> Option<(String, Qu
     let value = context.value;
     let dialect = context.dialect;
     if let Some(suffix) = value.strip_prefix('"') {
+        // A literal-fallback token can end in a control character that is
+        // trimmed when the token ends the source. Try its escaped spelling
+        // first; the value keeps the character and the token stays a witness
+        // in both the LF and EOF contexts.
+        if let Some(last) = value.chars().last() {
+            let escaped = match last {
+                '\t' => Some("\\t"),
+                '\n' => Some("\\n"),
+                '\r' => Some("\\r"),
+                '\\' => Some("\\\\"),
+                '"' => Some("\\\""),
+                _ => None,
+            };
+            if let Some(escaped) = escaped {
+                let mut token = value.to_string();
+                token.pop();
+                token.push_str(escaped);
+                if let Some(actual) = context.verify(&token) {
+                    return Some((token, actual));
+                }
+            }
+        }
         for scan_quotes in [true, false] {
             let mode = InverseMode {
                 quote: Quote::Double,
