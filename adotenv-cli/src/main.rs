@@ -979,7 +979,6 @@ fn diff_streaming(paths: &[String], format: DiffFormat, dialect: Dialect) -> u8 
     };
 
     let mut output = String::new();
-    let multi = paths.len() > 2;
     if format == DiffFormat::Json {
         write!(
             output,
@@ -1006,12 +1005,10 @@ fn diff_streaming(paths: &[String], format: DiffFormat, dialect: Dialect) -> u8 
 
         match format {
             DiffFormat::Human => {
-                if multi {
-                    writeln!(output, "{} -> {}", paths[0], path)
-                        .expect("writing to String cannot fail");
-                    if comparison.is_empty() {
-                        output.push_str("(no differences)\n");
-                    }
+                writeln!(output, "{} -> {}", paths[0], path)
+                    .expect("writing to String cannot fail");
+                if comparison.is_empty() {
+                    output.push_str("(no differences)\n");
                 }
                 write_comparison(&mut output, &comparison);
             }

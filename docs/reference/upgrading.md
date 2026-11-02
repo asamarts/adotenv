@@ -49,6 +49,10 @@ Releases within 1.x keep the API. These fixes change results:
 - 1.1.1: `fmt --write` and `set` leave a file untouched when the result is
   unchanged. The file keeps its inode, hard links, modification time,
   permissions and extended attributes.
+- 1.1.1: `diff` human output starts each candidate with a
+  `baseline -> file` header and prints `(no differences)` when it matches,
+  including when there is exactly one candidate. Before, one candidate printed
+  neither.
 
 ## From 0.11
 

@@ -195,6 +195,34 @@ fn diff_reports_value_changes_and_exit_status() {
 }
 
 #[test]
+fn diff_human_output_has_a_header_for_two_files() {
+    let dir = TempDir::new();
+    let base = dir.file("base.env", "A=1\n");
+    let same = dir.file("same.env", "A=1\n");
+    let changed = dir.file("changed.env", "A=2\n");
+
+    let output = run(&["diff", base.to_str().unwrap(), same.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        stdout(&output),
+        format!(
+            "{} -> {}\n(no differences)\n",
+            base.display(),
+            same.display()
+        )
+    );
+
+    let output = run(&["diff", base.to_str().unwrap(), changed.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = stdout(&output);
+    assert!(
+        text.starts_with(&format!("{} -> {}\n", base.display(), changed.display())),
+        "{text:?}"
+    );
+    assert!(text.contains("~ A: 1 -> 2"), "{text:?}");
+}
+
+#[test]
 fn example_and_load_commands_work() {
     let dir = TempDir::new();
     let file = dir.file(".env", "# app\nA=1\nBAD KEY=secret\n");
@@ -439,7 +467,10 @@ fn stdin_is_accepted_for_read_only_commands() {
 
     let output = run_with_stdin(&["diff", "-", other.to_str().unwrap()], "A=1\n");
     assert_eq!(output.status.code(), Some(1));
-    assert_eq!(stdout(&output), "~ A: 1 -> 2\n");
+    assert_eq!(
+        stdout(&output),
+        format!("- -> {}\n~ A: 1 -> 2\n", other.display())
+    );
 
     let output = run(&["fmt", "--write", "-"]);
     assert_eq!(output.status.code(), Some(2));

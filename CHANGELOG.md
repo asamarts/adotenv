@@ -23,6 +23,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `fmt --write` and `set` leave a file untouched when the formatted text or
   the value would not change it. The file keeps its inode, hard links,
   modification time, permissions and extended attributes.
+- `diff` human output starts each candidate with a `baseline -> file` header
+  and prints `(no differences)` when a candidate matches, including when there
+  is exactly one candidate.
 
 ### Documentation
 

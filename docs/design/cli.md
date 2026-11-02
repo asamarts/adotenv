@@ -149,8 +149,9 @@ values. The second form reports a file that could not be read. In `<path>` and
 `diff` compares effective declarations. In human output, each candidate starts
 with a `baseline -> file` header, followed by one line per difference: `-` for
 a key that takes part in lookup only in the baseline, `+` for one that takes
-part only in the candidate and `~` for a changed value, state or export prefix. A candidate with no differences prints
-`(no differences)`.
+part only in the candidate and `~` for a changed value, state or export prefix.
+A candidate with no differences prints `(no differences)`. This applies when
+there is exactly one candidate as well.
 
 ```text
 $ adotenv-cli diff base.env app.env
