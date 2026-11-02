@@ -33,7 +33,8 @@ included, and `check --source` prints source lines. `load` prints Portable
 `KEY=value` lines that parse back to the same values. `example` removes values
 but keeps comments verbatim.
 
-`fmt --write` and `set` replace the file through a private temporary file in the
+`fmt --write` and `set` leave a file untouched when the result would not change
+it. Otherwise they replace the file through a private temporary file in the
 same directory, keep its mode, owner and group where possible, and write through
 symbolic links. On Unix the replace is an atomic rename. On Windows the fallback
 backup swap is not crash-atomic.
