@@ -53,9 +53,9 @@ Values may be secrets. These outputs include them:
 
 - `Debug` output of documents, items, entries, edit and format results,
   comparisons, loaded environments, resolved values, line indexes, groups and
-  the adapter types. The core document, edit, comparison, load, resolution, line-index
-  and group types support a value-redacting `Debug`
-  form through `adotenv::Masked` and `adotenv::mask`; use
+  the adapter types. The core document, edit, comparison, load, resolution,
+  line-index and group types support a value-redacting `Debug` form through
+  `adotenv::Masked` and `adotenv::mask`; use
   `DeserializeError::masked()` for serde errors. Adapter types still include
   values. Do not log normal `Debug` output when values are secret.
 - Serde conversion errors name the key and line, and their messages include

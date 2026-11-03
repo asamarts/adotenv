@@ -503,11 +503,11 @@ let config = config::Config::builder()
   for untrusted input.
 - `Debug` output of documents, items, entries, edit and format results,
   comparisons, loaded environments, resolved values, line indexes, groups and
-  the adapter types includes values. The core document, edit, comparison, load
-  and resolution types, including `LineIndex` and `Group`, support a
-  value-redacting `Debug` form through `adotenv::Masked` and `adotenv::mask`;
-  use `DeserializeError::masked()` for serde errors. Adapter types still
-  include values. Do not log normal `Debug` output when values are secret.
+  the adapter types includes values. The core document, edit, comparison, load,
+  resolution, line-index and group types support a value-redacting `Debug`
+  form through `adotenv::Masked` and `adotenv::mask`; use
+  `DeserializeError::masked()` for serde errors. Adapter types still include
+  values. Do not log normal `Debug` output when values are secret.
 - Windows writes use a direct replace when possible and a backup swap otherwise.
   The fallback is not crash-atomic.
 - The `config` integration uses `config` 0.15 and requires Rust 1.88.
