@@ -1,4 +1,4 @@
-use alloc::format;
+use alloc::{format, string::ToString};
 
 use crate::{mask, parse_strict, Comparison, ExpandOptions, FormatOptions};
 
