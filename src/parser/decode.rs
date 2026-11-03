@@ -274,7 +274,7 @@ impl<const D: bool> Parser<'_, D> {
                     _ => None,
                 };
                 if let Some(code) = code {
-                    self.diagnostics.push(Diagnostic::new(
+                    self.push_diagnostic(Diagnostic::new(
                         code,
                         at..at + c.len_utf8(),
                         position.line,
@@ -320,7 +320,7 @@ impl<const D: bool> Parser<'_, D> {
             output.replace(at..end, cooked.encode_utf8(&mut buffer));
         } else if double {
             match dialect.unknown_escapes {
-                UnknownEscapes::Warn if D => self.diagnostics.push(Diagnostic::new(
+                UnknownEscapes::Warn if D => self.push_diagnostic(Diagnostic::new(
                     DiagnosticCode::UnknownEscape,
                     at..end,
                     position.line,
@@ -337,7 +337,7 @@ impl<const D: bool> Parser<'_, D> {
                     let diagnostic =
                         Diagnostic::new(DiagnosticCode::InvalidEscape, at..end, position.line);
                     if D {
-                        self.diagnostics.push(diagnostic.clone());
+                        self.push_diagnostic(diagnostic.clone());
                     }
                     error = Some(diagnostic);
                 }

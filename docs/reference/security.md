@@ -27,6 +27,10 @@ files, `Document::resolve` substitutes references from a lookup you pass,
   memory grows with the input. Check the byte length, line count or number of
   declarations before parsing a file from an untrusted source.
   `parse_values` keeps only final values and uses much less memory.
+- `parse` collects at most 10,000 ordinary diagnostics; a final
+  `dotenv.too-many-diagnostics` warning reports truncation. The first error
+  found after the budget is retained. `parse_strict` and `parse_values` stop
+  at the first error and do not collect the list.
 - Parsing and reference scanning run in linear time, including inputs with
   many statements on one line, long `$` runs and deeply nested forms.
   Resolution time is linear in the number of references in a value, and edit

@@ -11,6 +11,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `exec::Shell::with_max_output_bytes`, `exec::Shell::with_timeout` and
   `exec::Shell::without_timeout`.
 - `ExpandOptions::with_max_references` and `ResolveError::TooManyReferences`.
+- `DiagnosticCode::TooManyDiagnostics`.
 
 ### Changed
 
@@ -19,6 +20,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Resolution scans at most 65,536 reference candidates per value by default
   and fails with `ResolveError::TooManyReferences` before the list grows past
   that limit.
+- `parse` collects at most 10,000 ordinary diagnostics and ends a truncated
+  list with `DiagnosticCode::TooManyDiagnostics`; the first error after the
+  budget is retained.
 
 ### Fixed
 

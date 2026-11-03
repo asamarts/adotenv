@@ -1,16 +1,21 @@
-//! Peak memory of reference scanning and sorting for deeply nested values.
+//! Peak memory of reference scanning, resolution and parsing.
 //!
-//! The resident-set high-water mark belongs to the whole process, so this
-//! binary holds a single test.
+//! The resident-set high-water mark belongs to the whole process, so the
+//! measurements serialize on a mutex.
 #![cfg(target_os = "linux")]
 
-use adotenv::{parse, ExpandOptions, ResolveError};
+use adotenv::{parse, DiagnosticCode, ExpandOptions, ResolveError};
+
+/// The high-water mark belongs to the whole process, so only one measurement
+/// may run at a time.
+static MEMORY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Growth of the resident set, in bytes, while `run` executes. Memory that
 /// earlier steps freed may be reused, so this is a lower bound on what `run`
 /// allocates; memory that grows with the square of the nesting depth still
 /// exceeds the limit below by far.
 fn peak_growth(run: impl FnOnce()) -> usize {
+    let _guard = MEMORY_LOCK.lock().unwrap();
     // Writing 5 resets the high-water mark to the current resident set. Without
     // the reset, only growth past the earlier peak is visible.
     let reset = std::fs::write("/proc/self/clear_refs", "5").is_ok();
@@ -27,6 +32,24 @@ fn status_kib(field: &str) -> usize {
         .and_then(|rest| rest.trim().strip_suffix("kB"))
         .and_then(|value| value.trim().parse().ok())
         .expect("process status reports the field")
+}
+
+#[test]
+fn parsing_caps_repeated_diagnostics_within_the_budget() {
+    const LIMIT: usize = 16 << 20;
+    let source = format!("A={}\n", "#".repeat(1_000_000));
+    let growth = peak_growth(|| {
+        let (_, diagnostics) = parse(&source);
+        assert_eq!(diagnostics.len(), 10_001);
+        assert_eq!(
+            diagnostics.last().unwrap().code(),
+            DiagnosticCode::TooManyDiagnostics
+        );
+    });
+    assert!(
+        growth < LIMIT,
+        "the bounded diagnostic list grew the resident set by {growth} bytes"
+    );
 }
 
 #[test]

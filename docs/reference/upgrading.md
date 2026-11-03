@@ -67,6 +67,10 @@ Releases within 1.x keep the API. These fixes change results:
 - 1.2.0: resolution scans at most 65,536 reference candidates per value by
   default and fails with `ResolveError::TooManyReferences` beyond that.
   `ExpandOptions::with_max_references` changes the limit.
+- 1.2.0: `parse` returns at most 10,000 ordinary diagnostics. A truncated
+  list ends with `DiagnosticCode::TooManyDiagnostics`; the first error after
+  the budget is retained. `parse_strict` and `parse_values` still return the
+  first error directly.
 - 1.2.0: `exec::Shell` caps standard output and standard error and stops
   commands after a timeout by default. The builders change the limits.
 - 1.2.0: `fmt --write` and `set` resolve the write target once and check its

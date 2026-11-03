@@ -24,22 +24,31 @@ mod node;
 mod python;
 mod unicode;
 
+/// The maximum number of ordinary diagnostics one `parse` call collects.
+///
+/// A pathological source can otherwise allocate one diagnostic per character.
+/// A final [`DiagnosticCode::TooManyDiagnostics`] warning reports truncation.
+pub(crate) const MAX_DIAGNOSTICS: usize = 10_000;
+
 /// Parses `.env` text with the Portable dialect, recovering from errors.
 ///
 /// This never fails. A statement with an error is kept as an
 /// [`ItemKind::Invalid`] item and reported in the returned diagnostics, and
 /// parsing recovers at the smallest safe boundary, usually the end of the
 /// line, so one broken line does not hide the rest of the file. Diagnostics of
-/// every [`Severity`] are returned, ordered by their position in the source.
-/// The document borrows `source`; values are literal and nothing is expanded,
-/// read from files or taken from the environment.
+/// every [`Severity`] are returned, ordered by their position in the source,
+/// up to a budget of 10,000. If more are found, later warnings are omitted,
+/// the first omitted error is kept, and the last entry is
+/// [`DiagnosticCode::TooManyDiagnostics`]. The document borrows `source`;
+/// values are literal and nothing is expanded, read from files or taken from
+/// the environment.
 ///
 /// The other parse functions differ from this one as follows:
 ///
 /// - [`parse_strict`] returns the document without diagnostics, or the first
 ///   error.
 /// - [`parse_owned`] takes a `String` and returns a `Document<'static>` that
-///   owns it, with every diagnostic.
+///   owns it, with the collected diagnostics and the same budget.
 /// - [`parse_values`] returns only the effective values, or the first error.
 ///   It keeps no items or spans and uses much less memory.
 ///
@@ -101,14 +110,31 @@ fn parse_impl<const D: bool>(source: &str, dialect: Dialect) -> (Document<'_>, V
     } else {
         has_duplicate_entries(&parser.document)
     };
-    let diagnostics = if D
+    let parser_omitted_error = parser.first_omitted_error.take();
+    let (mut diagnostics, omitted, merge_omitted_error) = if D
         && dialect.syntax == Syntax::Portable
         && dialect.line_breaks == LineBreaks::Universal
     {
-        merge_lone_cr(source, parser.diagnostics)
+        merge_lone_cr(source, parser.diagnostics, parser.omitted_diagnostics)
     } else {
-        parser.diagnostics
+        (parser.diagnostics, parser.omitted_diagnostics, None)
     };
+    if omitted > 0 {
+        let first_omitted_error = match (parser_omitted_error, merge_omitted_error) {
+            (Some(parser), Some(merged)) if merged.span.start < parser.span.start => Some(merged),
+            (Some(parser), _) => Some(parser),
+            (None, merged) => merged,
+        };
+        if let Some(error) = first_omitted_error {
+            diagnostics.push(error);
+        }
+        diagnostics.push(Diagnostic::new(
+            DiagnosticCode::TooManyDiagnostics,
+            source.len()..source.len(),
+            line_breaks(source) + 1,
+        ));
+        diagnostics.sort_by_key(|diagnostic| diagnostic.span.start);
+    }
     // Release geometric-growth slack before the tooling model is retained.
     // The 65,536-entry fixture otherwise keeps one full extra item block.
     parser.document.items.shrink_to_fit();
@@ -485,6 +511,8 @@ struct Parser<'src, const D: bool> {
     source: &'src str,
     document: Document<'src>,
     diagnostics: Vec<Diagnostic>,
+    omitted_diagnostics: usize,
+    first_omitted_error: Option<Diagnostic>,
     keys: KeyIndex,
     first_key: Option<usize>,
     has_duplicate_keys: bool,
@@ -587,6 +615,8 @@ impl<'src, const D: bool> Parser<'src, D> {
                 has_duplicate_keys: false,
             },
             diagnostics: Vec::new(),
+            omitted_diagnostics: 0,
+            first_omitted_error: None,
             keys: KeyIndex::default(),
             first_key: None,
             has_duplicate_keys: false,
@@ -604,6 +634,17 @@ impl<'src, const D: bool> Parser<'src, D> {
             anchor_cache: Cell::new((usize::MAX, 0)),
             #[cfg(test)]
             scanned: Cell::new(0),
+        }
+    }
+
+    fn push_diagnostic(&mut self, diagnostic: Diagnostic) {
+        if self.diagnostics.len() < MAX_DIAGNOSTICS {
+            self.diagnostics.push(diagnostic);
+        } else {
+            self.omitted_diagnostics = self.omitted_diagnostics.saturating_add(1);
+            if diagnostic.severity() == Severity::Error && self.first_omitted_error.is_none() {
+                self.first_omitted_error = Some(diagnostic);
+            }
         }
     }
 
@@ -858,7 +899,7 @@ impl<const D: bool> Parser<'_, D> {
             return physical.end;
         }
         if D {
-            self.diagnostics.push(diagnostic.clone());
+            self.push_diagnostic(diagnostic.clone());
         }
         self.document.items.push(ItemData {
             kind: if ignored {
@@ -1347,7 +1388,7 @@ impl<const D: bool> Parser<'_, D> {
                     } else {
                         entry.tokens.key.clone()
                     });
-                    self.diagnostics.push(diagnostic);
+                    self.push_diagnostic(diagnostic);
                 }
             }
         } else {
@@ -1399,7 +1440,7 @@ impl<const D: bool> Parser<'_, D> {
         let participates = !(dialect.node_object_keys && key == "__proto__"
             || tokens.body.is_none() && dialect.bare_keys == BareKeys::Ignore);
         if D && dialect.syntax == Syntax::Portable && !posix_key(key) {
-            self.diagnostics.push(Diagnostic::new(
+            self.push_diagnostic(Diagnostic::new(
                 DiagnosticCode::NonPosixKey,
                 key_span.clone(),
                 line,
@@ -1415,7 +1456,7 @@ impl<const D: bool> Parser<'_, D> {
                     let diagnostic =
                         Diagnostic::new(DiagnosticCode::ForbiddenBareKey, key_span, line);
                     if D {
-                        self.diagnostics.push(diagnostic.clone());
+                        self.push_diagnostic(diagnostic.clone());
                     }
                     invalid = Some(diagnostic);
                 } else if D && dialect.syntax == Syntax::Portable {
@@ -1532,18 +1573,26 @@ impl KeyIndex {
 }
 
 // Both streams are already source-ordered; no sort or line index is needed.
-fn merge_lone_cr(source: &str, diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
+fn merge_lone_cr(
+    source: &str,
+    diagnostics: Vec<Diagnostic>,
+    mut omitted: usize,
+) -> (Vec<Diagnostic>, usize, Option<Diagnostic>) {
     let bytes = source.as_bytes();
     let mut carriage_returns = Vec::new();
     let mut line = 1;
     for (at, byte) in bytes.iter().enumerate() {
         if *byte == b'\r' {
             if bytes.get(at + 1) != Some(&b'\n') {
-                carriage_returns.push(Diagnostic::new(
-                    DiagnosticCode::LoneCarriageReturn,
-                    at..at + 1,
-                    line,
-                ));
+                if carriage_returns.len() < MAX_DIAGNOSTICS {
+                    carriage_returns.push(Diagnostic::new(
+                        DiagnosticCode::LoneCarriageReturn,
+                        at..at + 1,
+                        line,
+                    ));
+                } else {
+                    omitted = omitted.saturating_add(1);
+                }
             }
             line += 1;
         } else if *byte == b'\n' && (at == 0 || bytes[at - 1] != b'\r') {
@@ -1551,19 +1600,44 @@ fn merge_lone_cr(source: &str, diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> 
         }
     }
     if carriage_returns.is_empty() {
-        return diagnostics;
+        return (diagnostics, omitted, None);
     }
-    let mut output = Vec::with_capacity(diagnostics.len() + carriage_returns.len());
+    let capacity = diagnostics
+        .len()
+        .saturating_add(carriage_returns.len())
+        .min(MAX_DIAGNOSTICS);
+    let mut output = Vec::with_capacity(capacity);
     let mut ordinary = diagnostics.into_iter().peekable();
     let mut carriage = carriage_returns.into_iter().peekable();
     while let (Some(a), Some(b)) = (ordinary.peek(), carriage.peek()) {
+        if output.len() == MAX_DIAGNOSTICS {
+            break;
+        }
         if a.span.start <= b.span.start {
             output.push(ordinary.next().expect("peeked diagnostic"));
         } else {
             output.push(carriage.next().expect("peeked carriage return"));
         }
     }
-    output.extend(ordinary);
-    output.extend(carriage);
-    output
+    let mut omitted_error = None;
+    if output.len() == MAX_DIAGNOSTICS {
+        for diagnostic in ordinary.chain(carriage) {
+            omitted = omitted.saturating_add(1);
+            if diagnostic.severity() == Severity::Error && omitted_error.is_none() {
+                omitted_error = Some(diagnostic);
+            }
+        }
+    } else {
+        for diagnostic in ordinary.chain(carriage) {
+            if output.len() < MAX_DIAGNOSTICS {
+                output.push(diagnostic);
+            } else {
+                omitted = omitted.saturating_add(1);
+                if diagnostic.severity() == Severity::Error && omitted_error.is_none() {
+                    omitted_error = Some(diagnostic);
+                }
+            }
+        }
+    }
+    (output, omitted, omitted_error)
 }
