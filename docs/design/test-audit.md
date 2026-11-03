@@ -4,17 +4,17 @@ This page records test coverage at the last release and the known gaps.
 Coverage is a guide, not a release gate. How the tests are organized is
 described in [Quality](quality.md).
 
-## Coverage at 1.1.1
+## Coverage at 1.1.2
 
-From a local `cargo llvm-cov --workspace --all-features` run on 2026-11-02
-from release commit `bc0106e`. CI uploads the same lcov data as an artifact.
-The workspace total is 95.14 percent of regions and 95.42 percent of lines.
-The core crate is 94.96 percent of regions and 95.27 percent of lines.
+From a local `cargo llvm-cov --workspace --all-features` run on 2026-11-03
+from release commit `757bf5d`. CI uploads the same lcov data as an artifact.
+The workspace total is 95.06 percent of regions and 95.31 percent of lines.
+The core crate is 95.06 percent of regions and 95.31 percent of lines.
 
 | Scope | Regions | Lines |
 |---|---:|---:|
-| Workspace total | 95.1% | 95.4% |
-| Core crate total | 95.0% | 95.3% |
+| Workspace total | 95.1% | 95.3% |
+| Core crate total | 95.1% | 95.3% |
 | `adotenv-cli/src/main.rs` | 94.3% | 94.4% |
 | `adotenv-config/src/lib.rs` | 98.6% | 97.7% |
 | `adotenv-figment/src/lib.rs` | 98.9% | 95.8% |
@@ -25,29 +25,29 @@ The core crate is 94.96 percent of regions and 95.27 percent of lines.
 | `structure.rs` | 99.1% | 99.0% |
 | `portability.rs` | 98.7% | 99.2% |
 | `position.rs` | 98.4% | 97.9% |
-| `format.rs` | 98.0% | 97.3% |
+| `format.rs` | 98.3% | 97.8% |
 | `sort.rs` | 97.9% | 96.7% |
 | `dialect.rs` | 97.4% | 97.4% |
 | `exec.rs` | 97.2% | 97.2% |
+| `parser.rs` | 97.1% | 96.4% |
 | `example.rs` | 96.8% | 93.4% |
-| `parser.rs` | 96.6% | 96.1% |
-| `encode.rs` | 96.3% | 97.2% |
+| `encode.rs` | 96.5% | 97.3% |
 | `model.rs` | 96.0% | 96.4% |
-| `references.rs` | 95.6% | 96.1% |
 | `parser/python.rs` | 95.6% | 95.2% |
 | `parser/docker.rs` | 99.6% | 99.3% |
+| `references.rs` | 94.8% | 94.3% |
+| `parser/node.rs` | 94.8% | 98.2% |
 | `edit.rs` | 94.7% | 96.1% |
-| `parser/node.rs` | 94.4% | 97.0% |
 | `parser/compose.rs` | 93.5% | 93.0% |
 | `serde_support.rs` | 92.9% | 95.2% |
 | `load.rs` | 91.7% | 90.4% |
-| `resolve.rs` | 85.5% | 89.9% |
+| `resolve.rs` | 85.6% | 90.1% |
 
 The resolution figure includes generic bounds, closing braces and defensive
 mapping fallbacks that cannot be reached independently. Its behavioral error
-paths are covered. `load.rs` and `references.rs` lost some percentage points
-to the new contextual-resolution and operand-grammar code; the new branches
-are exercised by unit and integration tests, including the failure cases.
+paths are covered. `load.rs`, `references.rs` and `resolve.rs` remain the
+lowest modules; their new branches are exercised by unit and integration tests,
+including failure cases.
 
 ## What the tests cover
 
