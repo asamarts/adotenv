@@ -456,7 +456,7 @@ adotenv-cli [--dialect <portable|node|python|compose|docker>] <command> [options
 get <file> <key>
 check [--format human|json|github] [--json] [--source] [--recursive] [--exclude <path>] <path>...
 fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <path>...
-diff [--format human|matrix|json] [--json] <baseline> <file>...
+diff [--format human|matrix|json] [--json] [--mask] <baseline> <file>...
 example <file>
 load <directory> [mode]
 set <file> <key> <value>
@@ -471,9 +471,10 @@ lines unless `--source` is passed.
 replace parent variables of the same name. Loaded files are trusted like code: a
 loaded `PATH` changes which program runs. The parent process is not changed.
 
-`get`, `load` and `diff` print values, `fmt` prints whole documents, and
-`example` keeps comments verbatim. `load` prints Portable lines that parse back
-to the same values.
+`get`, `load` and `diff` print values by default; `diff --mask` replaces
+compared values with `***`. `fmt` prints whole documents, and `example` keeps
+comments verbatim. `load` prints Portable lines that parse back to the same
+values.
 
 See the [command-line tool guide](https://asamarts.github.io/adotenv/design/cli.html).
 
@@ -501,8 +502,12 @@ let config = config::Config::builder()
 - Retained documents keep token and item metadata. Apply byte and line budgets
   for untrusted input.
 - `Debug` output of documents, items, entries, edit and format results,
-  comparisons, loaded environments, resolved values and the adapter types
-  includes values. Do not log it when values are secret.
+  comparisons, loaded environments, resolved values, line indexes, groups and
+  the adapter types includes values. The core document, edit, comparison, load
+  and resolution types, including `LineIndex` and `Group`, support a
+  value-redacting `Debug` form through `adotenv::Masked` and `adotenv::mask`;
+  use `DeserializeError::masked()` for serde errors. Adapter types still
+  include values. Do not log normal `Debug` output when values are secret.
 - Windows writes use a direct replace when possible and a backup swap otherwise.
   The fallback is not crash-atomic.
 - The `config` integration uses `config` 0.15 and requires Rust 1.88.

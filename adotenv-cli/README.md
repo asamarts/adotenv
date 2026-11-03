@@ -15,7 +15,7 @@ adotenv-cli [--dialect portable|node|python|compose|docker] <command> [options]
 get <file> <key>
 check [--format human|json|github] [--json] [--source] [--recursive] [--exclude <path>] <path>...
 fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <path>...
-diff [--format human|matrix|json] [--json] <baseline> <file>...
+diff [--format human|matrix|json] [--json] [--mask] <baseline> <file>...
 example <file>
 load <directory> [mode]
 set <file> <key> <value>
@@ -27,11 +27,12 @@ loaded value replaces a parent variable of the same name, and the parent
 environment is not changed. Loaded files are trusted like code: a loaded `PATH`
 changes which program runs.
 
-`get`, `load` and `diff` print values, including JSON and matrix output of
-`diff`. `fmt` without `--write` or `--check` prints whole documents, values
-included, and `check --source` prints source lines. `load` prints Portable
-`KEY=value` lines that parse back to the same values. `example` removes values
-but keeps comments verbatim.
+`get`, `load` and `diff` print values by default, including JSON and matrix
+output of `diff`; `diff --mask` replaces compared values with `***`. `fmt`
+without `--write` or `--check` prints whole documents, values included, and
+`check --source` prints source lines. `load` prints Portable `KEY=value` lines
+that parse back to the same values. `example` removes values but keeps comments
+verbatim.
 
 `fmt --write` and `set` leave a file untouched when the result would not change
 it. Otherwise they replace the file through a private temporary file in the

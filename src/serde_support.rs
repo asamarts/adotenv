@@ -17,7 +17,7 @@ use serde::de::{self, DeserializeOwned, Deserializer, MapAccess, Visitor};
 
 #[cfg(feature = "load")]
 use crate::load::LoadedEnvironment;
-use crate::Document;
+use crate::{Document, Mask, REDACTED};
 
 /// An error from deserializing a [`Document`] or loaded environment with Serde.
 ///
@@ -96,6 +96,29 @@ impl DeserializeError {
         }
         self
     }
+    /// Returns a form that masks the value-bearing message.
+    ///
+    /// The line and key are kept. Use this when the values may be secret and
+    /// the error is logged or displayed.
+    ///
+    /// ```
+    /// use adotenv::parse_strict;
+    ///
+    /// # #[allow(dead_code)]
+    /// # #[derive(Debug, serde::Deserialize)]
+    /// # #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+    /// # struct Config { port: u16 }
+    /// let doc = parse_strict("PORT=abc\n")?;
+    /// let error = doc.deserialize::<Config>().unwrap_err();
+    /// assert!(error.to_string().contains("abc"));
+    /// assert!(!error.masked().to_string().contains("abc"));
+    /// assert_eq!(error.masked().to_string(), "line 1: <redacted> (key \"PORT\")");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub const fn masked(&self) -> MaskedDeserializeError<'_> {
+        MaskedDeserializeError(self)
+    }
     /// Returns the one-based line of the declaration, or `0` when it is
     /// unknown.
     ///
@@ -135,6 +158,44 @@ impl fmt::Display for DeserializeError {
 }
 
 impl core::error::Error for DeserializeError {}
+
+/// A [`DeserializeError`] with its value-bearing message masked.
+///
+/// Returned by [`DeserializeError::masked`]. Its [`Debug`](fmt::Debug) and
+/// [`Display`](fmt::Display) forms keep the line and key but replace the
+/// message with `<redacted>`.
+#[derive(Clone, Copy)]
+pub struct MaskedDeserializeError<'a>(&'a DeserializeError);
+
+impl fmt::Debug for MaskedDeserializeError<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt_masked(formatter)
+    }
+}
+
+impl fmt::Display for MaskedDeserializeError<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0.line != 0 {
+            write!(formatter, "line {}: ", self.0.line)?;
+        }
+        formatter.write_str(REDACTED)?;
+        match &self.0.key {
+            Some(key) => write!(formatter, " (key {key:?})"),
+            None => Ok(()),
+        }
+    }
+}
+
+impl Mask for DeserializeError {
+    fn fmt_masked(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DeserializeError")
+            .field("line", &self.line)
+            .field("key", &self.key)
+            .field("message", &REDACTED)
+            .finish()
+    }
+}
 
 impl de::Error for DeserializeError {
     fn custom<T: fmt::Display>(message: T) -> Self {

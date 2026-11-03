@@ -28,6 +28,9 @@ const FINDINGS: u8 = 1;
 /// cannot process. It takes precedence over [`FINDINGS`].
 const FAILURE: u8 = 2;
 
+/// Replacement for a value under `diff --mask`.
+const MASK: &str = "***";
+
 /// Set once writing standard output failed; later output is skipped.
 static STDOUT_FAILED: AtomicBool = AtomicBool::new(false);
 /// Set once writing standard error failed.
@@ -165,8 +168,8 @@ Commands:
                                 Report parse diagnostics
   fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <file-or-dir>...
                                 Format documents (optionally sorted)
-  diff [--format human|matrix|json] [--json] <baseline> <file>...
-                                Compare effective keys
+  diff [--format human|matrix|json] [--json] [--mask] <baseline> <file>...
+                                Compare effective keys, optionally masking values
   example <file>               Print a value-free example (comments are kept)
   load <directory> [mode]      Print the standard dotenv cascade as Portable lines
   set <file> <key> <value>     Set and write one declaration
@@ -1001,6 +1004,7 @@ enum DiffFormat {
 struct DiffArgs {
     paths: Vec<String>,
     format: DiffFormat,
+    mask: bool,
 }
 
 fn parse_diff_format(value: &str) -> Result<DiffFormat, String> {
@@ -1023,10 +1027,12 @@ fn set_diff_format(current: &mut Option<DiffFormat>, next: DiffFormat) -> Result
 fn parse_diff_args(args: &[String]) -> Result<DiffArgs, String> {
     let mut paths = Vec::new();
     let mut format = None;
+    let mut mask = false;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
             "--json" => set_diff_format(&mut format, DiffFormat::Json)?,
+            "--mask" => mask = true,
             "--format" => {
                 index += 1;
                 if index >= args.len() {
@@ -1045,11 +1051,16 @@ fn parse_diff_args(args: &[String]) -> Result<DiffArgs, String> {
     Ok(DiffArgs {
         paths,
         format: format.unwrap_or(DiffFormat::Human),
+        mask,
     })
 }
 
 fn diff(args: &[String], dialect: Dialect) -> u8 {
-    let DiffArgs { paths, format } = match parse_diff_args(args) {
+    let DiffArgs {
+        paths,
+        format,
+        mask,
+    } = match parse_diff_args(args) {
         Ok(parsed) => parsed,
         Err(error) => {
             errln!("{error}");
@@ -1058,7 +1069,7 @@ fn diff(args: &[String], dialect: Dialect) -> u8 {
     };
     if paths.len() < 2 {
         errln!(
-            "usage: adotenv-cli diff [--format human|matrix|json] [--json] <baseline> <file>..."
+            "usage: adotenv-cli diff [--format human|matrix|json] [--json] [--mask] <baseline> <file>..."
         );
         return FAILURE;
     }
@@ -1067,13 +1078,13 @@ fn diff(args: &[String], dialect: Dialect) -> u8 {
         return FAILURE;
     }
     if format != DiffFormat::Matrix {
-        return diff_streaming(&paths, format, dialect);
+        return diff_streaming(&paths, format, dialect, mask);
     }
 
-    diff_matrix_files(&paths, dialect)
+    diff_matrix_files(&paths, dialect, mask)
 }
 
-fn diff_streaming(paths: &[String], format: DiffFormat, dialect: Dialect) -> u8 {
+fn diff_streaming(paths: &[String], format: DiffFormat, dialect: Dialect, mask: bool) -> u8 {
     let baseline_source = match read_text(&paths[0]) {
         Ok(source) => source,
         Err(error) => return fail(error),
@@ -1115,7 +1126,7 @@ fn diff_streaming(paths: &[String], format: DiffFormat, dialect: Dialect) -> u8 
                 if comparison.is_empty() {
                     output.push_str("(no differences)\n");
                 }
-                write_comparison(&mut output, &comparison);
+                write_comparison(&mut output, &comparison, mask);
             }
             DiffFormat::Json => {
                 if index > 1 {
@@ -1125,7 +1136,7 @@ fn diff_streaming(paths: &[String], format: DiffFormat, dialect: Dialect) -> u8 
                     output,
                     "{{\"path\":{},\"ok\":true,\"differences\":[{}]}}",
                     json_string(path),
-                    render_comparison_json(&comparison)
+                    render_comparison_json(&comparison, mask)
                 )
                 .expect("writing to String cannot fail");
             }
@@ -1159,8 +1170,8 @@ impl MatrixRows {
         }
     }
 
-    fn push(&mut self, document: &Document<'_>) {
-        let (keys, values) = matrix_column(document);
+    fn push(&mut self, document: &Document<'_>, mask: bool) {
+        let (keys, values) = matrix_column(document, mask);
         let prior_columns = self.rows.first().map_or(0, Vec::len);
         for (key, row) in self.keys.iter().zip(self.rows.iter_mut()) {
             row.push(
@@ -1181,7 +1192,7 @@ impl MatrixRows {
     }
 }
 
-fn diff_matrix_files(paths: &[String], dialect: Dialect) -> u8 {
+fn diff_matrix_files(paths: &[String], dialect: Dialect, mask: bool) -> u8 {
     let baseline_source = match read_text(&paths[0]) {
         Ok(source) => source,
         Err(error) => return fail(error),
@@ -1191,7 +1202,7 @@ fn diff_matrix_files(paths: &[String], dialect: Dialect) -> u8 {
         Err(error) => return fail(format!("{}: {error}", paths[0])),
     };
     let mut matrix = MatrixRows::new();
-    matrix.push(&baseline);
+    matrix.push(&baseline, mask);
 
     let mut differs = false;
     for path in paths.iter().skip(1) {
@@ -1206,7 +1217,7 @@ fn diff_matrix_files(paths: &[String], dialect: Dialect) -> u8 {
         if !baseline.compare(&document).is_empty() {
             differs = true;
         }
-        matrix.push(&document);
+        matrix.push(&document, mask);
     }
     print_matrix(paths, &matrix);
     if differs {
@@ -1216,7 +1227,7 @@ fn diff_matrix_files(paths: &[String], dialect: Dialect) -> u8 {
     }
 }
 
-fn matrix_column(document: &Document<'_>) -> (Vec<String>, BTreeMap<String, String>) {
+fn matrix_column(document: &Document<'_>, mask: bool) -> (Vec<String>, BTreeMap<String, String>) {
     let index = document.lookup_index();
     let mut keys = Vec::new();
     let mut seen = BTreeSet::new();
@@ -1237,19 +1248,20 @@ fn matrix_column(document: &Document<'_>) -> (Vec<String>, BTreeMap<String, Stri
             } else {
                 index.get_entry(key)
             };
-            (key.clone(), matrix_entry_value(entry))
+            (key.clone(), matrix_entry_value(entry, mask))
         })
         .collect();
     (keys, values)
 }
 
-fn matrix_entry_value(entry: Option<adotenv::Entry<'_>>) -> String {
+fn matrix_entry_value(entry: Option<adotenv::Entry<'_>>, mask: bool) -> String {
     let Some(entry) = entry else {
         return "<unset>".to_string();
     };
     let value = match (entry.state(), entry.value()) {
         (AssignmentState::Bare, None) => "<bare>".to_string(),
         (AssignmentState::Empty, _) => "\"\"".to_string(),
+        (_, Some(_)) if mask => MASK.to_string(),
         (_, Some(value)) => value.to_string(),
         (_, None) => "<unset>".to_string(),
     };
@@ -1320,7 +1332,7 @@ fn escape_table(value: &str) -> String {
     output
 }
 
-fn render_comparison_json(comparison: &Comparison) -> String {
+fn render_comparison_json(comparison: &Comparison, mask: bool) -> String {
     comparison
         .differences()
         .iter()
@@ -1329,25 +1341,31 @@ fn render_comparison_json(comparison: &Comparison) -> String {
                 "{{\"key\":{},\"kind\":{},\"left\":{},\"right\":{}}}",
                 json_string(&entry.key),
                 json_string(difference_kind_name(entry.kind)),
-                render_compared_value_json(entry.left.as_ref()),
-                render_compared_value_json(entry.right.as_ref())
+                render_compared_value_json(entry.left.as_ref(), mask),
+                render_compared_value_json(entry.right.as_ref(), mask)
             )
         })
         .collect::<Vec<_>>()
         .join(",")
 }
 
-fn render_compared_value_json(value: Option<&ComparedValue>) -> String {
+fn render_compared_value_json(value: Option<&ComparedValue>, mask: bool) -> String {
     let Some(value) = value else {
         return "null".to_string();
     };
     format!(
         "{{\"state\":{},\"value\":{},\"exported\":{}}}",
         json_string(assignment_state_name(value.state)),
-        value
-            .value
-            .as_deref()
-            .map_or_else(|| "null".to_string(), json_string),
+        value.value.as_deref().map_or_else(
+            || "null".to_string(),
+            |value| {
+                if mask && !value.is_empty() {
+                    json_string(MASK)
+                } else {
+                    json_string(value)
+                }
+            }
+        ),
         value.exported
     )
 }
@@ -1543,21 +1561,31 @@ fn validate_child_environment(loaded: &LoadedEnvironment) -> Result<(), String> 
     Ok(())
 }
 
-fn write_comparison(output: &mut String, comparison: &Comparison) {
+fn write_comparison(output: &mut String, comparison: &Comparison, mask: bool) {
     for entry in comparison.differences() {
         let result = match entry.kind {
             DifferenceKind::OnlyLeft => {
-                writeln!(output, "- {}={}", entry.key, describe(entry.left.as_ref()))
+                writeln!(
+                    output,
+                    "- {}={}",
+                    entry.key,
+                    describe(entry.left.as_ref(), mask)
+                )
             }
             DifferenceKind::OnlyRight => {
-                writeln!(output, "+ {}={}", entry.key, describe(entry.right.as_ref()))
+                writeln!(
+                    output,
+                    "+ {}={}",
+                    entry.key,
+                    describe(entry.right.as_ref(), mask)
+                )
             }
             DifferenceKind::State | DifferenceKind::Value | DifferenceKind::Export => writeln!(
                 output,
                 "~ {}: {} -> {}",
                 entry.key,
-                describe(entry.left.as_ref()),
-                describe(entry.right.as_ref())
+                describe(entry.left.as_ref(), mask),
+                describe(entry.right.as_ref(), mask)
             ),
             _ => writeln!(output, "~ {}: <unknown difference>", entry.key),
         };
@@ -1565,13 +1593,14 @@ fn write_comparison(output: &mut String, comparison: &Comparison) {
     }
 }
 
-fn describe(value: Option<&ComparedValue>) -> String {
+fn describe(value: Option<&ComparedValue>, mask: bool) -> String {
     let Some(value) = value else {
         return "<unset>".to_string();
     };
     let rendered = match (value.state, value.value.as_deref()) {
         (AssignmentState::Bare, None) => "<bare>".to_string(),
         (AssignmentState::Empty, _) => "\"\"".to_string(),
+        (_, Some(_)) if mask => MASK.to_string(),
         (_, Some(value)) => value.to_string(),
         (_, None) => "<unset>".to_string(),
     };

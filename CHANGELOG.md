@@ -12,6 +12,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `exec::Shell::without_timeout`.
 - `ExpandOptions::with_max_references` and `ResolveError::TooManyReferences`.
 - `DiagnosticCode::TooManyDiagnostics`.
+- `Mask`, `Masked`, `mask` and `REDACTED` for opt-in value-masking `Debug`
+  output, plus `DeserializeError::masked`.
+- `adotenv-cli diff --mask`.
 
 ### Changed
 
@@ -23,6 +26,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `parse` collects at most 10,000 ordinary diagnostics and ends a truncated
   list with `DiagnosticCode::TooManyDiagnostics`; the first error after the
   budget is retained.
+- `diff` values can be masked with `--mask`.
 
 ### Fixed
 

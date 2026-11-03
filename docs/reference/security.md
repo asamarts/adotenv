@@ -52,13 +52,19 @@ files, `Document::resolve` substitutes references from a lookup you pass,
 Values may be secrets. These outputs include them:
 
 - `Debug` output of documents, items, entries, edit and format results,
-  comparisons, loaded environments, resolved values and the adapter types. Do not log it when values are secret.
+  comparisons, loaded environments, resolved values, line indexes, groups and
+  the adapter types. The core document, edit, comparison, load, resolution, line-index
+  and group types support a value-redacting `Debug`
+  form through `adotenv::Masked` and `adotenv::mask`; use
+  `DeserializeError::masked()` for serde errors. Adapter types still include
+  values. Do not log normal `Debug` output when values are secret.
 - Serde conversion errors name the key and line, and their messages include
   the value. Figment and `config` errors may also include the value they failed
   to convert.
 - Command call records (`CommandCall`) keep each command's output, and
   `exec::Shell` error messages include the command's standard error.
-- `adotenv-cli get`, `load` and `diff` print values in every output format.
+- `adotenv-cli get`, `load` and `diff` print values by default. `diff --mask`
+  replaces compared values with `***` in human, JSON and matrix output.
   `fmt` prints or writes the whole file. `check` prints source lines only with
   `--source`.
 - `Document::example` and `adotenv-cli example` remove assigned values but keep

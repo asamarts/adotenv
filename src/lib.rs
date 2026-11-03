@@ -135,10 +135,13 @@
 //! # Secrets
 //!
 //! Values may be secrets. `Debug` output of documents, items, entries, edit and format results,
-//! comparisons, loaded environments and resolved values includes them, and so do the messages
-//! of serde conversion errors. Do not log them where values are secret. [`Document::example`]
-//! removes assigned values but keeps comments verbatim, including any secret written in a
-//! comment.
+//! comparisons, loaded environments, resolved values, line indexes and groups includes them,
+//! and so do the messages of serde conversion errors. The core document, edit, comparison,
+//! load, resolution, line-index and group types support a structure-preserving `Debug` form
+//! that replaces values with `<redacted>` through [`Masked`] and [`mask`]; use
+//! [`DeserializeError::masked`] for serde errors. Adapter types still include values. Do not
+//! log normal `Debug` output where values are secret. [`Document::example`] removes assigned
+//! values but keeps comments verbatim, including any secret written in a comment.
 //!
 //! # Related crates
 //!
@@ -179,6 +182,7 @@ pub mod exec;
 mod format;
 #[cfg(feature = "load")]
 pub mod load;
+mod mask;
 mod model;
 mod parser;
 mod portability;
@@ -202,6 +206,7 @@ pub use encode::{encode_value, encode_value_with, EncodeError};
 pub use format::{
     BlankLines, EqualsSpacing, FinalNewline, FormatError, FormatOptions, FormatResult, QuoteStyle,
 };
+pub use mask::{mask, Mask, Masked, REDACTED};
 pub use model::{
     AssignmentState, Document, EffectiveEntry, Entry, EntryTokens, Item, ItemKind, LineEnding,
     LookupIndex, Quote,
@@ -222,7 +227,7 @@ pub use resolve::{
     ResolvedSegmentKind, Unresolved, ValueOrigin,
 };
 #[cfg(feature = "serde")]
-pub use serde_support::DeserializeError;
+pub use serde_support::{DeserializeError, MaskedDeserializeError};
 pub use structure::{Group, Groups};
 
 #[cfg(test)]
@@ -241,6 +246,8 @@ mod example_tests;
 mod format_tests;
 #[cfg(all(test, feature = "load"))]
 mod load_tests;
+#[cfg(test)]
+mod mask_tests;
 #[cfg(test)]
 mod portability_tests;
 #[cfg(test)]

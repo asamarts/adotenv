@@ -71,6 +71,9 @@ Releases within 1.x keep the API. These fixes change results:
   list ends with `DiagnosticCode::TooManyDiagnostics`; the first error after
   the budget is retained. `parse_strict` and `parse_values` still return the
   first error directly.
+- 1.2.0: value masking is opt-in with `Masked`/`mask` and
+  `DeserializeError::masked`; normal `Debug` output is unchanged. `diff` gains
+  `--mask`.
 - 1.2.0: `exec::Shell` caps standard output and standard error and stops
   commands after a timeout by default. The builders change the limits.
 - 1.2.0: `fmt --write` and `set` resolve the write target once and check its

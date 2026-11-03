@@ -195,6 +195,29 @@ fn diff_reports_value_changes_and_exit_status() {
 }
 
 #[test]
+fn diff_mask_hides_values_in_every_format() {
+    let dir = TempDir::new();
+    let base = dir.file("base.env", "TOKEN=secret-left\nKEEP=plain\n");
+    let changed = dir.file("changed.env", "TOKEN=secret-right\nKEEP=plain\n");
+
+    for format in [None, Some("json"), Some("matrix")] {
+        let mut args = vec!["diff", "--mask"];
+        if let Some(format) = format {
+            args.push("--format");
+            args.push(format);
+        }
+        args.push(base.to_str().unwrap());
+        args.push(changed.to_str().unwrap());
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(1), "{format:?}");
+        let text = stdout(&output);
+        assert!(!text.contains("secret-left"), "{format:?}: {text}");
+        assert!(!text.contains("secret-right"), "{format:?}: {text}");
+        assert!(text.contains("***"), "{format:?}: {text}");
+    }
+}
+
+#[test]
 fn diff_human_output_has_a_header_for_two_files() {
     let dir = TempDir::new();
     let base = dir.file("base.env", "A=1\n");

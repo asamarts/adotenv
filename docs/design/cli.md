@@ -22,7 +22,7 @@ adotenv-cli [--dialect <portable|node|python|compose|docker>] <command> [options
 get <file> <key>
 check [--format human|json|github] [--json] [--source] [--recursive] [--exclude <path>] <path>...
 fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <path>...
-diff [--format human|matrix|json] [--json] <baseline> <file>...
+diff [--format human|matrix|json] [--json] [--mask] <baseline> <file>...
 example <file>
 load <directory> [mode]
 set <file> <key> <value>
@@ -71,7 +71,8 @@ commands print values or text that can contain them:
 
 - `get` prints the effective value.
 - `load` prints every loaded value.
-- `diff` prints values in every format: human, matrix and JSON.
+- `diff` prints values in every format: human, matrix and JSON. `diff --mask`
+  replaces compared values with `***`.
 - `fmt` prints or writes the whole document.
 - `example` removes values but keeps comments verbatim, including anything
   secret written in a comment.
@@ -162,6 +163,10 @@ base.env -> app.env
 + D=""
 ```
 
+`--mask` replaces every non-empty compared value with `***` in human, JSON and
+matrix output. Keys, states, export prefixes and missing/unset markers remain
+visible. It affects output only; comparison still uses the real values.
+
 `--format matrix` prints one table with a row per key and a column per file.
 A cell shows the value, `""` for an empty value, `<bare>` for a declaration
 without `=`, `<unset>` for a missing key and an `export ` prefix for exported
@@ -190,7 +195,7 @@ Every field is listed below, in output order. The schema is stable.
 | difference | `left` | value or null | The baseline declaration, or `null` when the key is absent. |
 | difference | `right` | value or null | The candidate declaration, or `null` when the key is absent. |
 | value | `state` | string | `bare` for a key without `=`, `empty` for an empty value, otherwise `value`. |
-| value | `value` | string or null | The decoded literal value: `""` for `empty`, `null` for `bare`. |
+| value | `value` | string or null | The decoded literal value: `""` for `empty`, `null` for `bare`, or `"***"` for a non-empty value under `--mask`. |
 | value | `exported` | boolean | Whether the declaration has an `export` prefix. |
 
 ## Formatting

@@ -101,3 +101,5 @@ key.
 
 Error messages include the value that failed to convert, such as
 `expected a u16, found "abc"`. Treat them as secret when values are secret.
+Use `DeserializeError::masked()` for a `Debug` and `Display` form that keeps
+the line and key but replaces the message with `<redacted>`.
