@@ -193,6 +193,25 @@ fn bom_policy_is_explicit_and_errors_survive_ignored_line_policy() {
 }
 
 #[test]
+fn line_limit_takes_precedence_over_bom_diagnostics() {
+    for policy in [BomPolicy::Strip, BomPolicy::Keep, BomPolicy::Error] {
+        let dialect = Dialect::PORTABLE
+            .with_bom(policy)
+            .with_line_byte_limit(Some(1));
+        let source = "\u{feff}A=1\n";
+        let (doc, diagnostics) = parse_with(source, dialect);
+        assert!(!doc.has_bom(), "{policy:?}");
+        assert_eq!(diagnostics.len(), 1, "{policy:?}: {diagnostics:?}");
+        assert_eq!(diagnostics[0].code(), Code::LineTooLong, "{policy:?}");
+        assert_eq!(
+            parse_strict_with(source, dialect).unwrap_err().code(),
+            Code::LineTooLong,
+            "{policy:?}"
+        );
+    }
+}
+
+#[test]
 fn disabling_multiline_restores_following_statement_recovery() {
     let source = "A=\"one\nB=two\nend\"\nNEXT=kept\n";
     let mut dialect = Dialect::PORTABLE;

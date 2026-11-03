@@ -444,7 +444,9 @@ pub enum BomPolicy {
     /// returns its range, and an informational
     /// [`DiagnosticCode::ByteOrderMark`](crate::DiagnosticCode::ByteOrderMark)
     /// is reported. [`Document::source`](crate::Document::source) still
-    /// contains it. Every preset uses this.
+    /// contains it. Every preset uses this. If the first physical line exceeds
+    /// [`Dialect::line_byte_limit`], the line-limit error takes precedence and
+    /// this diagnostic is not reported.
     Strip,
     /// The mark is ordinary text at the start of the first line.
     ///
@@ -456,7 +458,9 @@ pub enum BomPolicy {
     ///
     /// The error is
     /// [`DiagnosticCode::ForbiddenByteOrderMark`](crate::DiagnosticCode::ForbiddenByteOrderMark).
-    /// The rest of the first line is read normally.
+    /// The rest of the first line is read normally. If the first physical line
+    /// exceeds [`Dialect::line_byte_limit`], the line-limit error takes
+    /// precedence and this diagnostic is not reported.
     Error,
 }
 /// Which declaration wins when a key is declared more than once.

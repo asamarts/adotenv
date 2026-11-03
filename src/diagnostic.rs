@@ -151,7 +151,8 @@ pub enum DiagnosticCode {
     ///
     /// Info, `dotenv.bom`, reported when the dialect strips the mark
     /// ([`BomPolicy::Strip`](crate::BomPolicy::Strip), used by every preset).
-    /// See [`Document::has_bom`](crate::Document::has_bom).
+    /// See [`Document::has_bom`](crate::Document::has_bom). A first line over
+    /// the dialect's byte limit reports `LineTooLong` instead.
     ByteOrderMark,
     /// A carriage return is not followed by a line feed.
     ///
@@ -174,7 +175,9 @@ pub enum DiagnosticCode {
     ///
     /// Error, `dotenv.forbidden-bom`, under
     /// [`BomPolicy::Error`](crate::BomPolicy::Error). The three bytes of the
-    /// mark become an [`ItemKind::Invalid`](crate::ItemKind::Invalid) item.
+    /// mark become an [`ItemKind::Invalid`](crate::ItemKind::Invalid) item. A
+    /// first line over the dialect's byte limit reports `LineTooLong`
+    /// instead.
     ForbiddenByteOrderMark,
     /// A double-quoted escape that the dialect does not define, in a dialect
     /// that rejects such escapes.
