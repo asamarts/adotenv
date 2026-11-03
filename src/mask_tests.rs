@@ -1,4 +1,6 @@
-use alloc::{format, string::ToString};
+use alloc::format;
+#[cfg(feature = "serde")]
+use alloc::string::ToString;
 
 use crate::{mask, parse_strict, Comparison, ExpandOptions, FormatOptions};
 
