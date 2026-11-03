@@ -1936,9 +1936,10 @@ fn fail(message: String) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::{
-        github_escape_data, github_escape_property, json_string, resolve_write,
-        write_atomic_checked, write_atomic_inner, NEXT_TEMP,
+        github_escape_data, github_escape_property, json_string, write_atomic_inner, NEXT_TEMP,
     };
+    #[cfg(unix)]
+    use super::{resolve_write, write_atomic_checked};
     use std::sync::atomic::Ordering;
 
     #[cfg(not(unix))]
