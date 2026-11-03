@@ -10,12 +10,12 @@ use adotenv::{parse, DiagnosticCode, ExpandOptions, ResolveError};
 /// may run at a time.
 static MEMORY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Growth of the resident set, in bytes, while `run` executes. Memory that
-/// earlier steps freed may be reused, so this is a lower bound on what `run`
-/// allocates; memory that grows with the square of the nesting depth still
-/// exceeds the limit below by far.
+/// Growth of the resident set, in bytes, while `run` executes. Callers hold
+/// `MEMORY_LOCK`, including while they build their inputs. Memory that earlier
+/// steps freed may be reused, so this is a lower bound on what `run` allocates;
+/// memory that grows with the square of the nesting depth still exceeds the
+/// limit below by far.
 fn peak_growth(run: impl FnOnce()) -> usize {
-    let _guard = MEMORY_LOCK.lock().unwrap();
     // Writing 5 resets the high-water mark to the current resident set. Without
     // the reset, only growth past the earlier peak is visible.
     let reset = std::fs::write("/proc/self/clear_refs", "5").is_ok();
@@ -37,6 +37,7 @@ fn status_kib(field: &str) -> usize {
 #[test]
 fn parsing_caps_repeated_diagnostics_within_the_budget() {
     const LIMIT: usize = 16 << 20;
+    let _guard = MEMORY_LOCK.lock().unwrap();
     let source = format!("A={}\n", "#".repeat(1_000_000));
     let growth = peak_growth(|| {
         let (_, diagnostics) = parse(&source);
@@ -55,6 +56,7 @@ fn parsing_caps_repeated_diagnostics_within_the_budget() {
 #[test]
 fn resolution_rejects_a_dense_scan_within_the_reference_budget() {
     const LIMIT: usize = 32 << 20;
+    let _guard = MEMORY_LOCK.lock().unwrap();
     // Two candidates per repeat; the default budget stops the scan after
     // 65,536 of them even though the value is under 1 MB.
     let value = "${A:-$A}".repeat(100_000);
@@ -79,6 +81,7 @@ fn resolution_rejects_a_dense_scan_within_the_reference_budget() {
 #[test]
 fn nested_and_unclosed_forms_use_memory_linear_in_value_length() {
     const LIMIT: usize = 64 << 20;
+    let _guard = MEMORY_LOCK.lock().unwrap();
     // The 16 KiB values come first, so memory that grows with the square of
     // the nesting depth fails an assertion before the 64 KiB values would
     // need gigabytes.
