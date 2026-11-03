@@ -12,9 +12,26 @@
 //! process: without this module, commands run only through a callback you
 //! write.
 
-use std::{collections::BTreeMap, path::PathBuf, process::Command};
+use std::{
+    collections::BTreeMap,
+    io::{self, Read},
+    path::PathBuf,
+    process::{Child, Command, ExitStatus, Stdio},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver, RecvTimeoutError},
+        Arc,
+    },
+    thread,
+    time::{Duration, Instant},
+};
 
 use crate::{CommandContext, CommandError};
+
+const DEFAULT_MAX_OUTPUT_BYTES: usize = 1024 * 1024;
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
+const MAX_STDERR_BYTES: usize = 64 * 1024;
+const WAIT_INTERVAL: Duration = Duration::from_millis(10);
 
 #[cfg(windows)]
 const SHELL: &str = "cmd";
@@ -39,13 +56,15 @@ const SHELL_FLAG: &str = "-c";
 /// - inherits the environment of the current process. The shell expands
 ///   variable references in the command from that environment, not from the
 ///   file or the lookup closure;
-/// - gets an empty standard input. Its standard error is captured and appears
-///   only in the error message of a failed command.
+/// - gets an empty standard input;
+/// - has its standard output capped at 1 MiB and its standard error capped at
+///   64 KiB by default;
+/// - is stopped after 300 seconds by default.
 ///
-/// The result is the command's standard output with one trailing newline
-/// removed (`\n` or `\r\n`). A command that cannot start, exits with a nonzero
-/// status or prints output that is not UTF-8 fails with a [`CommandError`],
-/// and resolution stops with
+/// [`Shell::with_max_output_bytes`], [`Shell::with_timeout`] and
+/// [`Shell::without_timeout`] change those limits. Output beyond the stdout
+/// cap, a timeout, a failure to start, a nonzero status or output that is not
+/// UTF-8 fails with a [`CommandError`], and resolution stops with
 /// [`ResolveError::Command`](crate::ResolveError::Command).
 ///
 /// Commands run with the permissions of your process. Use `Shell` only with
@@ -72,6 +91,8 @@ const SHELL_FLAG: &str = "-c";
 pub struct Shell {
     directory: PathBuf,
     origins: BTreeMap<String, PathBuf>,
+    max_output_bytes: usize,
+    timeout: Option<Duration>,
 }
 
 impl Shell {
@@ -86,6 +107,8 @@ impl Shell {
         Self {
             directory: directory.into(),
             origins: BTreeMap::new(),
+            max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
+            timeout: Some(DEFAULT_TIMEOUT),
         }
     }
 
@@ -125,7 +148,39 @@ impl Shell {
         Self {
             directory: directory.into(),
             origins,
+            max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
+            timeout: Some(DEFAULT_TIMEOUT),
         }
+    }
+
+    /// Sets the maximum number of standard-output bytes kept.
+    ///
+    /// The default is 1 MiB. A command that writes more fails with a
+    /// [`CommandError`]; it is stopped and its partial output is discarded.
+    #[must_use]
+    pub const fn with_max_output_bytes(mut self, value: usize) -> Self {
+        self.max_output_bytes = value;
+        self
+    }
+
+    /// Sets how long a command may run before it is stopped.
+    ///
+    /// The default is 300 seconds. A stopped command fails with a
+    /// [`CommandError`].
+    #[must_use]
+    pub const fn with_timeout(mut self, value: Duration) -> Self {
+        self.timeout = Some(value);
+        self
+    }
+
+    /// Lets a command run without a timeout.
+    ///
+    /// The output cap still applies. Without a timeout, a command that never
+    /// exits blocks resolution forever.
+    #[must_use]
+    pub const fn without_timeout(mut self) -> Self {
+        self.timeout = None;
+        self
     }
 
     /// Returns a callback for
@@ -152,6 +207,8 @@ impl Shell {
     ///   cannot start;
     /// - the command exits with a nonzero status or is ended by a signal; the
     ///   message includes its standard error;
+    /// - its standard output exceeds [`Shell::with_max_output_bytes`];
+    /// - it runs longer than [`Shell::with_timeout`];
     /// - its standard output is not valid UTF-8.
     ///
     /// # Examples
@@ -181,26 +238,62 @@ impl Shell {
             .source
             .and_then(|source| self.origins.get(source))
             .unwrap_or(&self.directory);
-        let output = Command::new(SHELL)
+        let mut child = Command::new(SHELL)
             .arg(SHELL_FLAG)
             .arg(context.command)
             .current_dir(directory)
-            .output()
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .map_err(|error| {
                 CommandError::new(format!(
                     "failed to run command in {}: {error}",
                     directory.display()
                 ))
             })?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| CommandError::new("command standard output was not captured"))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| CommandError::new("command standard error was not captured"))?;
+
+        let overflow = Arc::new(AtomicBool::new(false));
+        let stdout_overflow = Arc::clone(&overflow);
+        let cap = self.max_output_bytes;
+        let (stdout_sender, stdout_receiver) = mpsc::channel();
+        let (stderr_sender, stderr_receiver) = mpsc::channel();
+        let stdout_reader = thread::spawn(move || {
+            let _ = stdout_sender.send(read_limited(stdout, cap, Some(&stdout_overflow)));
+        });
+        let stderr_reader = thread::spawn(move || {
+            let _ = stderr_sender.send(read_limited(stderr, MAX_STDERR_BYTES, None));
+        });
+
+        let status = wait_for_child(&mut child, self.timeout, &overflow, cap);
+        let status = status?;
+        let stdout = receive_reader(&stdout_receiver, "standard output")?;
+        let stderr = receive_reader(&stderr_receiver, "standard error")?;
+        // The reader handles only outlive a timeout or an over-limit command.
+        drop(stdout_reader);
+        drop(stderr_reader);
+        if overflow.load(Ordering::Relaxed) {
+            return Err(CommandError::new(format!(
+                "command output exceeds {cap} bytes"
+            )));
+        }
+        if !status.success() {
+            let stderr = String::from_utf8_lossy(&stderr);
             return Err(CommandError::new(format!(
                 "command failed with {}: {}",
-                output.status,
+                status,
                 stderr.trim_end()
             )));
         }
-        let mut stdout = String::from_utf8(output.stdout)
+        let mut stdout = String::from_utf8(stdout)
             .map_err(|_| CommandError::new("command output is not valid UTF-8"))?;
         if stdout.ends_with('\n') {
             stdout.pop();
@@ -209,6 +302,93 @@ impl Shell {
             }
         }
         Ok(stdout)
+    }
+}
+
+fn wait_for_child(
+    child: &mut Child,
+    timeout: Option<Duration>,
+    overflow: &AtomicBool,
+    cap: usize,
+) -> Result<ExitStatus, CommandError> {
+    let started = Instant::now();
+    loop {
+        if overflow.load(Ordering::Relaxed) {
+            stop_child(child);
+            return Err(CommandError::new(format!(
+                "command output exceeds {cap} bytes"
+            )));
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) => {}
+            Err(error) => {
+                stop_child(child);
+                return Err(CommandError::new(format!(
+                    "failed to wait for command: {error}"
+                )));
+            }
+        }
+        if let Some(timeout) = timeout {
+            if started.elapsed() >= timeout {
+                stop_child(child);
+                return Err(CommandError::new(format!(
+                    "command timed out after {} seconds",
+                    timeout.as_secs_f64()
+                )));
+            }
+        }
+        thread::sleep(WAIT_INTERVAL);
+    }
+}
+
+fn stop_child(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn read_limited(
+    mut reader: impl Read,
+    cap: usize,
+    overflow: Option<&Arc<AtomicBool>>,
+) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(cap.min(8192));
+    let mut buffer = [0u8; 8192];
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) => return Ok(bytes),
+            Ok(read) => {
+                let room = cap.saturating_sub(bytes.len());
+                if room > 0 {
+                    bytes.extend_from_slice(&buffer[..read.min(room)]);
+                }
+                if read > room {
+                    if let Some(flag) = overflow {
+                        flag.store(true, Ordering::Relaxed);
+                    }
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn receive_reader(
+    receiver: &Receiver<io::Result<Vec<u8>>>,
+    stream: &str,
+) -> Result<Vec<u8>, CommandError> {
+    match receiver.recv_timeout(Duration::from_secs(2)) {
+        Ok(Ok(bytes)) => Ok(bytes),
+        Ok(Err(error)) => Err(CommandError::new(format!(
+            "failed to read command {stream}: {error}"
+        ))),
+        Err(RecvTimeoutError::Timeout) => Err(CommandError::new(format!(
+            "command {stream} remained open after it stopped"
+        ))),
+        Err(RecvTimeoutError::Disconnected) => Err(CommandError::new(format!(
+            "command {stream} reader stopped"
+        ))),
     }
 }
 
@@ -257,6 +437,29 @@ mod tests {
             })
             .unwrap_err();
         assert!(error.message().contains("failed"));
+    }
+
+    fn context(command: &str) -> crate::CommandContext<'_> {
+        crate::CommandContext {
+            command,
+            reference: 0..0,
+            payload: 0..0,
+            source: None,
+        }
+    }
+
+    #[test]
+    fn stops_a_command_that_exceeds_the_output_cap() {
+        let shell = Shell::new(".").with_max_output_bytes(4);
+        let error = shell.run(&context("printf 'abcdef'")).unwrap_err();
+        assert!(error.message().contains("exceeds 4 bytes"), "{error}");
+    }
+
+    #[test]
+    fn stops_a_command_that_exceeds_the_timeout() {
+        let shell = Shell::new(".").with_timeout(std::time::Duration::from_millis(100));
+        let error = shell.run(&context("sleep 5")).unwrap_err();
+        assert!(error.message().contains("timed out"), "{error}");
     }
 
     #[test]

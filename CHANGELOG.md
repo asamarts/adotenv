@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `exec::Shell::with_max_output_bytes`, `exec::Shell::with_timeout` and
+  `exec::Shell::without_timeout`.
+
+### Changed
+
+- `exec::Shell` caps standard output at 1 MiB, standard error at 64 KiB and
+  stops a command after 300 seconds by default.
+
 ### Fixed
 
 - `fmt --write` and `set` resolve the write target once before reading and

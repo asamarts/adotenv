@@ -61,7 +61,9 @@ Values may be secrets. These outputs include them:
 - Command substitution runs only when you pass a callback to
   `Document::resolve_with_commands` and the reference rules allow commands.
   `exec::Shell` runs commands through the platform shell in a directory you
-  name. Use it only with trusted files.
+  name, caps standard output at 1 MiB, caps standard error at 64 KiB and stops
+  a command after 300 seconds by default. The builders change or disable those
+  limits. Use it only with trusted files.
 - `adotenv-cli run` starts a program with the parent environment plus the
   loaded values. Loaded files are trusted like code: a loaded `PATH` changes
   which program runs, and variables such as `LD_PRELOAD` change how it runs.

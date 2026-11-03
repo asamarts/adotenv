@@ -64,6 +64,8 @@ Releases within 1.x keep the API. These fixes change results:
 - 1.1.1: `encode_value_with` represents a Node literal-fallback value that
   needs an escaped terminal control character at the line cap, instead of
   returning `EncodeError::Unrepresentable`.
+- 1.2.0: `exec::Shell` caps standard output and standard error and stops
+  commands after a timeout by default. The builders change the limits.
 - 1.2.0: `fmt --write` and `set` resolve the write target once and check its
   device and inode before replacing it on Unix. A swapped symlink can no
   longer redirect the write; a target replaced after the read fails.

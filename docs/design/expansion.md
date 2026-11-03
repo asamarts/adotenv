@@ -256,9 +256,12 @@ let resolved = doc
 - The command inherits the environment of the current process and gets an
   empty standard input. The shell expands variables in the command from that
   environment, not from the file or the lookup closure.
-- Standard output is returned with one trailing newline removed. A command
-  that cannot start, exits with a nonzero status or prints output that is not
-  UTF-8 is an error; for a nonzero status the message includes the command's
-  standard error.
+- Standard output is returned with one trailing newline removed. By default it
+  is capped at 1 MiB, standard error is capped at 64 KiB, and a command is
+  stopped after 300 seconds. `Shell::with_max_output_bytes`,
+  `Shell::with_timeout` and `Shell::without_timeout` change those limits.
+- A command that cannot start, exceeds a limit, times out, exits with a nonzero
+  status or prints output that is not UTF-8 is an error; for a nonzero status
+  the message includes the command's standard error.
 
 Commands run exactly as written. Only use `exec::Shell` with trusted files.
