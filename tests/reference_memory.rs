@@ -4,7 +4,7 @@
 //! binary holds a single test.
 #![cfg(target_os = "linux")]
 
-use adotenv::parse;
+use adotenv::{parse, ExpandOptions, ResolveError};
 
 /// Growth of the resident set, in bytes, while `run` executes. Memory that
 /// earlier steps freed may be reused, so this is a lower bound on what `run`
@@ -27,6 +27,30 @@ fn status_kib(field: &str) -> usize {
         .and_then(|rest| rest.trim().strip_suffix("kB"))
         .and_then(|value| value.trim().parse().ok())
         .expect("process status reports the field")
+}
+
+#[test]
+fn resolution_rejects_a_dense_scan_within_the_reference_budget() {
+    const LIMIT: usize = 32 << 20;
+    // Two candidates per repeat; the default budget stops the scan after
+    // 65,536 of them even though the value is under 1 MB.
+    let value = "${A:-$A}".repeat(100_000);
+    let source = format!("A={value}\n");
+    let (doc, _) = parse(&source);
+    let growth = peak_growth(|| {
+        assert!(matches!(
+            doc.resolve(|_| None, &ExpandOptions::portable()),
+            Err(ResolveError::TooManyReferences {
+                key,
+                limit: 65_536,
+                ..
+            }) if key == "A"
+        ));
+    });
+    assert!(
+        growth < LIMIT,
+        "the bounded reference scan grew the resident set by {growth} bytes"
+    );
 }
 
 #[test]

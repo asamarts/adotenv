@@ -1458,6 +1458,7 @@ fn resolve_error_key(error: &ResolveError) -> &str {
         | ResolveError::Required { key, .. }
         | ResolveError::Cycle { key, .. }
         | ResolveError::DepthExceeded { key, .. }
+        | ResolveError::TooManyReferences { key, .. }
         | ResolveError::ValueTooLarge { key, .. }
         | ResolveError::OutputTooLarge { key, .. }
         | ResolveError::Command { key, .. } => key,

@@ -10,11 +10,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `exec::Shell::with_max_output_bytes`, `exec::Shell::with_timeout` and
   `exec::Shell::without_timeout`.
+- `ExpandOptions::with_max_references` and `ResolveError::TooManyReferences`.
 
 ### Changed
 
 - `exec::Shell` caps standard output at 1 MiB, standard error at 64 KiB and
   stops a command after 300 seconds by default.
+- Resolution scans at most 65,536 reference candidates per value by default
+  and fails with `ResolveError::TooManyReferences` before the list grows past
+  that limit.
 
 ### Fixed
 

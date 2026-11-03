@@ -64,6 +64,9 @@ Releases within 1.x keep the API. These fixes change results:
 - 1.1.1: `encode_value_with` represents a Node literal-fallback value that
   needs an escaped terminal control character at the line cap, instead of
   returning `EncodeError::Unrepresentable`.
+- 1.2.0: resolution scans at most 65,536 reference candidates per value by
+  default and fails with `ResolveError::TooManyReferences` beyond that.
+  `ExpandOptions::with_max_references` changes the limit.
 - 1.2.0: `exec::Shell` caps standard output and standard error and stops
   commands after a timeout by default. The builders change the limits.
 - 1.2.0: `fmt --write` and `set` resolve the write target once and check its

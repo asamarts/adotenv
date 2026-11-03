@@ -125,8 +125,16 @@ Builders change one option each:
 | `with_lookup_order` | `LookupOrder::FileFirst` or `CallerFirst` | `FileFirst` |
 | `with_unresolved` | `Unresolved::Keep`, `Empty` or `Error` | `Keep` |
 | `with_max_depth` | Nesting depth | 64 |
+| `with_max_references` | Reference candidates scanned per value | 65,536 |
 | `with_max_value_bytes` | Expanded bytes per value | 1 MiB |
 | `with_max_output_bytes` | Total bytes of one resolution | 64 MiB |
+
+The reference scan stops before it builds a candidate list longer than
+`max_references`; exceeding it fails with
+`ResolveError::TooManyReferences`. This matters because a `Reference` is much
+larger than the text that produces it, so the scan, not the input length, sets
+the memory cost. The public `Entry::references` remains unbounded; bound the
+value before calling it on untrusted input.
 
 In sequential scope a reference sees the declarations before its entry; in
 whole-file scope it sees every declaration. Only declarations that take part in
@@ -181,9 +189,9 @@ reference, or a command.
 Resolution stops at the first error. `ResolveError` reports `Unresolved` (an
 unset plain reference under `Unresolved::Error`), `Required` (from a `?` or
 `:?` operator), `Cycle` (file values that refer to each other in a loop, in
-whole-file scope), `DepthExceeded`, `ValueTooLarge`, `OutputTooLarge` and
-`Command` (a `CommandError` from the callback). Resolution never loops on a
-cycle.
+whole-file scope), `DepthExceeded`, `TooManyReferences`, `ValueTooLarge`,
+`OutputTooLarge` and `Command` (a `CommandError` from the callback). Resolution
+never loops on a cycle.
 
 A reference to a file value copies that value's segments into the result, so
 references that repeat each other can make the output grow much faster than the

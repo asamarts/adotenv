@@ -31,9 +31,13 @@ files, `Document::resolve` substitutes references from a lookup you pass,
   many statements on one line, long `$` runs and deeply nested forms.
   Resolution time is linear in the number of references in a value, and edit
   batches that set and insert entries stay linear.
-- Resolution enforces limits on nesting depth (64 in every preset), the
-  expanded size of each value (1 MiB) and the total output size (64 MiB).
-  Exceeding them fails with `ResolveError::DepthExceeded`, `ValueTooLarge` or
+- Public `Entry::references` builds one candidate record per possible
+  reference, so its memory grows much faster than the value. Bound or reject
+  untrusted values before inspecting them.
+- Resolution enforces limits on nesting depth (64 in every preset), reference
+  candidates scanned per value (65,536), the expanded size of each value
+  (1 MiB) and the total output size (64 MiB). Exceeding them fails with
+  `ResolveError::DepthExceeded`, `TooManyReferences`, `ValueTooLarge` or
   `OutputTooLarge`. See
   [References and resolution](../design/expansion.md#resolution).
 - Fuzz targets cover parsing, edits, encoding, resolution and formatting. A

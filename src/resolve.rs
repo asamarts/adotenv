@@ -166,6 +166,7 @@ pub enum Unresolved {
 /// | [`lookup_order`](Self::lookup_order) | [`with_lookup_order`](Self::with_lookup_order) | [`LookupOrder::FileFirst`] |
 /// | [`unresolved`](Self::unresolved) | [`with_unresolved`](Self::with_unresolved) | [`Unresolved::Keep`] |
 /// | [`max_depth`](Self::max_depth) | [`with_max_depth`](Self::with_max_depth) | 64 |
+/// | [`max_references`](Self::max_references) | [`with_max_references`](Self::with_max_references) | 65,536 |
 /// | [`max_value_bytes`](Self::max_value_bytes) | [`with_max_value_bytes`](Self::with_max_value_bytes) | 1 MiB (1,048,576 bytes) |
 /// | [`max_output_bytes`](Self::max_output_bytes) | [`with_max_output_bytes`](Self::with_max_output_bytes) | 64 MiB (67,108,864 bytes) |
 ///
@@ -213,6 +214,14 @@ pub struct ExpandOptions {
     /// resolved. Going deeper than the limit fails with
     /// [`ResolveError::DepthExceeded`].
     pub max_depth: usize,
+    /// The maximum number of reference candidates scanned in one value;
+    /// 65,536 in every preset.
+    ///
+    /// Resolution stops before it builds a longer candidate list and fails
+    /// with [`ResolveError::TooManyReferences`]. This bounds the memory a scan
+    /// can allocate, which is roughly the size of one [`Reference`] per
+    /// candidate. `0` rejects every value that contains a possible reference.
+    pub max_references: usize,
     /// The maximum length in bytes of one resolved value; 1 MiB in every preset.
     ///
     /// Every entry's value is checked as its parts are added. Exceeding the
@@ -272,6 +281,14 @@ impl ExpandOptions {
         self.max_depth = value;
         self
     }
+    /// Sets the maximum number of reference candidates scanned in one value.
+    ///
+    /// See [`ExpandOptions::max_references`].
+    #[must_use]
+    pub const fn with_max_references(mut self, value: usize) -> Self {
+        self.max_references = value;
+        self
+    }
     /// Sets the maximum length in bytes of one resolved value.
     ///
     /// See [`ExpandOptions::max_value_bytes`].
@@ -304,6 +321,7 @@ impl ExpandOptions {
             lookup_order: LookupOrder::FileFirst,
             unresolved: Unresolved::Keep,
             max_depth: 64,
+            max_references: 65_536,
             max_value_bytes: 1_048_576,
             max_output_bytes: 67_108_864,
         }
@@ -813,6 +831,16 @@ pub enum ResolveError {
         /// entry that would be resolved too deep.
         span: Range<usize>,
     },
+    /// Reference scanning found more candidates than
+    /// [`ExpandOptions::max_references`].
+    TooManyReferences {
+        /// The key of the entry being resolved.
+        key: String,
+        /// The configured [`ExpandOptions::max_references`].
+        limit: usize,
+        /// The byte range of the entry's value as written, quotes included.
+        span: Range<usize>,
+    },
     /// A resolved value grew longer than [`ExpandOptions::max_value_bytes`].
     ValueTooLarge {
         /// The key of the entry being resolved.
@@ -872,6 +900,12 @@ impl fmt::Display for ResolveError {
                 write!(
                     formatter,
                     "reference depth limit {limit} exceeded while resolving {key}"
+                )
+            }
+            Self::TooManyReferences { key, limit, .. } => {
+                write!(
+                    formatter,
+                    "reference scan for {key} exceeds {limit} candidates"
                 )
             }
             Self::ValueTooLarge { key, limit, .. } => {
@@ -947,9 +981,11 @@ impl Document<'_> {
     /// Every entry is resolved, including entries that nothing refers to.
     /// Resolution never loops: in whole-file scope, file values that refer to
     /// each other in a loop fail with [`ResolveError::Cycle`]. The limits
-    /// [`ExpandOptions::max_depth`], [`ExpandOptions::max_value_bytes`] and
-    /// [`ExpandOptions::max_output_bytes`] bound the nesting depth, the length
-    /// of each value and the total size of the result.
+    /// [`ExpandOptions::max_depth`], [`ExpandOptions::max_references`],
+    /// [`ExpandOptions::max_value_bytes`] and
+    /// [`ExpandOptions::max_output_bytes`] bound the nesting depth, the
+    /// reference scan, the length of each value and the total size of the
+    /// result.
     ///
     /// # Errors
     ///
@@ -964,6 +1000,8 @@ impl Document<'_> {
     ///   (whole-file scope only);
     /// - [`ResolveError::DepthExceeded`] when nesting goes deeper than
     ///   [`ExpandOptions::max_depth`];
+    /// - [`ResolveError::TooManyReferences`] when one value has more reference
+    ///   candidates than [`ExpandOptions::max_references`];
     /// - [`ResolveError::ValueTooLarge`] when a resolved value grows longer
     ///   than [`ExpandOptions::max_value_bytes`];
     /// - [`ResolveError::OutputTooLarge`] when the whole result grows larger
@@ -1290,7 +1328,20 @@ where
             });
         };
         // References nested past the depth limit can never be resolved.
-        let references = entry.references_within_depth(self.options.max_depth.saturating_add(1));
+        let references = if self.options.rules == ReferenceRules::NONE {
+            Vec::new()
+        } else {
+            entry
+                .references_within_depth_bounded(
+                    self.options.max_depth.saturating_add(1),
+                    self.options.max_references,
+                )
+                .ok_or_else(|| ResolveError::TooManyReferences {
+                    key: key.clone(),
+                    limit: self.options.max_references,
+                    span: entry.value_span().unwrap_or_else(|| entry.line_span()),
+                })?
+        };
         let parts = self.resolve_segments(entry, value, 0..value.len(), None, &references)?;
         let resolved = parts
             .segments

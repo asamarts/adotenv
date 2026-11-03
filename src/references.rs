@@ -501,6 +501,12 @@ impl Entry<'_> {
     ///
     /// The list holds at most one candidate per `$` in the value, and scanning
     /// takes time linear in the value length, up to a logarithmic factor.
+    /// Each candidate occupies roughly
+    /// [`size_of::<Reference>()`](core::mem::size_of), so a value with many
+    /// candidates can allocate much more memory than its own length. Bound the
+    /// value before calling this on untrusted input;
+    /// [`Document::resolve`](crate::Document::resolve) does so with
+    /// [`ExpandOptions::max_references`](crate::ExpandOptions::max_references).
     ///
     /// # Examples
     ///
@@ -527,9 +533,28 @@ impl Entry<'_> {
     /// candidate equals the corresponding one from [`Self::references`],
     /// except that parent indices address the returned list.
     pub(crate) fn references_within_depth(self, max_depth: usize) -> Vec<Reference> {
+        self.scan_references(max_depth, None)
+            .expect("an unbounded reference scan cannot exceed its limit")
+    }
+
+    /// Like [`Self::references_within_depth`], but stops before allocating
+    /// more than `max_references` candidates and returns `None` instead.
+    pub(crate) fn references_within_depth_bounded(
+        self,
+        max_depth: usize,
+        max_references: usize,
+    ) -> Option<Vec<Reference>> {
+        self.scan_references(max_depth, Some(max_references))
+    }
+
+    fn scan_references(
+        self,
+        max_depth: usize,
+        max_references: Option<usize>,
+    ) -> Option<Vec<Reference>> {
         let tokens = self.tokens();
         let Some(body) = tokens.body.clone() else {
-            return Vec::new();
+            return Some(Vec::new());
         };
         let dialect = self.document.dialect;
         let source = self.document.source();
@@ -540,7 +565,7 @@ impl Entry<'_> {
         // Every candidate starts at a `$`, so most values need no scan.
         let has_dollar = |range: &Range<usize>| source.as_bytes()[range.clone()].contains(&b'$');
         if !has_dollar(&body) && !tail.as_ref().is_some_and(has_dollar) {
-            return Vec::new();
+            return Some(Vec::new());
         }
         let mut pending = vec![(body, self.quote(), Level::TOP, true)];
         if let Some(tail) = tail {
@@ -553,11 +578,16 @@ impl Entry<'_> {
             references: Vec::new(),
             pending,
             closes: Closes::default(),
+            max_references,
+            exceeded: false,
         };
         while let Some((range, quote, level, backslash_escapes)) = scanner.pending.pop() {
             scanner.scan(&range, quote, level, backslash_escapes);
+            if scanner.exceeded {
+                return None;
+            }
         }
-        in_source_order(scanner.references)
+        Some(in_source_order(scanner.references))
     }
 }
 
@@ -624,9 +654,25 @@ struct Scanner<'a> {
     references: Vec<Reference>,
     pending: Vec<(Range<usize>, Quote, Level, bool)>,
     closes: Closes,
+    max_references: Option<usize>,
+    exceeded: bool,
 }
 
 impl Scanner<'_> {
+    /// Records `reference`, or reports that the configured scan limit is
+    /// reached. A limit of zero rejects the first candidate.
+    fn record(&mut self, reference: Reference) -> bool {
+        if self
+            .max_references
+            .is_some_and(|limit| self.references.len() >= limit)
+        {
+            self.exceeded = true;
+            return false;
+        }
+        self.references.push(reference);
+        true
+    }
+
     fn scan(&mut self, range: &Range<usize>, quote: Quote, level: Level, backslash_escapes: bool) {
         let source = self.source;
         let dialect = self.dialect;
@@ -664,7 +710,9 @@ impl Scanner<'_> {
                     braced(source, range, at, quote, escaped, level, &mut self.closes);
                 let end = reference.span.end;
                 let inner = level.inside(self.references.len(), &reference);
-                self.references.push(reference);
+                if !self.record(reference) {
+                    return;
+                }
                 if let Some(nested) = nested.filter(|_| nest) {
                     self.pending.push((nested, quote, inner, false));
                 }
@@ -676,7 +724,9 @@ impl Scanner<'_> {
                     command(source, range, at, quote, escaped, level, &mut self.closes);
                 let end = reference.span.end;
                 let inner = level.inside(self.references.len(), &reference);
-                self.references.push(reference);
+                if !self.record(reference) {
+                    return;
+                }
                 if let Some(nested) = nested.filter(|_| nest) {
                     self.pending.push((nested, quote, inner, true));
                 }
@@ -692,7 +742,7 @@ impl Scanner<'_> {
                 {
                     name_end += 1;
                 }
-                self.references.push(Reference {
+                let reference = Reference {
                     kind: ReferenceKind::Variable,
                     span: at..name_end,
                     quote,
@@ -707,7 +757,10 @@ impl Scanner<'_> {
                     operator_span: None,
                     argument: None,
                     command: None,
-                });
+                };
+                if !self.record(reference) {
+                    return;
+                }
                 at = name_end;
                 continue;
             }
