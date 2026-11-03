@@ -149,9 +149,11 @@ fn parse_impl<const D: bool>(source: &str, dialect: Dialect) -> (Document<'_>, V
 /// and values as [`Document::effective_entries`] of the document that
 /// [`parse`] would build: the dialect's duplicate-key and bare-key rules
 /// apply, and a bare key is left out unless the dialect reads it as empty.
-/// No items, spans or diagnostics are kept, so it uses much less memory than
-/// a [`Document`]. Warnings are dropped. The map is sorted by key, not by
-/// source order.
+/// An empty key, which Compose accepts, is also left out; use
+/// [`Document::get`] when that declaration matters. No
+/// items, spans or diagnostics are kept, so it uses much less memory than a
+/// [`Document`]. Warnings are dropped. The map is sorted by key, not by source
+/// order.
 ///
 /// See [`parse_values_with`] to choose the dialect.
 ///
@@ -181,7 +183,8 @@ pub fn parse_values(source: &str) -> Result<BTreeMap<String, String>, Diagnostic
 /// Parses `.env` text with the given dialect into a map of effective values.
 ///
 /// This is [`parse_values`] with an explicit [`Dialect`]. Its peak memory use
-/// stays close to the size of the final map.
+/// stays close to the size of the final map. Empty keys are left out, as in
+/// [`parse_values`].
 ///
 /// # Errors
 ///

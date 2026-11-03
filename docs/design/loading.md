@@ -112,8 +112,9 @@ Reports are off by default. With reports enabled:
   excludes every declaration of the key from lookup, and `EmptyKey` for each
   declaration with an empty key.
 
-Report records share keys and values with the final values, so reports do not
-copy them.
+Empty keys are not part of the final values; Compose declarations with an
+empty key appear in `skipped()` with `SkipReason::EmptyKey`. Report records
+share keys and values with the final values, so reports do not copy them.
 
 ```rust,no_run
 use adotenv::load::{load_cascade_with_options, LoadOptions};

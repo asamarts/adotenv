@@ -106,9 +106,10 @@ assert_eq!(winners, [("A", "2"), ("B", "3")]);
 | `lookup_index()` | A `LookupIndex` for many lookups |
 
 `get` scans the entries. For many lookups, build `lookup_index()` once; it has
-`get`, `get_entry`, `len` and `is_empty`. `effective_entries` and the index
-leave out empty keys, and `effective_entries` also leaves out a key whose
-winning declaration is bare, unless the dialect reads bare keys as empty.
+`get`, `get_entry`, `len` and `is_empty`. `effective_entries`, `parse_values`
+and the index leave out empty keys, and `effective_entries` also leaves out a
+key whose winning declaration is bare, unless the dialect reads bare keys as
+empty. Compose still exposes an empty key through `get("")`.
 
 ### Bare and empty declarations
 

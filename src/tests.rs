@@ -533,6 +533,17 @@ fn effective_entries_honor_duplicate_and_bare_policy() {
 }
 
 #[test]
+fn values_only_omit_compose_empty_keys() {
+    let dialect = Dialect::COMPOSE;
+    let source = "=x\nA=1\n";
+    let (document, _) = parse_with(source, dialect);
+    assert_eq!(document.get(""), Some("x"));
+    let values = parse_values_with(source, dialect).unwrap();
+    assert_eq!(values.get(""), None);
+    assert_eq!(values.get("A").map(String::as_str), Some("1"));
+}
+
+#[test]
 fn compose_empty_keys_remain_directly_addressable_but_are_not_indexed() {
     let (document, _) = parse_with("AA", Dialect::COMPOSE);
     assert!(document.entries().any(|entry| entry.key().is_empty()));
