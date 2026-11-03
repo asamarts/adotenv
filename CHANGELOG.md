@@ -29,6 +29,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `diff` values can be masked with `--mask`.
 - `Document::lookup_index` grows its table from participating keys instead of
   allocating from every entry.
+- `Document::example` keeps a leading BOM under `BomPolicy::Keep` and
+  `BomPolicy::Error`.
 
 ### Fixed
 

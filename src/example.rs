@@ -64,16 +64,31 @@ impl Document<'_> {
         let source = self.source();
         let mut output = String::with_capacity(source.len());
         let mut cursor = 0;
+        // Under Keep and Error the mark belongs to an item instead of being
+        // stripped. Emit it once, then treat the first item as starting after
+        // it so no value-bearing text is copied twice.
+        let bom_in_item = source.starts_with('\u{feff}') && !self.has_bom();
+        if bom_in_item {
+            output.push('\u{feff}');
+            cursor = 3;
+        }
         let mut items = self.items().peekable();
         while let Some(item) = items.next() {
-            let span = item.span();
+            let mut span = item.span();
+            let mut content = item.content_span();
+            if bom_in_item && span.start == 0 {
+                span.start = 3;
+                if content.start < 3 {
+                    content.start = 3;
+                }
+            }
             let mut moved_comment = false;
             output.push_str(&source[cursor..span.start]);
             match item.kind() {
                 ItemKind::Entry => {
                     let entry = item.entry().expect("entry item has an entry view");
                     if entry.key().is_empty() {
-                        push_commented(&mut output, source, span.clone(), item.content_span());
+                        push_commented(&mut output, source, span.clone(), content.clone());
                     } else if let Some(value) = entry.value_span() {
                         // Keep only the declaration prefix, an optional safe
                         // placeholder, an inline comment and the final line
@@ -128,13 +143,13 @@ impl Document<'_> {
                             output.push_str(ending.as_str());
                         }
                     } else {
-                        output.push_str(item.raw());
+                        output.push_str(&source[span.clone()]);
                     }
                 }
                 ItemKind::Invalid | ItemKind::Ignored => {
-                    push_commented(&mut output, source, span.clone(), item.content_span());
+                    push_commented(&mut output, source, span.clone(), content.clone());
                 }
-                ItemKind::Blank | ItemKind::Comment => output.push_str(item.raw()),
+                ItemKind::Blank | ItemKind::Comment => output.push_str(&source[span.clone()]),
             }
             if !moved_comment
                 && item.line_ending() == crate::LineEnding::None

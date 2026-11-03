@@ -118,6 +118,25 @@ fn custom_space_comments_move_to_a_safe_comment_line() {
 }
 
 #[test]
+fn example_keeps_the_bom_under_every_policy() {
+    let source = "\u{feff}A=secret\n";
+    let (kept, _) = parse_with(source, Dialect::PORTABLE.with_bom(crate::BomPolicy::Keep));
+    assert_eq!(kept.example(), "\u{feff}#\n");
+
+    let (error, _) = parse_with(source, Dialect::PORTABLE.with_bom(crate::BomPolicy::Error));
+    assert_eq!(error.example(), "\u{feff}#\nA=\n");
+
+    let (stripped, _) = parse_with(source, Dialect::PORTABLE);
+    assert_eq!(stripped.example(), "\u{feff}A=\n");
+
+    let (node, _) = parse_with(
+        source,
+        Dialect::NODE_DOTENV.with_bom(crate::BomPolicy::Keep),
+    );
+    assert_eq!(node.example(), "\u{feff}A=\n");
+}
+
+#[test]
 fn raw_values_and_bom_are_handled() {
     let source = "\u{feff}A= raw value  \n";
     let (doc, _) = parse_with(source, Dialect::DOCKER_RAW);
