@@ -78,6 +78,8 @@ Releases within 1.x keep the API. These fixes change results:
   dialects that ignore many declarations use less memory.
 - 1.2.0: `Document::example` keeps a leading BOM under every `BomPolicy`,
   including `Keep` and `Error`.
+- 1.2.0: native encoding no longer strips a U+FEFF key at the start of an
+  edit or format fragment, so `set` and quote formatting work for such keys.
 - 1.2.0: `exec::Shell` caps standard output and standard error and stops
   commands after a timeout by default. The builders change the limits.
 - 1.2.0: `fmt --write` and `set` resolve the write target once and check its

@@ -31,6 +31,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   allocating from every entry.
 - `Document::example` keeps a leading BOM under `BomPolicy::Keep` and
   `BomPolicy::Error`.
+- Native value encoding keeps a U+FEFF that belongs to a key at the start of
+  an edit or format fragment.
 
 ### Fixed
 

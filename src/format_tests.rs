@@ -92,6 +92,21 @@ fn quote_style_can_normalize_without_changing_values() {
 }
 
 #[test]
+fn quote_style_handles_a_key_that_is_only_a_bom() {
+    let source = "# c\n\u{feff}=old\n";
+    let (doc, _) = parse_with(source, Dialect::PYTHON_DOTENV);
+    let formatted = doc
+        .format(&FormatOptions {
+            quote_style: QuoteStyle::Double,
+            ..FormatOptions::default()
+        })
+        .unwrap();
+    assert_eq!(formatted.as_str(), "# c\n\u{feff}=\"old\"\n");
+    let (after, _) = parse_with(formatted.as_str(), Dialect::PYTHON_DOTENV);
+    assert_eq!(after.get("\u{feff}"), Some("old"));
+}
+
+#[test]
 fn quote_style_can_use_single_quotes_for_multiline_values() {
     let source = "A=\"first\nsecond\"\nB='two'\nC=''\n";
     let doc = parse_strict(source).unwrap();

@@ -1103,3 +1103,14 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn set_keeps_a_key_that_is_only_a_bom() {
+    let source = "# c\n\u{feff}=old\n";
+    let dialect = crate::Dialect::PYTHON_DOTENV;
+    let (doc, _) = crate::parse_with(source, dialect);
+    let result = doc.set("\u{feff}", "new").unwrap();
+    assert_eq!(result.as_str(), "# c\n\u{feff}=new\n");
+    let (after, _) = crate::parse_with(result.as_str(), dialect);
+    assert_eq!(after.get("\u{feff}"), Some("new"));
+}
