@@ -74,6 +74,8 @@ are exercised by unit and integration tests, including the failure cases.
 - **End-to-end regressions:** contextual loaded resolution, Compose and
   dotenv-expand operands, and `FinalNewline::Remove` idempotence, through the
   public API.
+- **Encoding:** inverse witnesses for the presets and custom dialects,
+  including the Node backtick-recovery regression.
 - **Conformance:** 80 pinned cases across 20 upstream profiles.
 - **Documentation:** every Rust example on this site and in the README runs as
   a doctest.
@@ -87,6 +89,4 @@ are exercised by unit and integration tests, including the failure cases.
 3. Mutation testing last ran before the 1.0 changes to edit verification. The
    surviving mutants then were triaged as defensive branches; the next run
    should confirm that for the 1.1 code.
-4. `encode_value_with` has a backtick-recovery fallback for the custom-dialect
-   case recorded as AUD-29. The regression and encoding fuzz run pass; the
-   four clean release fuzz runs are recorded with the 1.1.2 release.
+
