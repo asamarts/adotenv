@@ -502,8 +502,9 @@ let config = config::Config::builder()
 - Retained documents keep token and item metadata. Apply byte and line budgets
   for untrusted input.
 - `Debug` output of documents, items, entries, edit and format results,
-  comparisons, loaded environments, resolved values, line indexes, groups and
-  the adapter types includes values. The core document, edit, comparison, load,
+  comparisons, loaded environments, resolved values, lookup indexes,
+  effective entries, line indexes, groups and the adapter types includes
+  values. The core document, edit, comparison, load,
   resolution, line-index and group types support a value-redacting `Debug`
   form through `adotenv::Masked` and `adotenv::mask`; use
   `DeserializeError::masked()` for serde errors. Adapter types still include

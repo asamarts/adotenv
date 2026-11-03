@@ -21,6 +21,14 @@ fn document_entry_item_and_edits_mask_values() {
     let item_debug = format!("{:?}", mask(item));
     assert!(!item_debug.contains("secret"));
 
+    let lookup = doc.lookup_index();
+    let lookup_debug = format!("{:?}", mask(&lookup));
+    assert!(!lookup_debug.contains("secret"));
+
+    let effective = doc.effective_entries().next().unwrap();
+    let effective_debug = format!("{:?}", mask(effective));
+    assert!(!effective_debug.contains("secret"));
+
     let index = doc.line_index();
     let index_debug = format!("{:?}", mask(&index));
     assert!(!index_debug.contains("secret"));

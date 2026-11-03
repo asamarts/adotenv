@@ -55,8 +55,8 @@ files, `Document::resolve` substitutes references from a lookup you pass,
 Values may be secrets. These outputs include them:
 
 - `Debug` output of documents, items, entries, edit and format results,
-  comparisons, loaded environments, resolved values, line indexes, groups and
-  the adapter types. The core document, edit, comparison, load, resolution,
+  comparisons, loaded environments, resolved values, lookup indexes,
+  effective entries, line indexes, groups and the adapter types. The core document, edit, comparison, load, resolution,
   line-index and group types support a value-redacting `Debug` form through
   `adotenv::Masked` and `adotenv::mask`; use
   `DeserializeError::masked()` for serde errors. Adapter types still include

@@ -23,8 +23,9 @@ use core::fmt;
 use crate::load::{LoadedEnvironment, LoadedResolveError, LoadedValues, ResolvedEnvironment};
 use crate::{
     CommandCall, CommandError, CommandOutcome, ComparedValue, Comparison, ComparisonEntry,
-    Document, Entry, FormatResult, Group, Groups, Item, LineIndex, ResolveError, ResolveFailure,
-    ResolvedDocument, ResolvedEntry, ResolvedSegment, TextEdit, VerifiedEdits,
+    Document, EffectiveEntry, Entry, FormatResult, Group, Groups, Item, LineIndex, LookupIndex,
+    ResolveError, ResolveFailure, ResolvedDocument, ResolvedEntry, ResolvedSegment, TextEdit,
+    VerifiedEdits,
 };
 
 /// The replacement text used for a masked value.
@@ -158,6 +159,28 @@ impl Mask for Groups<'_> {
         formatter
             .debug_struct("Groups")
             .field("source", &REDACTED)
+            .finish()
+    }
+}
+
+impl Mask for LookupIndex<'_> {
+    fn fmt_masked(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LookupIndex")
+            .field("len", &self.len())
+            .field("document", &REDACTED)
+            .finish()
+    }
+}
+
+impl Mask for EffectiveEntry<'_> {
+    fn fmt_masked(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("EffectiveEntry")
+            .field("entry", &Masked::new(self.entry()))
+            .field("key", &self.key())
+            .field("value", &REDACTED)
+            .field("line", &self.line())
             .finish()
     }
 }

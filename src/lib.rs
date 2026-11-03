@@ -135,7 +135,8 @@
 //! # Secrets
 //!
 //! Values may be secrets. `Debug` output of documents, items, entries, edit and format results,
-//! comparisons, loaded environments, resolved values, line indexes and groups includes them,
+//! comparisons, loaded environments, resolved values, lookup indexes, effective entries, line
+//! indexes and groups includes them,
 //! and so do the messages of serde conversion errors. The core document, edit, comparison,
 //! load, resolution, line-index and group types support a structure-preserving `Debug` form
 //! that replaces values with `<redacted>` through [`Masked`] and [`mask`]; use
