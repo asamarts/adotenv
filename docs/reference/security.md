@@ -80,8 +80,9 @@ Values may be secrets. These outputs include them:
 
 `adotenv-cli fmt --write` and `set` resolve the write target once before
 reading, so a symbolic link swapped after that point cannot redirect the write.
-On Unix they also check the target's device and inode again immediately before
-the replace, and fail if it changed after the read. They leave an unchanged
+They do not resolve the target again while replacing it. On Unix they also
+check the target's device and inode before the temporary file and immediately
+before the replace, and fail if it changed after the read. They leave an unchanged
 file untouched, so its inode, hard links, modification time, extended
 attributes and ACLs stay. They replace a changed file through a temporary file
 in the same directory. On Unix the temporary file is created with mode `0600`

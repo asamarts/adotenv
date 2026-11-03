@@ -282,10 +282,11 @@ When the result is unchanged, `fmt --write` and `set` do not replace the
 file. Its inode, hard links, modification time, permissions and extended
 attributes stay as they are.
 
-`fmt --write` and `set` resolve the write target once before reading. On Unix
-they check its device and inode again before the replace and fail if it changed
-after the read. They replace a changed file through a temporary file in the
-same directory:
+`fmt --write` and `set` resolve the write target once before reading and do
+not resolve it again while replacing it. On Unix they check its device and
+inode before the temporary file and immediately before the replace, and fail
+if it changed after the read. They replace a changed file through a temporary
+file in the same directory:
 
 - When the path is a symbolic link, the file it finally points to is replaced in
   that file's directory, and the link is kept.

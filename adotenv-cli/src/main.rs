@@ -1617,6 +1617,16 @@ fn write_atomic_checked(path: &Path, contents: &str, identity: FileIdentity) -> 
     write_atomic_inner(path, contents, Some(identity))
 }
 
+/// Fail unless `path` still names the resolved regular file whose identity was
+/// captured before the read.
+fn check_target(path: &Path, expected: FileIdentity) -> io::Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || file_identity(path)? != expected {
+        return Err(io::Error::other("file changed after it was read"));
+    }
+    Ok(())
+}
+
 /// Replace `path` with `contents` through a temporary file in the same directory.
 ///
 /// When `path` is a symbolic link, the file it finally points to is replaced
@@ -1629,8 +1639,17 @@ fn write_atomic_inner(
     contents: &str,
     expected_identity: Option<FileIdentity>,
 ) -> io::Result<()> {
-    let target = replacement_target(path)?;
+    // A checked write already resolved its target, so resolve it again only
+    // for the unchecked legacy helper. In particular, do not follow a symbolic
+    // link that appeared at the resolved target after the read.
+    let target = match expected_identity {
+        Some(_) => path.to_path_buf(),
+        None => replacement_target(path)?,
+    };
     let path = target.as_path();
+    if let Some(expected) = expected_identity {
+        check_target(path, expected)?;
+    }
     let existing = match fs::metadata(path) {
         Ok(metadata) if metadata.is_dir() => {
             return Err(io::Error::new(
@@ -1661,17 +1680,9 @@ fn write_atomic_inner(
         return Err(error);
     }
     if let Some(expected) = expected_identity {
-        let changed = || io::Error::other("file changed after it was read");
-        match file_identity(path) {
-            Ok(actual) if actual == expected => {}
-            Ok(_) => {
-                let _ = fs::remove_file(&temporary);
-                return Err(changed());
-            }
-            Err(error) => {
-                let _ = fs::remove_file(&temporary);
-                return Err(error);
-            }
+        if let Err(error) = check_target(path, expected) {
+            let _ = fs::remove_file(&temporary);
+            return Err(error);
         }
     }
     #[cfg(unix)]
@@ -2042,6 +2053,35 @@ mod tests {
         let error = write_atomic_checked(&resolved, "A=3\n", identity).unwrap_err();
         assert!(error.to_string().contains("changed after it was read"));
         assert_eq!(std::fs::read_to_string(&resolved).unwrap(), "A=2\n");
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn checked_write_does_not_follow_a_target_replaced_by_a_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let directory = std::env::temp_dir().join(format!(
+            "adotenv-write-symlink-{}-{}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let target = directory.join("app.env");
+        std::fs::write(&target, "A=1\n").unwrap();
+        let (resolved, identity) = resolve_write(&target).unwrap();
+
+        let elsewhere = directory.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let victim = elsewhere.join("victim.env");
+        std::fs::write(&victim, "A=safe\n").unwrap();
+        std::fs::remove_file(&resolved).unwrap();
+        symlink(&victim, &resolved).unwrap();
+
+        let error = write_atomic_checked(&resolved, "A=3\n", identity).unwrap_err();
+        assert!(error.to_string().contains("changed after it was read"));
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "A=safe\n");
+        assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 1);
         std::fs::remove_dir_all(&directory).unwrap();
     }
 

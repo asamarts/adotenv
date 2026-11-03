@@ -831,16 +831,6 @@ pub enum ResolveError {
         /// entry that would be resolved too deep.
         span: Range<usize>,
     },
-    /// Reference scanning found more candidates than
-    /// [`ExpandOptions::max_references`].
-    TooManyReferences {
-        /// The key of the entry being resolved.
-        key: String,
-        /// The configured [`ExpandOptions::max_references`].
-        limit: usize,
-        /// The byte range of the entry's value as written, quotes included.
-        span: Range<usize>,
-    },
     /// A resolved value grew longer than [`ExpandOptions::max_value_bytes`].
     ValueTooLarge {
         /// The key of the entry being resolved.
@@ -868,6 +858,16 @@ pub enum ResolveError {
         reference: Range<usize>,
         /// The message of the [`CommandError`].
         message: String,
+    },
+    /// Reference scanning found more candidates than
+    /// [`ExpandOptions::max_references`].
+    TooManyReferences {
+        /// The key of the entry being resolved.
+        key: String,
+        /// The configured [`ExpandOptions::max_references`].
+        limit: usize,
+        /// The byte range of the entry's value as written, quotes included.
+        span: Range<usize>,
     },
 }
 
