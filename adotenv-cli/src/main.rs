@@ -910,7 +910,21 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
         return FAILURE;
     }
     for path in &paths {
-        let source = match read_text(path) {
+        let write_target = if write {
+            match resolve_write(path) {
+                Ok(target) => Some(target),
+                Err(error) => {
+                    code = code.max(fail(format!("{}: {error}", path.display())));
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
+        let read_path = write_target
+            .as_ref()
+            .map_or_else(|| path.as_path(), |(target, _)| target.as_path());
+        let source = match read_text(read_path) {
             Ok(source) => source,
             Err(error) => {
                 code = code.max(fail(error));
@@ -958,9 +972,9 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
                 outln!("{}: would reformat", path.display());
                 code = code.max(FINDINGS);
             }
-        } else if write {
+        } else if let Some((target, identity)) = &write_target {
             if formatted.as_str() != source {
-                if let Err(error) = write_atomic(path, formatted.as_str()) {
+                if let Err(error) = write_atomic_checked(target, formatted.as_str(), *identity) {
                     code = code.max(fail(format!("{}: {error}", path.display())));
                 }
             }
@@ -1430,7 +1444,11 @@ fn set(args: &[String], dialect: Dialect) -> u8 {
         errln!("set cannot write standard input");
         return FAILURE;
     }
-    let source = match read_text(&args[0]) {
+    let (target, identity) = match resolve_write(Path::new(&args[0])) {
+        Ok(target) => target,
+        Err(error) => return fail(format!("{}: {error}", args[0])),
+    };
+    let source = match read_text(&target) {
         Ok(source) => source,
         Err(error) => return fail(error),
     };
@@ -1443,7 +1461,7 @@ fn set(args: &[String], dialect: Dialect) -> u8 {
         Err(error) => return fail(format!("{}: {error}", args[0])),
     };
     if edited.as_str() != source {
-        if let Err(error) = write_atomic(Path::new(&args[0]), edited.as_str()) {
+        if let Err(error) = write_atomic_checked(&target, edited.as_str(), identity) {
             return fail(format!("{}: {error}", args[0]));
         }
     }
@@ -1566,6 +1584,39 @@ fn describe(value: Option<&ComparedValue>) -> String {
 
 static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
 
+#[cfg(unix)]
+type FileIdentity = (u64, u64);
+
+#[cfg(not(unix))]
+type FileIdentity = ();
+
+#[cfg(unix)]
+fn file_identity(path: &Path) -> io::Result<FileIdentity> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = fs::metadata(path)?;
+    Ok((metadata.dev(), metadata.ino()))
+}
+
+#[cfg(not(unix))]
+fn file_identity(_path: &Path) -> io::Result<FileIdentity> {
+    Ok(())
+}
+
+/// Resolve the write target once, before reading, and capture its identity.
+///
+/// Reading and replacing the same resolved path keeps a symbolic link swapped
+/// after this point from redirecting the write. On Unix the device and inode
+/// are compared again just before the replace.
+fn resolve_write(path: &Path) -> io::Result<(PathBuf, FileIdentity)> {
+    let target = fs::canonicalize(path)?;
+    let identity = file_identity(&target)?;
+    Ok((target, identity))
+}
+
+fn write_atomic_checked(path: &Path, contents: &str, identity: FileIdentity) -> io::Result<()> {
+    write_atomic_inner(path, contents, Some(identity))
+}
+
 /// Replace `path` with `contents` through a temporary file in the same directory.
 ///
 /// When `path` is a symbolic link, the file it finally points to is replaced
@@ -1573,7 +1624,11 @@ static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
 /// private on Unix (mode `0600`), receives the existing file's owner and group
 /// where possible, and receives its permissions only after the contents are
 /// written. A file that does not exist yet stays private.
-fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
+fn write_atomic_inner(
+    path: &Path,
+    contents: &str,
+    expected_identity: Option<FileIdentity>,
+) -> io::Result<()> {
     let target = replacement_target(path)?;
     let path = target.as_path();
     let existing = match fs::metadata(path) {
@@ -1604,6 +1659,20 @@ fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
     if let Err(error) = fill_temporary(file, &temporary, contents, existing.as_ref()) {
         let _ = fs::remove_file(&temporary);
         return Err(error);
+    }
+    if let Some(expected) = expected_identity {
+        let changed = || io::Error::other("file changed after it was read");
+        match file_identity(path) {
+            Ok(actual) if actual == expected => {}
+            Ok(_) => {
+                let _ = fs::remove_file(&temporary);
+                return Err(changed());
+            }
+            Err(error) => {
+                let _ = fs::remove_file(&temporary);
+                return Err(error);
+            }
+        }
     }
     #[cfg(unix)]
     {
@@ -1866,7 +1935,10 @@ fn fail(message: String) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::{github_escape_data, github_escape_property, json_string, write_atomic, NEXT_TEMP};
+    use super::{
+        github_escape_data, github_escape_property, json_string, resolve_write,
+        write_atomic_checked, write_atomic_inner, NEXT_TEMP,
+    };
     use std::sync::atomic::Ordering;
 
     #[cfg(not(unix))]
@@ -1942,10 +2014,33 @@ mod tests {
         ));
         std::fs::create_dir_all(&directory).unwrap();
         let target = directory.join("new.env");
-        write_atomic(&target, "A=1\n").unwrap();
+        write_atomic_inner(&target, "A=1\n", None).unwrap();
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "A=1\n");
         let leftovers: Vec<_> = std::fs::read_dir(&directory).unwrap().collect();
         assert_eq!(leftovers.len(), 1);
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn checked_write_rejects_a_replaced_target() {
+        let directory = std::env::temp_dir().join(format!(
+            "adotenv-write-identity-{}-{}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let target = directory.join("app.env");
+        std::fs::write(&target, "A=1\n").unwrap();
+        let (resolved, identity) = resolve_write(&target).unwrap();
+
+        let replacement = directory.join("replacement.env");
+        std::fs::write(&replacement, "A=2\n").unwrap();
+        std::fs::rename(&replacement, &resolved).unwrap();
+
+        let error = write_atomic_checked(&resolved, "A=3\n", identity).unwrap_err();
+        assert!(error.to_string().contains("changed after it was read"));
+        assert_eq!(std::fs::read_to_string(&resolved).unwrap(), "A=2\n");
         std::fs::remove_dir_all(&directory).unwrap();
     }
 

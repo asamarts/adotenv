@@ -64,6 +64,9 @@ Releases within 1.x keep the API. These fixes change results:
 - 1.1.1: `encode_value_with` represents a Node literal-fallback value that
   needs an escaped terminal control character at the line cap, instead of
   returning `EncodeError::Unrepresentable`.
+- 1.2.0: `fmt --write` and `set` resolve the write target once and check its
+  device and inode before replacing it on Unix. A swapped symlink can no
+  longer redirect the write; a target replaced after the read fails.
 - 1.1.2: `encode_value_with` represents a Node value whose only legal token
   needs a repeated backtick run to survive quote recovery, instead of returning
   `EncodeError::Unrepresentable`.

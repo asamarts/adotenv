@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `fmt --write` and `set` resolve the write target once before reading and
+  check its device and inode again before replacing it on Unix. A symbolic
+  link swapped after the read can no longer redirect the write, and a target
+  replaced while it is being formatted fails with "file changed after it was
+  read".
+
 ## [1.1.2] - 2026-11-02
 
 A patch release of `adotenv`, `adotenv-process` and `adotenv-cli` with one
