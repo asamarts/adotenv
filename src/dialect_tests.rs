@@ -208,6 +208,32 @@ fn disabling_multiline_restores_following_statement_recovery() {
 }
 
 #[test]
+fn append_tail_normalizes_newlines_and_scans_portable_warnings() {
+    let mut dialect = Dialect::PORTABLE;
+    dialect.quoted_tail = QuotedTail::Append;
+    dialect.normalize_newlines = true;
+    dialect.line_breaks = LineBreaks::Lf;
+    let source = "A=\"x\"#y\rz\n";
+    let (doc, diagnostics) = parse_with(source, dialect);
+    assert_eq!(doc.get("A"), Some("x#y\nz"));
+    assert!(diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code() == Code::TightHash));
+    assert!(diagnostics
+        .iter()
+        .all(|diagnostic| diagnostic.severity() != Severity::Error));
+
+    let entry = doc.unique("A").unwrap();
+    assert_eq!(&source[entry.tokens().value.clone().unwrap()], "\"x\"");
+    assert_eq!(&source[entry.tokens().body.clone().unwrap()], "x");
+    assert_eq!(
+        &source[entry.tokens().quoted_tail.clone().unwrap()],
+        "#y\rz"
+    );
+    assert_eq!(&source[entry.value_span().unwrap()], "\"x\"#y\rz");
+}
+
+#[test]
 fn quote_tail_policies_preserve_tokens_and_exact_appended_value_mappings() {
     let source = "A=\"x\"tail # note\nNEXT=kept\n";
     let mut dialect = Dialect::PORTABLE;

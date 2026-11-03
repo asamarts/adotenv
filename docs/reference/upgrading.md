@@ -82,6 +82,8 @@ Releases within 1.x keep the API. These fixes change results:
   edit or format fragment, so `set` and quote formatting work for such keys.
 - 1.2.0: cascade mode `local` removes the duplicate `.env.local` path, so
   report views no longer show the file overriding itself.
+- 1.2.0: a custom `QuotedTail::Append` value normalizes CR line endings and
+  reports Portable tight-hash/backtick warnings in the appended tail.
 - 1.2.0: `exec::Shell` caps standard output and standard error and stops
   commands after a timeout by default. The builders change the limits.
 - 1.2.0: `fmt --write` and `set` resolve the write target once and check its

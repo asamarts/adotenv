@@ -209,11 +209,16 @@ pub struct EntryTokens {
     pub space_after_eq: Range<usize>,
     /// The value as written, including its quotes; `None` for a bare key.
     ///
-    /// An empty assignment such as `KEY=` has an empty range here.
+    /// An empty assignment such as `KEY=` has an empty range here. Under
+    /// [`QuotedTail::Append`], this is the quoted token only; the appended text
+    /// is [`quoted_tail`](Self::quoted_tail), and
+    /// [`Entry::value_span`] covers both.
     pub value: Option<Range<usize>>,
     /// The value without its quotes; `None` for a bare key.
     ///
-    /// For an unquoted value this is the same range as `value`.
+    /// For an unquoted value this is the same range as `value`. Under
+    /// [`QuotedTail::Append`], this excludes the appended tail, which is
+    /// [`quoted_tail`](Self::quoted_tail).
     pub body: Option<Range<usize>>,
     /// Text after the closing quote that the dialect keeps.
     ///

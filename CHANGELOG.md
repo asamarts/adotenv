@@ -35,6 +35,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   an edit or format fragment.
 - Cascade mode `local` no longer reads `.env.local` twice or reports it as
   overriding itself.
+- A `QuotedTail::Append` tail now follows newline normalization and Portable
+  warning scanning. Token documentation states which ranges exclude the tail.
 
 ### Fixed
 

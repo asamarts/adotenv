@@ -47,21 +47,18 @@ impl<'a> Output<'a> {
     fn finish(
         mut self,
         body: &Range<usize>,
-        tail: Option<&Range<usize>>,
+        tail: Option<(&Range<usize>, &str)>,
     ) -> (Option<String>, Vec<DecodeSegment>) {
         if let Some(value) = &mut self.value {
             value.push_str(&self.source[self.copied..body.end]);
         }
-        if let Some(tail) = tail.filter(|tail| !tail.is_empty()) {
+        if let Some((tail, tail_value)) = tail.filter(|(tail, _)| !tail.is_empty()) {
             let value = self
                 .value
                 .get_or_insert_with(|| String::from(&self.source[body.clone()]));
-            let first = self.source[tail.clone()]
-                .chars()
-                .next()
-                .expect("nonempty tail");
+            let first = tail_value.chars().next().expect("nonempty tail");
             let begin = value.len();
-            value.push_str(&self.source[tail.clone()]);
+            value.push_str(tail_value);
             // Anchor the first tail character across the omitted closing quote.
             self.map.push(DecodeSegment {
                 decoded: begin..begin + first.len_utf8(),
@@ -286,11 +283,55 @@ impl<const D: bool> Parser<'_, D> {
             }
             position.at += c.len_utf8();
         }
+        let tail_value = tail
+            .filter(|_| dialect.quoted_tail == QuotedTail::Append)
+            .filter(|tail| !tail.is_empty())
+            .map(|tail| (tail.clone(), self.decode_tail(tail, item_start)));
         let (decoded, map) = output.finish(
             &body,
-            tail.filter(|_| dialect.quoted_tail == QuotedTail::Append),
+            tail_value
+                .as_ref()
+                .map(|(tail, value)| (tail, value.as_str())),
         );
         (decoded, map, error)
+    }
+
+    fn decode_tail(&mut self, tail: &Range<usize>, item_start: usize) -> String {
+        let dialect = self.dialect();
+        let source = self.source;
+        let bytes = source.as_bytes();
+        let mut output = String::with_capacity(tail.end.saturating_sub(tail.start));
+        let mut at = tail.start;
+        let mut line = self.line + line_breaks(&source[item_start..tail.start]);
+        while at < tail.end {
+            let c = source[at..tail.end].chars().next().expect("tail character");
+            if dialect.normalize_newlines && c == '\r' {
+                at += if bytes.get(at + 1) == Some(&b'\n') && at + 1 < tail.end {
+                    2
+                } else {
+                    1
+                };
+                output.push('\n');
+                line += 1;
+                continue;
+            }
+            if D && dialect.syntax == Syntax::Portable && !dialect.raw_values {
+                let code = match c {
+                    '#' => Some(DiagnosticCode::TightHash),
+                    '`' => Some(DiagnosticCode::Backtick),
+                    _ => None,
+                };
+                if let Some(code) = code {
+                    self.push_diagnostic(Diagnostic::new(code, at..at + c.len_utf8(), line));
+                }
+            }
+            if c == '\r' || (c == '\n' && (at == 0 || bytes[at - 1] != b'\r')) {
+                line += 1;
+            }
+            output.push(c);
+            at += c.len_utf8();
+        }
+        output
     }
 
     fn decode_escape(
