@@ -4,7 +4,7 @@
 //! measurements serialize on a mutex.
 #![cfg(target_os = "linux")]
 
-use adotenv::{parse, DiagnosticCode, ExpandOptions, ResolveError};
+use adotenv::{parse, parse_with, DiagnosticCode, Dialect, ExpandOptions, ResolveError};
 
 /// The high-water mark belongs to the whole process, so only one measurement
 /// may run at a time.
@@ -32,6 +32,21 @@ fn status_kib(field: &str) -> usize {
         .and_then(|rest| rest.trim().strip_suffix("kB"))
         .and_then(|value| value.trim().parse().ok())
         .expect("process status reports the field")
+}
+
+#[test]
+fn lookup_index_does_not_allocate_for_ignored_bare_keys() {
+    const LIMIT: usize = 1 << 20;
+    let _guard = MEMORY_LOCK.lock().unwrap();
+    let source = "BARE\n".repeat(200_000);
+    let (document, _) = parse_with(&source, Dialect::NODE_DOTENV);
+    let growth = peak_growth(|| {
+        assert_eq!(document.lookup_index().len(), 0);
+    });
+    assert!(
+        growth < LIMIT,
+        "the lookup index grew the resident set by {growth} bytes"
+    );
 }
 
 #[test]

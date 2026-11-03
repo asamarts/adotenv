@@ -911,6 +911,16 @@ pub struct LookupIndex<'doc> {
     winners: Winners<'doc>,
 }
 
+#[cfg(test)]
+impl LookupIndex<'_> {
+    pub(crate) fn hash_slots(&self) -> Option<usize> {
+        match &self.winners {
+            Winners::Hash(winners) => Some(winners.slots.len()),
+            Winners::Tree(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 enum Winners<'doc> {
     Hash(HashWinners<'doc>),
@@ -973,19 +983,21 @@ impl<'doc> HashWinners<'doc> {
         policy: Duplicates,
         probe_limit: usize,
     ) -> Option<Self> {
-        let entries = document.entries().len();
-        let capacity = entries
-            .saturating_mul(2)
-            .max(8)
-            .checked_next_power_of_two()?;
-        let mask = capacity - 1;
-        let mut slots = alloc::vec![None; capacity];
-        let mut len = 0;
+        // Start small and grow with participating keys. Sizing from all entries
+        // allocates a large table for declarations a dialect excludes from
+        // lookup, such as Node bare keys.
+        let mut slots = alloc::vec![None; 8];
+        let mut len: usize = 0;
         let mut probes = 0;
         for entry in document.entries() {
             if !entry.participates_in_lookup() || entry.key().is_empty() {
                 continue;
             }
+            if len.saturating_add(1) > slots.len().saturating_mul(3) / 4 {
+                let capacity = slots.len().checked_mul(2)?;
+                slots = rehash(slots, capacity);
+            }
+            let mask = slots.len() - 1;
             let key = entry.key();
             let mut at = hash_key(key) & mask;
             loop {
@@ -1031,6 +1043,19 @@ impl<'doc> HashWinners<'doc> {
             }
         }
     }
+}
+
+fn rehash(slots: Vec<Option<HashSlot<'_>>>, capacity: usize) -> Vec<Option<HashSlot<'_>>> {
+    let mask = capacity - 1;
+    let mut grown = alloc::vec![None; capacity];
+    for slot in slots.into_iter().flatten() {
+        let mut at = hash_key(slot.key) & mask;
+        while grown[at].is_some() {
+            at = (at + 1) & mask;
+        }
+        grown[at] = Some(slot);
+    }
+    grown
 }
 
 fn tree_winners<'doc>(

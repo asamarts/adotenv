@@ -27,6 +27,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   list with `DiagnosticCode::TooManyDiagnostics`; the first error after the
   budget is retained.
 - `diff` values can be masked with `--mask`.
+- `Document::lookup_index` grows its table from participating keys instead of
+  allocating from every entry.
 
 ### Fixed
 

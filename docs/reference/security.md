@@ -27,6 +27,9 @@ files, `Document::resolve` substitutes references from a lookup you pass,
   memory grows with the input. Check the byte length, line count or number of
   declarations before parsing a file from an untrusted source.
   `parse_values` keeps only final values and uses much less memory.
+- `Document::lookup_index` grows with the number of participating keys, not
+  the total number of declarations. A dialect that ignores bare keys still
+  spends memory only for keys that take part in lookup.
 - `parse` collects at most 10,000 ordinary diagnostics; a final
   `dotenv.too-many-diagnostics` warning reports truncation. The first error
   found after the budget is retained. `parse_strict` and `parse_values` stop

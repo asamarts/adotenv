@@ -74,6 +74,8 @@ Releases within 1.x keep the API. These fixes change results:
 - 1.2.0: value masking is opt-in with `Masked`/`mask` and
   `DeserializeError::masked`; normal `Debug` output is unchanged. `diff` gains
   `--mask`.
+- 1.2.0: `Document::lookup_index` sizes its table from participating keys, so
+  dialects that ignore many declarations use less memory.
 - 1.2.0: `exec::Shell` caps standard output and standard error and stops
   commands after a timeout by default. The builders change the limits.
 - 1.2.0: `fmt --write` and `set` resolve the write target once and check its

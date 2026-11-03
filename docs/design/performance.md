@@ -51,8 +51,8 @@ Compared with the 0.10.4 record from 2026-10-27, on the same host and compiler:
   on 65,536 entries took 59.1 ms, 66.3 ms and 67.4 ms.
 
 `Document::get` scans entries. For many lookups, build `Document::lookup_index`
-once. The index uses a compact open-addressed table with an ordered fallback
-for collision-heavy input.
+once. The index starts small, grows with participating keys, and uses an
+ordered fallback for collision-heavy input.
 
 ### 1.1.1 development-host check
 
