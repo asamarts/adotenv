@@ -171,7 +171,7 @@
 //! origin of its winning declaration when they are known.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt, fs, io,
     ops::Range,
     path::{Path, PathBuf},
@@ -1687,12 +1687,7 @@ pub fn load_cascade_with_options<P: AsRef<Path>>(
         return Err(LoadError::InvalidMode);
     }
     let directory = directory.as_ref();
-    let mut paths = vec![directory.join(".env"), directory.join(".env.local")];
-    if !mode.is_empty() {
-        paths.push(directory.join(format!(".env.{mode}")));
-        paths.push(directory.join(format!(".env.{mode}.local")));
-    }
-    load_paths(paths, options, true)
+    load_paths(cascade_paths(directory, mode), options, true)
 }
 
 /// Loads the listed files in order with the given dialect.
@@ -1860,12 +1855,7 @@ pub fn load_cascade_values_with<P: AsRef<Path>>(
         return Err(LoadError::InvalidMode);
     }
     let directory = directory.as_ref();
-    let mut paths = vec![directory.join(".env"), directory.join(".env.local")];
-    if !mode.is_empty() {
-        paths.push(directory.join(format!(".env.{mode}")));
-        paths.push(directory.join(format!(".env.{mode}.local")));
-    }
-    load_value_paths(paths, dialect, true)
+    load_value_paths(cascade_paths(directory, mode), dialect, true)
 }
 
 /// Loads the listed files in order with the given dialect, keeping only the
@@ -1960,6 +1950,22 @@ where
 
 fn valid_mode(mode: &str) -> bool {
     !mode.contains(['/', '\\', '\0']) && mode != "." && mode != ".."
+}
+
+/// The standard cascade paths, in load order, without duplicates.
+///
+/// Mode `local` names `.env.local` for both the base-local and mode-local
+/// entries. Removing the duplicate keeps the report views from claiming that
+/// the file overrides itself.
+fn cascade_paths(directory: &Path, mode: &str) -> Vec<PathBuf> {
+    let mut paths = vec![directory.join(".env"), directory.join(".env.local")];
+    if !mode.is_empty() {
+        paths.push(directory.join(format!(".env.{mode}")));
+        paths.push(directory.join(format!(".env.{mode}.local")));
+    }
+    let mut seen = BTreeSet::new();
+    paths.retain(|path| seen.insert(path.clone()));
+    paths
 }
 
 fn load_paths<I, P>(

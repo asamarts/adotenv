@@ -299,6 +299,21 @@ fn dotted_modes_name_their_own_files() {
 }
 
 #[test]
+fn mode_local_does_not_load_the_local_file_twice() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=base\n");
+    dir.write(".env.local", "A=local\n");
+
+    let loaded = full_cascade(dir.path(), "local");
+    assert_eq!(loaded.get("A"), Some("local"));
+    assert_eq!(loaded.entries().count(), 2);
+    assert_eq!(loaded.overrides().count(), 1);
+
+    let values = load_cascade_values_with(dir.path(), "local", Dialect::PORTABLE).unwrap();
+    assert_eq!(values.get("A"), Some("local"));
+}
+
+#[test]
 fn empty_mode_loads_only_base_and_local_files() {
     let dir = TempDir::new();
     dir.write(".env", "A=base\n");

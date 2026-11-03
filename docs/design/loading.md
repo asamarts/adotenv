@@ -54,7 +54,9 @@ A mode may not contain `/`, `\` or NUL and may not be exactly `.` or `..`, so
 it cannot name a file outside the directory. Such a mode returns
 `LoadError::InvalidMode` before any file is read. Other dots are allowed, so mode
 `prod.eu` reads `.env.prod.eu` and `.env.prod.eu.local`. An empty mode reads
-only `.env` and `.env.local`.
+only `.env` and `.env.local`. Duplicate cascade paths are removed in order:
+mode `local` reads `.env.local` once even though it is both the base-local and
+mode-local name.
 
 ## Loaded environments
 

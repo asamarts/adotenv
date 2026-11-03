@@ -33,6 +33,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `BomPolicy::Error`.
 - Native value encoding keeps a U+FEFF that belongs to a key at the start of
   an edit or format fragment.
+- Cascade mode `local` no longer reads `.env.local` twice or reports it as
+  overriding itself.
 
 ### Fixed
 
