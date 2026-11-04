@@ -79,6 +79,35 @@ taskset -c 3 cargo bench -p adotenv --bench core --locked -- \
 | native set | 10.2 us | 101.8 us | 74.1 ms |
 | native batch | 7.50 us | 96.8 us | 75.7 ms |
 
+### 1.2.0 development-host check
+
+Recorded on 2026-11-04 from branch `prep-1.2.0` at `6fa1955` on the
+development host, an AMD Ryzen 9 3900X with 24 threads and rustc 1.97.1. The
+benchmark process was pinned to one CPU. This is a smoke check, not a new
+reference record, and is not comparable with the reference-host table above:
+
+```console
+taskset -c 3 cargo bench -p adotenv --bench core --locked -- \
+  --sample-size 10 --measurement-time 1
+```
+
+| Workload | 8 entries | 128 entries | 65,536 entries |
+|---|---:|---:|---:|
+| parse | 6.94 us | 112.6 us | 142.1 ms |
+| lookup index build | 341 ns | 6.25 us | 35.6 ms |
+| indexed get, 64 keys | 240 ns | 2.83 us | 8.51 us |
+| portability, 4 presets | 41.3 us | 729 us | 651 ms |
+| references | 427 ns | 6.47 us | 6.24 ms |
+| resolve | 3.72 us | 105.7 us | 94.0 ms |
+| sort | 3.29 us | 239 us | 204 ms |
+| format normalize | 8.12 us | 315.6 us | 120.2 ms |
+| native set | 7.88 us | 80.9 us | 56.5 ms |
+| native batch | 6.93 us | 83.7 us | 49.5 ms |
+
+The host was not isolated for this check; load average was around 1.9. The
+values are useful for detecting regressions in the changed paths, but the
+reference-host record above remains the last comparable release measurement.
+
 CI runs the same benchmark once as a smoke test. The reference-host record
 above remains the last comparable release measurement.
 

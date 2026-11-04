@@ -449,6 +449,32 @@ mod tests {
     }
 
     #[test]
+    fn default_output_cap_allows_more_than_the_mutated_small_caps() {
+        let shell = Shell::new(".");
+        let output = shell.run(&context("printf '%4096s' ''")).unwrap();
+        assert_eq!(output.len(), 4096);
+    }
+
+    #[test]
+    fn stderr_and_reader_caps_count_bytes_exactly() {
+        use std::io::Cursor;
+
+        let input = vec![b'x'; super::MAX_STDERR_BYTES + 1];
+        let bytes = super::read_limited(Cursor::new(input), super::MAX_STDERR_BYTES, None).unwrap();
+        assert_eq!(bytes.len(), super::MAX_STDERR_BYTES);
+
+        let overflow = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let input = vec![b'x'; 4];
+        let bytes = super::read_limited(Cursor::new(input), 4, Some(&overflow)).unwrap();
+        assert_eq!(bytes.len(), 4);
+        assert!(!overflow.load(std::sync::atomic::Ordering::Relaxed));
+        let input = vec![b'x'; 5];
+        let bytes = super::read_limited(Cursor::new(input), 4, Some(&overflow)).unwrap();
+        assert_eq!(bytes.len(), 4);
+        assert!(overflow.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    #[test]
     fn stops_a_command_that_exceeds_the_output_cap() {
         let shell = Shell::new(".").with_max_output_bytes(4);
         let error = shell.run(&context("printf 'abcdef'")).unwrap_err();

@@ -28,9 +28,30 @@ fn check_token(token: &str, value: &str, dialect: Dialect) {
     }
 }
 
-fn require_encoding(value: &str, dialect: Dialect) {
+fn line_cap_may_fit(value: &str, dialect: Dialect) -> bool {
+    let Some(limit) = dialect.line_byte_limit else {
+        return true;
+    };
+    let needs_quoting = value.is_empty()
+        || value.starts_with(char::is_whitespace)
+        || value.ends_with(char::is_whitespace)
+        || value.contains(['#', '"', '\'', '\\', '\n', '\r', '\t']);
+    let mut minimum = value.len() + 2;
+    if needs_quoting {
+        minimum += 2;
+        // A conservative lower bound: inner double quotes and backslashes
+        // need at least one extra source byte each in a quoted body.
+        minimum += value
+            .chars()
+            .filter(|character| matches!(character, '"' | '\\'))
+            .count();
+    }
+    minimum <= limit
+}
+
+fn require_encoding(value: &str, dialect: Dialect, witness: &str) {
     let token = encode_value_with(value, dialect).unwrap_or_else(|error| {
-        panic!("representable value={value:?}, dialect={dialect:?}: {error:?}")
+        panic!("representable value={value:?}, dialect={dialect:?}, witness={witness:?}: {error:?}")
     });
     check_token(&token, value, dialect);
 }
@@ -66,8 +87,11 @@ fn check_inverse(token: &str, dialect: Dialect) {
             {
                 return;
             }
-            // A legal public-parser token is a witness that the value exists.
-            require_encoding(value, dialect);
+            // A legal public-parser token is a witness that the value exists,
+            // unless even the shortest quoted form cannot fit the line cap.
+            if line_cap_may_fit(value, dialect) {
+                require_encoding(value, dialect, token);
+            }
         }
     }
 }
@@ -147,7 +171,7 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
     for dialect in [Dialect::PORTABLE, Dialect::PYTHON_DOTENV, Dialect::COMPOSE] {
-        require_encoding(value, dialect);
+        require_encoding(value, dialect, "<preset>");
     }
     let legacy = encode_value(value);
     if value
