@@ -78,6 +78,12 @@ emulate Docker Compose interpolation as a whole: under the Compose dialect an
 escaped `$$B` is not eligible, so resolution leaves `$$B` as written, while
 Compose prints `$B`.
 
+`ExpandOptions::dotenv_expand()` is likewise an adotenv rules choice, not an
+exact emulation of `dotenv-expand`. The conformance corpus pins dotenv-expand
+1000.0.0 and records its behavior. Known differences include unresolved names
+staying literal here by default and `:?`/`?` reporting an error instead of an
+empty value.
+
 ## Resolution
 
 `Document::resolve(lookup, options)` substitutes eligible references using the

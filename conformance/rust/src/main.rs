@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::io::{self, Read, Write};
 
-use adotenv::{parse_with, Dialect, Severity};
+use adotenv::{parse_with, Dialect, ExpandOptions, Severity};
 use serde_json::{json, Map, Value};
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -17,6 +17,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         ("docker_raw", Dialect::DOCKER_RAW),
     ];
     let mut output = Map::new();
+    let mut resolved = Map::new();
     for (name, dialect) in presets {
         let mut results = Map::new();
         for case in cases {
@@ -61,6 +62,34 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         output.insert(name.to_owned(), Value::Object(results));
     }
+    for case in cases {
+        let id = case["id"].as_str().ok_or("case id must be a string")?;
+        let source = case["source"]
+            .as_str()
+            .ok_or("case source must be a string")?;
+        let environment = case["environment"]
+            .as_object()
+            .ok_or("case environment must be an object")?;
+        let (document, _) = parse_with(source, Dialect::COMPOSE);
+        let lookup = |key: &str| {
+            environment
+                .get(key)
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        };
+        let (values, error) = match document.resolve(lookup, &ExpandOptions::compose()) {
+            Ok(result) => {
+                let mut values = Map::new();
+                for entry in result.entries() {
+                    values.insert(entry.key.clone(), json!(entry.value));
+                }
+                (Value::Object(values), false)
+            }
+            Err(_) => (Value::Object(Map::new()), true),
+        };
+        resolved.insert(id.to_owned(), json!({"values": values, "error": error}));
+    }
+    output.insert("compose_resolve".to_owned(), Value::Object(resolved));
     let stdout = io::stdout();
     let mut stdout = stdout.lock();
     serde_json::to_writer(&mut stdout, &Value::Object(output))?;

@@ -352,6 +352,12 @@ impl ExpandOptions {
     /// forms. Commands run only through [`Document::resolve_with_commands`];
     /// [`Document::resolve`] leaves them as written. The other settings have
     /// the preset values listed on [`ExpandOptions`].
+    ///
+    /// This is an adotenv rules preset, not an exact emulation of the
+    /// `dotenv-expand` package. The conformance corpus pins dotenv-expand
+    /// 1000.0.0 and records its behavior. Known differences include unresolved
+    /// names staying literal here by default and the `:?`/`?` operators
+    /// reporting errors instead of producing empty values.
     #[must_use]
     pub const fn dotenv_expand() -> Self {
         Self {

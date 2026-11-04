@@ -16,6 +16,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   output, plus `DeserializeError::masked`.
 - `adotenv-cli diff --mask`.
 - `ApplyError::DuplicateKey` and `ApplyError::ValueTooLong` for Windows.
+- A pinned `dotenv-expand` 1000.0.0 conformance profile and a curated Compose
+  resolution profile.
 
 ### Changed
 

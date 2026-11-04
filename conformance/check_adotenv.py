@@ -3,8 +3,9 @@
 
 By default run.py first replays every real upstream API and checks expected.json.
 --skip-upstream-replay uses that recorded snapshot for local iteration only.
-No Compose interpolation-off oracle exists: only resolution-insensitive inputs
-(no dollar sign and no controlled lookup environment) are compared here.
+Literal presets use resolution-insensitive inputs. A separate compose_resolve
+probe compares curated Compose interpolation cases against the pinned Compose
+parser observations. No Compose interpolation-off oracle is claimed.
 """
 
 import argparse
@@ -17,6 +18,17 @@ import run as upstream
 
 ROOT = Path(__file__).absolute().parent
 PRESETS = {"portable", "node_dotenv", "python_dotenv", "compose", "docker_raw"}
+RESOLVE_PROFILE = "compose_resolve"
+RESOLUTION_CASES = {
+    "resolution-profile-basic",
+    "resolution-profile-external",
+    "resolution-profile-default",
+    "resolution-profile-nested",
+    "resolution-profile-quotes",
+    "resolution-profile-backslash",
+    "resolution-profile-required",
+    "resolution-profile-operand-dollar",
+}
 PROFILE_PRESETS = {
     "node-parse-regex-string": "node_dotenv",
     "node-parse-regex-buffer": "node_dotenv",
@@ -54,14 +66,15 @@ def validate_expected(expected, snapshot, identifiers):
 
 
 def validate_probe(output, identifiers):
-    if not isinstance(output, dict) or set(output) != PRESETS:
-        raise ValueError("Rust probe must return exactly the five preset objects")
+    if not isinstance(output, dict) or set(output) != PRESETS | {RESOLVE_PROFILE}:
+        raise ValueError("Rust probe must return exactly the five preset objects and compose_resolve")
     for preset, cases in output.items():
         if not isinstance(cases, dict) or set(cases) != identifiers:
             raise ValueError(f"{preset}: Rust probe omitted or invented corpus cases")
         for identifier, result in cases.items():
             label = f"{preset} / {identifier}"
-            if not isinstance(result, dict) or set(result) != {"values", "lines", "error"}:
+            expected_fields = {"values", "error"} if preset == RESOLVE_PROFILE else {"values", "lines", "error"}
+            if not isinstance(result, dict) or set(result) != expected_fields:
                 raise ValueError(f"{label}: malformed Rust probe observation fields")
             if type(result["error"]) is not bool:
                 raise ValueError(f"{label}: error must be boolean")
@@ -70,12 +83,13 @@ def validate_probe(output, identifiers):
                 for key, value in result["values"].items()
             ):
                 raise ValueError(f"{label}: values must map strings to strings or null")
-            if not isinstance(result["lines"], list) or not all(
-                isinstance(line, str) for line in result["lines"]
-            ):
-                raise ValueError(f"{label}: lines must be an array of strings")
-            if preset != "docker_raw" and result["lines"]:
-                raise ValueError(f"{label}: only Docker emits ordered lines")
+            if preset != RESOLVE_PROFILE:
+                if not isinstance(result["lines"], list) or not all(
+                    isinstance(line, str) for line in result["lines"]
+                ):
+                    raise ValueError(f"{label}: lines must be an array of strings")
+                if preset != "docker_raw" and result["lines"]:
+                    raise ValueError(f"{label}: only Docker emits ordered lines")
 
 
 def exclusion_reason(profile):
@@ -141,11 +155,21 @@ def compare(cases, observations, probe):
                   else exclusion_reason(profile) if preset is None else "none")
         reports.append(f"  {profile}: checked={count}, excluded={omitted}, "
                        f"failfast-error-only={errors_only}; exclusions: {reason}")
+    resolution_checked = 0
+    for identifier in sorted(RESOLUTION_CASES):
+        expected = observations["compose-parser-default"][identifier]
+        actual = probe[RESOLVE_PROFILE][identifier]
+        label = f"compose_resolve / {identifier}"
+        equal(label, "error", expected["error"], actual["error"])
+        if not expected["error"]:
+            equal(label, "values", expected["values"], actual["values"])
+        resolution_checked += 1
     print("\n".join(reports))
+    print(f"Resolution observations: checked={resolution_checked}.")
     print(f"Applicable observations: checked={checked}, excluded={excluded}, "
           f"field-comparisons={compared_fields}, failfast-error-only={failfast}.")
-    print(f"Probe coverage: {len(PRESETS)} presets x {len(cases['cases'])} cases; "
-          "Portable has no upstream-equivalence assertion.")
+    print(f"Probe coverage: {len(PRESETS)} literal presets + compose_resolve x "
+          f"{len(cases['cases'])} cases; Portable has no upstream-equivalence assertion.")
     print("Compose applicability is a resolution-insensitive subset of its real default "
           "parser API, NOT an interpolation-off oracle. No loading/inheritance is asserted.")
     for mismatch in mismatches:

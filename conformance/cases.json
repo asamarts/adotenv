@@ -113,7 +113,7 @@
     },
     {
       "id": "unicode-key",
-      "source": "CAFÉ=value\n",
+      "source": "CAF\u00c9=value\n",
       "environment": {}
     },
     {
@@ -138,7 +138,7 @@
     },
     {
       "id": "unicode-whitespace",
-      "source": " A = value \n",
+      "source": "\u00a0A\u00a0=\u00a0value\u00a0\n",
       "environment": {}
     },
     {
@@ -268,17 +268,17 @@
     },
     {
       "id": "bom-leading",
-      "source": "﻿A=one\n",
+      "source": "\ufeffA=one\n",
       "environment": {}
     },
     {
       "id": "bom-double",
-      "source": "﻿﻿A=one\n",
+      "source": "\ufeff\ufeffA=one\n",
       "environment": {}
     },
     {
       "id": "bom-later",
-      "source": "A=one\n﻿B=two\n",
+      "source": "A=one\n\ufeffB=two\n",
       "environment": {}
     },
     {
@@ -400,7 +400,7 @@
     },
     {
       "id": "compose-unsupported-key-tail-space",
-      "source": "A =x\nGOOD=y\n",
+      "source": "A\u1680=x\nGOOD=y\n",
       "environment": {}
     },
     {
@@ -430,7 +430,7 @@
     },
     {
       "id": "bom-multiline",
-      "source": "﻿A=\"one\ntwo\"\n",
+      "source": "\ufeffA=\"one\ntwo\"\n",
       "environment": {}
     },
     {
@@ -446,6 +446,57 @@
     {
       "id": "escaped-quote-tail",
       "source": "A=\"a\\\"b\"tail\n",
+      "environment": {}
+    },
+    {
+      "id": "resolution-profile-basic",
+      "source": "BASE=file\nA=${BASE}\nB=$BASE\n",
+      "environment": {}
+    },
+    {
+      "id": "resolution-profile-external",
+      "source": "A=${BASE}\n",
+      "environment": {
+        "BASE": "external"
+      }
+    },
+    {
+      "id": "resolution-profile-default",
+      "source": "A=${MISSING:-default}\nB=${MISSING-default}\nC=${PRESENT:+alt}\nD=${PRESENT+alt}\n",
+      "environment": {
+        "PRESENT": "yes"
+      }
+    },
+    {
+      "id": "resolution-profile-nested",
+      "source": "BASE=base\nA=${MISSING:-${BASE}}\n",
+      "environment": {}
+    },
+    {
+      "id": "resolution-profile-quotes",
+      "source": "BASE=base\nA=\"${BASE}\"\nB='${BASE}'\nC=${BASE:-x}\n",
+      "environment": {}
+    },
+    {
+      "id": "resolution-profile-backslash",
+      "source": "BASE=base\nA=\\${BASE}\nB=\"\\${BASE}\"\n",
+      "environment": {}
+    },
+    {
+      "id": "resolution-profile-required",
+      "source": "A=${MISSING:?synthetic-required}\n",
+      "environment": {}
+    },
+    {
+      "id": "resolution-profile-operand-dollar",
+      "source": "A=${MISSING:-$HOME}\n",
+      "environment": {
+        "HOME": "home"
+      }
+    },
+    {
+      "id": "resolution-profile-dollar-escape",
+      "source": "BASE=base\nA=$${BASE}\nB=$$BASE\n",
       "environment": {}
     }
   ]

@@ -5,9 +5,12 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const dotenv = require('dotenv')
+const dotenvExpand = require('dotenv-expand')
 const packageVersion = require('dotenv/package.json').version
+const expandVersion = require('dotenv-expand/package.json').version
 
 assert.equal(packageVersion, '18.0.8', 'The oracle requires exactly dotenv 18.0.8')
+assert.equal(expandVersion, '1000.0.0', 'The oracle requires exactly dotenv-expand 1000.0.0')
 
 // Copy own properties into a null-prototype JSON map: inherited names must not
 // disappear, and copying must not manufacture an upstream __proto__ property.
@@ -85,6 +88,21 @@ function loadCase(testCase, override) {
   })
 }
 
+function expandCase(testCase) {
+  return withEnvironment(testCase.environment, () => {
+    // Command substitution is outside this profile; never execute corpus text.
+    if (testCase.source.includes('$(')) return { values: null, error: true }
+    try {
+      const parsed = dotenv.parse(testCase.source)
+      const processEnv = ownValues(testCase.environment)
+      const result = dotenvExpand.expand({ parsed, processEnv })
+      return { values: ownValues(result.parsed), error: false }
+    } catch {
+      return { values: null, error: true }
+    }
+  })
+}
+
 function readCases() {
   const request = JSON.parse(fs.readFileSync(0, 'utf8'))
   assert.ok(request !== null && typeof request === 'object' && Array.isArray(request.cases),
@@ -114,7 +132,8 @@ const operations = {
   'node-parse-fast-string': testCase => parseCase(testCase, true, false),
   'node-parse-fast-buffer': testCase => parseCase(testCase, true, true),
   'node-load-keep': testCase => loadCase(testCase, false),
-  'node-load-override': testCase => loadCase(testCase, true)
+  'node-load-override': testCase => loadCase(testCase, true),
+  'node-dotenv-expand': testCase => expandCase(testCase)
 }
 const profiles = Object.create(null)
 for (const [id, operation] of Object.entries(operations)) {
@@ -123,6 +142,6 @@ for (const [id, operation] of Object.entries(operations)) {
   profiles[id] = observations
 }
 process.stdout.write(JSON.stringify({
-  runtime: { language: process.version, package: packageVersion },
+  runtime: { language: process.version, package: packageVersion, expand_package: expandVersion },
   profiles
 }) + '\n')

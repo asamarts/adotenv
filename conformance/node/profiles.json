@@ -10,7 +10,9 @@
     "https://registry.npmjs.org/dotenv/18.0.8",
     "https://github.com/motdotla/dotenv/blob/e2fe95e8e952e881787d8207b654c80326f821d8/lib/main.js",
     "https://github.com/motdotla/dotenv/blob/e2fe95e8e952e881787d8207b654c80326f821d8/lib/config-options.js",
-    "https://unpkg.com/dotenv@18.0.8/dist/index.cjs"
+    "https://unpkg.com/dotenv@18.0.8/dist/index.cjs",
+    "https://registry.npmjs.org/dotenv-expand/1000.0.0",
+    "https://unpkg.com/dotenv-expand@1000.0.0/dist/lib/main.js"
   ],
   "notes": [
     "The installed published CommonJS entry point is used, with its package version asserted at startup.",
@@ -20,48 +22,81 @@
     "Object key enumeration is not declaration order. Duplicate declarations have already collapsed in the upstream result.",
     "Buffers are constructed with Buffer.from(case.source, 'utf8'). Source files are written as UTF-8 with no added BOM, newline translation, or trailing newline. dotenv itself normalizes CRLF and CR to LF.",
     "Each loading call creates and removes its own temporary directory in finally. The temporary root is obtained with an empty environment so case TMPDIR and ambient defaults cannot select it. No file discovery, multiple-file loading, populate-only profile, or stream API is used.",
-    "Only upstream returned operational errors are observations: error is null or contains exposed stable name/code strings (null when unavailable), never human messages or temporary paths. Adapter failures remain nonzero errors."
+    "Only upstream returned operational errors are observations: error is null or contains exposed stable name/code strings (null when unavailable), never human messages or temporary paths. Adapter failures remain nonzero errors.",
+    "dotenv-expand 1000.0.0 is installed from the lock file. The node-dotenv-expand profile records expansion with a controlled processEnv; command-substitution sources are marked as errors without execution."
   ],
   "profiles": [
     {
       "id": "node-parse-regex-string",
       "stage": "literal",
       "api": "dotenv.parse",
-      "options": { "fast": false },
+      "options": {
+        "fast": false
+      },
       "input_kind": "string",
       "file_role": "literal text",
-      "capabilities": { "ordered_bindings": false, "diagnostics": "none", "interpolation": false },
-      "notes": ["Pass case.source directly as the first argument."]
+      "capabilities": {
+        "ordered_bindings": false,
+        "diagnostics": "none",
+        "interpolation": false
+      },
+      "notes": [
+        "Pass case.source directly as the first argument."
+      ]
     },
     {
       "id": "node-parse-regex-buffer",
       "stage": "literal",
       "api": "dotenv.parse",
-      "options": { "fast": false },
+      "options": {
+        "fast": false
+      },
       "input_kind": "buffer",
       "file_role": "literal UTF-8 bytes",
-      "capabilities": { "ordered_bindings": false, "diagnostics": "none", "interpolation": false },
-      "notes": ["Pass Buffer.from(case.source, 'utf8') as the first argument; dotenv decodes the buffer."]
+      "capabilities": {
+        "ordered_bindings": false,
+        "diagnostics": "none",
+        "interpolation": false
+      },
+      "notes": [
+        "Pass Buffer.from(case.source, 'utf8') as the first argument; dotenv decodes the buffer."
+      ]
     },
     {
       "id": "node-parse-fast-string",
       "stage": "literal",
       "api": "dotenv.parse",
-      "options": { "fast": true },
+      "options": {
+        "fast": true
+      },
       "input_kind": "string",
       "file_role": "literal text",
-      "capabilities": { "ordered_bindings": false, "diagnostics": "none", "interpolation": false },
-      "notes": ["Pass case.source directly as the first argument; execute the fast scanner independently of regex profiles."]
+      "capabilities": {
+        "ordered_bindings": false,
+        "diagnostics": "none",
+        "interpolation": false
+      },
+      "notes": [
+        "Pass case.source directly as the first argument; execute the fast scanner independently of regex profiles."
+      ]
     },
     {
       "id": "node-parse-fast-buffer",
       "stage": "literal",
       "api": "dotenv.parse",
-      "options": { "fast": true },
+      "options": {
+        "fast": true
+      },
       "input_kind": "buffer",
       "file_role": "literal UTF-8 bytes",
-      "capabilities": { "ordered_bindings": false, "diagnostics": "none", "interpolation": false },
-      "notes": ["Pass Buffer.from(case.source, 'utf8') as the first argument; execute the fast scanner independently of regex profiles."]
+      "capabilities": {
+        "ordered_bindings": false,
+        "diagnostics": "none",
+        "interpolation": false
+      },
+      "notes": [
+        "Pass Buffer.from(case.source, 'utf8') as the first argument; execute the fast scanner independently of regex profiles."
+      ]
     },
     {
       "id": "node-load-keep",
@@ -78,8 +113,15 @@
       },
       "input_kind": "file",
       "file_role": "application dotenv file",
-      "capabilities": { "ordered_bindings": false, "diagnostics": "none", "interpolation": false, "operational_error": "name-and-code" },
-      "notes": ["Return the actual parsed map and final target environment; existing target keys win. All environment-driven configuration defaults are explicitly overridden."]
+      "capabilities": {
+        "ordered_bindings": false,
+        "diagnostics": "none",
+        "interpolation": false,
+        "operational_error": "name-and-code"
+      },
+      "notes": [
+        "Return the actual parsed map and final target environment; existing target keys win. All environment-driven configuration defaults are explicitly overridden."
+      ]
     },
     {
       "id": "node-load-override",
@@ -96,8 +138,41 @@
       },
       "input_kind": "file",
       "file_role": "application dotenv file",
-      "capabilities": { "ordered_bindings": false, "diagnostics": "none", "interpolation": false, "operational_error": "name-and-code" },
-      "notes": ["Return the actual parsed map and final target environment; parsed values replace existing target keys. All environment-driven configuration defaults are explicitly overridden."]
+      "capabilities": {
+        "ordered_bindings": false,
+        "diagnostics": "none",
+        "interpolation": false,
+        "operational_error": "name-and-code"
+      },
+      "notes": [
+        "Return the actual parsed map and final target environment; parsed values replace existing target keys. All environment-driven configuration defaults are explicitly overridden."
+      ]
+    },
+    {
+      "id": "node-dotenv-expand",
+      "stage": "resolution",
+      "api": "dotenv-expand.expand",
+      "options": {
+        "processEnv": "fresh own-key copy of case.environment",
+        "command_substitution": "not executed",
+        "encrypted_values": "not enabled"
+      },
+      "input_kind": "string",
+      "file_role": "application dotenv text",
+      "capabilities": {
+        "ordered_bindings": false,
+        "diagnostics": "none",
+        "interpolation": true,
+        "command_substitution": false
+      },
+      "notes": [
+        "Pinned dotenv-expand 1000.0.0 resolves dotenv.parse output against the controlled environment. Sources containing command substitution are observed as errors without execution. This profile is recorded but not compared to an adotenv preset."
+      ]
     }
-  ]
+  ],
+  "expand_version": "1000.0.0",
+  "expand_artifact": {
+    "url": "https://registry.npmjs.org/dotenv-expand/-/dotenv-expand-1000.0.0.tgz",
+    "integrity": "sha512-3T4TtUjXm5iGKFEirqKjcDJ0EheFJbv9peb5xytC+HNu3l5Ygnu4dYE8yeqkppHMsh1If9C/A//EJu7IPtNu+A=="
+  }
 }
