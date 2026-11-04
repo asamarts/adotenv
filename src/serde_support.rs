@@ -26,7 +26,8 @@ use crate::{Document, Mask, REDACTED};
 /// [`key`](Self::key) locate the problem:
 ///
 /// - A value that does not convert has the one-based line of its declaration
-///   and its key.
+///   and its key. A value consumed through `#[serde(flatten)]` is decoded
+///   after map access; serde then reports line `0` and no key for that value.
 /// - A key that does not convert, such as an unknown field under
 ///   `#[serde(deny_unknown_fields)]`, has the line of its declaration and an
 ///   empty key, `Some("")`. Keys are always passed as strings, so any key read
@@ -123,8 +124,8 @@ impl DeserializeError {
     /// unknown.
     ///
     /// The line is `0` for an error about the whole map, such as a missing
-    /// field, and for any error from a loaded environment loaded without
-    /// origins.
+    /// field, for a value consumed through `#[serde(flatten)]`, and for any
+    /// error from a loaded environment loaded without origins.
     #[must_use]
     pub const fn line(&self) -> usize {
         self.line
@@ -132,7 +133,8 @@ impl DeserializeError {
     /// Returns the key of the declaration whose value did not convert.
     ///
     /// Returns `Some("")` when the key itself did not convert, and `None` for
-    /// an error about the whole map.
+    /// an error about the whole map or a value consumed through
+    /// `#[serde(flatten)]`.
     #[must_use]
     pub fn key(&self) -> Option<&str> {
         self.key.as_deref()
@@ -242,7 +244,9 @@ impl Document<'_> {
     ///
     /// Returns a [`DeserializeError`] if a value or key does not convert, or if
     /// the target type rejects the map, for example because a required field
-    /// is missing. A value error names the key and the line of its declaration.
+    /// is missing. A value error names the key and the line of its declaration,
+    /// except for a value consumed through `#[serde(flatten)]`: serde decodes
+    /// those after map access and reports line `0` and no key.
     ///
     /// # Examples
     ///
@@ -289,7 +293,8 @@ impl LoadedEnvironment {
     ///
     /// Returns a [`DeserializeError`] if a value or key does not convert, or if
     /// the target type rejects the map, for example because a required field
-    /// is missing.
+    /// is missing. A value consumed through `#[serde(flatten)]` reports line
+    /// `0` and no key.
     ///
     /// # Examples
     ///

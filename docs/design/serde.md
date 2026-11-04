@@ -94,6 +94,9 @@ accept a string, such as `String`, work there.
   reports its line and an empty key, `Some("")`.
 - An error about the whole map, such as a missing field, has line `0` and no
   key.
+- A value consumed through `#[serde(flatten)]` is decoded after map access;
+  serde reports line `0` and no key for that value. The message still describes
+  the conversion failure.
 
 The `Display` form is `line {line}: {message} (key "{key}")`, without the
 `line` part when the line is `0` and without the `key` part when there is no
