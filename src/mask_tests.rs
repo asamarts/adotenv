@@ -2,7 +2,7 @@ use alloc::format;
 #[cfg(feature = "serde")]
 use alloc::string::ToString;
 
-use crate::{mask, parse_strict, Comparison, ExpandOptions, ExpandScope, FormatOptions};
+use crate::{mask, parse_strict, Comparison, ExpandOptions, FormatOptions};
 
 #[test]
 fn document_entry_item_and_edits_mask_values() {
@@ -104,6 +104,8 @@ fn resolution_masks_values_and_command_output() {
 #[test]
 fn loaded_environment_masks_values() {
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use crate::ExpandScope;
 
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let directory = std::env::temp_dir().join(format!(
