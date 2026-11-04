@@ -115,7 +115,12 @@ fn loaded_environment_masks_values() {
     ));
     std::fs::create_dir_all(&directory).unwrap();
     std::fs::write(directory.join(".env"), "TOKEN=secret\n").unwrap();
-    let loaded = crate::load::load_cascade(&directory, "").unwrap();
+    let loaded = crate::load::load_cascade_with_options(
+        &directory,
+        "",
+        crate::load::LoadOptions::full(crate::Dialect::PORTABLE),
+    )
+    .unwrap();
     let debug = format!("{:?}", mask(&loaded));
     assert!(!debug.contains("secret"));
     assert!(debug.contains("LoadedEnvironment"));
@@ -228,4 +233,45 @@ fn command_and_failure_masks_keep_labels_and_hide_messages() {
     let masked_error = format!("{:?}", mask(&failure.error));
     assert!(masked_error.contains("ResolveError"), "{masked_error}");
     assert!(!masked_error.contains("secret-required-message"));
+}
+
+#[test]
+fn portability_reports_mask_declaration_values() {
+    let doc = parse_strict(
+        "TOKEN=secret
+TAG=v1#beta
+",
+    )
+    .unwrap();
+    let report = doc.portability(&[crate::Dialect::NODE_DOTENV]);
+    let debug = format!("{:?}", mask(&report));
+    assert!(debug.contains("PortabilityReport"), "{debug}");
+    assert!(!debug.contains("secret"), "{debug}");
+    assert!(!debug.contains("v1#beta"), "{debug}");
+}
+
+#[cfg(feature = "load")]
+#[test]
+fn loaded_entries_mask_values() {
+    let directory = std::env::temp_dir().join(format!(
+        "adotenv-mask-entry-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(directory.join(".env"), "TOKEN=secret\n").unwrap();
+    let loaded = crate::load::load_cascade_with_options(
+        &directory,
+        "",
+        crate::load::LoadOptions::full(crate::Dialect::PORTABLE),
+    )
+    .unwrap();
+    let entry = loaded.entries().next().unwrap();
+    let debug = format!("{:?}", mask(&entry));
+    assert!(debug.contains("LoadedEntry"), "{debug}");
+    assert!(!debug.contains("secret"), "{debug}");
+    std::fs::remove_dir_all(&directory).unwrap();
 }

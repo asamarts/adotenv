@@ -36,10 +36,10 @@ pub(crate) const MAX_DIAGNOSTICS: usize = 10_000;
 /// [`ItemKind::Invalid`] item and reported in the returned diagnostics, and
 /// parsing recovers at the smallest safe boundary, usually the end of the
 /// line, so one broken line does not hide the rest of the file. Diagnostics of
-/// every [`Severity`] are returned, ordered by their position in the source,
-/// up to a budget of 10,000. If more are found, later warnings are omitted,
-/// the first omitted error is kept, and the last entry is
-/// [`DiagnosticCode::TooManyDiagnostics`]. The document borrows `source`;
+/// every [`Severity`] are returned, ordered by their position in the source.
+/// At most 10,000 ordinary diagnostics are kept; if more are found, later
+/// warnings are omitted, the first omitted error is kept, and the last entry
+/// is [`DiagnosticCode::TooManyDiagnostics`]. The document borrows `source`;
 /// values are literal and nothing is expanded, read from files or taken from
 /// the environment.
 ///
@@ -1463,8 +1463,7 @@ impl<const D: bool> Parser<'_, D> {
                     }
                     invalid = Some(diagnostic);
                 } else if D && dialect.syntax == Syntax::Portable {
-                    self.diagnostics
-                        .push(Diagnostic::new(DiagnosticCode::BareKey, key_span, line));
+                    self.push_diagnostic(Diagnostic::new(DiagnosticCode::BareKey, key_span, line));
                 }
                 (AssignmentState::Bare, None, Vec::new())
             }

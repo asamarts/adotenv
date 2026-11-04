@@ -133,42 +133,37 @@ fn run(args: &[String]) -> u8 {
 }
 
 fn extract_dialect(args: &mut Vec<String>) -> Result<Dialect, ()> {
-    let limit = args
-        .iter()
-        .position(|arg| arg == "--")
-        .unwrap_or(args.len());
+    // Global dialect options may appear before the command, or immediately
+    // after it before the command's first positional argument. Stopping at
+    // the first positional keeps `set file KEY --dialect=node` and similar
+    // values intact.
     let mut selected = None;
     let mut index = 0;
-    while index < limit {
-        let (end, value) = if args[index] == "--dialect" {
-            if index + 1 >= limit {
-                errln!("--dialect requires a value");
+    while index < args.len() {
+        if let Some((end, value)) = dialect_option(args, index)? {
+            if selected.replace((index, end, value)).is_some() {
+                errln!("--dialect may be specified only once");
                 return Err(());
             }
-            (index + 2, args[index + 1].as_str())
-        } else if let Some(value) = args[index].strip_prefix("--dialect=") {
-            (index + 1, value)
+            index = end;
         } else {
-            index += 1;
-            continue;
-        };
-        if selected.is_some() {
-            errln!("--dialect may be specified only once");
-            return Err(());
+            break;
         }
-        let dialect = match value {
-            "portable" => Dialect::PORTABLE,
-            "node" => Dialect::NODE_DOTENV,
-            "python" => Dialect::PYTHON_DOTENV,
-            "compose" => Dialect::COMPOSE,
-            "docker" | "docker-raw" => Dialect::DOCKER_RAW,
-            other => {
-                errln!("unknown dialect: {other}");
-                return Err(());
+    }
+    let command = index;
+    if command < args.len() {
+        index = command + 1;
+        while index < args.len() {
+            if let Some((end, value)) = dialect_option(args, index)? {
+                if selected.replace((index, end, value)).is_some() {
+                    errln!("--dialect may be specified only once");
+                    return Err(());
+                }
+                index = end;
+            } else {
+                break;
             }
-        };
-        selected = Some((index, end, dialect));
-        index = end;
+        }
     }
     if let Some((start, end, dialect)) = selected {
         args.drain(start..end);
@@ -176,6 +171,32 @@ fn extract_dialect(args: &mut Vec<String>) -> Result<Dialect, ()> {
     } else {
         Ok(Dialect::PORTABLE)
     }
+}
+
+fn dialect_option(args: &[String], index: usize) -> Result<Option<(usize, Dialect)>, ()> {
+    let (end, value) = if args[index] == "--dialect" {
+        if index + 1 >= args.len() {
+            errln!("--dialect requires a value");
+            return Err(());
+        }
+        (index + 2, args[index + 1].as_str())
+    } else if let Some(value) = args[index].strip_prefix("--dialect=") {
+        (index + 1, value)
+    } else {
+        return Ok(None);
+    };
+    let dialect = match value {
+        "portable" => Dialect::PORTABLE,
+        "node" => Dialect::NODE_DOTENV,
+        "python" => Dialect::PYTHON_DOTENV,
+        "compose" => Dialect::COMPOSE,
+        "docker" | "docker-raw" => Dialect::DOCKER_RAW,
+        other => {
+            errln!("unknown dialect: {other}");
+            return Err(());
+        }
+    };
+    Ok(Some((end, dialect)))
 }
 const USAGE: &str = r#"adotenv-cli [--dialect <portable|node|python|compose|docker>] [--dialect=<value>] <command> [options]
 
@@ -1190,6 +1211,7 @@ struct MatrixRows {
     keys: Vec<String>,
     rows: Vec<Vec<String>>,
     seen: BTreeSet<String>,
+    pushed: usize,
 }
 
 impl MatrixRows {
@@ -1198,12 +1220,14 @@ impl MatrixRows {
             keys: Vec::new(),
             rows: Vec::new(),
             seen: BTreeSet::new(),
+            pushed: 0,
         }
     }
 
     fn push(&mut self, document: &Document<'_>, mask: bool) {
         let (keys, values) = matrix_column(document, mask);
-        let prior_columns = self.rows.first().map_or(0, Vec::len);
+        let prior_columns = self.pushed;
+        self.pushed += 1;
         for (key, row) in self.keys.iter().zip(self.rows.iter_mut()) {
             row.push(
                 values
@@ -1451,6 +1475,10 @@ fn load(args: &[String], dialect: Dialect) -> u8 {
         errln!("{error}");
         return FAILURE;
     }
+    if is_stdin(&args[0]) {
+        errln!("load does not read standard input");
+        return FAILURE;
+    }
     let mode = args.get(1).map_or("", String::as_str);
     if let Err(error) = reject_unknown_option(mode) {
         errln!("{error}");
@@ -1543,6 +1571,10 @@ fn run_command(args: &[String], dialect: Dialect) -> u8 {
             errln!("{error}");
             return FAILURE;
         }
+    }
+    if is_stdin(&args[0]) {
+        errln!("run does not read standard input");
+        return FAILURE;
     }
     let directory = &args[0];
     let mode = args
@@ -1683,22 +1715,35 @@ static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
 /// under the common 255-byte NAME_MAX limit.
 const TEMP_STEM_BYTES: usize = 160;
 
-#[cfg(unix)]
-type FileIdentity = (u64, u64);
-
-#[cfg(not(unix))]
-type FileIdentity = ();
-
-#[cfg(unix)]
-fn file_identity(path: &Path) -> io::Result<FileIdentity> {
-    use std::os::unix::fs::MetadataExt;
-    let metadata = fs::metadata(path)?;
-    Ok((metadata.dev(), metadata.ino()))
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FileIdentity {
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    #[cfg(unix)]
+    dev: u64,
+    #[cfg(unix)]
+    ino: u64,
 }
 
-#[cfg(not(unix))]
-fn file_identity(_path: &Path) -> io::Result<FileIdentity> {
-    Ok(())
+fn file_identity(path: &Path) -> io::Result<FileIdentity> {
+    let metadata = fs::metadata(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(FileIdentity {
+            len: metadata.len(),
+            modified: metadata.modified().ok(),
+            dev: metadata.dev(),
+            ino: metadata.ino(),
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(FileIdentity {
+            len: metadata.len(),
+            modified: metadata.modified().ok(),
+        })
+    }
 }
 
 /// Resolve the write target once, before reading, and capture its identity.
@@ -1708,6 +1753,13 @@ fn file_identity(_path: &Path) -> io::Result<FileIdentity> {
 /// are compared again just before the replace.
 fn resolve_write(path: &Path) -> io::Result<(PathBuf, FileIdentity)> {
     let target = fs::canonicalize(path)?;
+    let metadata = fs::metadata(&target)?;
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "path is not a regular file",
+        ));
+    }
     let identity = file_identity(&target)?;
     Ok((target, identity))
 }
@@ -1717,7 +1769,9 @@ fn write_atomic_checked(path: &Path, contents: &str, identity: FileIdentity) -> 
 }
 
 /// Fail unless `path` still names the resolved regular file whose identity was
-/// captured before the read.
+/// captured before the read. The identity includes size and modification time
+/// as well as device and inode on Unix, so an in-place rewrite is detected
+/// when the file system advances the timestamp.
 fn check_target(path: &Path, expected: FileIdentity) -> io::Result<()> {
     let metadata = fs::symlink_metadata(path)?;
     if metadata.file_type().is_symlink() || file_identity(path)? != expected {
@@ -1823,7 +1877,7 @@ fn create_temporary(parent: &Path, name: &std::ffi::OsStr) -> io::Result<(PathBu
     let stem = &name[..stem_end];
     for _ in 0..16 {
         let candidate = parent.join(format!(
-            ".{stem}.adotenv-{}-{}",
+            ".adotenv-tmp-{}-{}-{stem}",
             std::process::id(),
             NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
         ));
@@ -1990,10 +2044,10 @@ fn backup_existing(path: &Path) -> io::Result<Option<PathBuf>> {
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
     for _ in 0..16 {
         let candidate = parent.join(format!(
-            ".{}.adotenv-backup-{}-{}",
-            name.to_string_lossy(),
+            ".adotenv-backup-{}-{}-{}",
             std::process::id(),
-            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed),
+            name.to_string_lossy()
         ));
         match fs::rename(path, &candidate) {
             Ok(()) => return Ok(Some(candidate)),
@@ -2045,6 +2099,11 @@ fn read_text<P: AsRef<Path>>(path: P) -> Result<String, String> {
             .map_err(|error| format!("-: {error}"))?;
         bytes
     } else {
+        let metadata =
+            fs::metadata(path).map_err(|error| format!("{}: {error}", path.display()))?;
+        if !metadata.is_file() {
+            return Err(format!("{}: path is not a regular file", path.display()));
+        }
         fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?
     };
     String::from_utf8(bytes).map_err(|_| format!("{}: invalid UTF-8", path.display()))
@@ -2059,7 +2118,7 @@ fn fail(message: String) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::{
-        create_temporary, github_escape_data, github_escape_property, json_string,
+        create_temporary, github_escape_data, github_escape_property, json_string, read_text,
         write_atomic_inner, NEXT_TEMP,
     };
     #[cfg(unix)]
@@ -2231,6 +2290,30 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn checked_write_rejects_an_in_place_change() {
+        let directory = std::env::temp_dir().join(format!(
+            "adotenv-write-identity-{}-{}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let target = directory.join("app.env");
+        std::fs::write(&target, "A=1\n").unwrap();
+        let (target, identity) = resolve_write(&target).unwrap();
+        std::fs::write(&target, "A=1\nB=2\n").unwrap();
+        assert!(write_atomic_checked(&target, "A=3\n", identity).is_err());
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_regular_inputs_are_rejected_without_reading() {
+        assert!(read_text("/dev/null").is_err());
+        assert!(resolve_write(std::path::Path::new("/dev/null")).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn temporary_files_are_private_before_content_is_written() {
         use super::create_temporary;
         use std::os::unix::fs::PermissionsExt;
@@ -2245,6 +2328,12 @@ mod tests {
             create_temporary(&directory, std::ffi::OsStr::new("app.env")).unwrap();
         let mode = file.metadata().unwrap().permissions().mode() & 0o777;
         assert_eq!(file.metadata().unwrap().len(), 0);
+        assert!(temporary.exists());
+        assert!(!temporary
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with(".env."));
         drop(file);
         std::fs::remove_dir_all(&directory).unwrap();
         assert!(!temporary.exists());

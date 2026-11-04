@@ -1,6 +1,6 @@
 use crate::{
-    parse, remove, set, AssignmentState, DiagnosticCode, Edit, EditError, InsertPosition, ItemKind,
-    Quote, TextEdit,
+    parse, parse_with, remove, set, AssignmentState, DiagnosticCode, Edit, EditError,
+    InsertPosition, ItemKind, Quote, TextEdit,
 };
 use alloc::{
     format,
@@ -79,6 +79,21 @@ fn empty_and_bare_assignments_preserve_comment_separation() {
     assert_eq!(set("A", "A", "").unwrap(), "A=");
     assert_eq!(set("A=", "A", "x").unwrap(), "A=x");
     assert_eq!(set("A # retained", "A", "").unwrap(), "A= # retained");
+}
+
+#[test]
+fn setting_empty_does_not_grow_a_directly_attached_comment() {
+    for (dialect, source) in [
+        (crate::Dialect::PORTABLE, "PORT=#note\n"),
+        (crate::Dialect::PYTHON_DOTENV, "PORT=#note\n"),
+        (crate::Dialect::NODE_DOTENV, "PORT=#note\n"),
+    ] {
+        let (doc, _) = parse_with(source, dialect);
+        let once = doc.set("PORT", "").unwrap();
+        let (again, _) = parse_with(once.as_str(), dialect);
+        let twice = again.set("PORT", "").unwrap();
+        assert_eq!(once.as_str(), twice.as_str(), "{dialect:?}");
+    }
 }
 
 #[test]
@@ -1113,4 +1128,12 @@ fn set_keeps_a_key_that_is_only_a_bom() {
     assert_eq!(result.as_str(), "# c\n\u{feff}=new\n");
     let (after, _) = crate::parse_with(result.as_str(), dialect);
     assert_eq!(after.get("\u{feff}"), Some("new"));
+}
+
+#[test]
+fn uncommenting_an_ignored_statement_is_rejected() {
+    let (doc, _) = parse_with("# BAD KEY=secret\n", crate::Dialect::NODE_DOTENV);
+    assert_eq!(doc.uncomment(0), Err(EditError::WouldChangeMeaning));
+    let (doc, _) = parse_with("# A=1\n", crate::Dialect::NODE_DOTENV);
+    assert_eq!(doc.uncomment(0).unwrap().as_str(), "A=1\n");
 }

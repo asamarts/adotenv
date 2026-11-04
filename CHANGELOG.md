@@ -48,11 +48,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `parse` applies the diagnostic budget to bare-key warnings too.
+- Resolution's depth limit now also bounds delimiter-matching records, so a
+  deeply nested value fails instead of retaining a record per nesting level.
+- `Document::set` no longer adds a space before an attached inline comment on
+  every empty-value edit.
+- `Document::format` plans quote changes after spacing, trimming and final
+  newline edits, so a byte-capped dialect is idempotent.
+- Uncommenting an ignored statement is rejected as a meaning change.
+- `diff --format matrix` pads a missing baseline when the first document has
+  no keys.
+- Temporary and backup names use a neutral `.adotenv-*` prefix, so recursive
+  discovery cannot treat them as `.env.*` files.
+- Named input paths must be regular files; FIFOs and devices are rejected
+  before a read or write.
+- `--dialect` is no longer consumed from a command's positional key or value.
+- `load` and `run` reject `-`/`--stdin` as a directory.
+- Cascade loading reports a dangling `.env.*` symlink instead of treating it
+  as an absent optional file.
+- `resolve_decoded` keeps a leading U+FEFF in a key that contains an
+  apostrophe.
+- `Mask` now covers loaded entries, portability reports and their nested
+  reading/declaration types.
+- Escaped `$` inside a command is ineligible even when the containing value is
+  double-quoted, matching the documented command grammar.
 - `fmt --write` and `set` resolve the write target once before reading and
-  check its device and inode again before replacing it on Unix. A symbolic
-  link swapped after the read can no longer redirect the write, and a target
-  replaced while it is being formatted fails with "file changed after it was
-  read".
+  check its device, inode, size and modification time again before replacing
+  it. A symbolic link swap or in-place rewrite after the read fails instead of
+  silently replacing the file; this is a best-effort check against concurrent
+  writers.
 
 ## [1.1.2] - 2026-11-02
 

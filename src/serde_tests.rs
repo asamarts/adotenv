@@ -413,3 +413,32 @@ fn bytes_byte_buffers_identifiers_and_unit_structs_deserialize() {
     assert_eq!(values.identifier, Identifier("name".to_string()));
     assert_eq!(values.unit, Unit);
 }
+
+#[test]
+fn untagged_string_compatible_enums_follow_serde_fallback() {
+    #[derive(Debug, Deserialize, PartialEq)]
+    #[serde(untagged)]
+    enum Value {
+        Number(u16),
+        Text(String),
+    }
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct Config {
+        value: Value,
+    }
+
+    let doc = parse_strict("value=8080\n").unwrap();
+    assert_eq!(
+        doc.deserialize::<Config>().unwrap(),
+        Config {
+            value: Value::Text("8080".to_string())
+        }
+    );
+    let doc = parse_strict("value=hello\n").unwrap();
+    assert_eq!(
+        doc.deserialize::<Config>().unwrap(),
+        Config {
+            value: Value::Text("hello".to_string())
+        }
+    );
+}

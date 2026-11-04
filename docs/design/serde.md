@@ -71,8 +71,10 @@ text. Each value converts like this:
 An empty value is still present: `PORT=` into `Option<u16>` is an error, not
 `None`. Sequences, nested maps and structs, tuples and enums are rejected,
 including enums with only unit variants and `Vec<u8>`, which Serde reads as a
-sequence. Deserialize a `String` and convert it yourself when a field needs
-another shape.
+sequence. Untagged enums are the exception: Serde buffers the string and can
+choose a string-compatible variant, so `value=hello` may deserialize as
+`Text("hello")`. Deserialize a `String` and convert it yourself when a field
+needs another shape.
 
 Map keys are passed as strings, so a map with non-string keys, such as
 `BTreeMap<u16, String>`, fails even for a key like `8080`. Fields inside

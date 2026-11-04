@@ -571,19 +571,23 @@ impl Entry<'_> {
         if let Some(tail) = tail {
             pending.push((tail, Quote::None, Level::TOP, true));
         }
+        let closes = Closes {
+            limit: max_depth.checked_add(2).filter(|_| max_depth != usize::MAX),
+            ..Closes::default()
+        };
         let mut scanner = Scanner {
             source,
             dialect,
             max_depth,
             references: Vec::new(),
             pending,
-            closes: Closes::default(),
+            closes,
             max_references,
             exceeded: false,
         };
         while let Some((range, quote, level, backslash_escapes)) = scanner.pending.pop() {
             scanner.scan(&range, quote, level, backslash_escapes);
-            if scanner.exceeded {
+            if scanner.exceeded || scanner.closes.exceeded {
                 return None;
             }
         }
@@ -708,6 +712,9 @@ impl Scanner<'_> {
             if at + 1 < range.end && bytes[at + 1] == b'{' {
                 let (reference, nested) =
                     braced(source, range, at, quote, escaped, level, &mut self.closes);
+                if self.closes.exceeded {
+                    return;
+                }
                 let end = reference.span.end;
                 let inner = level.inside(self.references.len(), &reference);
                 if !self.record(reference) {
@@ -722,6 +729,9 @@ impl Scanner<'_> {
             if at + 1 < range.end && bytes[at + 1] == b'(' {
                 let (reference, nested) =
                     command(source, range, at, quote, escaped, level, &mut self.closes);
+                if self.closes.exceeded {
+                    return;
+                }
                 let end = reference.span.end;
                 let inner = level.inside(self.references.len(), &reference);
                 if !self.record(reference) {
@@ -783,6 +793,10 @@ struct Closes {
     forms: BTreeMap<usize, Close>,
     /// Literal brace or parenthesis groups, keyed by the opening delimiter.
     literal: BTreeMap<usize, Close>,
+    /// Maximum delimiter nesting kept while scanning, or `None` unbounded.
+    limit: Option<usize>,
+    /// Set when the delimiter scan exceeded `limit`.
+    exceeded: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -801,6 +815,18 @@ impl Close {
             Some(_) => Some((None, end)),
             None if self.bound >= end => Some((None, end)),
             None => None,
+        }
+    }
+}
+
+impl Closes {
+    /// Report whether another open delimiter would exceed the scan budget.
+    fn too_deep(&mut self, depth: usize) -> bool {
+        if self.limit.is_some_and(|limit| depth > limit) {
+            self.exceeded = true;
+            true
+        } else {
+            false
         }
     }
 }
@@ -942,9 +968,13 @@ fn literal_balanced(
     end: usize,
     open: u8,
     close: u8,
-    closes: &mut BTreeMap<usize, Close>,
+    closes: &mut Closes,
 ) -> (Option<usize>, usize) {
-    if let Some(known) = closes.get(&(start - 1)).and_then(|known| known.within(end)) {
+    if let Some(known) = closes
+        .literal
+        .get(&(start - 1))
+        .and_then(|known| known.within(end))
+    {
         return known;
     }
     let bytes = source.as_bytes();
@@ -981,13 +1011,16 @@ fn literal_balanced(
                     at += 1;
                 }
                 byte if byte == open => {
+                    if closes.too_deep(stack.len() + 1) {
+                        return (None, end);
+                    }
                     stack.push(at);
                     at += 1;
                 }
                 byte if byte == close => {
                     let opened = stack.pop().expect("an open group is pending");
                     record(
-                        closes,
+                        &mut closes.literal,
                         opened,
                         Close {
                             at: Some(at),
@@ -1005,7 +1038,7 @@ fn literal_balanced(
     }
     for opened in stack {
         record(
-            closes,
+            &mut closes.literal,
             opened,
             Close {
                 at: None,
@@ -1016,6 +1049,7 @@ fn literal_balanced(
     (None, end)
 }
 
+#[allow(clippy::too_many_lines)]
 fn matching_delimited(
     source: &str,
     start: usize,
@@ -1072,7 +1106,7 @@ fn matching_delimited(
             }
             None => match bytes[at] {
                 b'\\' if bytes.get(at + 1) == Some(&b'$') => {
-                    at = skip_escaped_form(source, at + 2, end, &mut closes.literal);
+                    at = skip_escaped_form(source, at + 2, end, closes);
                 }
                 b'\\' => at = at.saturating_add(2),
                 b'\'' => {
@@ -1084,14 +1118,23 @@ fn matching_delimited(
                     at += 1;
                 }
                 b'$' if bytes.get(at + 1) == Some(&b'{') => {
+                    if closes.too_deep(stack.len() + 1) {
+                        return (None, end);
+                    }
                     stack.push((Delimiter::Brace, Some(at)));
                     at += 2;
                 }
                 b'$' if bytes.get(at + 1) == Some(&b'(') => {
+                    if closes.too_deep(stack.len() + 1) {
+                        return (None, end);
+                    }
                     stack.push((Delimiter::Paren, Some(at)));
                     at += 2;
                 }
                 b'(' if top(&stack) == Some(Delimiter::Paren) => {
+                    if closes.too_deep(stack.len() + 1) {
+                        return (None, end);
+                    }
                     stack.push((Delimiter::Paren, None));
                     at += 1;
                 }
@@ -1128,12 +1171,7 @@ fn matching_delimited(
 
 /// Skip the literal group of an escaped `\${` or `\$(` form whose opening
 /// delimiter, if any, is at `at`; returns where scanning resumes.
-fn skip_escaped_form(
-    source: &str,
-    at: usize,
-    end: usize,
-    closes: &mut BTreeMap<usize, Close>,
-) -> usize {
+fn skip_escaped_form(source: &str, at: usize, end: usize, closes: &mut Closes) -> usize {
     let (open, close) = match source.as_bytes().get(at) {
         Some(b'{') => (b'{', b'}'),
         Some(b'(') => (b'(', b')'),
@@ -1188,7 +1226,7 @@ fn escaped_at(
     let backslash = mode.backslash
         && backslashes % 2 == 1
         && ((quote == Quote::Double && dialect.double_escapes.contains(DoubleEscapes::DOLLAR))
-            || (quote == Quote::None && mode.nested));
+            || mode.nested);
     let dollar = dialect.syntax == Syntax::Compose && (dollars + 1) % 2 == 0;
     backslash || dollar
 }

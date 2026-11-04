@@ -685,3 +685,37 @@ fn unquoted_quote_style_does_not_mix_with_other_rewrites() {
     assert_eq!(formatted.as_str(), "A = \"simple\"\n");
     assert!(formatted.as_str().contains("\"simple\""));
 }
+
+#[test]
+fn quote_planning_is_idempotent_when_other_rules_shorten_the_line() {
+    let dialect = Dialect {
+        line_byte_limit: Some(11),
+        ..Dialect::PORTABLE
+    };
+    let options = FormatOptions {
+        quote_style: QuoteStyle::Double,
+        ..options(EqualsSpacing::None, false, FinalNewline::Preserve)
+    };
+    let doc = parse_with("PORT =8080\n", dialect).0;
+    let first = doc.format(&options).unwrap();
+    assert_eq!(first.as_str(), "PORT=\"8080\"\n");
+    let (again, _) = parse_with(first.as_str(), dialect);
+    assert_eq!(again.format(&options).unwrap().as_str(), first.as_str());
+}
+
+#[test]
+fn quote_planning_is_idempotent_after_trailing_whitespace_trimming() {
+    let dialect = Dialect {
+        line_byte_limit: Some(5),
+        ..Dialect::PORTABLE
+    };
+    let options = FormatOptions {
+        quote_style: QuoteStyle::Double,
+        ..options(EqualsSpacing::Preserve, true, FinalNewline::Preserve)
+    };
+    let doc = parse_with("A=1  \n", dialect).0;
+    let first = doc.format(&options).unwrap();
+    assert_eq!(first.as_str(), "A=\"1\"\n");
+    let (again, _) = parse_with(first.as_str(), dialect);
+    assert_eq!(again.format(&options).unwrap().as_str(), first.as_str());
+}

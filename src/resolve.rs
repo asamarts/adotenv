@@ -218,9 +218,11 @@ pub struct ExpandOptions {
     /// 65,536 in every preset.
     ///
     /// Resolution stops before it builds a longer candidate list and fails
-    /// with [`ResolveError::TooManyReferences`]. This bounds the memory a scan
-    /// can allocate, which is roughly the size of one [`Reference`] per
-    /// candidate. `0` rejects every value that contains a possible reference.
+    /// with [`ResolveError::TooManyReferences`]. This bounds the candidate
+    /// list, roughly one [`Reference`] per candidate. Delimiter matching is
+    /// bounded by [`max_depth`](Self::max_depth), so deeply nested forms stop
+    /// with the same error instead of retaining a form record per level. `0`
+    /// rejects every value that contains a possible reference.
     pub max_references: usize,
     /// The maximum length in bytes of one resolved value; 1 MiB in every preset.
     ///

@@ -65,6 +65,7 @@ custom dialects built from it.
 | `dotenv.invalid-escape` | Error | `Entry` | The dialect rejects a double-quoted escape it does not define (`UnknownEscapes::Error`). The value keeps the escape as written. |
 | `dotenv.ignored-statement` | Warning | `Ignored` | A statement is kept in the source but ignored by the dialect: a malformed statement under `MalformedLines::Ignore`, or a statement with text after its closing quote under `QuotedTail::Skip`. |
 | `dotenv.line-too-long` | Error | `Invalid` | A physical line is longer than the dialect's byte limit, counted without the final LF but with a CR before it. Docker allows 65,535 bytes; the other presets have no limit. |
+| `dotenv.too-many-diagnostics` | Warning | none | More than 10,000 ordinary diagnostics were found. The list is truncated; the first error found after the budget is retained before this summary. |
 
 In dialects that ignore malformed lines (`MalformedLines::Ignore`, used by the
 Node preset), `dotenv.ignored-statement` replaces every error code above

@@ -20,12 +20,15 @@ use alloc::vec::Vec;
 use core::fmt;
 
 #[cfg(feature = "load")]
-use crate::load::{LoadedEnvironment, LoadedResolveError, LoadedValues, ResolvedEnvironment};
+use crate::load::{
+    LoadedEntry, LoadedEnvironment, LoadedResolveError, LoadedValues, ResolvedEnvironment,
+};
 use crate::{
     CommandCall, CommandError, CommandOutcome, ComparedValue, Comparison, ComparisonEntry,
     Document, EffectiveEntry, Entry, FormatResult, Group, Groups, Item, LineIndex, LookupIndex,
-    ResolveError, ResolveFailure, ResolvedDocument, ResolvedEntry, ResolvedSegment, TextEdit,
-    VerifiedEdits,
+    PortabilityDeclaration, PortabilityDifference, PortabilityPart, PortabilityReading,
+    PortabilityReport, ResolveError, ResolveFailure, ResolvedDocument, ResolvedEntry,
+    ResolvedSegment, TextEdit, VerifiedEdits,
 };
 
 /// The replacement text used for a masked value.
@@ -432,6 +435,80 @@ impl Mask for ResolveFailure {
             .debug_struct("ResolveFailure")
             .field("error", &Masked::new(&self.error))
             .field("commands", &masked_list(&self.commands))
+            .finish()
+    }
+}
+
+#[cfg(feature = "load")]
+impl Mask for LoadedEntry<'_> {
+    fn fmt_masked(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LoadedEntry")
+            .field("key", &self.key())
+            .field("value", &REDACTED)
+            .field("origin", &self.origin())
+            .finish()
+    }
+}
+
+impl Mask for PortabilityDeclaration {
+    fn fmt_masked(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PortabilityDeclaration")
+            .field("key", &self.key)
+            .field("value", &REDACTED)
+            .field("state", &self.state)
+            .field("exported", &self.exported)
+            .field("participates", &self.participates)
+            .field("effective_value", &REDACTED)
+            .field("wins_lookup", &self.wins_lookup)
+            .finish()
+    }
+}
+
+impl Mask for PortabilityPart {
+    fn fmt_masked(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Declaration(declaration) => formatter
+                .debug_tuple("Declaration")
+                .field(&Masked::new(declaration))
+                .finish(),
+            Self::Blank => formatter.write_str("Blank"),
+            Self::Comment => formatter.write_str("Comment"),
+            Self::Invalid => formatter.write_str("Invalid"),
+            Self::Ignored => formatter.write_str("Ignored"),
+            Self::Continuation => formatter.write_str("Continuation"),
+        }
+    }
+}
+
+impl Mask for PortabilityReading {
+    fn fmt_masked(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PortabilityReading")
+            .field("dialect", &self.dialect)
+            .field("parts", &masked_list(&self.parts))
+            .finish()
+    }
+}
+
+impl Mask for PortabilityDifference {
+    fn fmt_masked(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PortabilityDifference")
+            .field("span", &self.span)
+            .field("first_line", &self.first_line)
+            .field("last_line", &self.last_line)
+            .field("readings", &masked_list(&self.readings))
+            .finish()
+    }
+}
+
+impl Mask for PortabilityReport {
+    fn fmt_masked(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PortabilityReport")
+            .field("differences", &masked_list(self.differences()))
             .finish()
     }
 }

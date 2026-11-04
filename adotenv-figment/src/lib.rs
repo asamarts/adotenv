@@ -141,6 +141,27 @@ mod tests {
     }
 
     #[test]
+    fn document_provider_drives_typed_figment() {
+        let (document, _) = parse_with("host=localhost\nport=8080\n", Dialect::PORTABLE);
+        #[derive(Debug, serde::Deserialize, PartialEq)]
+        struct App {
+            host: String,
+            port: String,
+        }
+        let app: App = Figment::new()
+            .merge(AdotenvProvider::from_document(&document))
+            .extract()
+            .unwrap();
+        assert_eq!(
+            app,
+            App {
+                host: "localhost".to_string(),
+                port: "8080".to_string(),
+            }
+        );
+    }
+
+    #[test]
     fn document_provider_honors_duplicate_and_quote_rules() {
         let (document, _) = parse_with(
             "A='first'\nA=second\nB=\"two words\"\nC='$HOME'\nD=\"line\\nbreak\"\n",

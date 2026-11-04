@@ -7,17 +7,17 @@ described in [Quality](quality.md).
 ## Coverage at 1.2.0
 
 From a local `cargo llvm-cov --workspace --all-features` run on 2026-11-04
-from branch `prep-1.2.0` at `6fa1955`. The workspace total is 94.7 percent of
-regions and 95.0 percent of lines. The core crate is 94.5 percent of regions
-and 94.9 percent of lines.
+from branch `prep-1.2.0` during the audit. The workspace total is 94.4 percent of
+regions and 94.8 percent of lines. The core crate is 94.2 percent of regions
+and 94.7 percent of lines.
 
 | Scope | Regions | Lines |
 |---|---:|---:|
-| Workspace total | 94.7% | 95.0% |
-| Core crate total | 94.5% | 94.9% |
-| `adotenv-cli/src/main.rs` | 93.9% | 94.1% |
-| `adotenv-config/src/lib.rs` | 98.7% | 97.9% |
-| `adotenv-figment/src/lib.rs` | 98.9% | 95.8% |
+| Workspace total | 94.4% | 94.8% |
+| Core crate total | 94.2% | 94.7% |
+| `adotenv-cli/src/main.rs` | 93.8% | 94.1% |
+| `adotenv-config/src/lib.rs` | 98.9% | 98.1% |
+| `adotenv-figment/src/lib.rs` | 98.9% | 96.1% |
 | `adotenv-process/src/lib.rs` | 98.0% | 99.1% |
 | `compare.rs`, `diagnostic.rs`, `parser/unicode.rs` | 100.0% | 100.0% |
 | `parser/decode.rs` | 98.9% | 99.4% |
@@ -28,8 +28,8 @@ and 94.9 percent of lines.
 | `structure.rs` | 99.1% | 99.0% |
 | `sort.rs` | 97.9% | 96.7% |
 | `dialect.rs` | 97.4% | 97.4% |
-| `references.rs` | 96.8% | 95.9% |
-| `parser.rs` | 96.4% | 96.1% |
+| `references.rs` | 92.9% | 93.0% |
+| `parser.rs` | 96.0% | 95.8% |
 | `edit.rs` | 94.7% | 96.1% |
 | `model.rs` | 96.0% | 96.3% |
 | `parser/node.rs` | 93.7% | 96.5% |
@@ -38,10 +38,10 @@ and 94.9 percent of lines.
 | `example.rs` | 98.3% | 98.1% |
 | `encode.rs` | 96.0% | 97.2% |
 | `serde_support.rs` | 94.2% | 97.3% |
-| `load.rs` | 91.7% | 90.4% |
+| `load.rs` | 91.5% | 90.2% |
 | `exec.rs` | 92.8% | 89.7% |
-| `mask.rs` | 82.0% | 82.1% |
-| `resolve.rs` | 85.4% | 89.8% |
+| `mask.rs` | 82.2% | 83.5% |
+| `resolve.rs` | 85.6% | 90.3% |
 
 `mask.rs` improved from 58 percent after the structural mask assertions;
 `exec.rs`, `load.rs` and `resolve.rs` retain defensive error and platform

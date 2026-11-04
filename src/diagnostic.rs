@@ -210,9 +210,10 @@ pub enum DiagnosticCode {
     LineTooLong,
     /// `parse` reached its diagnostic budget and omitted later diagnostics.
     ///
-    /// Warning, `dotenv.too-many-diagnostics`. The diagnostic list is capped at
-    /// 10,000 ordinary entries, followed by this one summary entry. An error
-    /// found after the budget is kept, so the first error is never lost. Use
+    /// Warning, `dotenv.too-many-diagnostics`. The diagnostic list keeps at
+    /// most 10,000 ordinary entries, plus the first error found after the
+    /// budget, followed by this one summary entry. The first error is never
+    /// lost. Use
     /// [`parse_strict`](crate::parse_strict) or
     /// [`parse_values`](crate::parse_values) when only the first error matters;
     /// they do not collect the full list.

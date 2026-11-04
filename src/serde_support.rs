@@ -232,8 +232,10 @@ impl Document<'_> {
     /// An empty value is still present: `PORT=` read as `Option<u16>` is an
     /// error, not `None`. Sequences, nested maps and structs, tuples and enums
     /// are rejected as values, even enums with only unit variants and
-    /// `Vec<u8>`, which Serde reads as a sequence; deserialize a `String` and
-    /// convert it yourself when a field needs another shape.
+    /// `Vec<u8>`, which Serde reads as a sequence. Untagged enums are the
+    /// exception: Serde buffers the string and may choose a string-compatible
+    /// variant, so `value=hello` can deserialize as `Text("hello")`. Deserialize
+    /// a `String` and convert it yourself when a field needs another shape.
     ///
     /// Map keys are passed as strings, so a map with non-string keys, such as
     /// `BTreeMap<u16, String>`, fails. Fields inside `#[serde(flatten)]` also

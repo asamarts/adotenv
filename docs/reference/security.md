@@ -30,9 +30,10 @@ files, `Document::resolve` substitutes references from a lookup you pass,
 - `Document::lookup_index` grows with the number of participating keys, not
   the total number of declarations. A dialect that ignores bare keys still
   spends memory only for keys that take part in lookup.
-- `parse` collects at most 10,000 ordinary diagnostics; a final
-  `dotenv.too-many-diagnostics` warning reports truncation. The first error
-  found after the budget is retained. `parse_strict` and `parse_values` stop
+- `parse` collects at most 10,000 ordinary diagnostics, plus the first
+  error found after the budget, and ends a truncated list with a
+  `dotenv.too-many-diagnostics` warning. The retained error and summary make
+  the total at most 10,002 entries. `parse_strict` and `parse_values` stop
   at the first error and do not collect the list.
 - Parsing and reference scanning run in linear time, including inputs with
   many statements on one line, long `$` runs and deeply nested forms.
@@ -43,7 +44,10 @@ files, `Document::resolve` substitutes references from a lookup you pass,
   untrusted values before inspecting them.
 - Resolution enforces limits on nesting depth (64 in every preset), reference
   candidates scanned per value (65,536), the expanded size of each value
-  (1 MiB) and the total output size (64 MiB). Exceeding them fails with
+  (1 MiB) and the total output size (64 MiB). The reference limit bounds the
+  candidate list, and delimiter matching is bounded by the depth limit, so a
+  deeply nested value fails rather than retaining a form record per level.
+  Public `Entry::references` is intentionally unbounded. Exceeding them fails with
   `ResolveError::DepthExceeded`, `TooManyReferences`, `ValueTooLarge` or
   `OutputTooLarge`. See
   [References and resolution](../design/expansion.md#resolution).
@@ -55,10 +59,11 @@ files, `Document::resolve` substitutes references from a lookup you pass,
 Values may be secrets. These outputs include them:
 
 - `Debug` output of documents, items, entries, edit and format results,
-  comparisons, loaded environments, resolved values, lookup indexes,
-  effective entries, line indexes, groups and the adapter types. The core document, edit, comparison, load, resolution,
-  line-index and group types support a value-redacting `Debug` form through
-  `adotenv::Masked` and `adotenv::mask`; use
+  comparisons, loaded environments and entries, resolved values, lookup
+  indexes, effective entries, line indexes, groups, portability reports and
+  the adapter types. The core document, edit, comparison, load, resolution,
+  line-index, group and portability types support a value-redacting `Debug`
+  form through `adotenv::Masked` and `adotenv::mask`; use
   `DeserializeError::masked()` for serde errors. Adapter types still include
   values. Do not log normal `Debug` output when values are secret.
 - Serde conversion errors name the key and line, and their messages include
@@ -79,8 +84,10 @@ Values may be secrets. These outputs include them:
   `Document::resolve_with_commands` and the reference rules allow commands.
   `exec::Shell` runs commands through the platform shell in a directory you
   name, caps standard output at 1 MiB, caps standard error at 64 KiB and stops
-  a command after 300 seconds by default. The builders change or disable those
-  limits. Use it only with trusted files.
+  the direct shell after 300 seconds by default. The builders change or disable
+  those limits. A command that backgrounds its own children may leave them
+  running; use a sandbox or process supervisor when that matters. Use `Shell`
+  only with trusted files.
 - `adotenv-cli run` starts a program with the parent environment plus the
   loaded values. Loaded files are trusted like code: a loaded `PATH` changes
   which program runs, and variables such as `LD_PRELOAD` change how it runs.
@@ -96,9 +103,11 @@ Values may be secrets. These outputs include them:
 
 `adotenv-cli fmt --write` and `set` resolve the write target once before
 reading, so a symbolic link swapped after that point cannot redirect the write.
-They do not resolve the target again while replacing it. On Unix they also
-check the target's device and inode before the temporary file and immediately
-before the replace, and fail if it changed after the read. They leave an unchanged
+They do not resolve the target again while replacing it. They also check the
+target's device, inode, size and modification time before the temporary file
+and immediately before the replace, and fail if that identity changed after the
+read. This is best effort against concurrent changes; a writer that preserves
+all four values can still race the replacement. They leave an unchanged
 file untouched, so its inode, hard links, modification time, extended
 attributes and ACLs stay. They replace a changed file through a temporary file
 in the same directory. On Unix the temporary file is created with mode `0600`

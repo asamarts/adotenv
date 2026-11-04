@@ -129,3 +129,27 @@ fn nested_and_unclosed_forms_use_memory_linear_in_value_length() {
         }
     }
 }
+
+#[test]
+fn resolution_depth_budget_bounds_delimiter_scan() {
+    const LIMIT: usize = 8 << 20;
+    let _guard = MEMORY_LOCK.lock().unwrap();
+    let value = "$(".repeat(100_000);
+    let source = format!("A={value}\n");
+    let (doc, _) = parse(&source);
+    let growth = peak_growth(|| {
+        assert!(matches!(
+            doc.resolve(
+                |_| None,
+                &ExpandOptions::portable()
+                    .with_max_references(2)
+                    .with_max_depth(64)
+            ),
+            Err(ResolveError::TooManyReferences { .. })
+        ));
+    });
+    assert!(
+        growth < LIMIT,
+        "the delimiter scan grew the resident set by {growth} bytes"
+    );
+}

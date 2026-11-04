@@ -1178,7 +1178,8 @@ impl LoadedEnvironment {
         let unrepresentable = |key: &str, message: &str| {
             LoadedResolveError::new(Some(key.to_string()), self.owned_origin(key), message)
         };
-        let mut source = String::new();
+        // Keep a leading U+FEFF in a key from being read as the document BOM.
+        let mut source = String::from("\n");
         for (key, record) in &self.records {
             let key_token = synthetic_key(key)
                 .ok_or_else(|| unrepresentable(key, "key cannot be represented exactly"))?;
@@ -1903,6 +1904,43 @@ where
     load_value_paths(paths, dialect, false)
 }
 
+fn read_load_path(path: &Path, skip_missing: bool) -> Result<Option<Vec<u8>>, LoadError> {
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound && skip_missing => {
+            // A missing cascade file is optional. A dangling symlink is not:
+            // the directory entry exists but its target cannot be read.
+            return match fs::symlink_metadata(path) {
+                Ok(_) => Err(LoadError::Io {
+                    path: path.to_path_buf(),
+                    source: io::Error::new(io::ErrorKind::NotFound, "dangling symbolic link"),
+                }),
+                Err(metadata_error) if metadata_error.kind() == io::ErrorKind::NotFound => Ok(None),
+                Err(metadata_error) => Err(LoadError::Io {
+                    path: path.to_path_buf(),
+                    source: metadata_error,
+                }),
+            };
+        }
+        Err(source) => {
+            return Err(LoadError::Io {
+                path: path.to_path_buf(),
+                source,
+            });
+        }
+    };
+    if !metadata.is_file() {
+        return Err(LoadError::Io {
+            path: path.to_path_buf(),
+            source: io::Error::new(io::ErrorKind::InvalidInput, "path is not a regular file"),
+        });
+    }
+    fs::read(path).map(Some).map_err(|source| LoadError::Io {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
 fn load_value_paths<I, P>(
     paths: I,
     dialect: Dialect,
@@ -1915,15 +1953,8 @@ where
     let mut values: Option<BTreeMap<String, String>> = None;
     for path in paths {
         let path = path.as_ref();
-        let bytes = match fs::read(path) {
-            Ok(bytes) => bytes,
-            Err(error) if skip_missing && error.kind() == io::ErrorKind::NotFound => continue,
-            Err(source) => {
-                return Err(LoadError::Io {
-                    path: path.to_path_buf(),
-                    source,
-                });
-            }
+        let Some(bytes) = read_load_path(path, skip_missing)? else {
+            continue;
         };
         let text = String::from_utf8(bytes).map_err(|_| LoadError::InvalidUtf8 {
             path: path.to_path_buf(),
@@ -1995,15 +2026,8 @@ where
     let mut next_order = 0;
     for path in paths {
         let path = path.as_ref();
-        let bytes = match fs::read(path) {
-            Ok(bytes) => bytes,
-            Err(error) if skip_missing && error.kind() == io::ErrorKind::NotFound => continue,
-            Err(source) => {
-                return Err(LoadError::Io {
-                    path: path.to_path_buf(),
-                    source,
-                });
-            }
+        let Some(bytes) = read_load_path(path, skip_missing)? else {
+            continue;
         };
         let text = String::from_utf8(bytes).map_err(|_| LoadError::InvalidUtf8 {
             path: path.to_path_buf(),

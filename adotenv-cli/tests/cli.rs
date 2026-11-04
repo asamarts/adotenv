@@ -465,6 +465,18 @@ fn run_rejects_nul_environment_values_before_spawning() {
 }
 
 #[test]
+fn dialect_value_after_a_positional_argument_is_a_value() {
+    let dir = TempDir::new();
+    let file = dir.file("app.env", "A=1\n");
+    let output = run(&["set", file.to_str().unwrap(), "A", "--dialect=node"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "A=--dialect=node\n"
+    );
+}
+
+#[test]
 fn dialect_selection_applies_to_commands() {
     let dir = TempDir::new();
     let file = dir.file("node.env", "A=a#b\n");
@@ -953,6 +965,31 @@ fn diff_compares_multiple_files_against_a_baseline_and_renders_a_matrix() {
     assert!(text.contains("two.env"));
     assert!(text.contains("C"));
     assert!(text.contains("<unset>"));
+}
+
+#[test]
+fn diff_matrix_pads_columns_when_the_baseline_has_no_keys() {
+    let dir = TempDir::new();
+    let base = dir.file("base.env", "# empty\n");
+    let one = dir.file("one.env", "A=1\n");
+
+    let output = run(&[
+        "diff",
+        "--format",
+        "matrix",
+        base.to_str().unwrap(),
+        one.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = stdout(&output);
+    assert!(
+        text.lines()
+            .any(|line| line.starts_with("A ") && line.contains("<unset>")),
+        "{text}"
+    );
+    for line in text.lines().filter(|line| line.starts_with("A ")) {
+        assert_eq!(line.split('|').count(), 3, "{line:?}");
+    }
 }
 
 #[test]
@@ -2409,4 +2446,14 @@ fn json_fields_match_the_documented_schema() {
     let documented_roles: Vec<&String> = documented.keys().collect();
     let observed_roles: Vec<&str> = observed.keys().copied().collect();
     assert_eq!(documented_roles, observed_roles, "documented objects");
+}
+
+#[test]
+fn load_and_run_reject_standard_input_as_a_directory() {
+    let load = run(&["load", "-"]);
+    assert_eq!(load.status.code(), Some(2));
+    assert!(stderr(&load).contains("does not read standard input"));
+    let run = run(&["run", "-", "--", "true"]);
+    assert_eq!(run.status.code(), Some(2));
+    assert!(stderr(&run).contains("does not read standard input"));
 }

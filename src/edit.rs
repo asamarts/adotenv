@@ -1146,7 +1146,7 @@ impl Document<'_> {
             ending = actual_ending;
         }
         let (mut token, quote) = chosen.ok_or(EditError::Unencodable)?;
-        if separate_comment {
+        if separate_comment && (!token.is_empty() || !before.ends_with(char::is_whitespace)) {
             token.push(' ');
         }
         if entry.value_span().is_none() {
@@ -1708,6 +1708,7 @@ impl Document<'_> {
                     loop {
                         if current.span().end > region.range.end
                             || current.kind() == ItemKind::Invalid
+                            || (!comments_only && current.kind() == ItemKind::Ignored)
                             || current
                                 .diagnostic()
                                 .is_some_and(|diagnostic| diagnostic.severity() == Severity::Error)

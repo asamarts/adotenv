@@ -59,7 +59,9 @@ const SHELL_FLAG: &str = "-c";
 /// - gets an empty standard input;
 /// - has its standard output capped at 1 MiB and its standard error capped at
 ///   64 KiB by default;
-/// - is stopped after 300 seconds by default.
+/// - has its direct shell stopped after 300 seconds by default. A command that
+///   starts its own background children may leave them running; kill those in
+///   the command itself or use a sandbox/process supervisor when that matters.
 ///
 /// [`Shell::with_max_output_bytes`], [`Shell::with_timeout`] and
 /// [`Shell::without_timeout`] change those limits. Output beyond the stdout
@@ -156,7 +158,8 @@ impl Shell {
     /// Sets the maximum number of standard-output bytes kept.
     ///
     /// The default is 1 MiB. A command that writes more fails with a
-    /// [`CommandError`]; it is stopped and its partial output is discarded.
+    /// [`CommandError`]; its direct shell is stopped and its partial output is
+    /// discarded.
     #[must_use]
     pub const fn with_max_output_bytes(mut self, value: usize) -> Self {
         self.max_output_bytes = value;
@@ -165,8 +168,9 @@ impl Shell {
 
     /// Sets how long a command may run before it is stopped.
     ///
-    /// The default is 300 seconds. A stopped command fails with a
-    /// [`CommandError`].
+    /// The default is 300 seconds. A timeout fails with a [`CommandError`];
+    /// only the direct shell is stopped, so background descendants may
+    /// survive.
     #[must_use]
     pub const fn with_timeout(mut self, value: Duration) -> Self {
         self.timeout = Some(value);

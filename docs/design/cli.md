@@ -250,8 +250,8 @@ child starts. Loaded files are trusted like code. A loaded `PATH` changes which
 program runs, and variables such as `LD_PRELOAD` change how it runs.
 
 Values stay literal: `run` does not expand references or run command
-substitutions. Keys that are empty or contain `=` or NUL, and values that
-contain NUL, are rejected before the program starts.
+substitutions. The loader omits empty keys; keys that remain and contain `=`
+or NUL, and values that contain NUL, are rejected before the program starts.
 
 ## Discovery
 

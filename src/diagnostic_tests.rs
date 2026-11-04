@@ -1,5 +1,9 @@
 use crate::{parse, parse_strict, DiagnosticCode, Severity};
-use alloc::{format, string::ToString};
+use alloc::{
+    format,
+    string::{String, ToString},
+};
+use core::fmt::Write as _;
 
 const CODES: [DiagnosticCode; 17] = [
     DiagnosticCode::InvalidKey,
@@ -125,5 +129,33 @@ fn duplicate_diagnostic_accessors_address_primary_and_secondary_spans() {
     assert_eq!(
         duplicate.to_string(),
         "line 2: duplicate key; lookup follows the selected dialect policy (dotenv.duplicate-key)"
+    );
+}
+
+#[test]
+fn parse_caps_bare_key_diagnostics() {
+    let mut source = String::new();
+    for index in 0..12_000 {
+        writeln!(source, "KEY{index}").unwrap();
+    }
+    let (_, diagnostics) = parse(&source);
+    assert_eq!(diagnostics.len(), 10_001);
+    assert!(diagnostics[..10_000]
+        .iter()
+        .all(|diagnostic| diagnostic.code() == DiagnosticCode::BareKey));
+    assert_eq!(
+        diagnostics.last().unwrap().code(),
+        DiagnosticCode::TooManyDiagnostics
+    );
+}
+
+#[test]
+fn parse_reports_the_exact_budget_when_an_error_follows() {
+    let source = format!("A={}\nBAD KEY=1\n", "#".repeat(10_001));
+    let (_, diagnostics) = parse(&source);
+    assert_eq!(diagnostics.len(), 10_002);
+    assert_eq!(
+        diagnostics.last().unwrap().code(),
+        DiagnosticCode::TooManyDiagnostics
     );
 }

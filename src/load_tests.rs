@@ -1109,3 +1109,28 @@ fn contextual_resolution_requires_whole_file_scope() {
         assert_eq!(decoded.values(), resolved.values());
     }
 }
+
+#[test]
+fn decoded_resolution_keeps_a_bom_key_with_an_apostrophe() {
+    let dir = TempDir::new();
+    dir.write(".env", "# c\n\u{feff}A'B=1\n");
+    let loaded = full_cascade_with(dir.path(), "", Dialect::PYTHON_DOTENV);
+    assert_eq!(loaded.get("\u{feff}A'B"), Some("1"));
+    let contextual = loaded.resolve_contextual(|_| None, &whole_file()).unwrap();
+    let decoded = loaded.resolve_decoded(|_| None, &whole_file()).unwrap();
+    assert_eq!(contextual.values(), decoded.values());
+    assert_eq!(decoded.get("\u{feff}A'B"), Some("1"));
+}
+
+#[cfg(unix)]
+#[test]
+fn cascade_does_not_treat_a_dangling_symlink_as_missing() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=base\n");
+    std::os::unix::fs::symlink(
+        dir.path().join("missing-secret-target"),
+        dir.path().join(".env.production"),
+    )
+    .unwrap();
+    assert!(load_cascade(dir.path(), "production").is_err());
+}

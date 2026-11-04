@@ -5,8 +5,9 @@
 //! and lookup participation follow the document or environment being wrapped.
 //! With the `load` feature it also accepts a [`LoadedEnvironment`].
 //!
-//! Key names are handed to `config` unchanged. `config` 0.15 keeps key case
-//! and treats `.` as a nested path separator. A dotted key and a scalar key
+//! Key names are handed to `config` unchanged. `config` 0.15 keeps key case,
+//! treats `.` as a nested path separator and treats `[`/`]` as array-path
+//! syntax; for example, `A[0]` and `A[1]` can become an array under `A`. A dotted key and a scalar key
 //! with the same parent name collide: with `A=1` and `A.B=2`, `config` exposes
 //! either the scalar or the nested table, not both. The winner is an
 //! implementation detail of `config`'s source map, so normalize or rename
@@ -29,9 +30,10 @@ impl AdotenvSource {
     /// Build a source from an explicit key/value map.
     ///
     /// Keys are passed through unchanged. A key containing `.` becomes a
-    /// nested path under `config`; if another key names its parent, the two
-    /// shapes collide and `config` exposes only one of them. Normalize or
-    /// rename such keys before constructing the source.
+    /// nested path and a key containing `[`/`]` can become an array path under
+    /// `config`; if another key names the same parent, the shapes collide and
+    /// `config` exposes only one of them. Normalize or rename such keys before
+    /// constructing the source.
     #[must_use]
     pub fn from_values(values: BTreeMap<String, String>) -> Self {
         Self { values }
@@ -161,6 +163,31 @@ mod tests {
         // config's source map does not define which shape wins when a scalar
         // parent and a dotted child collide. It must not expose both.
         assert!(config.get_string("A").is_err() || config.get_string("A.B").is_err());
+    }
+
+    #[test]
+    fn document_source_drives_typed_config_and_brackets_are_array_paths() {
+        let (document, _) = parse_with("host=localhost\nport=8080\n", Dialect::PORTABLE);
+        let config = Config::builder()
+            .add_source(AdotenvSource::from_document(&document))
+            .build()
+            .unwrap();
+        #[derive(serde::Deserialize)]
+        struct App {
+            host: String,
+            port: u16,
+        }
+        let app: App = config.try_deserialize().unwrap();
+        assert_eq!((app.host.as_str(), app.port), ("localhost", 8080));
+
+        let config = Config::builder()
+            .add_source(AdotenvSource::from_values(BTreeMap::from([
+                ("A[0]".to_string(), "one".to_string()),
+                ("A[1]".to_string(), "two".to_string()),
+            ])))
+            .build()
+            .unwrap();
+        assert_eq!(config.get_array("A").unwrap().len(), 2);
     }
 
     #[test]
