@@ -123,6 +123,21 @@ fn nested_candidates_require_eligible_containers() {
 }
 
 #[test]
+fn escaped_dollars_in_quoted_commands_are_ineligible() {
+    for dialect in [Dialect::NODE_DOTENV, Dialect::PYTHON_DOTENV] {
+        let source = "A=\"$(echo \\$C)\"\n";
+        let (doc, _) = parse_with(source, dialect);
+        let references = doc.unique("A").unwrap().references();
+        let variable = references
+            .iter()
+            .find(|reference| reference.name.is_some())
+            .unwrap();
+        assert!(variable.escaped, "{dialect:?}: {variable:?}");
+        assert!(!variable.is_eligible(ReferenceRules::DOTENV_EXPAND));
+    }
+}
+
+#[test]
 fn commands_and_nested_commands_keep_payload_spans() {
     let source = "A=$(echo $(date))\n";
     let (doc, _) = parse(source);

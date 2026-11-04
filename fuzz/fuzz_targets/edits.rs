@@ -323,9 +323,9 @@ fn check_comment_restore(source: &str, selector: u8, dialect: Dialect) {
     };
     let item = document.item(entry.item_id()).unwrap();
     let result = document.edit(&[Edit::Comment { item: item.id() }]);
-    let fits = dialect.line_byte_limit.map_or(true, |limit| {
-        item.raw().trim_end_matches('\n').len().saturating_add(2) <= limit
-    });
+    let fits = dialect
+        .line_byte_limit
+        .is_none_or(|limit| item.raw().trim_end_matches('\n').len().saturating_add(2) <= limit);
     if dialect == Dialect::DOCKER_RAW && fits {
         assert!(
             result.is_ok(),

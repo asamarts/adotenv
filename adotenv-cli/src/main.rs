@@ -28,6 +28,9 @@ const FINDINGS: u8 = 1;
 /// cannot process. It takes precedence over [`FINDINGS`].
 const FAILURE: u8 = 2;
 
+/// Replacement for a value under `diff --mask`.
+const MASK: &str = "***";
+
 /// Set once writing standard output failed; later output is skipped.
 static STDOUT_FAILED: AtomicBool = AtomicBool::new(false);
 /// Set once writing standard error failed.
@@ -130,18 +133,59 @@ fn run(args: &[String]) -> u8 {
 }
 
 fn extract_dialect(args: &mut Vec<String>) -> Result<Dialect, ()> {
-    let limit = args
-        .iter()
-        .position(|arg| arg == "--")
-        .unwrap_or(args.len());
-    let Some(position) = args[..limit].iter().position(|arg| arg == "--dialect") else {
-        return Ok(Dialect::PORTABLE);
-    };
-    if position + 1 >= limit {
-        errln!("--dialect requires a value");
-        return Err(());
+    // Global dialect options may appear before the command, or immediately
+    // after it before the command's first positional argument. Stopping at
+    // the first positional keeps `set file KEY --dialect=node` and similar
+    // values intact.
+    let mut selected = None;
+    let mut index = 0;
+    while index < args.len() {
+        if let Some((end, value)) = dialect_option(args, index)? {
+            if selected.replace((index, end, value)).is_some() {
+                errln!("--dialect may be specified only once");
+                return Err(());
+            }
+            index = end;
+        } else {
+            break;
+        }
     }
-    let dialect = match args[position + 1].as_str() {
+    let command = index;
+    if command < args.len() {
+        index = command + 1;
+        while index < args.len() {
+            if let Some((end, value)) = dialect_option(args, index)? {
+                if selected.replace((index, end, value)).is_some() {
+                    errln!("--dialect may be specified only once");
+                    return Err(());
+                }
+                index = end;
+            } else {
+                break;
+            }
+        }
+    }
+    if let Some((start, end, dialect)) = selected {
+        args.drain(start..end);
+        Ok(dialect)
+    } else {
+        Ok(Dialect::PORTABLE)
+    }
+}
+
+fn dialect_option(args: &[String], index: usize) -> Result<Option<(usize, Dialect)>, ()> {
+    let (end, value) = if args[index] == "--dialect" {
+        if index + 1 >= args.len() {
+            errln!("--dialect requires a value");
+            return Err(());
+        }
+        (index + 2, args[index + 1].as_str())
+    } else if let Some(value) = args[index].strip_prefix("--dialect=") {
+        (index + 1, value)
+    } else {
+        return Ok(None);
+    };
+    let dialect = match value {
         "portable" => Dialect::PORTABLE,
         "node" => Dialect::NODE_DOTENV,
         "python" => Dialect::PYTHON_DOTENV,
@@ -152,11 +196,9 @@ fn extract_dialect(args: &mut Vec<String>) -> Result<Dialect, ()> {
             return Err(());
         }
     };
-    args.drain(position..=position + 1);
-    Ok(dialect)
+    Ok(Some((end, dialect)))
 }
-
-const USAGE: &str = r#"adotenv-cli [--dialect <portable|node|python|compose|docker>] <command> [options]
+const USAGE: &str = r#"adotenv-cli [--dialect <portable|node|python|compose|docker>] [--dialect=<value>] <command> [options]
 
 Commands:
   get <file> <key>             Print an effective literal value
@@ -165,8 +207,8 @@ Commands:
                                 Report parse diagnostics
   fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <file-or-dir>...
                                 Format documents (optionally sorted)
-  diff [--format human|matrix|json] [--json] <baseline> <file>...
-                                Compare effective keys
+  diff [--format human|matrix|json] [--json] [--mask] <baseline> <file>...
+                                Compare effective keys, optionally masking values
   example <file>               Print a value-free example (comments are kept)
   load <directory> [mode]      Print the standard dotenv cascade as Portable lines
   set <file> <key> <value>     Set and write one declaration
@@ -189,11 +231,16 @@ fn usage() {
 }
 
 fn get(args: &[String], dialect: Dialect) -> u8 {
+    let args = args.strip_prefix(&[String::from("--")]).unwrap_or(args);
     if args.len() != 2 {
         errln!("usage: adotenv-cli get <file> <key>");
         return FAILURE;
     }
     let path = &args[0];
+    if let Err(error) = reject_unknown_option(path) {
+        errln!("{error}");
+        return FAILURE;
+    }
     let source = match read_text(path) {
         Ok(source) => source,
         Err(error) => return fail(error),
@@ -216,10 +263,25 @@ fn get(args: &[String], dialect: Dialect) -> u8 {
 
 const DEFAULT_IGNORED_DIRS: [&str; 3] = [".git", "target", "node_modules"];
 
+#[cfg(windows)]
+fn is_env_file(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name == ".env" || name.starts_with(".env.")
+}
+
+#[cfg(not(windows))]
 fn is_env_file(name: &str) -> bool {
     name == ".env" || name.starts_with(".env.")
 }
 
+#[cfg(windows)]
+fn is_ignored_dir(name: &str) -> bool {
+    DEFAULT_IGNORED_DIRS
+        .iter()
+        .any(|ignored| name.eq_ignore_ascii_case(ignored))
+}
+
+#[cfg(not(windows))]
 fn is_ignored_dir(name: &str) -> bool {
     DEFAULT_IGNORED_DIRS.contains(&name)
 }
@@ -421,6 +483,10 @@ fn parse_check_args(args: &[String]) -> Result<CheckArgs, String> {
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
+            "--" => {
+                paths.extend(args[index + 1..].iter().cloned());
+                break;
+            }
             "--json" => set_check_format(&mut format, CheckFormat::Json)?,
             "--format" => {
                 index += 1;
@@ -442,7 +508,10 @@ fn parse_check_args(args: &[String]) -> Result<CheckArgs, String> {
                 excludes.push(PathBuf::from(&args[index]));
             }
             "--source" => show_source = true,
-            argument => paths.push(argument.to_string()),
+            argument => {
+                reject_unknown_option(argument)?;
+                paths.push(argument.to_string());
+            }
         }
         index += 1;
     }
@@ -481,6 +550,10 @@ fn parse_fmt_args(args: &[String]) -> Result<FmtArgs, String> {
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
+            "--" => {
+                paths.extend(args[index + 1..].iter().cloned());
+                break;
+            }
             "--write" => write = true,
             "--check" => check = true,
             "--sort" => sort = true,
@@ -492,7 +565,10 @@ fn parse_fmt_args(args: &[String]) -> Result<FmtArgs, String> {
                 }
                 excludes.push(PathBuf::from(&args[index]));
             }
-            argument => paths.push(argument.to_string()),
+            argument => {
+                reject_unknown_option(argument)?;
+                paths.push(argument.to_string());
+            }
         }
         index += 1;
     }
@@ -872,6 +948,10 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
             return FAILURE;
         }
     };
+    if write && check {
+        errln!("--write and --check are mutually exclusive");
+        return FAILURE;
+    }
     if raw_paths.is_empty() && !recursive {
         errln!(
             "usage: adotenv-cli fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <file-or-dir>..."
@@ -897,10 +977,6 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
         }
         return FAILURE;
     }
-    if write && check {
-        errln!("--write and --check are mutually exclusive");
-        return FAILURE;
-    }
     if paths.iter().filter(|path| is_stdin_path(path)).count() > 1 {
         errln!("standard input may be used at most once");
         return FAILURE;
@@ -910,7 +986,21 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
         return FAILURE;
     }
     for path in &paths {
-        let source = match read_text(path) {
+        let write_target = if write {
+            match resolve_write(path) {
+                Ok(target) => Some(target),
+                Err(error) => {
+                    code = code.max(fail(format!("{}: {error}", path.display())));
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
+        let read_path = write_target
+            .as_ref()
+            .map_or_else(|| path.as_path(), |(target, _)| target.as_path());
+        let source = match read_text(read_path) {
             Ok(source) => source,
             Err(error) => {
                 code = code.max(fail(error));
@@ -958,9 +1048,9 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
                 outln!("{}: would reformat", path.display());
                 code = code.max(FINDINGS);
             }
-        } else if write {
+        } else if let Some((target, identity)) = &write_target {
             if formatted.as_str() != source {
-                if let Err(error) = write_atomic(path, formatted.as_str()) {
+                if let Err(error) = write_atomic_checked(target, formatted.as_str(), *identity) {
                     code = code.max(fail(format!("{}: {error}", path.display())));
                 }
             }
@@ -987,6 +1077,7 @@ enum DiffFormat {
 struct DiffArgs {
     paths: Vec<String>,
     format: DiffFormat,
+    mask: bool,
 }
 
 fn parse_diff_format(value: &str) -> Result<DiffFormat, String> {
@@ -1009,10 +1100,16 @@ fn set_diff_format(current: &mut Option<DiffFormat>, next: DiffFormat) -> Result
 fn parse_diff_args(args: &[String]) -> Result<DiffArgs, String> {
     let mut paths = Vec::new();
     let mut format = None;
+    let mut mask = false;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
+            "--" => {
+                paths.extend(args[index + 1..].iter().cloned());
+                break;
+            }
             "--json" => set_diff_format(&mut format, DiffFormat::Json)?,
+            "--mask" => mask = true,
             "--format" => {
                 index += 1;
                 if index >= args.len() {
@@ -1024,18 +1121,26 @@ fn parse_diff_args(args: &[String]) -> Result<DiffArgs, String> {
                 let value = &argument["--format=".len()..];
                 set_diff_format(&mut format, parse_diff_format(value)?)?;
             }
-            argument => paths.push(argument.to_string()),
+            argument => {
+                reject_unknown_option(argument)?;
+                paths.push(argument.to_string());
+            }
         }
         index += 1;
     }
     Ok(DiffArgs {
         paths,
         format: format.unwrap_or(DiffFormat::Human),
+        mask,
     })
 }
 
 fn diff(args: &[String], dialect: Dialect) -> u8 {
-    let DiffArgs { paths, format } = match parse_diff_args(args) {
+    let DiffArgs {
+        paths,
+        format,
+        mask,
+    } = match parse_diff_args(args) {
         Ok(parsed) => parsed,
         Err(error) => {
             errln!("{error}");
@@ -1044,7 +1149,7 @@ fn diff(args: &[String], dialect: Dialect) -> u8 {
     };
     if paths.len() < 2 {
         errln!(
-            "usage: adotenv-cli diff [--format human|matrix|json] [--json] <baseline> <file>..."
+            "usage: adotenv-cli diff [--format human|matrix|json] [--json] [--mask] <baseline> <file>..."
         );
         return FAILURE;
     }
@@ -1053,13 +1158,13 @@ fn diff(args: &[String], dialect: Dialect) -> u8 {
         return FAILURE;
     }
     if format != DiffFormat::Matrix {
-        return diff_streaming(&paths, format, dialect);
+        return diff_streaming(&paths, format, dialect, mask);
     }
 
-    diff_matrix_files(&paths, dialect)
+    diff_matrix_files(&paths, dialect, mask)
 }
 
-fn diff_streaming(paths: &[String], format: DiffFormat, dialect: Dialect) -> u8 {
+fn diff_streaming(paths: &[String], format: DiffFormat, dialect: Dialect, mask: bool) -> u8 {
     let baseline_source = match read_text(&paths[0]) {
         Ok(source) => source,
         Err(error) => return fail(error),
@@ -1101,7 +1206,7 @@ fn diff_streaming(paths: &[String], format: DiffFormat, dialect: Dialect) -> u8 
                 if comparison.is_empty() {
                     output.push_str("(no differences)\n");
                 }
-                write_comparison(&mut output, &comparison);
+                write_comparison(&mut output, &comparison, mask);
             }
             DiffFormat::Json => {
                 if index > 1 {
@@ -1111,7 +1216,7 @@ fn diff_streaming(paths: &[String], format: DiffFormat, dialect: Dialect) -> u8 
                     output,
                     "{{\"path\":{},\"ok\":true,\"differences\":[{}]}}",
                     json_string(path),
-                    render_comparison_json(&comparison)
+                    render_comparison_json(&comparison, mask)
                 )
                 .expect("writing to String cannot fail");
             }
@@ -1134,6 +1239,7 @@ struct MatrixRows {
     keys: Vec<String>,
     rows: Vec<Vec<String>>,
     seen: BTreeSet<String>,
+    pushed: usize,
 }
 
 impl MatrixRows {
@@ -1142,12 +1248,14 @@ impl MatrixRows {
             keys: Vec::new(),
             rows: Vec::new(),
             seen: BTreeSet::new(),
+            pushed: 0,
         }
     }
 
-    fn push(&mut self, document: &Document<'_>) {
-        let (keys, values) = matrix_column(document);
-        let prior_columns = self.rows.first().map_or(0, Vec::len);
+    fn push(&mut self, document: &Document<'_>, mask: bool) {
+        let (keys, values) = matrix_column(document, mask);
+        let prior_columns = self.pushed;
+        self.pushed += 1;
         for (key, row) in self.keys.iter().zip(self.rows.iter_mut()) {
             row.push(
                 values
@@ -1167,7 +1275,7 @@ impl MatrixRows {
     }
 }
 
-fn diff_matrix_files(paths: &[String], dialect: Dialect) -> u8 {
+fn diff_matrix_files(paths: &[String], dialect: Dialect, mask: bool) -> u8 {
     let baseline_source = match read_text(&paths[0]) {
         Ok(source) => source,
         Err(error) => return fail(error),
@@ -1177,7 +1285,7 @@ fn diff_matrix_files(paths: &[String], dialect: Dialect) -> u8 {
         Err(error) => return fail(format!("{}: {error}", paths[0])),
     };
     let mut matrix = MatrixRows::new();
-    matrix.push(&baseline);
+    matrix.push(&baseline, mask);
 
     let mut differs = false;
     for path in paths.iter().skip(1) {
@@ -1192,7 +1300,7 @@ fn diff_matrix_files(paths: &[String], dialect: Dialect) -> u8 {
         if !baseline.compare(&document).is_empty() {
             differs = true;
         }
-        matrix.push(&document);
+        matrix.push(&document, mask);
     }
     print_matrix(paths, &matrix);
     if differs {
@@ -1202,7 +1310,7 @@ fn diff_matrix_files(paths: &[String], dialect: Dialect) -> u8 {
     }
 }
 
-fn matrix_column(document: &Document<'_>) -> (Vec<String>, BTreeMap<String, String>) {
+fn matrix_column(document: &Document<'_>, mask: bool) -> (Vec<String>, BTreeMap<String, String>) {
     let index = document.lookup_index();
     let mut keys = Vec::new();
     let mut seen = BTreeSet::new();
@@ -1223,19 +1331,20 @@ fn matrix_column(document: &Document<'_>) -> (Vec<String>, BTreeMap<String, Stri
             } else {
                 index.get_entry(key)
             };
-            (key.clone(), matrix_entry_value(entry))
+            (key.clone(), matrix_entry_value(entry, mask))
         })
         .collect();
     (keys, values)
 }
 
-fn matrix_entry_value(entry: Option<adotenv::Entry<'_>>) -> String {
+fn matrix_entry_value(entry: Option<adotenv::Entry<'_>>, mask: bool) -> String {
     let Some(entry) = entry else {
         return "<unset>".to_string();
     };
     let value = match (entry.state(), entry.value()) {
         (AssignmentState::Bare, None) => "<bare>".to_string(),
         (AssignmentState::Empty, _) => "\"\"".to_string(),
+        (_, Some(_)) if mask => MASK.to_string(),
         (_, Some(value)) => value.to_string(),
         (_, None) => "<unset>".to_string(),
     };
@@ -1306,7 +1415,7 @@ fn escape_table(value: &str) -> String {
     output
 }
 
-fn render_comparison_json(comparison: &Comparison) -> String {
+fn render_comparison_json(comparison: &Comparison, mask: bool) -> String {
     comparison
         .differences()
         .iter()
@@ -1315,25 +1424,31 @@ fn render_comparison_json(comparison: &Comparison) -> String {
                 "{{\"key\":{},\"kind\":{},\"left\":{},\"right\":{}}}",
                 json_string(&entry.key),
                 json_string(difference_kind_name(entry.kind)),
-                render_compared_value_json(entry.left.as_ref()),
-                render_compared_value_json(entry.right.as_ref())
+                render_compared_value_json(entry.left.as_ref(), mask),
+                render_compared_value_json(entry.right.as_ref(), mask)
             )
         })
         .collect::<Vec<_>>()
         .join(",")
 }
 
-fn render_compared_value_json(value: Option<&ComparedValue>) -> String {
+fn render_compared_value_json(value: Option<&ComparedValue>, mask: bool) -> String {
     let Some(value) = value else {
         return "null".to_string();
     };
     format!(
         "{{\"state\":{},\"value\":{},\"exported\":{}}}",
         json_string(assignment_state_name(value.state)),
-        value
-            .value
-            .as_deref()
-            .map_or_else(|| "null".to_string(), json_string),
+        value.value.as_deref().map_or_else(
+            || "null".to_string(),
+            |value| {
+                if mask && !value.is_empty() {
+                    json_string(MASK)
+                } else {
+                    json_string(value)
+                }
+            }
+        ),
         value.exported
     )
 }
@@ -1359,8 +1474,13 @@ fn difference_kind_name(kind: DifferenceKind) -> &'static str {
 }
 
 fn example(args: &[String], dialect: Dialect) -> u8 {
+    let args = args.strip_prefix(&[String::from("--")]).unwrap_or(args);
     if args.len() != 1 {
         errln!("usage: adotenv-cli example <file>");
+        return FAILURE;
+    }
+    if let Err(error) = reject_unknown_option(&args[0]) {
+        errln!("{error}");
         return FAILURE;
     }
     let source = match read_text(&args[0]) {
@@ -1376,11 +1496,24 @@ fn example(args: &[String], dialect: Dialect) -> u8 {
 }
 
 fn load(args: &[String], dialect: Dialect) -> u8 {
+    let args = args.strip_prefix(&[String::from("--")]).unwrap_or(args);
     if args.is_empty() || args.len() > 2 {
         errln!("usage: adotenv-cli load <directory> [mode]");
         return FAILURE;
     }
+    if let Err(error) = reject_unknown_option(&args[0]) {
+        errln!("{error}");
+        return FAILURE;
+    }
+    if is_stdin(&args[0]) {
+        errln!("load does not read standard input");
+        return FAILURE;
+    }
     let mode = args.get(1).map_or("", String::as_str);
+    if let Err(error) = reject_unknown_option(mode) {
+        errln!("{error}");
+        return FAILURE;
+    }
     let loaded = match load_cascade_with(&args[0], mode, dialect) {
         Ok(loaded) => loaded,
         Err(error) => return fail(error.to_string()),
@@ -1422,6 +1555,7 @@ fn render_portable(loaded: &LoadedEnvironment) -> Result<String, String> {
 }
 
 fn set(args: &[String], dialect: Dialect) -> u8 {
+    let args = args.strip_prefix(&[String::from("--")]).unwrap_or(args);
     if args.len() != 3 {
         errln!("usage: adotenv-cli set <file> <key> <value>");
         return FAILURE;
@@ -1430,7 +1564,11 @@ fn set(args: &[String], dialect: Dialect) -> u8 {
         errln!("set cannot write standard input");
         return FAILURE;
     }
-    let source = match read_text(&args[0]) {
+    let (target, identity) = match resolve_write(Path::new(&args[0])) {
+        Ok(target) => target,
+        Err(error) => return fail(format!("{}: {error}", args[0])),
+    };
+    let source = match read_text(&target) {
         Ok(source) => source,
         Err(error) => return fail(error),
     };
@@ -1443,7 +1581,7 @@ fn set(args: &[String], dialect: Dialect) -> u8 {
         Err(error) => return fail(format!("{}: {error}", args[0])),
     };
     if edited.as_str() != source {
-        if let Err(error) = write_atomic(Path::new(&args[0]), edited.as_str()) {
+        if let Err(error) = write_atomic_checked(&target, edited.as_str(), identity) {
             return fail(format!("{}: {error}", args[0]));
         }
     }
@@ -1457,6 +1595,16 @@ fn run_command(args: &[String], dialect: Dialect) -> u8 {
     };
     if separator == 0 || separator + 1 >= args.len() || separator > 2 {
         errln!("usage: adotenv-cli run <directory> [mode] -- <program> [args...]");
+        return FAILURE;
+    }
+    for argument in &args[..separator] {
+        if let Err(error) = reject_unknown_option(argument) {
+            errln!("{error}");
+            return FAILURE;
+        }
+    }
+    if is_stdin(&args[0]) {
+        errln!("run does not read standard input");
         return FAILURE;
     }
     let directory = &args[0];
@@ -1514,6 +1662,8 @@ fn exit_code_for(code: Option<i32>, signal: Option<i32>) -> u8 {
 }
 
 fn validate_child_environment(loaded: &LoadedEnvironment) -> Result<(), String> {
+    #[cfg(windows)]
+    let mut seen = BTreeSet::new();
     for (key, value) in loaded.values() {
         if key.is_empty() || key.bytes().any(|byte| byte == 0 || byte == b'=') {
             return Err(format!("invalid child environment key: {key:?}"));
@@ -1521,25 +1671,48 @@ fn validate_child_environment(loaded: &LoadedEnvironment) -> Result<(), String> 
         if value.as_bytes().contains(&0) {
             return Err(format!("child environment value for {key:?} contains NUL"));
         }
+        #[cfg(windows)]
+        {
+            if !seen.insert(key.to_lowercase()) {
+                return Err(format!(
+                    "child environment key collides case-insensitively: {key:?}"
+                ));
+            }
+            if value.encode_utf16().count() > 32_767 {
+                return Err(format!(
+                    "child environment value for {key:?} exceeds 32767 UTF-16 code units"
+                ));
+            }
+        }
     }
     Ok(())
 }
 
-fn write_comparison(output: &mut String, comparison: &Comparison) {
+fn write_comparison(output: &mut String, comparison: &Comparison, mask: bool) {
     for entry in comparison.differences() {
         let result = match entry.kind {
             DifferenceKind::OnlyLeft => {
-                writeln!(output, "- {}={}", entry.key, describe(entry.left.as_ref()))
+                writeln!(
+                    output,
+                    "- {}={}",
+                    entry.key,
+                    describe(entry.left.as_ref(), mask)
+                )
             }
             DifferenceKind::OnlyRight => {
-                writeln!(output, "+ {}={}", entry.key, describe(entry.right.as_ref()))
+                writeln!(
+                    output,
+                    "+ {}={}",
+                    entry.key,
+                    describe(entry.right.as_ref(), mask)
+                )
             }
             DifferenceKind::State | DifferenceKind::Value | DifferenceKind::Export => writeln!(
                 output,
                 "~ {}: {} -> {}",
                 entry.key,
-                describe(entry.left.as_ref()),
-                describe(entry.right.as_ref())
+                describe(entry.left.as_ref(), mask),
+                describe(entry.right.as_ref(), mask)
             ),
             _ => writeln!(output, "~ {}: <unknown difference>", entry.key),
         };
@@ -1547,13 +1720,14 @@ fn write_comparison(output: &mut String, comparison: &Comparison) {
     }
 }
 
-fn describe(value: Option<&ComparedValue>) -> String {
+fn describe(value: Option<&ComparedValue>, mask: bool) -> String {
     let Some(value) = value else {
         return "<unset>".to_string();
     };
     let rendered = match (value.state, value.value.as_deref()) {
         (AssignmentState::Bare, None) => "<bare>".to_string(),
         (AssignmentState::Empty, _) => "\"\"".to_string(),
+        (_, Some(_)) if mask => MASK.to_string(),
         (_, Some(value)) => value.to_string(),
         (_, None) => "<unset>".to_string(),
     };
@@ -1566,6 +1740,77 @@ fn describe(value: Option<&ComparedValue>) -> String {
 
 static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
 
+/// Maximum bytes of the original file name kept in a temporary name.
+///
+/// The suffix includes the PID and counter; 160 keeps the whole component
+/// under the common 255-byte NAME_MAX limit.
+const TEMP_STEM_BYTES: usize = 160;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FileIdentity {
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    #[cfg(unix)]
+    dev: u64,
+    #[cfg(unix)]
+    ino: u64,
+}
+
+fn file_identity(path: &Path) -> io::Result<FileIdentity> {
+    let metadata = fs::metadata(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(FileIdentity {
+            len: metadata.len(),
+            modified: metadata.modified().ok(),
+            dev: metadata.dev(),
+            ino: metadata.ino(),
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(FileIdentity {
+            len: metadata.len(),
+            modified: metadata.modified().ok(),
+        })
+    }
+}
+
+/// Resolve the write target once, before reading, and capture its identity.
+///
+/// Reading and replacing the same resolved path keeps a symbolic link swapped
+/// after this point from redirecting the write. On Unix the device and inode
+/// are compared again just before the replace.
+fn resolve_write(path: &Path) -> io::Result<(PathBuf, FileIdentity)> {
+    let target = fs::canonicalize(path)?;
+    let metadata = fs::metadata(&target)?;
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "path is not a regular file",
+        ));
+    }
+    let identity = file_identity(&target)?;
+    Ok((target, identity))
+}
+
+fn write_atomic_checked(path: &Path, contents: &str, identity: FileIdentity) -> io::Result<()> {
+    write_atomic_inner(path, contents, Some(identity))
+}
+
+/// Fail unless `path` still names the resolved regular file whose identity was
+/// captured before the read. The identity includes size and modification time
+/// as well as device and inode on Unix, so an in-place rewrite is detected
+/// when the file system advances the timestamp.
+fn check_target(path: &Path, expected: FileIdentity) -> io::Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || file_identity(path)? != expected {
+        return Err(io::Error::other("file changed after it was read"));
+    }
+    Ok(())
+}
+
 /// Replace `path` with `contents` through a temporary file in the same directory.
 ///
 /// When `path` is a symbolic link, the file it finally points to is replaced
@@ -1573,9 +1818,22 @@ static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
 /// private on Unix (mode `0600`), receives the existing file's owner and group
 /// where possible, and receives its permissions only after the contents are
 /// written. A file that does not exist yet stays private.
-fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
-    let target = replacement_target(path)?;
+fn write_atomic_inner(
+    path: &Path,
+    contents: &str,
+    expected_identity: Option<FileIdentity>,
+) -> io::Result<()> {
+    // A checked write already resolved its target, so resolve it again only
+    // for the unchecked legacy helper. In particular, do not follow a symbolic
+    // link that appeared at the resolved target after the read.
+    let target = match expected_identity {
+        Some(_) => path.to_path_buf(),
+        None => replacement_target(path)?,
+    };
     let path = target.as_path();
+    if let Some(expected) = expected_identity {
+        check_target(path, expected)?;
+    }
     let existing = match fs::metadata(path) {
         Ok(metadata) if metadata.is_dir() => {
             return Err(io::Error::new(
@@ -1604,6 +1862,12 @@ fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
     if let Err(error) = fill_temporary(file, &temporary, contents, existing.as_ref()) {
         let _ = fs::remove_file(&temporary);
         return Err(error);
+    }
+    if let Some(expected) = expected_identity {
+        if let Err(error) = check_target(path, expected) {
+            let _ = fs::remove_file(&temporary);
+            return Err(error);
+        }
     }
     #[cfg(unix)]
     {
@@ -1636,10 +1900,15 @@ fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
 /// On Unix the file is created with mode `0600` (further narrowed by the
 /// umask), so no other user can read it while it is being filled.
 fn create_temporary(parent: &Path, name: &std::ffi::OsStr) -> io::Result<(PathBuf, fs::File)> {
+    let name = name.to_string_lossy();
+    let mut stem_end = name.len().min(TEMP_STEM_BYTES);
+    while !name.is_char_boundary(stem_end) {
+        stem_end -= 1;
+    }
+    let stem = &name[..stem_end];
     for _ in 0..16 {
         let candidate = parent.join(format!(
-            ".{}.adotenv-{}-{}",
-            name.to_string_lossy(),
+            ".adotenv-tmp-{}-{}-{stem}",
             std::process::id(),
             NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
         ));
@@ -1806,10 +2075,10 @@ fn backup_existing(path: &Path) -> io::Result<Option<PathBuf>> {
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
     for _ in 0..16 {
         let candidate = parent.join(format!(
-            ".{}.adotenv-backup-{}-{}",
-            name.to_string_lossy(),
+            ".adotenv-backup-{}-{}-{}",
             std::process::id(),
-            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed),
+            name.to_string_lossy()
         ));
         match fs::rename(path, &candidate) {
             Ok(()) => return Ok(Some(candidate)),
@@ -1836,6 +2105,14 @@ fn remove_backup(path: &Path) -> io::Result<()> {
     fs::remove_file(path)
 }
 
+fn reject_unknown_option(argument: &str) -> Result<(), String> {
+    if argument.starts_with('-') && argument != "-" && !is_stdin(argument) {
+        Err(format!("unknown option: {argument}"))
+    } else {
+        Ok(())
+    }
+}
+
 fn is_stdin(path: &str) -> bool {
     is_stdin_path(Path::new(path))
 }
@@ -1853,6 +2130,11 @@ fn read_text<P: AsRef<Path>>(path: P) -> Result<String, String> {
             .map_err(|error| format!("-: {error}"))?;
         bytes
     } else {
+        let metadata =
+            fs::metadata(path).map_err(|error| format!("{}: {error}", path.display()))?;
+        if !metadata.is_file() {
+            return Err(format!("{}: path is not a regular file", path.display()));
+        }
         fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?
     };
     String::from_utf8(bytes).map_err(|_| format!("{}: invalid UTF-8", path.display()))
@@ -1866,7 +2148,12 @@ fn fail(message: String) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::{github_escape_data, github_escape_property, json_string, write_atomic, NEXT_TEMP};
+    use super::{
+        create_temporary, github_escape_data, github_escape_property, json_string,
+        write_atomic_inner, NEXT_TEMP,
+    };
+    #[cfg(unix)]
+    use super::{read_text, resolve_write, write_atomic_checked};
     use std::sync::atomic::Ordering;
 
     #[cfg(not(unix))]
@@ -1942,11 +2229,118 @@ mod tests {
         ));
         std::fs::create_dir_all(&directory).unwrap();
         let target = directory.join("new.env");
-        write_atomic(&target, "A=1\n").unwrap();
+        write_atomic_inner(&target, "A=1\n", None).unwrap();
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "A=1\n");
         let leftovers: Vec<_> = std::fs::read_dir(&directory).unwrap().collect();
         assert_eq!(leftovers.len(), 1);
         std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn checked_write_rejects_a_replaced_target() {
+        let directory = std::env::temp_dir().join(format!(
+            "adotenv-write-identity-{}-{}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let target = directory.join("app.env");
+        std::fs::write(&target, "A=1\n").unwrap();
+        let (resolved, identity) = resolve_write(&target).unwrap();
+
+        let replacement = directory.join("replacement.env");
+        std::fs::write(&replacement, "A=2\n").unwrap();
+        std::fs::rename(&replacement, &resolved).unwrap();
+
+        let error = write_atomic_checked(&resolved, "A=3\n", identity).unwrap_err();
+        assert!(error.to_string().contains("changed after it was read"));
+        assert_eq!(std::fs::read_to_string(&resolved).unwrap(), "A=2\n");
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn checked_write_does_not_follow_a_target_replaced_by_a_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let directory = std::env::temp_dir().join(format!(
+            "adotenv-write-symlink-{}-{}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let target = directory.join("app.env");
+        std::fs::write(&target, "A=1\n").unwrap();
+        let (resolved, identity) = resolve_write(&target).unwrap();
+
+        let elsewhere = directory.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let victim = elsewhere.join("victim.env");
+        std::fs::write(&victim, "A=safe\n").unwrap();
+        std::fs::remove_file(&resolved).unwrap();
+        symlink(&victim, &resolved).unwrap();
+
+        let error = write_atomic_checked(&resolved, "A=3\n", identity).unwrap_err();
+        assert!(error.to_string().contains("changed after it was read"));
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "A=safe\n");
+        assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 1);
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn temporary_names_fit_common_name_limits() {
+        let directory = std::env::temp_dir().join(format!(
+            "adotenv-write-name-{}-{}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let long = "a".repeat(254);
+        let (temporary, file) = create_temporary(&directory, std::ffi::OsStr::new(&long)).unwrap();
+        let name = temporary.file_name().unwrap().to_string_lossy();
+        assert!(name.len() <= 255, "temporary name is {} bytes", name.len());
+        drop(file);
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn write_atomic_rejects_a_directory_target() {
+        let directory = std::env::temp_dir().join(format!(
+            "adotenv-write-directory-{}-{}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let target = directory.join("target.env");
+        std::fs::create_dir(&target).unwrap();
+        let error = write_atomic_inner(&target, "A=1\n", None).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn checked_write_rejects_an_in_place_change() {
+        let directory = std::env::temp_dir().join(format!(
+            "adotenv-write-identity-{}-{}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let target = directory.join("app.env");
+        std::fs::write(&target, "A=1\n").unwrap();
+        let (target, identity) = resolve_write(&target).unwrap();
+        std::fs::write(&target, "A=1\nB=2\n").unwrap();
+        assert!(write_atomic_checked(&target, "A=3\n", identity).is_err());
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_regular_inputs_are_rejected_without_reading() {
+        assert!(read_text("/dev/null").is_err());
+        assert!(resolve_write(std::path::Path::new("/dev/null")).is_err());
     }
 
     #[cfg(unix)]
@@ -1965,6 +2359,12 @@ mod tests {
             create_temporary(&directory, std::ffi::OsStr::new("app.env")).unwrap();
         let mode = file.metadata().unwrap().permissions().mode() & 0o777;
         assert_eq!(file.metadata().unwrap().len(), 0);
+        assert!(temporary.exists());
+        assert!(!temporary
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with(".env."));
         drop(file);
         std::fs::remove_dir_all(&directory).unwrap();
         assert!(!temporary.exists());

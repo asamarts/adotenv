@@ -80,17 +80,19 @@ development checks only.
 ## Conformance
 
 `conformance/manifest.json` records pinned observations from real Node,
-Python, Compose and Docker env-file implementations. The corpus has 80 cases
-and 20 profiles. The runner checks package and source identities, hashes the
-inputs and compares only observations that map to the literal adotenv model.
+Python, Compose and Docker env-file implementations. The corpus has 89 cases
+and 21 profiles. The runner checks package and source identities, hashes the
+inputs and compares literal observations plus a curated Compose resolution
+profile.
 
 ```console
 python3 conformance/check_adotenv.py --setup
 ```
 
-Compose's default parser performs interpolation, so only dollar-free inputs
-with an empty lookup are literal comparison oracles. Portable is not asserted
-equal to any upstream implementation.
+Compose's default parser performs interpolation. Literal comparison uses
+dollar-free inputs with an empty lookup; the separate `compose_resolve` profile
+compares curated Compose interpolation cases. Portable is not asserted equal
+to any upstream implementation.
 
 ## Coverage and mutation testing
 

@@ -64,6 +64,52 @@ Releases within 1.x keep the API. These fixes change results:
 - 1.1.1: `encode_value_with` represents a Node literal-fallback value that
   needs an escaped terminal control character at the line cap, instead of
   returning `EncodeError::Unrepresentable`.
+- 1.2.0: resolution scans at most 65,536 reference candidates per value by
+  default and fails with `ResolveError::TooManyReferences` beyond that.
+  `ExpandOptions::with_max_references` changes the limit. Delimiter matching
+  is bounded by `max_depth`, so deeply nested forms also stop instead of
+  retaining a record per level.
+- 1.2.0: `parse` returns at most 10,000 ordinary diagnostics, plus the first
+  error after the budget. A truncated list ends with
+  `DiagnosticCode::TooManyDiagnostics`; the retained error can make the total
+  10,002 entries. `parse_strict` and `parse_values` still return the
+  first error directly.
+- 1.2.0: value masking is opt-in with `Masked`/`mask` and
+  `DeserializeError::masked`; normal `Debug` output is unchanged. `diff` gains
+  `--mask`.
+- 1.2.0: `Document::lookup_index` sizes its table from participating keys, so
+  dialects that ignore many declarations use less memory.
+- 1.2.0: `Document::example` keeps a leading BOM under every `BomPolicy`,
+  including `Keep` and `Error`.
+- 1.2.0: native encoding no longer strips a U+FEFF key at the start of an
+  edit or format fragment, so `set` and quote formatting work for such keys.
+- 1.2.0: cascade mode `local` removes the duplicate `.env.local` path, so
+  report views no longer show the file overriding itself.
+- 1.2.0: a custom `QuotedTail::Append` value normalizes CR line endings and
+  reports Portable tight-hash/backtick warnings in the appended tail.
+- 1.2.0: on Windows, `validate`/`apply` and `adotenv-cli run` reject keys that
+  differ only by case and values over 32,767 UTF-16 code units. Recursive
+  discovery also recognizes uppercase `.ENV` names, and cascade paths are
+  canonicalized before mode deduplication.
+- 1.2.0: CLI `--dialect=<value>` is accepted, repeated `--dialect` is a usage
+  error, unknown `--` options are rejected, and temporary names are bounded.
+- 1.2.0: `exec::Shell` caps standard output and standard error and stops
+  commands after a timeout by default. The builders change the limits.
+- 1.2.0: `fmt --write` and `set` resolve the write target once and check its
+  device, inode, size and modification time before replacing it on Unix. A
+  swapped symlink or in-place rewrite can no longer silently redirect the
+  write; a target that changes after the read fails. This is best effort, not
+  a lock against every concurrent writer.
+- 1.2.0: `Document::set` with an empty value is idempotent when an inline
+  comment is attached, and `Document::format` is idempotent for byte-capped
+  dialects when spacing or trimming shortens the line.
+- 1.2.0: temporary write and backup names use `.adotenv-*`, named input paths
+  must be regular files, and `load`/`run` reject `-`/`--stdin` as a directory.
+- 1.2.0: a dangling `.env.*` symlink is a load error rather than an absent
+  optional file, and `resolve_decoded` keeps a leading U+FEFF key containing
+  an apostrophe.
+- 1.2.0: `Mask` also covers loaded entries, portability reports and their
+  nested types.
 - 1.1.2: `encode_value_with` represents a Node value whose only legal token
   needs a repeated backtick run to survive quote recovery, instead of returning
   `EncodeError::Unrepresentable`.

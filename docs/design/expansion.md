@@ -78,6 +78,12 @@ emulate Docker Compose interpolation as a whole: under the Compose dialect an
 escaped `$$B` is not eligible, so resolution leaves `$$B` as written, while
 Compose prints `$B`.
 
+`ExpandOptions::dotenv_expand()` is likewise an adotenv rules choice, not an
+exact emulation of `dotenv-expand`. The conformance corpus pins dotenv-expand
+1000.0.0 and records its behavior. Known differences include unresolved names
+staying literal here by default and `:?`/`?` reporting an error instead of an
+empty value.
+
 ## Resolution
 
 `Document::resolve(lookup, options)` substitutes eligible references using the
@@ -125,8 +131,16 @@ Builders change one option each:
 | `with_lookup_order` | `LookupOrder::FileFirst` or `CallerFirst` | `FileFirst` |
 | `with_unresolved` | `Unresolved::Keep`, `Empty` or `Error` | `Keep` |
 | `with_max_depth` | Nesting depth | 64 |
+| `with_max_references` | Reference candidates scanned per value | 65,536 |
 | `with_max_value_bytes` | Expanded bytes per value | 1 MiB |
 | `with_max_output_bytes` | Total bytes of one resolution | 64 MiB |
+
+The reference scan stops before it builds a candidate list longer than
+`max_references`; exceeding it fails with
+`ResolveError::TooManyReferences`. This matters because a `Reference` is much
+larger than the text that produces it, so the scan, not the input length, sets
+the memory cost. The public `Entry::references` remains unbounded; bound the
+value before calling it on untrusted input.
 
 In sequential scope a reference sees the declarations before its entry; in
 whole-file scope it sees every declaration. Only declarations that take part in
@@ -181,9 +195,9 @@ reference, or a command.
 Resolution stops at the first error. `ResolveError` reports `Unresolved` (an
 unset plain reference under `Unresolved::Error`), `Required` (from a `?` or
 `:?` operator), `Cycle` (file values that refer to each other in a loop, in
-whole-file scope), `DepthExceeded`, `ValueTooLarge`, `OutputTooLarge` and
-`Command` (a `CommandError` from the callback). Resolution never loops on a
-cycle.
+whole-file scope), `DepthExceeded`, `TooManyReferences`, `ValueTooLarge`,
+`OutputTooLarge` and `Command` (a `CommandError` from the callback). Resolution
+never loops on a cycle.
 
 A reference to a file value copies that value's segments into the result, so
 references that repeat each other can make the output grow much faster than the
@@ -256,9 +270,12 @@ let resolved = doc
 - The command inherits the environment of the current process and gets an
   empty standard input. The shell expands variables in the command from that
   environment, not from the file or the lookup closure.
-- Standard output is returned with one trailing newline removed. A command
-  that cannot start, exits with a nonzero status or prints output that is not
-  UTF-8 is an error; for a nonzero status the message includes the command's
-  standard error.
+- Standard output is returned with one trailing newline removed. By default it
+  is capped at 1 MiB, standard error is capped at 64 KiB, and a command is
+  stopped after 300 seconds. `Shell::with_max_output_bytes`,
+  `Shell::with_timeout` and `Shell::without_timeout` change those limits.
+- A command that cannot start, exceeds a limit, times out, exits with a nonzero
+  status or prints output that is not UTF-8 is an error; for a nonzero status
+  the message includes the command's standard error.
 
 Commands run exactly as written. Only use `exec::Shell` with trusted files.

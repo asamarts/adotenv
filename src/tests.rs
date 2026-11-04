@@ -1,5 +1,6 @@
 use alloc::collections::BTreeMap;
 use alloc::{format, string::String, string::ToString, vec, vec::Vec};
+use core::fmt::Write as _;
 use proptest::prelude::*;
 
 use crate::{
@@ -532,6 +533,17 @@ fn effective_entries_honor_duplicate_and_bare_policy() {
 }
 
 #[test]
+fn values_only_omit_compose_empty_keys() {
+    let dialect = Dialect::COMPOSE;
+    let source = "=x\nA=1\n";
+    let (document, _) = parse_with(source, dialect);
+    assert_eq!(document.get(""), Some("x"));
+    let values = parse_values_with(source, dialect).unwrap();
+    assert_eq!(values.get(""), None);
+    assert_eq!(values.get("A").map(String::as_str), Some("1"));
+}
+
+#[test]
 fn compose_empty_keys_remain_directly_addressable_but_are_not_indexed() {
     let (document, _) = parse_with("AA", Dialect::COMPOSE);
     assert!(document.entries().any(|entry| entry.key().is_empty()));
@@ -558,6 +570,29 @@ fn lookup_index_tree_fallback_preserves_lookup_semantics() {
     let index = document.lookup_index_with_probe_limit(0);
     assert_eq!(index.get("A"), Some("first"));
     assert_eq!(index.get("BARE"), None);
+}
+
+#[test]
+fn lookup_index_does_not_size_from_ignored_entries() {
+    let source = "BARE\n".repeat(10_000);
+    let (document, _) = parse_with(&source, Dialect::NODE_DOTENV);
+    let index = document.lookup_index();
+    assert_eq!(index.len(), 0);
+    assert_eq!(index.hash_slots(), Some(8));
+}
+
+#[test]
+fn lookup_index_grows_for_distinct_participating_keys() {
+    let mut source = String::new();
+    for index in 0..1_000 {
+        writeln!(source, "K{index}={index}").unwrap();
+    }
+    let document = parse_strict(&source).unwrap();
+    let index = document.lookup_index();
+    assert_eq!(index.len(), 1_000);
+    assert!(index.hash_slots().unwrap() > 8);
+    assert_eq!(index.get("K999"), Some("999"));
+    assert_eq!(index.get("missing"), None);
 }
 
 #[test]

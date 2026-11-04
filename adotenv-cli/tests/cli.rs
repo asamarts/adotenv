@@ -195,6 +195,29 @@ fn diff_reports_value_changes_and_exit_status() {
 }
 
 #[test]
+fn diff_mask_hides_values_in_every_format() {
+    let dir = TempDir::new();
+    let base = dir.file("base.env", "TOKEN=secret-left\nKEEP=plain\n");
+    let changed = dir.file("changed.env", "TOKEN=secret-right\nKEEP=plain\n");
+
+    for format in [None, Some("json"), Some("matrix")] {
+        let mut args = vec!["diff", "--mask"];
+        if let Some(format) = format {
+            args.push("--format");
+            args.push(format);
+        }
+        args.push(base.to_str().unwrap());
+        args.push(changed.to_str().unwrap());
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(1), "{format:?}");
+        let text = stdout(&output);
+        assert!(!text.contains("secret-left"), "{format:?}: {text}");
+        assert!(!text.contains("secret-right"), "{format:?}: {text}");
+        assert!(text.contains("***"), "{format:?}: {text}");
+    }
+}
+
+#[test]
 fn diff_human_output_has_a_header_for_two_files() {
     let dir = TempDir::new();
     let base = dir.file("base.env", "A=1\n");
@@ -396,6 +419,37 @@ fn run_reports_a_signaled_child_like_a_shell() {
     }
 }
 
+#[cfg(windows)]
+#[test]
+fn run_rejects_windows_case_insensitive_duplicate_keys() {
+    let dir = TempDir::new();
+    fs::write(dir.path().join(".env"), "PATH=one\nPath=two\n").unwrap();
+    let output = run(&[
+        "run",
+        dir.path().to_str().unwrap(),
+        "--",
+        "adotenv-command-that-must-not-run",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("collides case-insensitively"));
+}
+
+#[cfg(windows)]
+#[test]
+fn run_rejects_windows_values_that_are_too_long() {
+    let dir = TempDir::new();
+    let value = "x".repeat(32_768);
+    fs::write(dir.path().join(".env"), format!("A={value}\n")).unwrap();
+    let output = run(&[
+        "run",
+        dir.path().to_str().unwrap(),
+        "--",
+        "adotenv-command-that-must-not-run",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("exceeds 32767 UTF-16 code units"));
+}
+
 #[test]
 fn run_rejects_nul_environment_values_before_spawning() {
     let dir = TempDir::new();
@@ -411,6 +465,18 @@ fn run_rejects_nul_environment_values_before_spawning() {
 }
 
 #[test]
+fn dialect_value_after_a_positional_argument_is_a_value() {
+    let dir = TempDir::new();
+    let file = dir.file("app.env", "A=1\n");
+    let output = run(&["set", file.to_str().unwrap(), "A", "--dialect=node"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "A=--dialect=node\n"
+    );
+}
+
+#[test]
 fn dialect_selection_applies_to_commands() {
     let dir = TempDir::new();
     let file = dir.file("node.env", "A=a#b\n");
@@ -421,6 +487,9 @@ fn dialect_selection_applies_to_commands() {
     assert_eq!(stdout(&node), "a\n");
 
     let node = run(&["--dialect", "node", "get", file.to_str().unwrap(), "A"]);
+    assert_eq!(stdout(&node), "a\n");
+
+    let node = run(&["--dialect=node", "get", file.to_str().unwrap(), "A"]);
     assert_eq!(stdout(&node), "a\n");
 
     let unknown = run(&["get", "--dialect", "nope", file.to_str().unwrap(), "A"]);
@@ -896,6 +965,31 @@ fn diff_compares_multiple_files_against_a_baseline_and_renders_a_matrix() {
     assert!(text.contains("two.env"));
     assert!(text.contains("C"));
     assert!(text.contains("<unset>"));
+}
+
+#[test]
+fn diff_matrix_pads_columns_when_the_baseline_has_no_keys() {
+    let dir = TempDir::new();
+    let base = dir.file("base.env", "# empty\n");
+    let one = dir.file("one.env", "A=1\n");
+
+    let output = run(&[
+        "diff",
+        "--format",
+        "matrix",
+        base.to_str().unwrap(),
+        one.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = stdout(&output);
+    assert!(
+        text.lines()
+            .any(|line| line.starts_with("A ") && line.contains("<unset>")),
+        "{text}"
+    );
+    for line in text.lines().filter(|line| line.starts_with("A ")) {
+        assert_eq!(line.split('|').count(), 3, "{line:?}");
+    }
 }
 
 #[test]
@@ -1628,9 +1722,37 @@ fn exit_code_contract_covers_standard_output_failures() {
 }
 
 #[test]
+fn fmt_write_check_conflicts_even_when_no_files_are_found() {
+    let dir = TempDir::new();
+    let empty = dir.path().join("empty");
+    fs::create_dir(&empty).unwrap();
+    let output = run(&[
+        "fmt",
+        "--write",
+        "--check",
+        "--recursive",
+        empty.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("--write and --check"));
+}
+
+#[test]
 fn usage_and_argument_errors_are_consistent() {
     let cases: &[(&[&str], &str)] = &[
         (&["get"], "usage: adotenv-cli get"),
+        (&["--dialect"], "--dialect requires a value"),
+        (
+            &["--dialect", "node", "--dialect", "python", "get", "x", "A"],
+            "--dialect may be specified only once",
+        ),
+        (&["check", "--jsn", "x"], "unknown option: --jsn"),
+        (&["fmt", "--jsn", "x"], "unknown option: --jsn"),
+        (&["diff", "--jsn", "a", "b"], "unknown option: --jsn"),
+        (&["get", "--jsn", "A"], "unknown option: --jsn"),
+        (&["check", "-jsn", "x"], "unknown option: -jsn"),
+        (&["fmt", "-jsn", "x"], "unknown option: -jsn"),
+        (&["diff", "-jsn", "a", "b"], "unknown option: -jsn"),
         (&["get", "one"], "usage: adotenv-cli get"),
         (&["check"], "usage: adotenv-cli check"),
         (
@@ -1777,8 +1899,8 @@ fn check_json_escapes_control_characters_in_paths() {
     let output = run(&["check", "--json", path.to_str().unwrap()]);
     assert!(output.status.success(), "{}", stderr(&output));
     let json = stdout(&output);
+    parse_json(&json);
     assert!(json.contains("line\\nname\\t.env"), "{json}");
-    assert!(!json.contains('\n') || json.lines().count() == 1);
 }
 
 #[test]
@@ -2255,10 +2377,7 @@ fn documented_fields(text: &str) -> std::collections::BTreeMap<String, Vec<Strin
 #[test]
 fn json_fields_match_the_documented_schema() {
     let docs = Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/design/cli.md");
-    let Ok(docs) = fs::read_to_string(docs) else {
-        eprintln!("skipping schema test: docs/design/cli.md is not available");
-        return;
-    };
+    let docs = fs::read_to_string(docs).expect("docs/design/cli.md must be available");
     let documented = documented_fields(&docs);
 
     let dir = TempDir::new();
@@ -2330,4 +2449,55 @@ fn json_fields_match_the_documented_schema() {
     let documented_roles: Vec<&String> = documented.keys().collect();
     let observed_roles: Vec<&str> = observed.keys().copied().collect();
     assert_eq!(documented_roles, observed_roles, "documented objects");
+}
+
+#[test]
+fn load_and_run_reject_standard_input_as_a_directory() {
+    let load = run(&["load", "-"]);
+    assert_eq!(load.status.code(), Some(2));
+    assert!(stderr(&load).contains("does not read standard input"));
+    let run = run(&["run", "-", "--", "true"]);
+    assert_eq!(run.status.code(), Some(2));
+    assert!(stderr(&run).contains("does not read standard input"));
+}
+
+#[cfg(windows)]
+#[test]
+fn recursive_discovery_is_case_insensitive_on_windows() {
+    let dir = TempDir::new();
+    dir.file(".ENV", "A=1\n");
+    dir.file(".ENV.production", "B=2\n");
+    dir.file_at(".GIT/ignored.env", "C=3\n");
+
+    let output = run(&[
+        "check",
+        "--json",
+        "--recursive",
+        dir.path().to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.contains(".ENV"), "{text}");
+    assert!(text.contains(".ENV.production"), "{text}");
+    assert!(!text.contains("ignored.env"), "{text}");
+}
+
+#[test]
+fn double_dash_ends_option_parsing() {
+    let dir = TempDir::new();
+    let file = dir.file("app.env", "A=1\n");
+
+    let get = run(&["get", "--", file.to_str().unwrap(), "A"]);
+    assert_eq!(get.status.code(), Some(0), "{}", stderr(&get));
+    assert_eq!(stdout(&get), "1\n");
+
+    let check = run(&["check", "--", file.to_str().unwrap()]);
+    assert_eq!(check.status.code(), Some(0), "{}", stderr(&check));
+
+    let set = run(&["set", "--", file.to_str().unwrap(), "A", "--dialect=node"]);
+    assert_eq!(set.status.code(), Some(0), "{}", stderr(&set));
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "A=--dialect=node\n"
+    );
 }

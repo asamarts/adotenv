@@ -17,7 +17,7 @@ use serde::de::{self, DeserializeOwned, Deserializer, MapAccess, Visitor};
 
 #[cfg(feature = "load")]
 use crate::load::LoadedEnvironment;
-use crate::Document;
+use crate::{Document, Mask, REDACTED};
 
 /// An error from deserializing a [`Document`] or loaded environment with Serde.
 ///
@@ -26,7 +26,8 @@ use crate::Document;
 /// [`key`](Self::key) locate the problem:
 ///
 /// - A value that does not convert has the one-based line of its declaration
-///   and its key.
+///   and its key. A value consumed through `#[serde(flatten)]` is decoded
+///   after map access; serde then reports line `0` and no key for that value.
 /// - A key that does not convert, such as an unknown field under
 ///   `#[serde(deny_unknown_fields)]`, has the line of its declaration and an
 ///   empty key, `Some("")`. Keys are always passed as strings, so any key read
@@ -96,12 +97,35 @@ impl DeserializeError {
         }
         self
     }
+    /// Returns a form that masks the value-bearing message.
+    ///
+    /// The line and key are kept. Use this when the values may be secret and
+    /// the error is logged or displayed.
+    ///
+    /// ```
+    /// use adotenv::parse_strict;
+    ///
+    /// # #[allow(dead_code)]
+    /// # #[derive(Debug, serde::Deserialize)]
+    /// # #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+    /// # struct Config { port: u16 }
+    /// let doc = parse_strict("PORT=abc\n")?;
+    /// let error = doc.deserialize::<Config>().unwrap_err();
+    /// assert!(error.to_string().contains("abc"));
+    /// assert!(!error.masked().to_string().contains("abc"));
+    /// assert_eq!(error.masked().to_string(), "line 1: <redacted> (key \"PORT\")");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub const fn masked(&self) -> MaskedDeserializeError<'_> {
+        MaskedDeserializeError(self)
+    }
     /// Returns the one-based line of the declaration, or `0` when it is
     /// unknown.
     ///
     /// The line is `0` for an error about the whole map, such as a missing
-    /// field, and for any error from a loaded environment loaded without
-    /// origins.
+    /// field, for a value consumed through `#[serde(flatten)]`, and for any
+    /// error from a loaded environment loaded without origins.
     #[must_use]
     pub const fn line(&self) -> usize {
         self.line
@@ -109,7 +133,8 @@ impl DeserializeError {
     /// Returns the key of the declaration whose value did not convert.
     ///
     /// Returns `Some("")` when the key itself did not convert, and `None` for
-    /// an error about the whole map.
+    /// an error about the whole map or a value consumed through
+    /// `#[serde(flatten)]`.
     #[must_use]
     pub fn key(&self) -> Option<&str> {
         self.key.as_deref()
@@ -135,6 +160,44 @@ impl fmt::Display for DeserializeError {
 }
 
 impl core::error::Error for DeserializeError {}
+
+/// A [`DeserializeError`] with its value-bearing message masked.
+///
+/// Returned by [`DeserializeError::masked`]. Its [`Debug`](fmt::Debug) and
+/// [`Display`](fmt::Display) forms keep the line and key but replace the
+/// message with `<redacted>`.
+#[derive(Clone, Copy)]
+pub struct MaskedDeserializeError<'a>(&'a DeserializeError);
+
+impl fmt::Debug for MaskedDeserializeError<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt_masked(formatter)
+    }
+}
+
+impl fmt::Display for MaskedDeserializeError<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0.line != 0 {
+            write!(formatter, "line {}: ", self.0.line)?;
+        }
+        formatter.write_str(REDACTED)?;
+        match &self.0.key {
+            Some(key) => write!(formatter, " (key {key:?})"),
+            None => Ok(()),
+        }
+    }
+}
+
+impl Mask for DeserializeError {
+    fn fmt_masked(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DeserializeError")
+            .field("line", &self.line)
+            .field("key", &self.key)
+            .field("message", &REDACTED)
+            .finish()
+    }
+}
 
 impl de::Error for DeserializeError {
     fn custom<T: fmt::Display>(message: T) -> Self {
@@ -169,8 +232,10 @@ impl Document<'_> {
     /// An empty value is still present: `PORT=` read as `Option<u16>` is an
     /// error, not `None`. Sequences, nested maps and structs, tuples and enums
     /// are rejected as values, even enums with only unit variants and
-    /// `Vec<u8>`, which Serde reads as a sequence; deserialize a `String` and
-    /// convert it yourself when a field needs another shape.
+    /// `Vec<u8>`, which Serde reads as a sequence. Untagged enums are the
+    /// exception: Serde buffers the string and may choose a string-compatible
+    /// variant, so `value=hello` can deserialize as `Text("hello")`. Deserialize
+    /// a `String` and convert it yourself when a field needs another shape.
     ///
     /// Map keys are passed as strings, so a map with non-string keys, such as
     /// `BTreeMap<u16, String>`, fails. Fields inside `#[serde(flatten)]` also
@@ -181,7 +246,9 @@ impl Document<'_> {
     ///
     /// Returns a [`DeserializeError`] if a value or key does not convert, or if
     /// the target type rejects the map, for example because a required field
-    /// is missing. A value error names the key and the line of its declaration.
+    /// is missing. A value error names the key and the line of its declaration,
+    /// except for a value consumed through `#[serde(flatten)]`: serde decodes
+    /// those after map access and reports line `0` and no key.
     ///
     /// # Examples
     ///
@@ -228,7 +295,8 @@ impl LoadedEnvironment {
     ///
     /// Returns a [`DeserializeError`] if a value or key does not convert, or if
     /// the target type rejects the map, for example because a required field
-    /// is missing.
+    /// is missing. A value consumed through `#[serde(flatten)]` reports line
+    /// `0` and no key.
     ///
     /// # Examples
     ///

@@ -635,6 +635,13 @@ impl Document<'_> {
             QuoteStyle::Single => Quote::Single,
             QuoteStyle::Unquoted => Quote::None,
         };
+        // Quote planning runs before the spacing and trimming edits. A line
+        // cap must not hide a quote that will fit after those edits, or the
+        // second formatting pass could apply a different quote. The whole
+        // result is verified again at the end, where a line that still does
+        // not fit can drop the change.
+        let mut dialect = self.dialect();
+        dialect.line_byte_limit = None;
         if preferred == Quote::None
             && (options.equals_spacing != EqualsSpacing::Preserve
                 || options.trim_trailing_whitespace
@@ -674,13 +681,7 @@ impl Document<'_> {
             let before = &self.source()[item.span().start..value.start];
             let after = &self.source()[value.end..item.span().end];
             let Ok((token, actual)) = crate::encode::encode_native(
-                decoded,
-                preferred,
-                self.dialect(),
-                before,
-                after,
-                false,
-                false,
+                decoded, preferred, dialect, before, after, false, false,
             ) else {
                 continue;
             };

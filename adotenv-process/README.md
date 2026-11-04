@@ -15,8 +15,9 @@ unsafe { apply(&loaded)? };
 `apply` takes a `LoadedEnvironment` from the `adotenv` `load` feature. It
 validates every key and value before the first mutation and returns an
 `ApplyError` for an empty key, a key that contains NUL or `=`, or a value that
-contains NUL. It sets only keys from the loaded environment, removes nothing and
-cannot roll changes back. The process environment is global, so the caller owns
+contains NUL. On Windows it also rejects keys that differ only by case and
+values longer than 32,767 UTF-16 code units. It sets only keys from the loaded
+environment, removes nothing and cannot roll changes back. The process environment is global, so the caller owns
 the concurrency guarantee.
 
 `validate` runs the same checks without changing anything.

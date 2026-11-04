@@ -53,8 +53,10 @@ assert_eq!(raw.get("B"), Some("`two words`"));
 - Duplicates are kept. The last declaration wins and gets a warning. A bare
   key that comes last does not fall back to an earlier value.
 - A leading byte-order mark is kept apart from the items, with an
-  informational diagnostic. LF, CRLF and a lone CR end lines and are kept as
-  written. A lone CR gets a warning.
+  informational diagnostic. If the first line exceeds `line_byte_limit`, the
+  `LineTooLong` error takes precedence and the BOM diagnostic is not reported.
+  LF, CRLF and a lone CR end lines and are kept as written. A lone CR gets a
+  warning.
 - Backticks are literal text, not quotes. In an unquoted value they get a
   warning.
 - Parsing never expands variables or runs commands.

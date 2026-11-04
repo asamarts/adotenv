@@ -71,8 +71,10 @@ text. Each value converts like this:
 An empty value is still present: `PORT=` into `Option<u16>` is an error, not
 `None`. Sequences, nested maps and structs, tuples and enums are rejected,
 including enums with only unit variants and `Vec<u8>`, which Serde reads as a
-sequence. Deserialize a `String` and convert it yourself when a field needs
-another shape.
+sequence. Untagged enums are the exception: Serde buffers the string and can
+choose a string-compatible variant, so `value=hello` may deserialize as
+`Text("hello")`. Deserialize a `String` and convert it yourself when a field
+needs another shape.
 
 Map keys are passed as strings, so a map with non-string keys, such as
 `BTreeMap<u16, String>`, fails even for a key like `8080`. Fields inside
@@ -94,6 +96,9 @@ accept a string, such as `String`, work there.
   reports its line and an empty key, `Some("")`.
 - An error about the whole map, such as a missing field, has line `0` and no
   key.
+- A value consumed through `#[serde(flatten)]` is decoded after map access;
+  serde reports line `0` and no key for that value. The message still describes
+  the conversion failure.
 
 The `Display` form is `line {line}: {message} (key "{key}")`, without the
 `line` part when the line is `0` and without the `key` part when there is no
@@ -101,3 +106,5 @@ key.
 
 Error messages include the value that failed to convert, such as
 `expected a u16, found "abc"`. Treat them as secret when values are secret.
+Use `DeserializeError::masked()` for a `Debug` and `Display` form that keeps
+the line and key but replaces the message with `<redacted>`.

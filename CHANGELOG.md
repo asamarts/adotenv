@@ -4,7 +4,82 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.0] - 2026-11-04
+
+### Added
+
+- `exec::Shell::with_max_output_bytes`, `exec::Shell::with_timeout` and
+  `exec::Shell::without_timeout`.
+- `ExpandOptions::with_max_references` and `ResolveError::TooManyReferences`.
+- `DiagnosticCode::TooManyDiagnostics`.
+- `Mask`, `Masked`, `mask` and `REDACTED` for opt-in value-masking `Debug`
+  output, plus `DeserializeError::masked`.
+- `adotenv-cli diff --mask`.
+- `ApplyError::DuplicateKey` and `ApplyError::ValueTooLong` for Windows.
+- A pinned `dotenv-expand` 1000.0.0 conformance profile and a curated Compose
+  resolution profile.
+
+### Changed
+
+- `exec::Shell` caps standard output at 1 MiB, standard error at 64 KiB and
+  stops a command after 300 seconds by default.
+- Resolution scans at most 65,536 reference candidates per value by default
+  and fails with `ResolveError::TooManyReferences` before the list grows past
+  that limit.
+- `parse` collects at most 10,000 ordinary diagnostics and ends a truncated
+  list with `DiagnosticCode::TooManyDiagnostics`; the first error after the
+  budget is retained.
+- `diff` values can be masked with `--mask`.
+- `Document::lookup_index` grows its table from participating keys instead of
+  allocating from every entry.
+- `Document::example` keeps a leading BOM under `BomPolicy::Keep` and
+  `BomPolicy::Error`.
+- Native value encoding keeps a U+FEFF that belongs to a key at the start of
+  an edit or format fragment.
+- Cascade mode `local` no longer reads `.env.local` twice or reports it as
+  overriding itself.
+- A `QuotedTail::Append` tail now follows newline normalization and Portable
+  warning scanning. Token documentation states which ranges exclude the tail.
+- On Windows, `adotenv-process` and `adotenv-cli run` reject environment keys
+  that differ only by case and values longer than 32,767 UTF-16 code units.
+- On Windows, recursive discovery recognizes `.ENV` spellings and ignores
+  `.GIT`/`TARGET`/`NODE_MODULES` case-insensitively; cascade loading
+  canonicalizes existing paths before deduplicating mode variants.
+- CLI `--dialect=<value>` is accepted, repeated dialects are rejected, unknown
+  `--` options are usage errors, and temporary write names stay within common
+  filesystem name limits.
+
+### Fixed
+
+- `parse` applies the diagnostic budget to bare-key warnings too.
+- Resolution's depth limit now also bounds delimiter-matching records, so a
+  deeply nested value fails instead of retaining a record per nesting level.
+- `Document::set` no longer adds a space before an attached inline comment on
+  every empty-value edit.
+- `Document::format` plans quote changes after spacing, trimming and final
+  newline edits, so a byte-capped dialect is idempotent.
+- Uncommenting an ignored statement is rejected as a meaning change.
+- `diff --format matrix` pads a missing baseline when the first document has
+  no keys.
+- Temporary and backup names use a neutral `.adotenv-*` prefix, so recursive
+  discovery cannot treat them as `.env.*` files.
+- Named input paths must be regular files; FIFOs and devices are rejected
+  before a read or write.
+- `--dialect` is no longer consumed from a command's positional key or value.
+- `load` and `run` reject `-`/`--stdin` as a directory.
+- Cascade loading reports a dangling `.env.*` symlink instead of treating it
+  as an absent optional file.
+- `resolve_decoded` keeps a leading U+FEFF in a key that contains an
+  apostrophe.
+- `Mask` now covers loaded entries, portability reports and their nested
+  reading/declaration types.
+- Escaped `$` inside a command is ineligible even when the containing value is
+  double-quoted, matching the documented command grammar.
+- `fmt --write` and `set` resolve the write target once before reading and
+  check its device, inode, size and modification time again before replacing
+  it. A symbolic link swap or in-place rewrite after the read fails instead of
+  silently replacing the file; this is a best-effort check against concurrent
+  writers.
 
 ## [1.1.2] - 2026-11-02
 

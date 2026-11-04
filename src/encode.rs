@@ -322,7 +322,16 @@ fn exact_native(
     dialect: Dialect,
     token: core::ops::Range<usize>,
 ) -> Option<Quote> {
-    let document = crate::parser::parse_document(source, dialect);
+    // A native fragment starts at the item start. If the key begins with
+    // U+FEFF, parsing the fragment directly would treat that byte as the
+    // file's BOM and strip it. A sentinel line keeps the key intact; offsets
+    // in the parsed document are shifted by its length.
+    let mut fragment = String::with_capacity(source.len() + 1);
+    fragment.push('\n');
+    fragment.push_str(source);
+    let offset = 1;
+    let token = token.start + offset..token.end + offset;
+    let document = crate::parser::parse_document(&fragment, dialect);
     let entry = native_entry(&document, token.start)?;
     if entry.value() != Some(value)
         || document.entries().any(|other| {

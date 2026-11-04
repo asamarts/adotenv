@@ -151,7 +151,8 @@ pub enum DiagnosticCode {
     ///
     /// Info, `dotenv.bom`, reported when the dialect strips the mark
     /// ([`BomPolicy::Strip`](crate::BomPolicy::Strip), used by every preset).
-    /// See [`Document::has_bom`](crate::Document::has_bom).
+    /// See [`Document::has_bom`](crate::Document::has_bom). A first line over
+    /// the dialect's byte limit reports `LineTooLong` instead.
     ByteOrderMark,
     /// A carriage return is not followed by a line feed.
     ///
@@ -174,7 +175,9 @@ pub enum DiagnosticCode {
     ///
     /// Error, `dotenv.forbidden-bom`, under
     /// [`BomPolicy::Error`](crate::BomPolicy::Error). The three bytes of the
-    /// mark become an [`ItemKind::Invalid`](crate::ItemKind::Invalid) item.
+    /// mark become an [`ItemKind::Invalid`](crate::ItemKind::Invalid) item. A
+    /// first line over the dialect's byte limit reports `LineTooLong`
+    /// instead.
     ForbiddenByteOrderMark,
     /// A double-quoted escape that the dialect does not define, in a dialect
     /// that rejects such escapes.
@@ -205,6 +208,16 @@ pub enum DiagnosticCode {
     /// The statement becomes an [`ItemKind::Invalid`](crate::ItemKind::Invalid)
     /// item.
     LineTooLong,
+    /// `parse` reached its diagnostic budget and omitted later diagnostics.
+    ///
+    /// Warning, `dotenv.too-many-diagnostics`. The diagnostic list keeps at
+    /// most 10,000 ordinary entries, plus the first error found after the
+    /// budget, followed by this one summary entry. The first error is never
+    /// lost. Use
+    /// [`parse_strict`](crate::parse_strict) or
+    /// [`parse_values`](crate::parse_values) when only the first error matters;
+    /// they do not collect the full list.
+    TooManyDiagnostics,
 }
 
 impl DiagnosticCode {
@@ -232,6 +245,7 @@ impl DiagnosticCode {
             Self::InvalidEscape => "dotenv.invalid-escape",
             Self::IgnoredStatement => "dotenv.ignored-statement",
             Self::LineTooLong => "dotenv.line-too-long",
+            Self::TooManyDiagnostics => "dotenv.too-many-diagnostics",
         }
     }
 
@@ -276,16 +290,19 @@ impl DiagnosticCode {
             Self::InvalidEscape => "escape rejected by the selected policy",
             Self::IgnoredStatement => "statement ignored by the selected dialect",
             Self::LineTooLong => "source line exceeds the selected scanner byte limit",
+            Self::TooManyDiagnostics => "diagnostic limit reached; later diagnostics were omitted",
         }
     }
 }
 
 /// A problem or note that parsing reports about the source, with its location.
 ///
-/// [`parse`](crate::parse) returns every diagnostic, ordered by position, and
-/// [`parse_strict`](crate::parse_strict) and
-/// [`parse_values`](crate::parse_values) return the first error as a
-/// `Diagnostic`, which implements [`Error`].
+/// [`parse`](crate::parse) returns diagnostics ordered by position, up to a
+/// budget of 10,000; when more exist, later warnings are omitted, the first
+/// omitted error is kept, and the last one is
+/// [`DiagnosticCode::TooManyDiagnostics`]. [`parse_strict`](crate::parse_strict)
+/// and [`parse_values`](crate::parse_values) return the first error as a
+/// `Diagnostic`, which implements [`Error`], without that budget.
 ///
 /// A diagnostic has a stable [`DiagnosticCode`], a [`Severity`] set by that
 /// code, a one-based line, a primary span and an optional secondary span.

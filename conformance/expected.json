@@ -1,16 +1,16 @@
 {
   "inputs": {
-    "cases_sha256": "a8d3fed8f2d196a27a882a68e5306d9a05a333ef3d11b293af11ff5f8f95e24c",
+    "cases_sha256": "71c3e049863ec8916e178c30b9c3c2f20ec45147fd40bd84d446acd151d83bb2",
     "locks_sha256": {
       "go/go.mod": "48e6f8966e9c647e6a23ceb744ef882b0ae42ea9e2213abe3adf9d17bfb0f186",
       "go/go.sum": "430e52eda01eaf979d93a54663eb64db56b72041da8bb0a9ea924f9167ee312c",
-      "node/package-lock.json": "4d79b1639508b555446f2280ef43e86f19219f07f3eac26140ef8945c01dc3b1",
+      "node/package-lock.json": "b66de49b4ee6ef6cda4676e9bc75563d3f0aff2ff32304647aef3f313c6ce733",
       "python/requirements.txt": "5022a592146b4cbbf09e6d7ab3872997370b37dc33874f026ff9b0d0845091d7"
     },
-    "manifest_sha256": "7079638df28f6d438f8f639dc57dc4fa71a40b7ed810530dffb68df1ff1acd52",
+    "manifest_sha256": "80cf9c25bb1c7ca7c7ff12cad6229d78ab49e7cf017c0cb0f2c5192be0704b42",
     "profiles_sha256": {
       "go": "a39e2594bfa8f29861c072ab2d7ec055c753b7965a951f4b50242b656022594b",
-      "node": "89056d51fb784d2c64b7f7e91be8a6b654fe877c29de63dedfcee934c4255ce0",
+      "node": "d434ac89ec06537fe91b25452e302e7a00565f4f06884a86caa3a6c23fd74f72",
       "python": "32943d5d95b39a27635f73a5f71d596608c6f59ba4c905883d830b048daea69e"
     }
   },
@@ -436,6 +436,71 @@
           "SELF": "external-self",
           "UNSET_COPY": "fallback"
         }
+      },
+      "resolution-profile-backslash": {
+        "error": false,
+        "values": {
+          "A": "\\base",
+          "B": "${BASE}",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-basic": {
+        "error": false,
+        "values": {
+          "A": "file",
+          "B": "file",
+          "BASE": "file"
+        }
+      },
+      "resolution-profile-default": {
+        "error": false,
+        "values": {
+          "A": "default",
+          "B": "default",
+          "C": "alt",
+          "D": "alt"
+        }
+      },
+      "resolution-profile-dollar-escape": {
+        "error": false,
+        "values": {
+          "A": "${BASE}",
+          "B": "$BASE",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-external": {
+        "error": false,
+        "values": {
+          "A": "external"
+        }
+      },
+      "resolution-profile-nested": {
+        "error": false,
+        "values": {
+          "A": "base",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-operand-dollar": {
+        "error": false,
+        "values": {
+          "A": "home"
+        }
+      },
+      "resolution-profile-quotes": {
+        "error": false,
+        "values": {
+          "A": "base",
+          "B": "${BASE}",
+          "BASE": "base",
+          "C": "base"
+        }
+      },
+      "resolution-profile-required": {
+        "error": true,
+        "values": {}
       },
       "resolution-required": {
         "error": true,
@@ -943,6 +1008,74 @@
           "UNSET_COPY": "fallback"
         }
       },
+      "resolution-profile-backslash": {
+        "error": false,
+        "values": {
+          "A": "\\base",
+          "B": "${BASE}",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-basic": {
+        "error": false,
+        "values": {
+          "A": "file",
+          "B": "file",
+          "BASE": "file"
+        }
+      },
+      "resolution-profile-default": {
+        "error": false,
+        "values": {
+          "A": "default",
+          "B": "default",
+          "C": "alt",
+          "D": "alt",
+          "PRESENT": "yes"
+        }
+      },
+      "resolution-profile-dollar-escape": {
+        "error": false,
+        "values": {
+          "A": "${BASE}",
+          "B": "$BASE",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-external": {
+        "error": false,
+        "values": {
+          "A": "external",
+          "BASE": "external"
+        }
+      },
+      "resolution-profile-nested": {
+        "error": false,
+        "values": {
+          "A": "base",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-operand-dollar": {
+        "error": false,
+        "values": {
+          "A": "home",
+          "HOME": "home"
+        }
+      },
+      "resolution-profile-quotes": {
+        "error": false,
+        "values": {
+          "A": "base",
+          "B": "${BASE}",
+          "BASE": "base",
+          "C": "base"
+        }
+      },
+      "resolution-profile-required": {
+        "error": true,
+        "values": null
+      },
       "resolution-required": {
         "error": true,
         "values": null
@@ -1441,6 +1574,71 @@
           "SELF": "external-self",
           "UNSET_COPY": "fallback"
         }
+      },
+      "resolution-profile-backslash": {
+        "error": false,
+        "values": {
+          "A": "\\base",
+          "B": "${BASE}",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-basic": {
+        "error": false,
+        "values": {
+          "A": "file",
+          "B": "file",
+          "BASE": "file"
+        }
+      },
+      "resolution-profile-default": {
+        "error": false,
+        "values": {
+          "A": "default",
+          "B": "default",
+          "C": "alt",
+          "D": "alt"
+        }
+      },
+      "resolution-profile-dollar-escape": {
+        "error": false,
+        "values": {
+          "A": "${BASE}",
+          "B": "$BASE",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-external": {
+        "error": false,
+        "values": {
+          "A": "external"
+        }
+      },
+      "resolution-profile-nested": {
+        "error": false,
+        "values": {
+          "A": "base",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-operand-dollar": {
+        "error": false,
+        "values": {
+          "A": "home"
+        }
+      },
+      "resolution-profile-quotes": {
+        "error": false,
+        "values": {
+          "A": "base",
+          "B": "${BASE}",
+          "BASE": "base",
+          "C": "base"
+        }
+      },
+      "resolution-profile-required": {
+        "error": true,
+        "values": null
       },
       "resolution-required": {
         "error": true,
@@ -1944,6 +2142,73 @@
           "LATER": "late",
           "SELF": "${SELF:-fallback}",
           "UNSET_COPY": "${UNSET:-fallback}"
+        }
+      },
+      "resolution-profile-backslash": {
+        "error": false,
+        "values": {
+          "A": "\\${BASE}",
+          "B": "\"\\${BASE}\"",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-basic": {
+        "error": false,
+        "values": {
+          "A": "${BASE}",
+          "B": "$BASE",
+          "BASE": "file"
+        }
+      },
+      "resolution-profile-default": {
+        "error": false,
+        "values": {
+          "A": "${MISSING:-default}",
+          "B": "${MISSING-default}",
+          "C": "${PRESENT:+alt}",
+          "D": "${PRESENT+alt}"
+        }
+      },
+      "resolution-profile-dollar-escape": {
+        "error": false,
+        "values": {
+          "A": "$${BASE}",
+          "B": "$$BASE",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-external": {
+        "error": false,
+        "values": {
+          "A": "${BASE}"
+        }
+      },
+      "resolution-profile-nested": {
+        "error": false,
+        "values": {
+          "A": "${MISSING:-${BASE}}",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-operand-dollar": {
+        "error": false,
+        "values": {
+          "A": "${MISSING:-$HOME}"
+        }
+      },
+      "resolution-profile-quotes": {
+        "error": false,
+        "values": {
+          "A": "\"${BASE}\"",
+          "B": "'${BASE}'",
+          "BASE": "base",
+          "C": "${BASE:-x}"
+        }
+      },
+      "resolution-profile-required": {
+        "error": false,
+        "values": {
+          "A": "${MISSING:?synthetic-required}"
         }
       },
       "resolution-required": {
@@ -2460,6 +2725,73 @@
           "DUP=${DUP}-second"
         ]
       },
+      "resolution-profile-backslash": {
+        "error": false,
+        "lines": [
+          "BASE=base",
+          "A=\\${BASE}",
+          "B=\"\\${BASE}\""
+        ]
+      },
+      "resolution-profile-basic": {
+        "error": false,
+        "lines": [
+          "BASE=file",
+          "A=${BASE}",
+          "B=$BASE"
+        ]
+      },
+      "resolution-profile-default": {
+        "error": false,
+        "lines": [
+          "A=${MISSING:-default}",
+          "B=${MISSING-default}",
+          "C=${PRESENT:+alt}",
+          "D=${PRESENT+alt}"
+        ]
+      },
+      "resolution-profile-dollar-escape": {
+        "error": false,
+        "lines": [
+          "BASE=base",
+          "A=$${BASE}",
+          "B=$$BASE"
+        ]
+      },
+      "resolution-profile-external": {
+        "error": false,
+        "lines": [
+          "A=${BASE}"
+        ]
+      },
+      "resolution-profile-nested": {
+        "error": false,
+        "lines": [
+          "BASE=base",
+          "A=${MISSING:-${BASE}}"
+        ]
+      },
+      "resolution-profile-operand-dollar": {
+        "error": false,
+        "lines": [
+          "A=${MISSING:-$HOME}"
+        ]
+      },
+      "resolution-profile-quotes": {
+        "error": false,
+        "lines": [
+          "BASE=base",
+          "A=\"${BASE}\"",
+          "B='${BASE}'",
+          "C=${BASE:-x}"
+        ]
+      },
+      "resolution-profile-required": {
+        "error": false,
+        "lines": [
+          "A=${MISSING:?synthetic-required}"
+        ]
+      },
       "resolution-required": {
         "error": false,
         "lines": [
@@ -2966,6 +3298,73 @@
           "DUP=${DUP}-second"
         ]
       },
+      "resolution-profile-backslash": {
+        "error": false,
+        "lines": [
+          "BASE=base",
+          "A=\\${BASE}",
+          "B=\"\\${BASE}\""
+        ]
+      },
+      "resolution-profile-basic": {
+        "error": false,
+        "lines": [
+          "BASE=file",
+          "A=${BASE}",
+          "B=$BASE"
+        ]
+      },
+      "resolution-profile-default": {
+        "error": false,
+        "lines": [
+          "A=${MISSING:-default}",
+          "B=${MISSING-default}",
+          "C=${PRESENT:+alt}",
+          "D=${PRESENT+alt}"
+        ]
+      },
+      "resolution-profile-dollar-escape": {
+        "error": false,
+        "lines": [
+          "BASE=base",
+          "A=$${BASE}",
+          "B=$$BASE"
+        ]
+      },
+      "resolution-profile-external": {
+        "error": false,
+        "lines": [
+          "A=${BASE}"
+        ]
+      },
+      "resolution-profile-nested": {
+        "error": false,
+        "lines": [
+          "BASE=base",
+          "A=${MISSING:-${BASE}}"
+        ]
+      },
+      "resolution-profile-operand-dollar": {
+        "error": false,
+        "lines": [
+          "A=${MISSING:-$HOME}"
+        ]
+      },
+      "resolution-profile-quotes": {
+        "error": false,
+        "lines": [
+          "BASE=base",
+          "A=\"${BASE}\"",
+          "B='${BASE}'",
+          "C=${BASE:-x}"
+        ]
+      },
+      "resolution-profile-required": {
+        "error": false,
+        "lines": [
+          "A=${MISSING:?synthetic-required}"
+        ]
+      },
       "resolution-required": {
         "error": false,
         "lines": [
@@ -3054,6 +3453,581 @@
           "A='broken",
           "NEXT=retained"
         ]
+      }
+    },
+    "node-dotenv-expand": {
+      "assigned-empty": {
+        "error": false,
+        "values": {
+          "A": "external",
+          "B": "",
+          "C": ""
+        }
+      },
+      "backticks": {
+        "error": false,
+        "values": {
+          "A": "one # two"
+        }
+      },
+      "bare-inherited": {
+        "error": false,
+        "values": {}
+      },
+      "bare-no-final-newline": {
+        "error": false,
+        "values": {}
+      },
+      "bare-unset": {
+        "error": false,
+        "values": {}
+      },
+      "basic": {
+        "error": false,
+        "values": {
+          "FIRST": "one",
+          "SECOND": "two"
+        }
+      },
+      "blank-comments": {
+        "error": false,
+        "values": {}
+      },
+      "bom-double": {
+        "error": false,
+        "values": {
+          "A": "one"
+        }
+      },
+      "bom-later": {
+        "error": false,
+        "values": {
+          "A": "one",
+          "B": "two"
+        }
+      },
+      "bom-leading": {
+        "error": false,
+        "values": {
+          "A": "one"
+        }
+      },
+      "bom-multiline": {
+        "error": false,
+        "values": {
+          "A": "one\ntwo"
+        }
+      },
+      "colon-space": {
+        "error": false,
+        "values": {
+          "A": "value"
+        }
+      },
+      "colon-tight": {
+        "error": false,
+        "values": {}
+      },
+      "compose-eof-cr-after-quoted-tail": {
+        "error": false,
+        "values": {}
+      },
+      "compose-eof-cr-bare": {
+        "error": false,
+        "values": {}
+      },
+      "compose-export-only-eof": {
+        "error": false,
+        "values": {}
+      },
+      "compose-unsupported-key-tail-space": {
+        "error": false,
+        "values": {
+          "A": "x",
+          "GOOD": "y"
+        }
+      },
+      "dot-hyphen-key": {
+        "error": false,
+        "values": {
+          "A.B-C": "value"
+        }
+      },
+      "double-escapes": {
+        "error": false,
+        "values": {
+          "A": "a\nb\rc\\td\\\\e\\\"f$g\\q"
+        }
+      },
+      "double-extended-escapes": {
+        "error": false,
+        "values": {
+          "A": "\\a\\b\\f\\v\\'"
+        }
+      },
+      "duplicate-assigned": {
+        "error": false,
+        "values": {
+          "A": "second"
+        }
+      },
+      "duplicate-first-bare": {
+        "error": false,
+        "values": {
+          "A": "external"
+        }
+      },
+      "duplicate-last-bare": {
+        "error": false,
+        "values": {
+          "A": "external"
+        }
+      },
+      "duplicate-last-bare-no-lookup": {
+        "error": false,
+        "values": {
+          "A": "first"
+        }
+      },
+      "empty": {
+        "error": false,
+        "values": {}
+      },
+      "empty-no-final-newline": {
+        "error": false,
+        "values": {
+          "A": ""
+        }
+      },
+      "empty-spaced-hash": {
+        "error": false,
+        "values": {
+          "A": ""
+        }
+      },
+      "escaped-quote-tail": {
+        "error": false,
+        "values": {
+          "A": "\"a\\\"b\"tail"
+        }
+      },
+      "export-space": {
+        "error": false,
+        "values": {
+          "A": "value"
+        }
+      },
+      "export-tab": {
+        "error": false,
+        "values": {
+          "A": "value"
+        }
+      },
+      "hash-in-double": {
+        "error": false,
+        "values": {
+          "A": "a#b"
+        }
+      },
+      "hash-in-single": {
+        "error": false,
+        "values": {
+          "A": "a#b"
+        }
+      },
+      "hash-only": {
+        "error": false,
+        "values": {
+          "A": ""
+        }
+      },
+      "invalid-empty-key": {
+        "error": false,
+        "values": {
+          "NEXT": "retained"
+        }
+      },
+      "invalid-key-space": {
+        "error": false,
+        "values": {
+          "NEXT": "retained"
+        }
+      },
+      "literal-command": {
+        "error": true,
+        "values": null
+      },
+      "load-bare-only": {
+        "error": false,
+        "values": {}
+      },
+      "load-collision-only": {
+        "error": false,
+        "values": {
+          "A": "external"
+        }
+      },
+      "load-partial-nul-error": {
+        "error": false,
+        "values": {
+          "BROKEN": "one\u0000two",
+          "FIRST": "assigned",
+          "LAST": "not-reached"
+        }
+      },
+      "load-precedence": {
+        "error": false,
+        "values": {
+          "A": "external",
+          "COPY": "external",
+          "EMPTY": "",
+          "EMPTY_EXTERNAL": "file",
+          "NEW": "new"
+        }
+      },
+      "mixed-endings": {
+        "error": false,
+        "values": {
+          "A": "one",
+          "B": "two",
+          "C": "three"
+        }
+      },
+      "mixed-endings-multiline": {
+        "error": false,
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
+        }
+      },
+      "multiline-backtick": {
+        "error": false,
+        "values": {
+          "A": "one\nINNER=not-a-declaration\ntwo",
+          "NEXT": "retained"
+        }
+      },
+      "multiline-backtick-crlf": {
+        "error": false,
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
+        }
+      },
+      "multiline-cr": {
+        "error": false,
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
+        }
+      },
+      "multiline-crlf": {
+        "error": false,
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
+        }
+      },
+      "multiline-double": {
+        "error": false,
+        "values": {
+          "A": "one\nINNER=not-a-declaration\ntwo",
+          "NEXT": "retained"
+        }
+      },
+      "multiline-lf": {
+        "error": false,
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
+        }
+      },
+      "multiline-single": {
+        "error": false,
+        "values": {
+          "A": "one\nINNER=not-a-declaration\ntwo",
+          "NEXT": "retained"
+        }
+      },
+      "multiline-single-crlf": {
+        "error": false,
+        "values": {
+          "A": "one\ntwo",
+          "B": "kept"
+        }
+      },
+      "multiple-equals": {
+        "error": false,
+        "values": {
+          "A": "one=two"
+        }
+      },
+      "no-final-newline": {
+        "error": false,
+        "values": {
+          "A": "one"
+        }
+      },
+      "nul-value": {
+        "error": false,
+        "values": {
+          "A": "one\u0000two"
+        }
+      },
+      "numeric-key": {
+        "error": false,
+        "values": {
+          "10": "ten",
+          "1KEY": "value",
+          "2": "two"
+        }
+      },
+      "prototype-keys": {
+        "error": false,
+        "values": {
+          "constructor": "ctor",
+          "hasOwnProperty": "own",
+          "prototype": "proto",
+          "toString": "string"
+        }
+      },
+      "punctuation-key": {
+        "error": false,
+        "values": {}
+      },
+      "quoted-key": {
+        "error": false,
+        "values": {}
+      },
+      "quoted-spaced-comment": {
+        "error": false,
+        "values": {
+          "A": "one"
+        }
+      },
+      "quoted-tail": {
+        "error": false,
+        "values": {
+          "A": "\"one\"tail",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-comment": {
+        "error": false,
+        "values": {
+          "A": "one",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tail-tight": {
+        "error": false,
+        "values": {
+          "A": "\"one\"tail",
+          "NEXT": "retained"
+        }
+      },
+      "quoted-tight-comment": {
+        "error": false,
+        "values": {
+          "A": "one"
+        }
+      },
+      "references-by-quote": {
+        "error": false,
+        "values": {
+          "A": "external",
+          "B": "external",
+          "BASE": "external",
+          "C": "external",
+          "D": "external",
+          "E": "${BASE}"
+        }
+      },
+      "resolution-nonrecursive": {
+        "error": false,
+        "values": {
+          "A": "${OTHER}"
+        }
+      },
+      "resolution-operators": {
+        "error": false,
+        "values": {
+          "A": "default",
+          "B": "default",
+          "C": "alternate",
+          "D": "alternate",
+          "E": ""
+        }
+      },
+      "resolution-order": {
+        "error": false,
+        "values": {
+          "AFTER": "external",
+          "BASE": "external",
+          "BEFORE": "external",
+          "DUP": "-second",
+          "EMPTY_COPY": "fallback",
+          "FORWARD": "external-later",
+          "LATER": "external-later",
+          "SELF": "external-self",
+          "UNSET_COPY": "fallback"
+        }
+      },
+      "resolution-profile-backslash": {
+        "error": false,
+        "values": {
+          "A": "${BASE}",
+          "B": "${BASE}",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-basic": {
+        "error": false,
+        "values": {
+          "A": "file",
+          "B": "file",
+          "BASE": "file"
+        }
+      },
+      "resolution-profile-default": {
+        "error": false,
+        "values": {
+          "A": "default",
+          "B": "default",
+          "C": "alt",
+          "D": "alt"
+        }
+      },
+      "resolution-profile-dollar-escape": {
+        "error": false,
+        "values": {
+          "A": "",
+          "B": "",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-external": {
+        "error": false,
+        "values": {
+          "A": "external"
+        }
+      },
+      "resolution-profile-nested": {
+        "error": false,
+        "values": {
+          "A": "base",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-operand-dollar": {
+        "error": false,
+        "values": {
+          "A": "home"
+        }
+      },
+      "resolution-profile-quotes": {
+        "error": false,
+        "values": {
+          "A": "base",
+          "B": "base",
+          "BASE": "base",
+          "C": "base"
+        }
+      },
+      "resolution-profile-required": {
+        "error": false,
+        "values": {
+          "A": "required"
+        }
+      },
+      "resolution-required": {
+        "error": false,
+        "values": {
+          "A": "required"
+        }
+      },
+      "service-bare-yaml-override": {
+        "error": false,
+        "values": {
+          "A": "project",
+          "B": "file"
+        }
+      },
+      "service-explicit-precedence": {
+        "error": false,
+        "values": {
+          "A": "project",
+          "BARE": "file",
+          "COPY": "project",
+          "EMPTY": "file"
+        }
+      },
+      "service-lookup-fallback": {
+        "error": false,
+        "values": {
+          "COPY": ""
+        }
+      },
+      "single-escapes": {
+        "error": false,
+        "values": {
+          "A": "a\\'b\\\\c"
+        }
+      },
+      "spaced-hash": {
+        "error": false,
+        "values": {
+          "A": "a"
+        }
+      },
+      "spaces-around-equals": {
+        "error": false,
+        "values": {
+          "A": "value"
+        }
+      },
+      "tight-hash": {
+        "error": false,
+        "values": {
+          "A": "a"
+        }
+      },
+      "unicode-key": {
+        "error": false,
+        "values": {}
+      },
+      "unicode-whitespace": {
+        "error": false,
+        "values": {
+          "A": "value"
+        }
+      },
+      "unquoted-backslash": {
+        "error": false,
+        "values": {
+          "A": "one\\ two\\"
+        }
+      },
+      "unterminated-backtick": {
+        "error": false,
+        "values": {
+          "A": "`broken",
+          "NEXT": "retained"
+        }
+      },
+      "unterminated-double": {
+        "error": false,
+        "values": {
+          "A": "\"broken",
+          "NEXT": "retained"
+        }
+      },
+      "unterminated-single": {
+        "error": false,
+        "values": {
+          "A": "'broken",
+          "NEXT": "retained"
+        }
       }
     },
     "node-load-keep": {
@@ -3901,6 +4875,143 @@
           "LATER": "late",
           "SELF": "${SELF:-fallback}",
           "UNSET_COPY": "${UNSET:-fallback}"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "resolution-profile-backslash": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "\\${BASE}",
+          "B": "\\${BASE}",
+          "BASE": "base"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "\\${BASE}",
+          "B": "\\${BASE}",
+          "BASE": "base"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "resolution-profile-basic": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "${BASE}",
+          "B": "$BASE",
+          "BASE": "file"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "${BASE}",
+          "B": "$BASE",
+          "BASE": "file"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "resolution-profile-default": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "${MISSING:-default}",
+          "B": "${MISSING-default}",
+          "C": "${PRESENT:+alt}",
+          "D": "${PRESENT+alt}",
+          "PRESENT": "yes"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "${MISSING:-default}",
+          "B": "${MISSING-default}",
+          "C": "${PRESENT:+alt}",
+          "D": "${PRESENT+alt}"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "resolution-profile-dollar-escape": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "$${BASE}",
+          "B": "$$BASE",
+          "BASE": "base"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "$${BASE}",
+          "B": "$$BASE",
+          "BASE": "base"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "resolution-profile-external": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "${BASE}",
+          "BASE": "external"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "${BASE}"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "resolution-profile-nested": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "${MISSING:-${BASE}}",
+          "BASE": "base"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "${MISSING:-${BASE}}",
+          "BASE": "base"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "resolution-profile-operand-dollar": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "${MISSING:-$HOME}",
+          "HOME": "home"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "${MISSING:-$HOME}"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "resolution-profile-quotes": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "${BASE}",
+          "B": "${BASE}",
+          "BASE": "base",
+          "C": "${BASE:-x}"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "${BASE}",
+          "B": "${BASE}",
+          "BASE": "base",
+          "C": "${BASE:-x}"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "resolution-profile-required": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "${MISSING:?synthetic-required}"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "${MISSING:?synthetic-required}"
         },
         "parsed_prototype": "Object.prototype"
       },
@@ -4931,6 +6042,143 @@
         },
         "parsed_prototype": "Object.prototype"
       },
+      "resolution-profile-backslash": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "\\${BASE}",
+          "B": "\\${BASE}",
+          "BASE": "base"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "\\${BASE}",
+          "B": "\\${BASE}",
+          "BASE": "base"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "resolution-profile-basic": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "${BASE}",
+          "B": "$BASE",
+          "BASE": "file"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "${BASE}",
+          "B": "$BASE",
+          "BASE": "file"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "resolution-profile-default": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "${MISSING:-default}",
+          "B": "${MISSING-default}",
+          "C": "${PRESENT:+alt}",
+          "D": "${PRESENT+alt}",
+          "PRESENT": "yes"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "${MISSING:-default}",
+          "B": "${MISSING-default}",
+          "C": "${PRESENT:+alt}",
+          "D": "${PRESENT+alt}"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "resolution-profile-dollar-escape": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "$${BASE}",
+          "B": "$$BASE",
+          "BASE": "base"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "$${BASE}",
+          "B": "$$BASE",
+          "BASE": "base"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "resolution-profile-external": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "${BASE}",
+          "BASE": "external"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "${BASE}"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "resolution-profile-nested": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "${MISSING:-${BASE}}",
+          "BASE": "base"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "${MISSING:-${BASE}}",
+          "BASE": "base"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "resolution-profile-operand-dollar": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "${MISSING:-$HOME}",
+          "HOME": "home"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "${MISSING:-$HOME}"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "resolution-profile-quotes": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "${BASE}",
+          "B": "${BASE}",
+          "BASE": "base",
+          "C": "${BASE:-x}"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "${BASE}",
+          "B": "${BASE}",
+          "BASE": "base",
+          "C": "${BASE:-x}"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
+      "resolution-profile-required": {
+        "diagnostics_supported": false,
+        "environment": {
+          "A": "${MISSING:?synthetic-required}"
+        },
+        "environment_prototype": "null",
+        "error": null,
+        "parsed": {
+          "A": "${MISSING:?synthetic-required}"
+        },
+        "parsed_prototype": "Object.prototype"
+      },
       "resolution-required": {
         "diagnostics_supported": false,
         "environment": {
@@ -5596,6 +6844,82 @@
           "UNSET_COPY": "${UNSET:-fallback}"
         }
       },
+      "resolution-profile-backslash": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "\\${BASE}",
+          "B": "\\${BASE}",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-basic": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${BASE}",
+          "B": "$BASE",
+          "BASE": "file"
+        }
+      },
+      "resolution-profile-default": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${MISSING:-default}",
+          "B": "${MISSING-default}",
+          "C": "${PRESENT:+alt}",
+          "D": "${PRESENT+alt}"
+        }
+      },
+      "resolution-profile-dollar-escape": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "$${BASE}",
+          "B": "$$BASE",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-external": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${BASE}"
+        }
+      },
+      "resolution-profile-nested": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${MISSING:-${BASE}}",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-operand-dollar": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${MISSING:-$HOME}"
+        }
+      },
+      "resolution-profile-quotes": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${BASE}",
+          "B": "${BASE}",
+          "BASE": "base",
+          "C": "${BASE:-x}"
+        }
+      },
+      "resolution-profile-required": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${MISSING:?synthetic-required}"
+        }
+      },
       "resolution-required": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
@@ -6184,6 +7508,82 @@
           "LATER": "late",
           "SELF": "${SELF:-fallback}",
           "UNSET_COPY": "${UNSET:-fallback}"
+        }
+      },
+      "resolution-profile-backslash": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "\\${BASE}",
+          "B": "\\${BASE}",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-basic": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${BASE}",
+          "B": "$BASE",
+          "BASE": "file"
+        }
+      },
+      "resolution-profile-default": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${MISSING:-default}",
+          "B": "${MISSING-default}",
+          "C": "${PRESENT:+alt}",
+          "D": "${PRESENT+alt}"
+        }
+      },
+      "resolution-profile-dollar-escape": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "$${BASE}",
+          "B": "$$BASE",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-external": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${BASE}"
+        }
+      },
+      "resolution-profile-nested": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${MISSING:-${BASE}}",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-operand-dollar": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${MISSING:-$HOME}"
+        }
+      },
+      "resolution-profile-quotes": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${BASE}",
+          "B": "${BASE}",
+          "BASE": "base",
+          "C": "${BASE:-x}"
+        }
+      },
+      "resolution-profile-required": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${MISSING:?synthetic-required}"
         }
       },
       "resolution-required": {
@@ -6776,6 +8176,82 @@
           "UNSET_COPY": "${UNSET:-fallback}"
         }
       },
+      "resolution-profile-backslash": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "\\${BASE}",
+          "B": "\\${BASE}",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-basic": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${BASE}",
+          "B": "$BASE",
+          "BASE": "file"
+        }
+      },
+      "resolution-profile-default": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${MISSING:-default}",
+          "B": "${MISSING-default}",
+          "C": "${PRESENT:+alt}",
+          "D": "${PRESENT+alt}"
+        }
+      },
+      "resolution-profile-dollar-escape": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "$${BASE}",
+          "B": "$$BASE",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-external": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${BASE}"
+        }
+      },
+      "resolution-profile-nested": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${MISSING:-${BASE}}",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-operand-dollar": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${MISSING:-$HOME}"
+        }
+      },
+      "resolution-profile-quotes": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${BASE}",
+          "B": "${BASE}",
+          "BASE": "base",
+          "C": "${BASE:-x}"
+        }
+      },
+      "resolution-profile-required": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${MISSING:?synthetic-required}"
+        }
+      },
       "resolution-required": {
         "diagnostics_supported": false,
         "prototype": "Object.prototype",
@@ -7364,6 +8840,82 @@
           "LATER": "late",
           "SELF": "${SELF:-fallback}",
           "UNSET_COPY": "${UNSET:-fallback}"
+        }
+      },
+      "resolution-profile-backslash": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "\\${BASE}",
+          "B": "\\${BASE}",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-basic": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${BASE}",
+          "B": "$BASE",
+          "BASE": "file"
+        }
+      },
+      "resolution-profile-default": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${MISSING:-default}",
+          "B": "${MISSING-default}",
+          "C": "${PRESENT:+alt}",
+          "D": "${PRESENT+alt}"
+        }
+      },
+      "resolution-profile-dollar-escape": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "$${BASE}",
+          "B": "$$BASE",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-external": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${BASE}"
+        }
+      },
+      "resolution-profile-nested": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${MISSING:-${BASE}}",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-operand-dollar": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${MISSING:-$HOME}"
+        }
+      },
+      "resolution-profile-quotes": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${BASE}",
+          "B": "${BASE}",
+          "BASE": "base",
+          "C": "${BASE:-x}"
+        }
+      },
+      "resolution-profile-required": {
+        "diagnostics_supported": false,
+        "prototype": "Object.prototype",
+        "values": {
+          "A": "${MISSING:?synthetic-required}"
         }
       },
       "resolution-required": {
@@ -8868,6 +10420,240 @@
           }
         ]
       },
+      "resolution-profile-backslash": {
+        "bindings": [
+          {
+            "error": false,
+            "key": "BASE",
+            "original": {
+              "line": 1,
+              "string": "BASE=base\n"
+            },
+            "value": "base"
+          },
+          {
+            "error": false,
+            "key": "A",
+            "original": {
+              "line": 2,
+              "string": "A=\\${BASE}\n"
+            },
+            "value": "\\${BASE}"
+          },
+          {
+            "error": false,
+            "key": "B",
+            "original": {
+              "line": 3,
+              "string": "B=\"\\${BASE}\"\n"
+            },
+            "value": "\\${BASE}"
+          }
+        ]
+      },
+      "resolution-profile-basic": {
+        "bindings": [
+          {
+            "error": false,
+            "key": "BASE",
+            "original": {
+              "line": 1,
+              "string": "BASE=file\n"
+            },
+            "value": "file"
+          },
+          {
+            "error": false,
+            "key": "A",
+            "original": {
+              "line": 2,
+              "string": "A=${BASE}\n"
+            },
+            "value": "${BASE}"
+          },
+          {
+            "error": false,
+            "key": "B",
+            "original": {
+              "line": 3,
+              "string": "B=$BASE\n"
+            },
+            "value": "$BASE"
+          }
+        ]
+      },
+      "resolution-profile-default": {
+        "bindings": [
+          {
+            "error": false,
+            "key": "A",
+            "original": {
+              "line": 1,
+              "string": "A=${MISSING:-default}\n"
+            },
+            "value": "${MISSING:-default}"
+          },
+          {
+            "error": false,
+            "key": "B",
+            "original": {
+              "line": 2,
+              "string": "B=${MISSING-default}\n"
+            },
+            "value": "${MISSING-default}"
+          },
+          {
+            "error": false,
+            "key": "C",
+            "original": {
+              "line": 3,
+              "string": "C=${PRESENT:+alt}\n"
+            },
+            "value": "${PRESENT:+alt}"
+          },
+          {
+            "error": false,
+            "key": "D",
+            "original": {
+              "line": 4,
+              "string": "D=${PRESENT+alt}\n"
+            },
+            "value": "${PRESENT+alt}"
+          }
+        ]
+      },
+      "resolution-profile-dollar-escape": {
+        "bindings": [
+          {
+            "error": false,
+            "key": "BASE",
+            "original": {
+              "line": 1,
+              "string": "BASE=base\n"
+            },
+            "value": "base"
+          },
+          {
+            "error": false,
+            "key": "A",
+            "original": {
+              "line": 2,
+              "string": "A=$${BASE}\n"
+            },
+            "value": "$${BASE}"
+          },
+          {
+            "error": false,
+            "key": "B",
+            "original": {
+              "line": 3,
+              "string": "B=$$BASE\n"
+            },
+            "value": "$$BASE"
+          }
+        ]
+      },
+      "resolution-profile-external": {
+        "bindings": [
+          {
+            "error": false,
+            "key": "A",
+            "original": {
+              "line": 1,
+              "string": "A=${BASE}\n"
+            },
+            "value": "${BASE}"
+          }
+        ]
+      },
+      "resolution-profile-nested": {
+        "bindings": [
+          {
+            "error": false,
+            "key": "BASE",
+            "original": {
+              "line": 1,
+              "string": "BASE=base\n"
+            },
+            "value": "base"
+          },
+          {
+            "error": false,
+            "key": "A",
+            "original": {
+              "line": 2,
+              "string": "A=${MISSING:-${BASE}}\n"
+            },
+            "value": "${MISSING:-${BASE}}"
+          }
+        ]
+      },
+      "resolution-profile-operand-dollar": {
+        "bindings": [
+          {
+            "error": false,
+            "key": "A",
+            "original": {
+              "line": 1,
+              "string": "A=${MISSING:-$HOME}\n"
+            },
+            "value": "${MISSING:-$HOME}"
+          }
+        ]
+      },
+      "resolution-profile-quotes": {
+        "bindings": [
+          {
+            "error": false,
+            "key": "BASE",
+            "original": {
+              "line": 1,
+              "string": "BASE=base\n"
+            },
+            "value": "base"
+          },
+          {
+            "error": false,
+            "key": "A",
+            "original": {
+              "line": 2,
+              "string": "A=\"${BASE}\"\n"
+            },
+            "value": "${BASE}"
+          },
+          {
+            "error": false,
+            "key": "B",
+            "original": {
+              "line": 3,
+              "string": "B='${BASE}'\n"
+            },
+            "value": "${BASE}"
+          },
+          {
+            "error": false,
+            "key": "C",
+            "original": {
+              "line": 4,
+              "string": "C=${BASE:-x}\n"
+            },
+            "value": "${BASE:-x}"
+          }
+        ]
+      },
+      "resolution-profile-required": {
+        "bindings": [
+          {
+            "error": false,
+            "key": "A",
+            "original": {
+              "line": 1,
+              "string": "A=${MISSING:?synthetic-required}\n"
+            },
+            "value": "${MISSING:?synthetic-required}"
+          }
+        ]
+      },
       "resolution-required": {
         "bindings": [
           {
@@ -9612,6 +11398,85 @@
         "error": null,
         "loaded": true
       },
+      "resolution-profile-backslash": {
+        "environment": {
+          "A": "\\${BASE}",
+          "B": "\\${BASE}",
+          "BASE": "base"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-basic": {
+        "environment": {
+          "A": "${BASE}",
+          "B": "$BASE",
+          "BASE": "file"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-default": {
+        "environment": {
+          "A": "${MISSING:-default}",
+          "B": "${MISSING-default}",
+          "C": "${PRESENT:+alt}",
+          "D": "${PRESENT+alt}",
+          "PRESENT": "yes"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-dollar-escape": {
+        "environment": {
+          "A": "$${BASE}",
+          "B": "$$BASE",
+          "BASE": "base"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-external": {
+        "environment": {
+          "A": "${BASE}",
+          "BASE": "external"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-nested": {
+        "environment": {
+          "A": "${MISSING:-${BASE}}",
+          "BASE": "base"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-operand-dollar": {
+        "environment": {
+          "A": "${MISSING:-$HOME}",
+          "HOME": "home"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-quotes": {
+        "environment": {
+          "A": "${BASE}",
+          "B": "${BASE}",
+          "BASE": "base",
+          "C": "${BASE:-x}"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-required": {
+        "environment": {
+          "A": "${MISSING:?synthetic-required}"
+        },
+        "error": null,
+        "loaded": true
+      },
       "resolution-required": {
         "environment": {
           "A": "${MISSING:?synthetic-required}"
@@ -10201,6 +12066,85 @@
           "LATER": "late",
           "SELF": "${SELF:-fallback}",
           "UNSET_COPY": "${UNSET:-fallback}"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-backslash": {
+        "environment": {
+          "A": "\\${BASE}",
+          "B": "\\${BASE}",
+          "BASE": "base"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-basic": {
+        "environment": {
+          "A": "${BASE}",
+          "B": "$BASE",
+          "BASE": "file"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-default": {
+        "environment": {
+          "A": "${MISSING:-default}",
+          "B": "${MISSING-default}",
+          "C": "${PRESENT:+alt}",
+          "D": "${PRESENT+alt}",
+          "PRESENT": "yes"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-dollar-escape": {
+        "environment": {
+          "A": "$${BASE}",
+          "B": "$$BASE",
+          "BASE": "base"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-external": {
+        "environment": {
+          "A": "${BASE}",
+          "BASE": "external"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-nested": {
+        "environment": {
+          "A": "${MISSING:-${BASE}}",
+          "BASE": "base"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-operand-dollar": {
+        "environment": {
+          "A": "${MISSING:-$HOME}",
+          "HOME": "home"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-quotes": {
+        "environment": {
+          "A": "${BASE}",
+          "B": "${BASE}",
+          "BASE": "base",
+          "C": "${BASE:-x}"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-required": {
+        "environment": {
+          "A": "${MISSING:?synthetic-required}"
         },
         "error": null,
         "loaded": true
@@ -10798,6 +12742,85 @@
         "error": null,
         "loaded": true
       },
+      "resolution-profile-backslash": {
+        "environment": {
+          "A": "\\base",
+          "B": "\\base",
+          "BASE": "base"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-basic": {
+        "environment": {
+          "A": "file",
+          "B": "$BASE",
+          "BASE": "file"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-default": {
+        "environment": {
+          "A": "default",
+          "B": "",
+          "C": "${PRESENT:+alt}",
+          "D": "",
+          "PRESENT": "yes"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-dollar-escape": {
+        "environment": {
+          "A": "$base",
+          "B": "$$BASE",
+          "BASE": "base"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-external": {
+        "environment": {
+          "A": "external",
+          "BASE": "external"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-nested": {
+        "environment": {
+          "A": "${BASE}",
+          "BASE": "base"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-operand-dollar": {
+        "environment": {
+          "A": "$HOME",
+          "HOME": "home"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-quotes": {
+        "environment": {
+          "A": "base",
+          "B": "base",
+          "BASE": "base",
+          "C": "base"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-required": {
+        "environment": {
+          "A": "${MISSING:?synthetic-required}"
+        },
+        "error": null,
+        "loaded": true
+      },
       "resolution-required": {
         "environment": {
           "A": "${MISSING:?synthetic-required}"
@@ -11391,6 +13414,85 @@
         "error": null,
         "loaded": true
       },
+      "resolution-profile-backslash": {
+        "environment": {
+          "A": "\\base",
+          "B": "\\base",
+          "BASE": "base"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-basic": {
+        "environment": {
+          "A": "file",
+          "B": "$BASE",
+          "BASE": "file"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-default": {
+        "environment": {
+          "A": "default",
+          "B": "",
+          "C": "${PRESENT:+alt}",
+          "D": "",
+          "PRESENT": "yes"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-dollar-escape": {
+        "environment": {
+          "A": "$base",
+          "B": "$$BASE",
+          "BASE": "base"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-external": {
+        "environment": {
+          "A": "external",
+          "BASE": "external"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-nested": {
+        "environment": {
+          "A": "${BASE}",
+          "BASE": "base"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-operand-dollar": {
+        "environment": {
+          "A": "$HOME",
+          "HOME": "home"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-quotes": {
+        "environment": {
+          "A": "base",
+          "B": "base",
+          "BASE": "base",
+          "C": "base"
+        },
+        "error": null,
+        "loaded": true
+      },
+      "resolution-profile-required": {
+        "environment": {
+          "A": "${MISSING:?synthetic-required}"
+        },
+        "error": null,
+        "loaded": true
+      },
       "resolution-required": {
         "environment": {
           "A": "${MISSING:?synthetic-required}"
@@ -11863,6 +13965,64 @@
           "UNSET_COPY": "${UNSET:-fallback}"
         }
       },
+      "resolution-profile-backslash": {
+        "values": {
+          "A": "\\${BASE}",
+          "B": "\\${BASE}",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-basic": {
+        "values": {
+          "A": "${BASE}",
+          "B": "$BASE",
+          "BASE": "file"
+        }
+      },
+      "resolution-profile-default": {
+        "values": {
+          "A": "${MISSING:-default}",
+          "B": "${MISSING-default}",
+          "C": "${PRESENT:+alt}",
+          "D": "${PRESENT+alt}"
+        }
+      },
+      "resolution-profile-dollar-escape": {
+        "values": {
+          "A": "$${BASE}",
+          "B": "$$BASE",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-external": {
+        "values": {
+          "A": "${BASE}"
+        }
+      },
+      "resolution-profile-nested": {
+        "values": {
+          "A": "${MISSING:-${BASE}}",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-operand-dollar": {
+        "values": {
+          "A": "${MISSING:-$HOME}"
+        }
+      },
+      "resolution-profile-quotes": {
+        "values": {
+          "A": "${BASE}",
+          "B": "${BASE}",
+          "BASE": "base",
+          "C": "${BASE:-x}"
+        }
+      },
+      "resolution-profile-required": {
+        "values": {
+          "A": "${MISSING:?synthetic-required}"
+        }
+      },
       "resolution-required": {
         "values": {
           "A": "${MISSING:?synthetic-required}"
@@ -12306,6 +14466,64 @@
           "SELF": "${SELF:-fallback}",
           "UNSET": null,
           "UNSET_COPY": "${UNSET:-fallback}"
+        }
+      },
+      "resolution-profile-backslash": {
+        "values": {
+          "A": "\\${BASE}",
+          "B": "\\${BASE}",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-basic": {
+        "values": {
+          "A": "${BASE}",
+          "B": "$BASE",
+          "BASE": "file"
+        }
+      },
+      "resolution-profile-default": {
+        "values": {
+          "A": "${MISSING:-default}",
+          "B": "${MISSING-default}",
+          "C": "${PRESENT:+alt}",
+          "D": "${PRESENT+alt}"
+        }
+      },
+      "resolution-profile-dollar-escape": {
+        "values": {
+          "A": "$${BASE}",
+          "B": "$$BASE",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-external": {
+        "values": {
+          "A": "${BASE}"
+        }
+      },
+      "resolution-profile-nested": {
+        "values": {
+          "A": "${MISSING:-${BASE}}",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-operand-dollar": {
+        "values": {
+          "A": "${MISSING:-$HOME}"
+        }
+      },
+      "resolution-profile-quotes": {
+        "values": {
+          "A": "${BASE}",
+          "B": "${BASE}",
+          "BASE": "base",
+          "C": "${BASE:-x}"
+        }
+      },
+      "resolution-profile-required": {
+        "values": {
+          "A": "${MISSING:?synthetic-required}"
         }
       },
       "resolution-required": {
@@ -12753,6 +14971,64 @@
           "UNSET_COPY": ""
         }
       },
+      "resolution-profile-backslash": {
+        "values": {
+          "A": "\\base",
+          "B": "\\base",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-basic": {
+        "values": {
+          "A": "file",
+          "B": "$BASE",
+          "BASE": "file"
+        }
+      },
+      "resolution-profile-default": {
+        "values": {
+          "A": "default",
+          "B": "",
+          "C": "${PRESENT:+alt}",
+          "D": ""
+        }
+      },
+      "resolution-profile-dollar-escape": {
+        "values": {
+          "A": "$base",
+          "B": "$$BASE",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-external": {
+        "values": {
+          "A": "external"
+        }
+      },
+      "resolution-profile-nested": {
+        "values": {
+          "A": "${BASE}",
+          "BASE": "base"
+        }
+      },
+      "resolution-profile-operand-dollar": {
+        "values": {
+          "A": "$HOME"
+        }
+      },
+      "resolution-profile-quotes": {
+        "values": {
+          "A": "base",
+          "B": "base",
+          "BASE": "base",
+          "C": "base"
+        }
+      },
+      "resolution-profile-required": {
+        "values": {
+          "A": "${MISSING:?synthetic-required}"
+        }
+      },
       "resolution-required": {
         "values": {
           "A": "${MISSING:?synthetic-required}"
@@ -12839,6 +15115,7 @@
         "package": "compose-go v2.16.1; docker/cli v29.8.2+incompatible"
       },
       "node": {
+        "expand_package": "1000.0.0",
         "language": "v26.5.0",
         "package": "18.0.8"
       },
@@ -12847,7 +15124,7 @@
         "package": "1.2.4"
       }
     },
-    "utc": "2026-10-27T04:15:20.489517+00:00"
+    "utc": "2026-11-04T06:43:35.597941+00:00"
   },
   "schema": 1
 }

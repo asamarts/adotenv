@@ -58,13 +58,14 @@ custom dialects built from it.
 | `dotenv.non-posix-key` | Warning | none | A key is accepted but is not a POSIX shell variable name, such as `app.port`. Portable syntax only. |
 | `dotenv.tight-hash` | Warning | none | A `#` in an unquoted value is literal text, not a comment, as in `A=a#b`. Portable starts a comment only at a `#` after whitespace. Portable syntax only. |
 | `dotenv.backtick` | Warning | none | A backtick in an unquoted value is literal text, not a quote. Reported for each backtick. Portable syntax only. |
-| `dotenv.bom` | Info | none | The source starts with a UTF-8 byte-order mark, which the dialect sets apart from the items (`BomPolicy::Strip`, used by every preset). |
+| `dotenv.bom` | Info | none | The source starts with a UTF-8 byte-order mark, which the dialect sets apart from the items (`BomPolicy::Strip`, used by every preset). A first line over the byte limit reports `dotenv.line-too-long` instead. |
 | `dotenv.lone-cr` | Warning | none | A carriage return is not followed by a line feed. Portable ends a line there. Every lone CR is reported, including one inside a quoted value. Portable syntax with `LineBreaks::Universal` only. |
 | `dotenv.forbidden-bare-key` | Error | `Entry` | A declaration has no `=` and the dialect forbids that (`BareKeys::Error`). |
-| `dotenv.forbidden-bom` | Error | `Invalid` | The source starts with a byte-order mark and the dialect forbids that (`BomPolicy::Error`). The item holds only the three bytes of the mark. |
+| `dotenv.forbidden-bom` | Error | `Invalid` | The source starts with a byte-order mark and the dialect forbids that (`BomPolicy::Error`). The item holds only the three bytes of the mark. A first line over the byte limit reports `dotenv.line-too-long` instead. |
 | `dotenv.invalid-escape` | Error | `Entry` | The dialect rejects a double-quoted escape it does not define (`UnknownEscapes::Error`). The value keeps the escape as written. |
 | `dotenv.ignored-statement` | Warning | `Ignored` | A statement is kept in the source but ignored by the dialect: a malformed statement under `MalformedLines::Ignore`, or a statement with text after its closing quote under `QuotedTail::Skip`. |
 | `dotenv.line-too-long` | Error | `Invalid` | A physical line is longer than the dialect's byte limit, counted without the final LF but with a CR before it. Docker allows 65,535 bytes; the other presets have no limit. |
+| `dotenv.too-many-diagnostics` | Warning | none | More than 10,000 ordinary diagnostics were found. The list is truncated; the first error found after the budget is retained before this summary. |
 
 In dialects that ignore malformed lines (`MalformedLines::Ignore`, used by the
 Node preset), `dotenv.ignored-statement` replaces every error code above

@@ -1,15 +1,20 @@
-//! Peak memory of reference scanning and sorting for deeply nested values.
+//! Peak memory of reference scanning, resolution and parsing.
 //!
-//! The resident-set high-water mark belongs to the whole process, so this
-//! binary holds a single test.
+//! The resident-set high-water mark belongs to the whole process, so the
+//! measurements serialize on a mutex.
 #![cfg(target_os = "linux")]
 
-use adotenv::parse;
+use adotenv::{parse, parse_with, DiagnosticCode, Dialect, ExpandOptions, ResolveError};
 
-/// Growth of the resident set, in bytes, while `run` executes. Memory that
-/// earlier steps freed may be reused, so this is a lower bound on what `run`
-/// allocates; memory that grows with the square of the nesting depth still
-/// exceeds the limit below by far.
+/// The high-water mark belongs to the whole process, so only one measurement
+/// may run at a time.
+static MEMORY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Growth of the resident set, in bytes, while `run` executes. Callers hold
+/// `MEMORY_LOCK`, including while they build their inputs. Memory that earlier
+/// steps freed may be reused, so this is a lower bound on what `run` allocates;
+/// memory that grows with the square of the nesting depth still exceeds the
+/// limit below by far.
 fn peak_growth(run: impl FnOnce()) -> usize {
     // Writing 5 resets the high-water mark to the current resident set. Without
     // the reset, only growth past the earlier peak is visible.
@@ -30,8 +35,68 @@ fn status_kib(field: &str) -> usize {
 }
 
 #[test]
+fn lookup_index_does_not_allocate_for_ignored_bare_keys() {
+    const LIMIT: usize = 1 << 20;
+    let _guard = MEMORY_LOCK.lock().unwrap();
+    let source = "BARE\n".repeat(200_000);
+    let (document, _) = parse_with(&source, Dialect::NODE_DOTENV);
+    let growth = peak_growth(|| {
+        assert_eq!(document.lookup_index().len(), 0);
+    });
+    assert!(
+        growth < LIMIT,
+        "the lookup index grew the resident set by {growth} bytes"
+    );
+}
+
+#[test]
+fn parsing_caps_repeated_diagnostics_within_the_budget() {
+    const LIMIT: usize = 16 << 20;
+    let _guard = MEMORY_LOCK.lock().unwrap();
+    let source = format!("A={}\n", "#".repeat(1_000_000));
+    let growth = peak_growth(|| {
+        let (_, diagnostics) = parse(&source);
+        assert_eq!(diagnostics.len(), 10_001);
+        assert_eq!(
+            diagnostics.last().unwrap().code(),
+            DiagnosticCode::TooManyDiagnostics
+        );
+    });
+    assert!(
+        growth < LIMIT,
+        "the bounded diagnostic list grew the resident set by {growth} bytes"
+    );
+}
+
+#[test]
+fn resolution_rejects_a_dense_scan_within_the_reference_budget() {
+    const LIMIT: usize = 32 << 20;
+    let _guard = MEMORY_LOCK.lock().unwrap();
+    // Two candidates per repeat; the default budget stops the scan after
+    // 65,536 of them even though the value is under 1 MB.
+    let value = "${A:-$A}".repeat(100_000);
+    let source = format!("A={value}\n");
+    let (doc, _) = parse(&source);
+    let growth = peak_growth(|| {
+        assert!(matches!(
+            doc.resolve(|_| None, &ExpandOptions::portable()),
+            Err(ResolveError::TooManyReferences {
+                key,
+                limit: 65_536,
+                ..
+            }) if key == "A"
+        ));
+    });
+    assert!(
+        growth < LIMIT,
+        "the bounded reference scan grew the resident set by {growth} bytes"
+    );
+}
+
+#[test]
 fn nested_and_unclosed_forms_use_memory_linear_in_value_length() {
     const LIMIT: usize = 64 << 20;
+    let _guard = MEMORY_LOCK.lock().unwrap();
     // The 16 KiB values come first, so memory that grows with the square of
     // the nesting depth fails an assertion before the 64 KiB values would
     // need gigabytes.
@@ -63,4 +128,28 @@ fn nested_and_unclosed_forms_use_memory_linear_in_value_length() {
             );
         }
     }
+}
+
+#[test]
+fn resolution_depth_budget_bounds_delimiter_scan() {
+    const LIMIT: usize = 8 << 20;
+    let _guard = MEMORY_LOCK.lock().unwrap();
+    let value = "$(".repeat(100_000);
+    let source = format!("A={value}\n");
+    let (doc, _) = parse(&source);
+    let growth = peak_growth(|| {
+        assert!(matches!(
+            doc.resolve(
+                |_| None,
+                &ExpandOptions::portable()
+                    .with_max_references(2)
+                    .with_max_depth(64)
+            ),
+            Err(ResolveError::TooManyReferences { .. })
+        ));
+    });
+    assert!(
+        growth < LIMIT,
+        "the delimiter scan grew the resident set by {growth} bytes"
+    );
 }

@@ -299,6 +299,21 @@ fn dotted_modes_name_their_own_files() {
 }
 
 #[test]
+fn mode_local_does_not_load_the_local_file_twice() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=base\n");
+    dir.write(".env.local", "A=local\n");
+
+    let loaded = full_cascade(dir.path(), "local");
+    assert_eq!(loaded.get("A"), Some("local"));
+    assert_eq!(loaded.entries().count(), 2);
+    assert_eq!(loaded.overrides().count(), 1);
+
+    let values = load_cascade_values_with(dir.path(), "local", Dialect::PORTABLE).unwrap();
+    assert_eq!(values.get("A"), Some("local"));
+}
+
+#[test]
 fn empty_mode_loads_only_base_and_local_files() {
     let dir = TempDir::new();
     dir.write(".env", "A=base\n");
@@ -1093,4 +1108,52 @@ fn contextual_resolution_requires_whole_file_scope() {
         let decoded = loaded.resolve_decoded(|_| None, &options).unwrap();
         assert_eq!(decoded.values(), resolved.values());
     }
+}
+
+#[test]
+fn decoded_resolution_keeps_a_bom_key_with_an_apostrophe() {
+    let dir = TempDir::new();
+    dir.write(".env", "# c\n\u{feff}A'B=1\n");
+    let loaded = full_cascade_with(dir.path(), "", Dialect::PYTHON_DOTENV);
+    assert_eq!(loaded.get("\u{feff}A'B"), Some("1"));
+    let contextual = loaded.resolve_contextual(|_| None, &whole_file()).unwrap();
+    let decoded = loaded.resolve_decoded(|_| None, &whole_file()).unwrap();
+    assert_eq!(contextual.values(), decoded.values());
+    assert_eq!(decoded.get("\u{feff}A'B"), Some("1"));
+}
+
+#[cfg(unix)]
+#[test]
+fn cascade_does_not_treat_a_dangling_symlink_as_missing() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=base\n");
+    std::os::unix::fs::symlink(
+        dir.path().join("missing-secret-target"),
+        dir.path().join(".env.production"),
+    )
+    .unwrap();
+    assert!(load_cascade(dir.path(), "production").is_err());
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_cascade_reads_an_uppercase_env_name() {
+    let dir = TempDir::new();
+    dir.write(".ENV", "A=1\n");
+    let loaded = full_cascade(dir.path(), "");
+    assert_eq!(loaded.get("A"), Some("1"));
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_local_mode_deduplicates_case_insensitively() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=base\n");
+    dir.write(".env.local", "A=local\n");
+    let loaded =
+        load_cascade_with_options(dir.path(), "LOCAL", LoadOptions::full(Dialect::PORTABLE))
+            .unwrap();
+    assert_eq!(loaded.get("A"), Some("local"));
+    assert_eq!(loaded.entries().count(), 2);
+    assert_eq!(loaded.overrides().count(), 1);
 }

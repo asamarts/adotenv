@@ -17,12 +17,12 @@ version.
 ## Commands
 
 ```text
-adotenv-cli [--dialect <portable|node|python|compose|docker>] <command> [options]
+adotenv-cli [--dialect <portable|node|python|compose|docker>] [--dialect=<value>] <command> [options]
 
 get <file> <key>
 check [--format human|json|github] [--json] [--source] [--recursive] [--exclude <path>] <path>...
 fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <path>...
-diff [--format human|matrix|json] [--json] <baseline> <file>...
+diff [--format human|matrix|json] [--json] [--mask] <baseline> <file>...
 example <file>
 load <directory> [mode]
 set <file> <key> <value>
@@ -52,7 +52,9 @@ error, as is `--source` with JSON or GitHub output, and `--write` with
 ### Dialects
 
 `--dialect` selects the reading rules for every file in the command. It can
-appear before or after the command name, but before `--`.
+appear before or after the command name, but before `--`. The
+`--dialect=<value>` form is equivalent and may be specified only once. Unknown
+options are usage errors rather than paths.
 
 | Value | Library preset |
 |---|---|
@@ -71,7 +73,8 @@ commands print values or text that can contain them:
 
 - `get` prints the effective value.
 - `load` prints every loaded value.
-- `diff` prints values in every format: human, matrix and JSON.
+- `diff` prints values in every format: human, matrix and JSON. `diff --mask`
+  replaces compared values with `***`.
 - `fmt` prints or writes the whole document.
 - `example` removes values but keeps comments verbatim, including anything
   secret written in a comment.
@@ -162,6 +165,10 @@ base.env -> app.env
 + D=""
 ```
 
+`--mask` replaces every non-empty compared value with `***` in human, JSON and
+matrix output. Keys, states, export prefixes and missing/unset markers remain
+visible. It affects output only; comparison still uses the real values.
+
 `--format matrix` prints one table with a row per key and a column per file.
 A cell shows the value, `""` for an empty value, `<bare>` for a declaration
 without `=`, `<unset>` for a missing key and an `export ` prefix for exported
@@ -190,7 +197,7 @@ Every field is listed below, in output order. The schema is stable.
 | difference | `left` | value or null | The baseline declaration, or `null` when the key is absent. |
 | difference | `right` | value or null | The candidate declaration, or `null` when the key is absent. |
 | value | `state` | string | `bare` for a key without `=`, `empty` for an empty value, otherwise `value`. |
-| value | `value` | string or null | The decoded literal value: `""` for `empty`, `null` for `bare`. |
+| value | `value` | string or null | The decoded literal value: `""` for `empty`, `null` for `bare`, or `"***"` for a non-empty value under `--mask`. |
 | value | `exported` | boolean | Whether the declaration has an `export` prefix. |
 
 ## Formatting
@@ -237,12 +244,14 @@ loaded value replaces a parent variable of the same name. Other parent variables
 are passed through unchanged. The parent environment is not changed. When no
 cascade file exists, the program runs with the parent environment alone.
 
-Loaded files are trusted like code. A loaded `PATH` changes which program runs,
-and variables such as `LD_PRELOAD` change how it runs.
+On Windows the child environment is case-insensitive: keys that differ only by
+case and values longer than 32,767 UTF-16 code units are rejected before the
+child starts. Loaded files are trusted like code. A loaded `PATH` changes which
+program runs, and variables such as `LD_PRELOAD` change how it runs.
 
 Values stay literal: `run` does not expand references or run command
-substitutions. Keys that are empty or contain `=` or NUL, and values that
-contain NUL, are rejected before the program starts.
+substitutions. The loader omits empty keys; keys that remain and contain `=`
+or NUL, and values that contain NUL, are rejected before the program starts.
 
 ## Discovery
 
@@ -282,8 +291,11 @@ When the result is unchanged, `fmt --write` and `set` do not replace the
 file. Its inode, hard links, modification time, permissions and extended
 attributes stay as they are.
 
-`fmt --write` and `set` replace a changed file through a temporary file in the
-same directory:
+`fmt --write` and `set` resolve the write target once before reading and do
+not resolve it again while replacing it. On Unix they check its device and
+inode before the temporary file and immediately before the replace, and fail
+if it changed after the read. They replace a changed file through a temporary
+file in the same directory:
 
 - When the path is a symbolic link, the file it finally points to is replaced in
   that file's directory, and the link is kept.

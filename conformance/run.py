@@ -190,6 +190,13 @@ def validate_observation(profile, observation):
         values(observation["values"])
         prototype(observation["prototype"])
         require(observation["diagnostics_supported"] is False)
+    elif profile == "node-dotenv-expand":
+        fields(observation, "values error")
+        require(type(observation["error"]) is bool)
+        if observation["values"] is not None:
+            values(observation["values"])
+        elif not observation["error"]:
+            require(False)
     elif profile.startswith("node-load-"):
         fields(observation, "parsed parsed_prototype environment environment_prototype diagnostics_supported error")
         if observation["parsed"] is None:

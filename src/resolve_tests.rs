@@ -555,6 +555,49 @@ fn limits_and_cycles_are_structured_errors() {
 }
 
 #[test]
+fn reference_scan_stops_at_max_references() {
+    let doc = parse_strict("A=$B$C$D\n").unwrap();
+    assert_eq!(
+        doc.resolve(
+            |_| None,
+            &ExpandOptions {
+                max_references: 2,
+                ..ExpandOptions::portable()
+            }
+        ),
+        Err(ResolveError::TooManyReferences {
+            key: "A".to_string(),
+            limit: 2,
+            span: 2..8,
+        })
+    );
+
+    // Exactly the limit is allowed.
+    let resolved = doc
+        .resolve(
+            |_| None,
+            &ExpandOptions {
+                max_references: 3,
+                ..ExpandOptions::portable()
+            },
+        )
+        .unwrap();
+    assert_eq!(value(&resolved, 0), Some("$B$C$D"));
+
+    // A zero limit still permits values without a possible reference.
+    let literal = parse_strict("A=plain\n").unwrap();
+    assert!(literal
+        .resolve(
+            |_| None,
+            &ExpandOptions {
+                max_references: 0,
+                ..ExpandOptions::portable()
+            },
+        )
+        .is_ok());
+}
+
+#[test]
 fn provenance_preserves_nested_file_parts() {
     let source = "A=x\nB=${A}\nC=${B}\n";
     let resolved = resolve(source, |_| None, &ExpandOptions::portable()).unwrap();
@@ -933,6 +976,21 @@ fn structured_errors_have_stable_display_text() {
         .unwrap_err();
     assert_eq!(large.to_string(), "resolved value for A exceeds 3 bytes");
 
+    let many = parse_strict("A=$B$C$D\n")
+        .unwrap()
+        .resolve(
+            |_| None,
+            &ExpandOptions {
+                max_references: 2,
+                ..ExpandOptions::portable()
+            },
+        )
+        .unwrap_err();
+    assert_eq!(
+        many.to_string(),
+        "reference scan for A exceeds 2 candidates"
+    );
+
     let failure = parse_strict("A=$(cmd)\n")
         .unwrap()
         .resolve_with_commands(
@@ -963,11 +1021,13 @@ fn command_error_accessors_and_options_builders_are_explicit() {
         .with_lookup_order(LookupOrder::CallerFirst)
         .with_unresolved(Unresolved::Empty)
         .with_max_depth(7)
+        .with_max_references(11)
         .with_max_value_bytes(9);
     assert_eq!(customized.scope, ExpandScope::WholeFile);
     assert_eq!(customized.lookup_order, LookupOrder::CallerFirst);
     assert_eq!(customized.unresolved, Unresolved::Empty);
     assert_eq!(customized.max_depth, 7);
+    assert_eq!(customized.max_references, 11);
     assert_eq!(customized.max_value_bytes, 9);
 }
 

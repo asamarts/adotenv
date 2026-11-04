@@ -82,6 +82,22 @@ fn quoted_values_are_decoded_before_serde() {
 }
 
 #[test]
+fn flattened_value_errors_keep_the_error_but_not_context() {
+    #[derive(Debug, Deserialize)]
+    #[allow(dead_code)]
+    struct Flattened {
+        #[serde(flatten)]
+        rest: alloc::collections::BTreeMap<String, u16>,
+    }
+
+    let doc = parse_strict("a=x\n").unwrap();
+    let error = doc.deserialize::<Flattened>().unwrap_err();
+    assert_eq!(error.line(), 0);
+    assert_eq!(error.key(), None);
+    assert!(error.message().contains("u16"));
+}
+
+#[test]
 fn unsupported_nested_shapes_report_a_value_error() {
     #[derive(Debug, Deserialize)]
     #[allow(dead_code)]
@@ -396,4 +412,33 @@ fn bytes_byte_buffers_identifiers_and_unit_structs_deserialize() {
     assert_eq!(values.byte_buf, ByteBuf(b"value".to_vec()));
     assert_eq!(values.identifier, Identifier("name".to_string()));
     assert_eq!(values.unit, Unit);
+}
+
+#[test]
+fn untagged_string_compatible_enums_follow_serde_fallback() {
+    #[derive(Debug, Deserialize, PartialEq)]
+    #[serde(untagged)]
+    enum Value {
+        Number(u16),
+        Text(String),
+    }
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct Config {
+        value: Value,
+    }
+
+    let doc = parse_strict("value=8080\n").unwrap();
+    assert_eq!(
+        doc.deserialize::<Config>().unwrap(),
+        Config {
+            value: Value::Text("8080".to_string())
+        }
+    );
+    let doc = parse_strict("value=hello\n").unwrap();
+    assert_eq!(
+        doc.deserialize::<Config>().unwrap(),
+        Config {
+            value: Value::Text("hello".to_string())
+        }
+    );
 }

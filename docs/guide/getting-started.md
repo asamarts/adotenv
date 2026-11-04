@@ -78,8 +78,10 @@ assert_eq!(url.raw_value(), Some("\"${HOST}/api\""));
 assert_eq!(url.inline_comment(), Some("# base"));
 ```
 
-`parse` never fails. It returns the document and every diagnostic, so a tool
-can report problems without losing the rest of the file:
+`parse` never fails. It returns the document and at most 10,000 ordinary
+diagnostics, plus the first error after that budget, so a tool can report
+problems without losing the rest of the file. If more problems exist, the last
+diagnostic is `dotenv.too-many-diagnostics`:
 
 ```rust
 let (doc, diagnostics) = adotenv::parse("BAD KEY=value\nGOOD=kept\n");

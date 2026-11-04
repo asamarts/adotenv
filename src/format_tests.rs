@@ -92,6 +92,21 @@ fn quote_style_can_normalize_without_changing_values() {
 }
 
 #[test]
+fn quote_style_handles_a_key_that_is_only_a_bom() {
+    let source = "# c\n\u{feff}=old\n";
+    let (doc, _) = parse_with(source, Dialect::PYTHON_DOTENV);
+    let formatted = doc
+        .format(&FormatOptions {
+            quote_style: QuoteStyle::Double,
+            ..FormatOptions::default()
+        })
+        .unwrap();
+    assert_eq!(formatted.as_str(), "# c\n\u{feff}=\"old\"\n");
+    let (after, _) = parse_with(formatted.as_str(), Dialect::PYTHON_DOTENV);
+    assert_eq!(after.get("\u{feff}"), Some("old"));
+}
+
+#[test]
 fn quote_style_can_use_single_quotes_for_multiline_values() {
     let source = "A=\"first\nsecond\"\nB='two'\nC=''\n";
     let doc = parse_strict(source).unwrap();
@@ -669,4 +684,38 @@ fn unquoted_quote_style_does_not_mix_with_other_rewrites() {
         .unwrap();
     assert_eq!(formatted.as_str(), "A = \"simple\"\n");
     assert!(formatted.as_str().contains("\"simple\""));
+}
+
+#[test]
+fn quote_planning_is_idempotent_when_other_rules_shorten_the_line() {
+    let dialect = Dialect {
+        line_byte_limit: Some(11),
+        ..Dialect::PORTABLE
+    };
+    let options = FormatOptions {
+        quote_style: QuoteStyle::Double,
+        ..options(EqualsSpacing::None, false, FinalNewline::Preserve)
+    };
+    let doc = parse_with("PORT =8080\n", dialect).0;
+    let first = doc.format(&options).unwrap();
+    assert_eq!(first.as_str(), "PORT=\"8080\"\n");
+    let (again, _) = parse_with(first.as_str(), dialect);
+    assert_eq!(again.format(&options).unwrap().as_str(), first.as_str());
+}
+
+#[test]
+fn quote_planning_is_idempotent_after_trailing_whitespace_trimming() {
+    let dialect = Dialect {
+        line_byte_limit: Some(5),
+        ..Dialect::PORTABLE
+    };
+    let options = FormatOptions {
+        quote_style: QuoteStyle::Double,
+        ..options(EqualsSpacing::Preserve, true, FinalNewline::Preserve)
+    };
+    let doc = parse_with("A=1  \n", dialect).0;
+    let first = doc.format(&options).unwrap();
+    assert_eq!(first.as_str(), "A=\"1\"\n");
+    let (again, _) = parse_with(first.as_str(), dialect);
+    assert_eq!(again.format(&options).unwrap().as_str(), first.as_str());
 }
