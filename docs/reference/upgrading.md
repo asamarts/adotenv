@@ -86,6 +86,8 @@ Releases within 1.x keep the API. These fixes change results:
   reports Portable tight-hash/backtick warnings in the appended tail.
 - 1.2.0: on Windows, `validate`/`apply` and `adotenv-cli run` reject keys that
   differ only by case and values over 32,767 UTF-16 code units.
+- 1.2.0: CLI `--dialect=<value>` is accepted, repeated `--dialect` is a usage
+  error, unknown `--` options are rejected, and temporary names are bounded.
 - 1.2.0: `exec::Shell` caps standard output and standard error and stops
   commands after a timeout by default. The builders change the limits.
 - 1.2.0: `fmt --write` and `set` resolve the write target once and check its

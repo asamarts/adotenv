@@ -477,6 +477,9 @@ fn dialect_selection_applies_to_commands() {
     let node = run(&["--dialect", "node", "get", file.to_str().unwrap(), "A"]);
     assert_eq!(stdout(&node), "a\n");
 
+    let node = run(&["--dialect=node", "get", file.to_str().unwrap(), "A"]);
+    assert_eq!(stdout(&node), "a\n");
+
     let unknown = run(&["get", "--dialect", "nope", file.to_str().unwrap(), "A"]);
     assert_eq!(unknown.status.code(), Some(2));
     assert!(stderr(&unknown).contains("unknown dialect"));
@@ -1682,9 +1685,34 @@ fn exit_code_contract_covers_standard_output_failures() {
 }
 
 #[test]
+fn fmt_write_check_conflicts_even_when_no_files_are_found() {
+    let dir = TempDir::new();
+    let empty = dir.path().join("empty");
+    fs::create_dir(&empty).unwrap();
+    let output = run(&[
+        "fmt",
+        "--write",
+        "--check",
+        "--recursive",
+        empty.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("--write and --check"));
+}
+
+#[test]
 fn usage_and_argument_errors_are_consistent() {
     let cases: &[(&[&str], &str)] = &[
         (&["get"], "usage: adotenv-cli get"),
+        (&["--dialect"], "--dialect requires a value"),
+        (
+            &["--dialect", "node", "--dialect", "python", "get", "x", "A"],
+            "--dialect may be specified only once",
+        ),
+        (&["check", "--jsn", "x"], "unknown option: --jsn"),
+        (&["fmt", "--jsn", "x"], "unknown option: --jsn"),
+        (&["diff", "--jsn", "a", "b"], "unknown option: --jsn"),
+        (&["get", "--jsn", "A"], "unknown option: --jsn"),
         (&["get", "one"], "usage: adotenv-cli get"),
         (&["check"], "usage: adotenv-cli check"),
         (
@@ -1831,8 +1859,8 @@ fn check_json_escapes_control_characters_in_paths() {
     let output = run(&["check", "--json", path.to_str().unwrap()]);
     assert!(output.status.success(), "{}", stderr(&output));
     let json = stdout(&output);
+    parse_json(&json);
     assert!(json.contains("line\\nname\\t.env"), "{json}");
-    assert!(!json.contains('\n') || json.lines().count() == 1);
 }
 
 #[test]
@@ -2309,10 +2337,7 @@ fn documented_fields(text: &str) -> std::collections::BTreeMap<String, Vec<Strin
 #[test]
 fn json_fields_match_the_documented_schema() {
     let docs = Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/design/cli.md");
-    let Ok(docs) = fs::read_to_string(docs) else {
-        eprintln!("skipping schema test: docs/design/cli.md is not available");
-        return;
-    };
+    let docs = fs::read_to_string(docs).expect("docs/design/cli.md must be available");
     let documented = documented_fields(&docs);
 
     let dir = TempDir::new();

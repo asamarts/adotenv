@@ -17,7 +17,7 @@ version.
 ## Commands
 
 ```text
-adotenv-cli [--dialect <portable|node|python|compose|docker>] <command> [options]
+adotenv-cli [--dialect <portable|node|python|compose|docker>] [--dialect=<value>] <command> [options]
 
 get <file> <key>
 check [--format human|json|github] [--json] [--source] [--recursive] [--exclude <path>] <path>...
@@ -52,7 +52,9 @@ error, as is `--source` with JSON or GitHub output, and `--write` with
 ### Dialects
 
 `--dialect` selects the reading rules for every file in the command. It can
-appear before or after the command name, but before `--`.
+appear before or after the command name, but before `--`. The
+`--dialect=<value>` form is equivalent and may be specified only once. Unknown
+options are usage errors rather than paths.
 
 | Value | Library preset |
 |---|---|

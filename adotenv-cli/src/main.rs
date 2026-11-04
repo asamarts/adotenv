@@ -137,29 +137,47 @@ fn extract_dialect(args: &mut Vec<String>) -> Result<Dialect, ()> {
         .iter()
         .position(|arg| arg == "--")
         .unwrap_or(args.len());
-    let Some(position) = args[..limit].iter().position(|arg| arg == "--dialect") else {
-        return Ok(Dialect::PORTABLE);
-    };
-    if position + 1 >= limit {
-        errln!("--dialect requires a value");
-        return Err(());
-    }
-    let dialect = match args[position + 1].as_str() {
-        "portable" => Dialect::PORTABLE,
-        "node" => Dialect::NODE_DOTENV,
-        "python" => Dialect::PYTHON_DOTENV,
-        "compose" => Dialect::COMPOSE,
-        "docker" | "docker-raw" => Dialect::DOCKER_RAW,
-        other => {
-            errln!("unknown dialect: {other}");
+    let mut selected = None;
+    let mut index = 0;
+    while index < limit {
+        let (end, value) = if args[index] == "--dialect" {
+            if index + 1 >= limit {
+                errln!("--dialect requires a value");
+                return Err(());
+            }
+            (index + 2, args[index + 1].as_str())
+        } else if let Some(value) = args[index].strip_prefix("--dialect=") {
+            (index + 1, value)
+        } else {
+            index += 1;
+            continue;
+        };
+        if selected.is_some() {
+            errln!("--dialect may be specified only once");
             return Err(());
         }
-    };
-    args.drain(position..=position + 1);
-    Ok(dialect)
+        let dialect = match value {
+            "portable" => Dialect::PORTABLE,
+            "node" => Dialect::NODE_DOTENV,
+            "python" => Dialect::PYTHON_DOTENV,
+            "compose" => Dialect::COMPOSE,
+            "docker" | "docker-raw" => Dialect::DOCKER_RAW,
+            other => {
+                errln!("unknown dialect: {other}");
+                return Err(());
+            }
+        };
+        selected = Some((index, end, dialect));
+        index = end;
+    }
+    if let Some((start, end, dialect)) = selected {
+        args.drain(start..end);
+        Ok(dialect)
+    } else {
+        Ok(Dialect::PORTABLE)
+    }
 }
-
-const USAGE: &str = r#"adotenv-cli [--dialect <portable|node|python|compose|docker>] <command> [options]
+const USAGE: &str = r#"adotenv-cli [--dialect <portable|node|python|compose|docker>] [--dialect=<value>] <command> [options]
 
 Commands:
   get <file> <key>             Print an effective literal value
@@ -197,6 +215,10 @@ fn get(args: &[String], dialect: Dialect) -> u8 {
         return FAILURE;
     }
     let path = &args[0];
+    if let Err(error) = reject_unknown_option(path) {
+        errln!("{error}");
+        return FAILURE;
+    }
     let source = match read_text(path) {
         Ok(source) => source,
         Err(error) => return fail(error),
@@ -445,7 +467,10 @@ fn parse_check_args(args: &[String]) -> Result<CheckArgs, String> {
                 excludes.push(PathBuf::from(&args[index]));
             }
             "--source" => show_source = true,
-            argument => paths.push(argument.to_string()),
+            argument => {
+                reject_unknown_option(argument)?;
+                paths.push(argument.to_string());
+            }
         }
         index += 1;
     }
@@ -495,7 +520,10 @@ fn parse_fmt_args(args: &[String]) -> Result<FmtArgs, String> {
                 }
                 excludes.push(PathBuf::from(&args[index]));
             }
-            argument => paths.push(argument.to_string()),
+            argument => {
+                reject_unknown_option(argument)?;
+                paths.push(argument.to_string());
+            }
         }
         index += 1;
     }
@@ -875,6 +903,10 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
             return FAILURE;
         }
     };
+    if write && check {
+        errln!("--write and --check are mutually exclusive");
+        return FAILURE;
+    }
     if raw_paths.is_empty() && !recursive {
         errln!(
             "usage: adotenv-cli fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <file-or-dir>..."
@@ -898,10 +930,6 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
             errln!("no .env files found");
             return SUCCESS;
         }
-        return FAILURE;
-    }
-    if write && check {
-        errln!("--write and --check are mutually exclusive");
         return FAILURE;
     }
     if paths.iter().filter(|path| is_stdin_path(path)).count() > 1 {
@@ -1044,7 +1072,10 @@ fn parse_diff_args(args: &[String]) -> Result<DiffArgs, String> {
                 let value = &argument["--format=".len()..];
                 set_diff_format(&mut format, parse_diff_format(value)?)?;
             }
-            argument => paths.push(argument.to_string()),
+            argument => {
+                reject_unknown_option(argument)?;
+                paths.push(argument.to_string());
+            }
         }
         index += 1;
     }
@@ -1395,6 +1426,10 @@ fn example(args: &[String], dialect: Dialect) -> u8 {
         errln!("usage: adotenv-cli example <file>");
         return FAILURE;
     }
+    if let Err(error) = reject_unknown_option(&args[0]) {
+        errln!("{error}");
+        return FAILURE;
+    }
     let source = match read_text(&args[0]) {
         Ok(source) => source,
         Err(error) => return fail(error),
@@ -1412,7 +1447,15 @@ fn load(args: &[String], dialect: Dialect) -> u8 {
         errln!("usage: adotenv-cli load <directory> [mode]");
         return FAILURE;
     }
+    if let Err(error) = reject_unknown_option(&args[0]) {
+        errln!("{error}");
+        return FAILURE;
+    }
     let mode = args.get(1).map_or("", String::as_str);
+    if let Err(error) = reject_unknown_option(mode) {
+        errln!("{error}");
+        return FAILURE;
+    }
     let loaded = match load_cascade_with(&args[0], mode, dialect) {
         Ok(loaded) => loaded,
         Err(error) => return fail(error.to_string()),
@@ -1494,6 +1537,12 @@ fn run_command(args: &[String], dialect: Dialect) -> u8 {
     if separator == 0 || separator + 1 >= args.len() || separator > 2 {
         errln!("usage: adotenv-cli run <directory> [mode] -- <program> [args...]");
         return FAILURE;
+    }
+    for argument in &args[..separator] {
+        if let Err(error) = reject_unknown_option(argument) {
+            errln!("{error}");
+            return FAILURE;
+        }
     }
     let directory = &args[0];
     let mode = args
@@ -1628,6 +1677,12 @@ fn describe(value: Option<&ComparedValue>, mask: bool) -> String {
 
 static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
 
+/// Maximum bytes of the original file name kept in a temporary name.
+///
+/// The suffix includes the PID and counter; 160 keeps the whole component
+/// under the common 255-byte NAME_MAX limit.
+const TEMP_STEM_BYTES: usize = 160;
+
 #[cfg(unix)]
 type FileIdentity = (u64, u64);
 
@@ -1760,10 +1815,15 @@ fn write_atomic_inner(
 /// On Unix the file is created with mode `0600` (further narrowed by the
 /// umask), so no other user can read it while it is being filled.
 fn create_temporary(parent: &Path, name: &std::ffi::OsStr) -> io::Result<(PathBuf, fs::File)> {
+    let name = name.to_string_lossy();
+    let mut stem_end = name.len().min(TEMP_STEM_BYTES);
+    while !name.is_char_boundary(stem_end) {
+        stem_end -= 1;
+    }
+    let stem = &name[..stem_end];
     for _ in 0..16 {
         let candidate = parent.join(format!(
-            ".{}.adotenv-{}-{}",
-            name.to_string_lossy(),
+            ".{stem}.adotenv-{}-{}",
             std::process::id(),
             NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
         ));
@@ -1960,6 +2020,14 @@ fn remove_backup(path: &Path) -> io::Result<()> {
     fs::remove_file(path)
 }
 
+fn reject_unknown_option(argument: &str) -> Result<(), String> {
+    if argument.starts_with("--") && !is_stdin(argument) {
+        Err(format!("unknown option: {argument}"))
+    } else {
+        Ok(())
+    }
+}
+
 fn is_stdin(path: &str) -> bool {
     is_stdin_path(Path::new(path))
 }
@@ -1991,7 +2059,8 @@ fn fail(message: String) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::{
-        github_escape_data, github_escape_property, json_string, write_atomic_inner, NEXT_TEMP,
+        create_temporary, github_escape_data, github_escape_property, json_string,
+        write_atomic_inner, NEXT_TEMP,
     };
     #[cfg(unix)]
     use super::{resolve_write, write_atomic_checked};
@@ -2126,6 +2195,37 @@ mod tests {
         assert!(error.to_string().contains("changed after it was read"));
         assert_eq!(std::fs::read_to_string(&victim).unwrap(), "A=safe\n");
         assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 1);
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn temporary_names_fit_common_name_limits() {
+        let directory = std::env::temp_dir().join(format!(
+            "adotenv-write-name-{}-{}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let long = "a".repeat(254);
+        let (temporary, file) = create_temporary(&directory, std::ffi::OsStr::new(&long)).unwrap();
+        let name = temporary.file_name().unwrap().to_string_lossy();
+        assert!(name.len() <= 255, "temporary name is {} bytes", name.len());
+        drop(file);
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn write_atomic_rejects_a_directory_target() {
+        let directory = std::env::temp_dir().join(format!(
+            "adotenv-write-directory-{}-{}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let target = directory.join("target.env");
+        std::fs::create_dir(&target).unwrap();
+        let error = write_atomic_inner(&target, "A=1\n", None).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
         std::fs::remove_dir_all(&directory).unwrap();
     }
 
