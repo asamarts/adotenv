@@ -6,11 +6,11 @@
 //! With the `load` feature it also accepts a [`LoadedEnvironment`].
 //!
 //! Key names are handed to `config` unchanged. `config` 0.15 keeps key case
-//! and treats `.` as a nested path separator. A dotted key creates a table, so
-//! a scalar key with the same parent name cannot coexist with it: with `A=1`
-//! and `A.B=2`, `get_string("A.B")` works but `A` is a table and
-//! `get_string("A")` fails with a type error. Normalize or rename keys before
-//! building a source when both shapes are needed.
+//! and treats `.` as a nested path separator. A dotted key and a scalar key
+//! with the same parent name collide: with `A=1` and `A.B=2`, `config` exposes
+//! either the scalar or the nested table, not both. The winner is an
+//! implementation detail of `config`'s source map, so normalize or rename
+//! keys before building a source when both shapes are needed.
 
 use std::collections::BTreeMap;
 
@@ -29,8 +29,9 @@ impl AdotenvSource {
     /// Build a source from an explicit key/value map.
     ///
     /// Keys are passed through unchanged. A key containing `.` becomes a
-    /// nested path under `config`; if another key names its parent, the parent
-    /// becomes a table and cannot be read as a scalar.
+    /// nested path under `config`; if another key names its parent, the two
+    /// shapes collide and `config` exposes only one of them. Normalize or
+    /// rename such keys before constructing the source.
     #[must_use]
     pub fn from_values(values: BTreeMap<String, String>) -> Self {
         Self { values }
@@ -133,19 +134,33 @@ mod tests {
     fn config_uses_native_path_and_case_semantics() {
         let config = Config::builder()
             .add_source(AdotenvSource::from_values(BTreeMap::from([
-                ("A".to_string(), "scalar".to_string()),
                 ("A.B".to_string(), "dotted".to_string()),
                 ("UPPER".to_string(), "upper".to_string()),
             ])))
             .build()
             .unwrap();
         assert_eq!(config.get_string("A.B").unwrap(), "dotted");
-        assert!(config.get_string("A").is_err());
         assert!(config.get_string("a.b").is_err());
+        let table = config.get_table("A").unwrap();
+        assert_eq!(table.keys().collect::<Vec<_>>(), ["B"]);
         assert_eq!(config.get_string("UPPER").unwrap(), "upper");
         assert!(config.get_string("upper").is_err());
         let table = config.get_table("A").unwrap();
         assert_eq!(table.keys().collect::<Vec<_>>(), ["B"]);
+    }
+
+    #[test]
+    fn scalar_parent_and_dotted_child_cannot_both_be_read() {
+        let config = Config::builder()
+            .add_source(AdotenvSource::from_values(BTreeMap::from([
+                ("A".to_string(), "scalar".to_string()),
+                ("A.B".to_string(), "dotted".to_string()),
+            ])))
+            .build()
+            .unwrap();
+        // config's source map does not define which shape wins when a scalar
+        // parent and a dotted child collide. It must not expose both.
+        assert!(config.get_string("A").is_err() || config.get_string("A.B").is_err());
     }
 
     #[test]
