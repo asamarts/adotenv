@@ -38,10 +38,13 @@ for `LoadedEnvironment`.
 The adapter implements the `config` 0.15 `Source` trait and requires Rust 1.88.
 
 `config` keeps key case and treats `.` as a nested path separator, so `A.B` is
-key `B` inside table `A`, and `A.B` and `a.b` are different keys. Typed
-extraction matches field names exactly: `HOST=localhost` does not fill a `host`
-field. The adapter does not rewrite keys. Use `from_values` to supply keys that
-are already normalized for `config`.
+key `B` inside table `A`, and `A.B` and `a.b` are different keys. A dotted key
+creates a table, so a scalar parent cannot coexist with it: with `A=1` and
+`A.B=2`, `get_string("A.B")` works but `A` is a table and `get_string("A")`
+fails with a type error. Typed extraction matches field names exactly:
+`HOST=localhost` does not fill a `host` field. The adapter does not rewrite
+keys. Use `from_values` to supply keys that are already normalized for
+`config`.
 
 Values are decoded literals. Duplicate policy, lookup participation and
 `BareKeys::Empty` follow the source document or loaded environment. The adapter

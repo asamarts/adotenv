@@ -33,9 +33,11 @@ coercion, so `config.try_deserialize::<App>()` can fill a `u16` field from
 
 Keys are passed to `config` unchanged. `config` 0.15 keeps key case and treats
 `.` as a nested path separator: `A.B` is key `B` inside table `A`, and `A.B`
-and `a.b` are different keys. Typed extraction matches field names exactly, so
-`HOST=localhost` does not fill a `host` field. Use `from_values` to supply keys
-that are already normalized for `config`.
+and `a.b` are different keys. A dotted key makes its parent a table, so `A=1`
+and `A.B=2` cannot both remain scalar: `get_string("A.B")` works while
+`get_string("A")` fails with a type error. Typed extraction matches field names
+exactly, so `HOST=localhost` does not fill a `host` field. Use `from_values` to
+supply keys that are already normalized for `config`.
 
 ## Figment
 
