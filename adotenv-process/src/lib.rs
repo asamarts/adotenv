@@ -299,13 +299,18 @@ mod tests {
     use std::{
         fs,
         path::PathBuf,
-        sync::atomic::{AtomicU64, Ordering},
+        sync::{
+            atomic::{AtomicU64, Ordering},
+            Mutex,
+        },
     };
 
     use super::*;
     use adotenv::load::load_cascade;
 
     static NEXT: AtomicU64 = AtomicU64::new(0);
+    /// The process environment is global; serialize tests that touch it.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     struct TempDir(PathBuf);
 
@@ -339,6 +344,7 @@ mod tests {
 
     #[test]
     fn apply_sets_loaded_values_and_can_be_removed() {
+        let _guard = ENV_LOCK.lock().unwrap();
         let key = format!(
             "ADOTENV_PROCESS_{}_{}",
             std::process::id(),
@@ -352,6 +358,7 @@ mod tests {
 
     #[test]
     fn validation_rejects_nul_values_before_mutation() {
+        let _guard = ENV_LOCK.lock().unwrap();
         let key = format!(
             "ADOTENV_PROCESS_BAD_{}_{}",
             std::process::id(),
@@ -371,6 +378,7 @@ mod tests {
 
     #[test]
     fn validation_rejects_nul_keys_before_mutation() {
+        let _guard = ENV_LOCK.lock().unwrap();
         let dir = TempDir::new();
         let key = "ADOTENV_PROCESS_NUL\0KEY";
         fs::write(dir.path().join(".env"), format!("{key}=value\n")).unwrap();
