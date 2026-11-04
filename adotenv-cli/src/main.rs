@@ -231,6 +231,7 @@ fn usage() {
 }
 
 fn get(args: &[String], dialect: Dialect) -> u8 {
+    let args = args.strip_prefix(&[String::from("--")]).unwrap_or(args);
     if args.len() != 2 {
         errln!("usage: adotenv-cli get <file> <key>");
         return FAILURE;
@@ -482,6 +483,10 @@ fn parse_check_args(args: &[String]) -> Result<CheckArgs, String> {
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
+            "--" => {
+                paths.extend(args[index + 1..].iter().cloned());
+                break;
+            }
             "--json" => set_check_format(&mut format, CheckFormat::Json)?,
             "--format" => {
                 index += 1;
@@ -545,6 +550,10 @@ fn parse_fmt_args(args: &[String]) -> Result<FmtArgs, String> {
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
+            "--" => {
+                paths.extend(args[index + 1..].iter().cloned());
+                break;
+            }
             "--write" => write = true,
             "--check" => check = true,
             "--sort" => sort = true,
@@ -1095,6 +1104,10 @@ fn parse_diff_args(args: &[String]) -> Result<DiffArgs, String> {
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
+            "--" => {
+                paths.extend(args[index + 1..].iter().cloned());
+                break;
+            }
             "--json" => set_diff_format(&mut format, DiffFormat::Json)?,
             "--mask" => mask = true,
             "--format" => {
@@ -1461,6 +1474,7 @@ fn difference_kind_name(kind: DifferenceKind) -> &'static str {
 }
 
 fn example(args: &[String], dialect: Dialect) -> u8 {
+    let args = args.strip_prefix(&[String::from("--")]).unwrap_or(args);
     if args.len() != 1 {
         errln!("usage: adotenv-cli example <file>");
         return FAILURE;
@@ -1482,6 +1496,7 @@ fn example(args: &[String], dialect: Dialect) -> u8 {
 }
 
 fn load(args: &[String], dialect: Dialect) -> u8 {
+    let args = args.strip_prefix(&[String::from("--")]).unwrap_or(args);
     if args.is_empty() || args.len() > 2 {
         errln!("usage: adotenv-cli load <directory> [mode]");
         return FAILURE;
@@ -1540,6 +1555,7 @@ fn render_portable(loaded: &LoadedEnvironment) -> Result<String, String> {
 }
 
 fn set(args: &[String], dialect: Dialect) -> u8 {
+    let args = args.strip_prefix(&[String::from("--")]).unwrap_or(args);
     if args.len() != 3 {
         errln!("usage: adotenv-cli set <file> <key> <value>");
         return FAILURE;
@@ -2090,7 +2106,7 @@ fn remove_backup(path: &Path) -> io::Result<()> {
 }
 
 fn reject_unknown_option(argument: &str) -> Result<(), String> {
-    if argument.starts_with("--") && !is_stdin(argument) {
+    if argument.starts_with('-') && argument != "-" && !is_stdin(argument) {
         Err(format!("unknown option: {argument}"))
     } else {
         Ok(())

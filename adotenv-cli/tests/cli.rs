@@ -1750,6 +1750,9 @@ fn usage_and_argument_errors_are_consistent() {
         (&["fmt", "--jsn", "x"], "unknown option: --jsn"),
         (&["diff", "--jsn", "a", "b"], "unknown option: --jsn"),
         (&["get", "--jsn", "A"], "unknown option: --jsn"),
+        (&["check", "-jsn", "x"], "unknown option: -jsn"),
+        (&["fmt", "-jsn", "x"], "unknown option: -jsn"),
+        (&["diff", "-jsn", "a", "b"], "unknown option: -jsn"),
         (&["get", "one"], "usage: adotenv-cli get"),
         (&["check"], "usage: adotenv-cli check"),
         (
@@ -2477,4 +2480,24 @@ fn recursive_discovery_is_case_insensitive_on_windows() {
     assert!(text.contains(".ENV"), "{text}");
     assert!(text.contains(".ENV.production"), "{text}");
     assert!(!text.contains("ignored.env"), "{text}");
+}
+
+#[test]
+fn double_dash_ends_option_parsing() {
+    let dir = TempDir::new();
+    let file = dir.file("app.env", "A=1\n");
+
+    let get = run(&["get", "--", file.to_str().unwrap(), "A"]);
+    assert_eq!(get.status.code(), Some(0), "{}", stderr(&get));
+    assert_eq!(stdout(&get), "1\n");
+
+    let check = run(&["check", "--", file.to_str().unwrap()]);
+    assert_eq!(check.status.code(), Some(0), "{}", stderr(&check));
+
+    let set = run(&["set", "--", file.to_str().unwrap(), "A", "--dialect=node"]);
+    assert_eq!(set.status.code(), Some(0), "{}", stderr(&set));
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "A=--dialect=node\n"
+    );
 }
