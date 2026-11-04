@@ -24,8 +24,10 @@ run <directory> [mode] -- <program> [args...]
 
 `run` starts the program with the parent environment plus the loaded values. A
 loaded value replaces a parent variable of the same name, and the parent
-environment is not changed. Loaded files are trusted like code: a loaded `PATH`
-changes which program runs.
+environment is not changed. On Windows it rejects keys that differ only by case
+and values longer than 32,767 UTF-16 code units before starting the child.
+Loaded files are trusted like code: a loaded `PATH` changes which program
+runs.
 
 `get`, `load` and `diff` print values by default, including JSON and matrix
 output of `diff`; `diff --mask` replaces compared values with `***`. `fmt`

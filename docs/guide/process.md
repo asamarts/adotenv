@@ -73,5 +73,7 @@ which `std::env::set_var` may panic:
 | `EmptyKey` | A key is empty. The loaders skip empty keys, so this is a safeguard. |
 | `InvalidKey { key }` | A key contains NUL or `=`. |
 | `InvalidValue { key }` | A value contains NUL. |
+| `DuplicateKey { key }` | Windows: two keys differ only by case. |
+| `ValueTooLong { key, limit }` | Windows: a value exceeds 32,767 UTF-16 code units. |
 
 The error names the key but never includes a value.

@@ -73,6 +73,9 @@ use std::{env, fmt};
 
 use adotenv::load::LoadedEnvironment;
 
+#[cfg(windows)]
+const WINDOWS_VALUE_LIMIT: usize = 32_767;
+
 /// A key or value that the process environment cannot hold.
 ///
 /// Returned by [`validate`], and by [`apply`] before it changes anything. It
@@ -119,6 +122,24 @@ pub enum ApplyError {
         /// The key whose value contains NUL.
         key: String,
     },
+    /// Two keys collide on a case-insensitive platform.
+    ///
+    /// Windows environment variable names are case-insensitive. This variant
+    /// is returned only on Windows.
+    DuplicateKey {
+        /// The later key in sorted order.
+        key: String,
+    },
+    /// A value is too long for the platform.
+    ///
+    /// Windows accepts at most 32,767 UTF-16 code units per value. This variant
+    /// is returned only on Windows.
+    ValueTooLong {
+        /// The key whose value is too long.
+        key: String,
+        /// The platform limit.
+        limit: usize,
+    },
 }
 
 impl fmt::Display for ApplyError {
@@ -130,6 +151,18 @@ impl fmt::Display for ApplyError {
             }
             Self::InvalidValue { key } => {
                 write!(formatter, "environment value for {key:?} contains NUL")
+            }
+            Self::DuplicateKey { key } => {
+                write!(
+                    formatter,
+                    "environment key collides case-insensitively: {key:?}"
+                )
+            }
+            Self::ValueTooLong { key, limit } => {
+                write!(
+                    formatter,
+                    "environment value for {key:?} exceeds {limit} UTF-16 code units"
+                )
             }
         }
     }
@@ -151,6 +184,9 @@ impl std::error::Error for ApplyError {}
 /// - [`ApplyError::EmptyKey`] if a key is empty.
 /// - [`ApplyError::InvalidKey`] if a key contains NUL or `=`.
 /// - [`ApplyError::InvalidValue`] if a value contains NUL.
+/// - On Windows, [`ApplyError::DuplicateKey`] if two keys differ only by case,
+///   and [`ApplyError::ValueTooLong`] if a value exceeds 32,767 UTF-16 code
+///   units.
 ///
 /// # Examples
 ///
@@ -171,6 +207,8 @@ impl std::error::Error for ApplyError {}
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn validate(environment: &LoadedEnvironment) -> Result<(), ApplyError> {
+    #[cfg(windows)]
+    let mut seen = std::collections::BTreeSet::new();
     for (key, value) in environment.values() {
         if key.is_empty() {
             return Err(ApplyError::EmptyKey);
@@ -184,6 +222,20 @@ pub fn validate(environment: &LoadedEnvironment) -> Result<(), ApplyError> {
             return Err(ApplyError::InvalidValue {
                 key: key.to_string(),
             });
+        }
+        #[cfg(windows)]
+        {
+            if !seen.insert(key.to_lowercase()) {
+                return Err(ApplyError::DuplicateKey {
+                    key: key.to_string(),
+                });
+            }
+            if value.encode_utf16().count() > WINDOWS_VALUE_LIMIT {
+                return Err(ApplyError::ValueTooLong {
+                    key: key.to_string(),
+                    limit: WINDOWS_VALUE_LIMIT,
+                });
+            }
         }
     }
     Ok(())
@@ -347,6 +399,46 @@ mod tests {
             ApplyError::InvalidValue { key: "A".into() }.to_string(),
             "environment value for \"A\" contains NUL"
         );
+        assert_eq!(
+            ApplyError::DuplicateKey { key: "Path".into() }.to_string(),
+            "environment key collides case-insensitively: \"Path\""
+        );
+        assert_eq!(
+            ApplyError::ValueTooLong {
+                key: "A".into(),
+                limit: 32_767,
+            }
+            .to_string(),
+            "environment value for \"A\" exceeds 32767 UTF-16 code units"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_rejects_case_insensitive_duplicate_keys() {
+        let dir = TempDir::new();
+        fs::write(dir.path().join(".env"), "PATH=one\nPath=two\n").unwrap();
+        let loaded = load_cascade(dir.path(), "").unwrap();
+        assert!(matches!(
+            validate(&loaded),
+            Err(ApplyError::DuplicateKey { ref key }) if key.eq_ignore_ascii_case("path")
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_rejects_too_long_values() {
+        let dir = TempDir::new();
+        let value = "x".repeat(32_768);
+        fs::write(dir.path().join(".env"), format!("A={value}\n")).unwrap();
+        let loaded = load_cascade(dir.path(), "").unwrap();
+        assert!(matches!(
+            validate(&loaded),
+            Err(ApplyError::ValueTooLong {
+                ref key,
+                limit: 32_767
+            }) if key == "A"
+        ));
     }
 
     #[test]

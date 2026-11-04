@@ -87,7 +87,10 @@ Values may be secrets. These outputs include them:
   `run` never expands references or runs command substitutions.
 - `adotenv_process::apply` changes the environment of the current process. It
   is unsafe because the environment is shared by every thread. `validate` runs
-  the same checks without changing anything.
+  the same checks without changing anything. On Windows, keys that differ only
+  by case and values longer than 32,767 UTF-16 code units are rejected.
+- `adotenv-cli run` applies the same Windows key-case and value-length checks
+  before starting a child.
 
 ## File writes
 

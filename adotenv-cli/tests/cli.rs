@@ -419,6 +419,37 @@ fn run_reports_a_signaled_child_like_a_shell() {
     }
 }
 
+#[cfg(windows)]
+#[test]
+fn run_rejects_windows_case_insensitive_duplicate_keys() {
+    let dir = TempDir::new();
+    fs::write(dir.path().join(".env"), "PATH=one\nPath=two\n").unwrap();
+    let output = run(&[
+        "run",
+        dir.path().to_str().unwrap(),
+        "--",
+        "adotenv-command-that-must-not-run",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("collides case-insensitively"));
+}
+
+#[cfg(windows)]
+#[test]
+fn run_rejects_windows_values_that_are_too_long() {
+    let dir = TempDir::new();
+    let value = "x".repeat(32_768);
+    fs::write(dir.path().join(".env"), format!("A={value}\n")).unwrap();
+    let output = run(&[
+        "run",
+        dir.path().to_str().unwrap(),
+        "--",
+        "adotenv-command-that-must-not-run",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(stderr(&output).contains("exceeds 32767 UTF-16 code units"));
+}
+
 #[test]
 fn run_rejects_nul_environment_values_before_spawning() {
     let dir = TempDir::new();

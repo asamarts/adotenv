@@ -1550,12 +1550,27 @@ fn exit_code_for(code: Option<i32>, signal: Option<i32>) -> u8 {
 }
 
 fn validate_child_environment(loaded: &LoadedEnvironment) -> Result<(), String> {
+    #[cfg(windows)]
+    let mut seen = BTreeSet::new();
     for (key, value) in loaded.values() {
         if key.is_empty() || key.bytes().any(|byte| byte == 0 || byte == b'=') {
             return Err(format!("invalid child environment key: {key:?}"));
         }
         if value.as_bytes().contains(&0) {
             return Err(format!("child environment value for {key:?} contains NUL"));
+        }
+        #[cfg(windows)]
+        {
+            if !seen.insert(key.to_lowercase()) {
+                return Err(format!(
+                    "child environment key collides case-insensitively: {key:?}"
+                ));
+            }
+            if value.encode_utf16().count() > 32_767 {
+                return Err(format!(
+                    "child environment value for {key:?} exceeds 32767 UTF-16 code units"
+                ));
+            }
         }
     }
     Ok(())

@@ -242,8 +242,10 @@ loaded value replaces a parent variable of the same name. Other parent variables
 are passed through unchanged. The parent environment is not changed. When no
 cascade file exists, the program runs with the parent environment alone.
 
-Loaded files are trusted like code. A loaded `PATH` changes which program runs,
-and variables such as `LD_PRELOAD` change how it runs.
+On Windows the child environment is case-insensitive: keys that differ only by
+case and values longer than 32,767 UTF-16 code units are rejected before the
+child starts. Loaded files are trusted like code. A loaded `PATH` changes which
+program runs, and variables such as `LD_PRELOAD` change how it runs.
 
 Values stay literal: `run` does not expand references or run command
 substitutions. Keys that are empty or contain `=` or NUL, and values that

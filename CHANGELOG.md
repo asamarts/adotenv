@@ -15,6 +15,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `Mask`, `Masked`, `mask` and `REDACTED` for opt-in value-masking `Debug`
   output, plus `DeserializeError::masked`.
 - `adotenv-cli diff --mask`.
+- `ApplyError::DuplicateKey` and `ApplyError::ValueTooLong` for Windows.
 
 ### Changed
 
@@ -37,6 +38,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   overriding itself.
 - A `QuotedTail::Append` tail now follows newline normalization and Portable
   warning scanning. Token documentation states which ranges exclude the tail.
+- On Windows, `adotenv-process` and `adotenv-cli run` reject environment keys
+  that differ only by case and values longer than 32,767 UTF-16 code units.
 
 ### Fixed
 

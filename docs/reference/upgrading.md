@@ -84,6 +84,8 @@ Releases within 1.x keep the API. These fixes change results:
   report views no longer show the file overriding itself.
 - 1.2.0: a custom `QuotedTail::Append` value normalizes CR line endings and
   reports Portable tight-hash/backtick warnings in the appended tail.
+- 1.2.0: on Windows, `validate`/`apply` and `adotenv-cli run` reject keys that
+  differ only by case and values over 32,767 UTF-16 code units.
 - 1.2.0: `exec::Shell` caps standard output and standard error and stops
   commands after a timeout by default. The builders change the limits.
 - 1.2.0: `fmt --write` and `set` resolve the write target once and check its
