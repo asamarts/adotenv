@@ -423,6 +423,39 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn windows_apply_rejects_duplicates_before_mutation() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let key = format!(
+            "ADOTENV_PROCESS_CASE_{}_{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        let other = key.to_ascii_lowercase();
+        let dir = TempDir::new();
+        fs::write(dir.path().join(".env"), format!("{key}=one\n{other}=two\n")).unwrap();
+        let loaded = load_cascade(dir.path(), "").unwrap();
+        assert!(std::env::var_os(&key).is_none());
+        assert!(std::env::var_os(&other).is_none());
+        assert!(matches!(
+            unsafe { apply(&loaded) },
+            Err(ApplyError::DuplicateKey { .. })
+        ));
+        assert!(std::env::var_os(&key).is_none());
+        assert!(std::env::var_os(&other).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_accepts_the_value_length_boundary() {
+        let dir = TempDir::new();
+        let value = "x".repeat(32_767);
+        fs::write(dir.path().join(".env"), format!("A={value}\n")).unwrap();
+        let loaded = load_cascade(dir.path(), "").unwrap();
+        assert!(validate(&loaded).is_ok());
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn windows_rejects_case_insensitive_duplicate_keys() {
         let dir = TempDir::new();
         fs::write(dir.path().join(".env"), "PATH=one\nPath=two\n").unwrap();

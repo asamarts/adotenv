@@ -1995,7 +1995,13 @@ fn cascade_paths(directory: &Path, mode: &str) -> Vec<PathBuf> {
         paths.push(directory.join(format!(".env.{mode}.local")));
     }
     let mut seen = BTreeSet::new();
-    paths.retain(|path| seen.insert(path.clone()));
+    paths.retain(|path| {
+        // Windows and some macOS filesystems resolve differently spelled names
+        // to the same file. Canonicalize what exists so the cascade does not
+        // read it twice; missing files keep their spelling.
+        let key = fs::canonicalize(path).unwrap_or_else(|_| path.clone());
+        seen.insert(key)
+    });
     paths
 }
 

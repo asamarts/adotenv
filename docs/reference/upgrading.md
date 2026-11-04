@@ -88,7 +88,9 @@ Releases within 1.x keep the API. These fixes change results:
 - 1.2.0: a custom `QuotedTail::Append` value normalizes CR line endings and
   reports Portable tight-hash/backtick warnings in the appended tail.
 - 1.2.0: on Windows, `validate`/`apply` and `adotenv-cli run` reject keys that
-  differ only by case and values over 32,767 UTF-16 code units.
+  differ only by case and values over 32,767 UTF-16 code units. Recursive
+  discovery also recognizes uppercase `.ENV` names, and cascade paths are
+  canonicalized before mode deduplication.
 - 1.2.0: CLI `--dialect=<value>` is accepted, repeated `--dialect` is a usage
   error, unknown `--` options are rejected, and temporary names are bounded.
 - 1.2.0: `exec::Shell` caps standard output and standard error and stops

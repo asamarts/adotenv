@@ -42,6 +42,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   warning scanning. Token documentation states which ranges exclude the tail.
 - On Windows, `adotenv-process` and `adotenv-cli run` reject environment keys
   that differ only by case and values longer than 32,767 UTF-16 code units.
+- On Windows, recursive discovery recognizes `.ENV` spellings and ignores
+  `.GIT`/`TARGET`/`NODE_MODULES` case-insensitively; cascade loading
+  canonicalizes existing paths before deduplicating mode variants.
 - CLI `--dialect=<value>` is accepted, repeated dialects are rejected, unknown
   `--` options are usage errors, and temporary write names stay within common
   filesystem name limits.

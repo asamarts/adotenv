@@ -262,10 +262,25 @@ fn get(args: &[String], dialect: Dialect) -> u8 {
 
 const DEFAULT_IGNORED_DIRS: [&str; 3] = [".git", "target", "node_modules"];
 
+#[cfg(windows)]
+fn is_env_file(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name == ".env" || name.starts_with(".env.")
+}
+
+#[cfg(not(windows))]
 fn is_env_file(name: &str) -> bool {
     name == ".env" || name.starts_with(".env.")
 }
 
+#[cfg(windows)]
+fn is_ignored_dir(name: &str) -> bool {
+    DEFAULT_IGNORED_DIRS
+        .iter()
+        .any(|ignored| name.eq_ignore_ascii_case(ignored))
+}
+
+#[cfg(not(windows))]
 fn is_ignored_dir(name: &str) -> bool {
     DEFAULT_IGNORED_DIRS.contains(&name)
 }

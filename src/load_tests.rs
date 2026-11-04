@@ -1134,3 +1134,26 @@ fn cascade_does_not_treat_a_dangling_symlink_as_missing() {
     .unwrap();
     assert!(load_cascade(dir.path(), "production").is_err());
 }
+
+#[cfg(windows)]
+#[test]
+fn windows_cascade_reads_an_uppercase_env_name() {
+    let dir = TempDir::new();
+    dir.write(".ENV", "A=1\n");
+    let loaded = full_cascade(dir.path(), "");
+    assert_eq!(loaded.get("A"), Some("1"));
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_local_mode_deduplicates_case_insensitively() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=base\n");
+    dir.write(".env.local", "A=local\n");
+    let loaded =
+        load_cascade_with_options(dir.path(), "LOCAL", LoadOptions::full(Dialect::PORTABLE))
+            .unwrap();
+    assert_eq!(loaded.get("A"), Some("local"));
+    assert_eq!(loaded.entries().count(), 2);
+    assert_eq!(loaded.overrides().count(), 1);
+}

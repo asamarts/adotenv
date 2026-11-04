@@ -2457,3 +2457,24 @@ fn load_and_run_reject_standard_input_as_a_directory() {
     assert_eq!(run.status.code(), Some(2));
     assert!(stderr(&run).contains("does not read standard input"));
 }
+
+#[cfg(windows)]
+#[test]
+fn recursive_discovery_is_case_insensitive_on_windows() {
+    let dir = TempDir::new();
+    dir.file(".ENV", "A=1\n");
+    dir.file(".ENV.production", "B=2\n");
+    dir.file_at(".GIT/ignored.env", "C=3\n");
+
+    let output = run(&[
+        "check",
+        "--json",
+        "--recursive",
+        dir.path().to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.contains(".ENV"), "{text}");
+    assert!(text.contains(".ENV.production"), "{text}");
+    assert!(!text.contains("ignored.env"), "{text}");
+}
