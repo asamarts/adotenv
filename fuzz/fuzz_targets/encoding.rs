@@ -39,11 +39,14 @@ fn line_cap_may_fit(value: &str, dialect: Dialect) -> bool {
     let mut minimum = value.len() + 2;
     if needs_quoting {
         minimum += 2;
-        // A conservative lower bound: inner double quotes and backslashes
-        // need at least one extra source byte each in a quoted body.
+        // A conservative lower bound: inner double quotes, backslashes and
+        // line/control escapes need at least one extra source byte each in a
+        // quoted body.
         minimum += value
             .chars()
-            .filter(|character| matches!(character, '"' | '\\'))
+            .filter(|character| {
+                matches!(character, '"' | '\\' | '\n' | '\r' | '\t') || character.is_control()
+            })
             .count();
     }
     minimum <= limit
