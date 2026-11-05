@@ -513,7 +513,6 @@ fn encode_quoted(context: &mut Context<'_>, quote: Quote) -> Option<(String, Quo
         // does not. The empty body handles a leading quote; the small prefix
         // search handles delimiters such as a leading `#`. Verification
         // decides whether each spelling is exact.
-        let mark = delimiter(quote);
         let mut prefixes = Vec::new();
         prefixes.push(0);
         for (offset, _) in value.char_indices().skip(1).take(4) {
