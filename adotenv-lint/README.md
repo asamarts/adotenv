@@ -33,10 +33,13 @@ adotenv-lint --format=json --recursive .
 adotenv-lint --format=github --key-order .
 ```
 
-The CLI is report-only. It discovers `.env` and `.env.*` files with
-`--recursive`, skips `.git`, `target` and `node_modules`, and exits with `0`
-for no findings, `1` for findings and `2` for usage, read or parse errors.
-Verified fixes are available through the library `apply_fix` API.
+Without `--fix` the CLI is report-only. With `--fix` it applies verified
+library fixes and rewrites changed files through a temporary file in the same
+directory. It discovers `.env` and `.env.*` files with `--recursive`, skips
+`.git`, `target` and `node_modules`, and exits with `0` for no findings (or all
+findings fixed), `1` for remaining findings and `2` for usage, read, parse or
+write errors. The Windows replace fallback is best-effort and not
+crash-atomic, matching the CLI write contract.
 
 ## Rules
 

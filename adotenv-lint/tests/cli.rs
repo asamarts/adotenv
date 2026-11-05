@@ -107,3 +107,30 @@ fn double_dash_allows_a_dash_prefixed_path() {
     let output = run(&["--", file.to_str().unwrap()]);
     assert_eq!(output.status.code(), Some(1));
 }
+
+#[test]
+fn fix_applies_verified_key_order_and_exits_zero() {
+    let dir = TempDir::new();
+    let file = dir.file("app.env", "B=2\nA=1\n");
+    let output = run(&["--fix", "--key-order", file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(fs::read_to_string(&file).unwrap(), "A=1\nB=2\n");
+}
+
+#[test]
+fn fix_reports_unfixable_findings_without_rewriting() {
+    let dir = TempDir::new();
+    let file = dir.file("app.env", "A=1\nA=2\n");
+    let output = run(&["--fix", file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(fs::read_to_string(&file).unwrap(), "A=1\nA=2\n");
+}
+
+#[test]
+fn fix_applies_quote_style() {
+    let dir = TempDir::new();
+    let file = dir.file("app.env", "A='one'\nC='two'\n");
+    let output = run(&["--fix", "--quote-style=double", file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(fs::read_to_string(&file).unwrap(), "A=\"one\"\nC=\"two\"\n");
+}

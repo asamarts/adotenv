@@ -1,15 +1,18 @@
 //! Command-line interface for `adotenv-lint`.
 //!
-//! The linter is report-only. Verified fixes remain available through the
-//! library API; this command keeps file writes out of the linting path.
+//! Without `--fix` the command is report-only. With `--fix` it applies verified
+//! library fixes and replaces changed files through a temporary file in the
+//! same directory, preserving the target's permissions where possible.
 
 use std::{
     collections::BTreeSet,
     env,
     fmt::Write as _,
     fs,
+    io::{self, Write as IoWrite},
     path::{Path, PathBuf},
     process::ExitCode,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 use adotenv::{parse_strict_with, Dialect, EqualsSpacing, QuoteStyle, Severity};
@@ -32,12 +35,14 @@ Options:
   --quote-style <double|single|unquoted|preserve>
   --equals-spacing <none|spaces|preserve>
   --trim-trailing-whitespace  Require trimmed trailing whitespace
+  --fix                       Apply verified fixes and write changed files
   --                          End option parsing
 
-Exit codes: 0 no findings, 1 findings, 2 usage/read/parse failure.
+Exit codes: 0 no findings (or all findings fixed), 1 remaining findings,
+2 usage/read/parse/write failure.
 
-The default rule reports duplicate keys. The command is report-only; use the
-library API to apply verified fixes.";
+The default rule reports duplicate keys. Fixes are verified through the
+library before they are written.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Format {
@@ -51,6 +56,7 @@ struct Options {
     dialect: Dialect,
     format: Format,
     recursive: bool,
+    fix: bool,
     lint: LintOptions,
     paths: Vec<String>,
 }
@@ -103,7 +109,16 @@ fn run() -> Result<u8, String> {
                 continue;
             }
         };
-        let findings = lint(&document, options.lint);
+        let mut findings = lint(&document, options.lint);
+        if options.fix && !findings.is_empty() {
+            match fix_file(&path, source, &options) {
+                Ok(remaining) => findings = remaining,
+                Err(error) => {
+                    first_error = Some(format!("{}: {error}", path.display()));
+                    findings = Vec::new();
+                }
+            }
+        }
         total += findings.len();
         match options.format {
             Format::Human => print_human(&path, &findings),
@@ -130,11 +145,154 @@ fn run() -> Result<u8, String> {
     Ok(if total == 0 { SUCCESS } else { FINDINGS })
 }
 
+const MAX_FIX_ROUNDS: usize = 64;
+static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FileIdentity {
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    #[cfg(unix)]
+    dev: u64,
+    #[cfg(unix)]
+    ino: u64,
+}
+
+fn file_identity(path: &Path) -> io::Result<FileIdentity> {
+    let metadata = fs::metadata(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(FileIdentity {
+            len: metadata.len(),
+            modified: metadata.modified().ok(),
+            dev: metadata.dev(),
+            ino: metadata.ino(),
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(FileIdentity {
+            len: metadata.len(),
+            modified: metadata.modified().ok(),
+        })
+    }
+}
+
+fn fix_file(path: &Path, mut source: String, options: &Options) -> Result<Vec<Finding>, String> {
+    let target = fs::canonicalize(path).map_err(|error| error.to_string())?;
+    let identity = file_identity(&target).map_err(|error| error.to_string())?;
+    let current = fs::read_to_string(&target).map_err(|error| error.to_string())?;
+    if current != source {
+        return Err("file changed after it was read".to_owned());
+    }
+    let original = source.clone();
+    for _ in 0..MAX_FIX_ROUNDS {
+        let document = parse_strict_with(&source, options.dialect)
+            .map_err(|error| format!("cannot parse after fix: {error}"))?;
+        let findings = lint(&document, options.lint);
+        let Some(finding) = findings.iter().find(|finding| finding.fix().is_some()) else {
+            if source != original {
+                write_fixed(&target, &source, identity)?;
+            }
+            return Ok(findings);
+        };
+        let fixed = adotenv_lint::apply_fix(&document, finding.fix().expect("checked fix"))
+            .map_err(|error| error.to_string())?;
+        if fixed.as_str() == source {
+            if source != original {
+                write_fixed(&target, &source, identity)?;
+            }
+            return Ok(findings);
+        }
+        source.clear();
+        source.push_str(fixed.as_str());
+    }
+    Err("fixes did not converge".to_owned())
+}
+
+fn write_fixed(path: &Path, source: &str, expected: FileIdentity) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty());
+    let parent = parent.unwrap_or_else(|| Path::new("."));
+    let name = path
+        .file_name()
+        .ok_or_else(|| "target has no file name".to_owned())?
+        .to_string_lossy();
+    let mut temporary = None;
+    for _ in 0..16 {
+        let candidate = parent.join(format!(
+            ".adotenv-lint-{}-{}-{name}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        let mut open = fs::OpenOptions::new();
+        open.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            open.mode(0o600);
+        }
+        match open.open(&candidate) {
+            Ok(mut file) => {
+                file.write_all(source.as_bytes())
+                    .and_then(|()| file.sync_all())
+                    .map_err(|error| error.to_string())?;
+                temporary = Some(candidate);
+                break;
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    let temporary = temporary.ok_or_else(|| "could not create a temporary file".to_owned())?;
+    let result = (|| {
+        let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
+        fs::set_permissions(&temporary, metadata.permissions())
+            .map_err(|error| error.to_string())?;
+        if file_identity(path).map_err(|error| error.to_string())? != expected {
+            return Err("file changed after it was read".to_owned());
+        }
+        replace_file(&temporary, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+#[cfg(unix)]
+fn replace_file(temporary: &Path, target: &Path) -> Result<(), String> {
+    fs::rename(temporary, target).map_err(|error| error.to_string())?;
+    if let Some(parent) = target.parent() {
+        if let Ok(directory) = fs::File::open(parent) {
+            let _ = directory.sync_all();
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn replace_file(temporary: &Path, target: &Path) -> Result<(), String> {
+    match fs::rename(temporary, target) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            // Windows cannot replace an existing target with rename. This
+            // fallback is best-effort and not crash-atomic.
+            fs::remove_file(target).map_err(|error| error.to_string())?;
+            fs::rename(temporary, target).map_err(|error| error.to_string())
+        }
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 fn parse_args(args: &mut [String]) -> Result<Options, String> {
     let mut options = Options {
         dialect: Dialect::PORTABLE,
         format: Format::Human,
         recursive: false,
+        fix: false,
         lint: LintOptions::default(),
         paths: Vec::new(),
     };
@@ -150,6 +308,7 @@ fn parse_args(args: &mut [String]) -> Result<Options, String> {
         match argument.as_str() {
             "--" => options_ended = true,
             "--recursive" | "-r" => options.recursive = true,
+            "--fix" => options.fix = true,
             "--key-order" => options.lint = options.lint.with_key_order(true),
             "--trim-trailing-whitespace" => {
                 options.lint = options.lint.with_trim_trailing_whitespace(true);
