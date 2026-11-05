@@ -17,6 +17,7 @@ use std::{
 
 use adotenv::{parse_strict_with, Dialect, EqualsSpacing, QuoteStyle, Severity};
 use adotenv_lint::{lint, Finding, KeyCase, LintOptions};
+use serde::Deserialize;
 
 const SUCCESS: u8 = 0;
 const FINDINGS: u8 = 1;
@@ -35,6 +36,7 @@ Options:
   --quote-style <double|single|unquoted|preserve>
   --equals-spacing <none|spaces|preserve>
   --trim-trailing-whitespace  Require trimmed trailing whitespace
+  --config <path>             Read policy from a TOML file
   --fix                       Apply verified fixes and write changed files
   --                          End option parsing
 
@@ -51,6 +53,33 @@ enum Format {
     Github,
 }
 
+// These independent flags record which command-line values override config.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Default)]
+struct Explicit {
+    dialect: bool,
+    format: bool,
+    recursive: bool,
+    key_order: bool,
+    key_case: bool,
+    quote_style: bool,
+    equals_spacing: bool,
+    trim_trailing_whitespace: bool,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct Config {
+    dialect: Option<String>,
+    format: Option<String>,
+    recursive: Option<bool>,
+    key_order: Option<bool>,
+    key_case: Option<String>,
+    quote_style: Option<String>,
+    equals_spacing: Option<String>,
+    trim_trailing_whitespace: Option<bool>,
+}
+
 #[derive(Debug)]
 struct Options {
     dialect: Dialect,
@@ -59,6 +88,8 @@ struct Options {
     fix: bool,
     lint: LintOptions,
     paths: Vec<String>,
+    config: Option<String>,
+    explicit: Explicit,
 }
 
 fn main() -> ExitCode {
@@ -85,7 +116,8 @@ fn run() -> Result<u8, String> {
         return Ok(SUCCESS);
     }
 
-    let options = parse_args(&mut args)?;
+    let mut options = parse_args(&mut args)?;
+    apply_config(&mut options)?;
     let paths = collect_paths(&options.paths, options.recursive)?;
     let mut total = 0usize;
     let mut first_error = None;
@@ -287,6 +319,72 @@ fn replace_file(temporary: &Path, target: &Path) -> Result<(), String> {
     }
 }
 
+fn apply_config(options: &mut Options) -> Result<(), String> {
+    let path = if let Some(path) = options.config.clone() {
+        PathBuf::from(path)
+    } else {
+        let default = Path::new(".adotenv-lint.toml");
+        if default.is_file() {
+            default.to_path_buf()
+        } else {
+            return Ok(());
+        }
+    };
+    let source =
+        fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let config: Config =
+        toml::from_str(&source).map_err(|error| format!("{}: {error}", path.display()))?;
+    let error = |name: &str, value: &str| format!("{}: unknown {name}: {value}", path.display());
+    if !options.explicit.dialect {
+        if let Some(value) = &config.dialect {
+            options.dialect = parse_dialect(value).map_err(|_| error("dialect", value))?;
+        }
+    }
+    if !options.explicit.format {
+        if let Some(value) = &config.format {
+            options.format = parse_format(value).map_err(|_| error("format", value))?;
+        }
+    }
+    if !options.explicit.recursive {
+        if let Some(value) = config.recursive {
+            options.recursive = value;
+        }
+    }
+    if !options.explicit.key_order {
+        if let Some(value) = config.key_order {
+            options.lint = options.lint.with_key_order(value);
+        }
+    }
+    if !options.explicit.key_case {
+        if let Some(value) = &config.key_case {
+            options.lint = options
+                .lint
+                .with_key_case(parse_key_case(value).map_err(|_| error("key case", value))?);
+        }
+    }
+    if !options.explicit.quote_style {
+        if let Some(value) = &config.quote_style {
+            options.lint = options.lint.with_quote_style(
+                parse_quote_style(value).map_err(|_| error("quote style", value))?,
+            );
+        }
+    }
+    if !options.explicit.equals_spacing {
+        if let Some(value) = &config.equals_spacing {
+            options.lint = options.lint.with_equals_spacing(
+                parse_spacing(value).map_err(|_| error("equals spacing", value))?,
+            );
+        }
+    }
+    if !options.explicit.trim_trailing_whitespace {
+        if let Some(value) = config.trim_trailing_whitespace {
+            options.lint = options.lint.with_trim_trailing_whitespace(value);
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
 fn parse_args(args: &mut [String]) -> Result<Options, String> {
     let mut options = Options {
         dialect: Dialect::PORTABLE,
@@ -295,6 +393,8 @@ fn parse_args(args: &mut [String]) -> Result<Options, String> {
         fix: false,
         lint: LintOptions::default(),
         paths: Vec::new(),
+        config: None,
+        explicit: Explicit::default(),
     };
     let mut index = 0;
     let mut options_ended = false;
@@ -307,19 +407,32 @@ fn parse_args(args: &mut [String]) -> Result<Options, String> {
         }
         match argument.as_str() {
             "--" => options_ended = true,
-            "--recursive" | "-r" => options.recursive = true,
+            "--recursive" | "-r" => {
+                options.recursive = true;
+                options.explicit.recursive = true;
+            }
             "--fix" => options.fix = true,
-            "--key-order" => options.lint = options.lint.with_key_order(true),
+            "--key-order" => {
+                options.lint = options.lint.with_key_order(true);
+                options.explicit.key_order = true;
+            }
             "--trim-trailing-whitespace" => {
                 options.lint = options.lint.with_trim_trailing_whitespace(true);
+                options.explicit.trim_trailing_whitespace = true;
+            }
+            "--config" => {
+                index += 1;
+                options.config = Some(value(args, index, "--config")?.to_owned());
             }
             "--dialect" => {
                 index += 1;
                 options.dialect = parse_dialect(value(args, index, "--dialect")?)?;
+                options.explicit.dialect = true;
             }
             "--format" => {
                 index += 1;
                 options.format = parse_format(value(args, index, "--format")?)?;
+                options.explicit.format = true;
             }
             "--key-case" => {
                 index += 1;
@@ -327,6 +440,7 @@ fn parse_args(args: &mut [String]) -> Result<Options, String> {
                     options
                         .lint
                         .with_key_case(parse_key_case(value(args, index, "--key-case")?)?);
+                options.explicit.key_case = true;
             }
             "--quote-style" => {
                 index += 1;
@@ -335,6 +449,7 @@ fn parse_args(args: &mut [String]) -> Result<Options, String> {
                     index,
                     "--quote-style",
                 )?)?);
+                options.explicit.quote_style = true;
             }
             "--equals-spacing" => {
                 index += 1;
@@ -343,27 +458,33 @@ fn parse_args(args: &mut [String]) -> Result<Options, String> {
                     index,
                     "--equals-spacing",
                 )?)?);
+                options.explicit.equals_spacing = true;
             }
             argument if argument.starts_with("--dialect=") => {
                 options.dialect = parse_dialect(&argument["--dialect=".len()..])?;
+                options.explicit.dialect = true;
             }
             argument if argument.starts_with("--format=") => {
                 options.format = parse_format(&argument["--format=".len()..])?;
+                options.explicit.format = true;
             }
             argument if argument.starts_with("--key-case=") => {
                 options.lint = options
                     .lint
                     .with_key_case(parse_key_case(&argument["--key-case=".len()..])?);
+                options.explicit.key_case = true;
             }
             argument if argument.starts_with("--quote-style=") => {
                 options.lint = options
                     .lint
                     .with_quote_style(parse_quote_style(&argument["--quote-style=".len()..])?);
+                options.explicit.quote_style = true;
             }
             argument if argument.starts_with("--equals-spacing=") => {
                 options.lint = options
                     .lint
                     .with_equals_spacing(parse_spacing(&argument["--equals-spacing=".len()..])?);
+                options.explicit.equals_spacing = true;
             }
             argument if argument.starts_with('-') => {
                 return Err(format!("unknown option: {argument}"));

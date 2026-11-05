@@ -47,6 +47,14 @@ fn run(args: &[&str]) -> Output {
         .unwrap()
 }
 
+fn run_in(directory: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_adotenv-lint"))
+        .current_dir(directory)
+        .args(args)
+        .output()
+        .unwrap()
+}
+
 #[test]
 fn reports_findings_and_exit_code_one() {
     let dir = TempDir::new();
@@ -133,4 +141,55 @@ fn fix_applies_quote_style() {
     let output = run(&["--fix", "--quote-style=double", file.to_str().unwrap()]);
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(fs::read_to_string(&file).unwrap(), "A=\"one\"\nC=\"two\"\n");
+}
+
+#[test]
+fn config_controls_rules_and_cli_overrides_format() {
+    let dir = TempDir::new();
+    let config = dir.file(
+        ".adotenv-lint.toml",
+        "key_order = true\nformat = \"json\"\n",
+    );
+    let file = dir.file("app.env", "B=2\nA=1\n");
+
+    let output = run(&["--config", config.to_str().unwrap(), file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.trim_start().starts_with('['), "{text}");
+    assert!(text.contains("key-order"), "{text}");
+
+    let output = run(&[
+        "--config",
+        config.to_str().unwrap(),
+        "--format=human",
+        file.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(!text.trim_start().starts_with('['), "{text}");
+    assert!(text.contains("key-order"), "{text}");
+}
+
+#[test]
+fn default_config_is_read_from_the_working_directory() {
+    let dir = TempDir::new();
+    dir.file(".adotenv-lint.toml", "key_order = true\n");
+    dir.file("app.env", "B=2\nA=1\n");
+    let output = run_in(dir.path(), &["app.env"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8(output.stdout)
+        .unwrap()
+        .contains("key-order"));
+}
+
+#[test]
+fn invalid_config_is_a_usage_failure() {
+    let dir = TempDir::new();
+    let config = dir.file(".adotenv-lint.toml", "unknown = true\n");
+    let file = dir.file("app.env", "A=1\n");
+    let output = run(&["--config", config.to_str().unwrap(), file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8(output.stderr)
+        .unwrap()
+        .contains("unknown field"));
 }

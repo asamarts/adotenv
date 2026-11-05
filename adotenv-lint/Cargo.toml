@@ -16,6 +16,9 @@ all-features = true
 
 [dependencies]
 adotenv = { path = "..", version = "1.2.0" }
+serde = { version = "1", features = ["derive"] }
+toml = "=0.8.14"
+toml_edit = "=0.22.14"
 
 [lints.rust]
 unsafe_code = "forbid"

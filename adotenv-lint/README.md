@@ -41,6 +41,26 @@ findings fixed), `1` for remaining findings and `2` for usage, read, parse or
 write errors. The Windows replace fallback is best-effort and not
 crash-atomic, matching the CLI write contract.
 
+### Configuration
+
+By default the command reads `.adotenv-lint.toml` from the current directory.
+Use `--config <path>` to select another file. Command-line options override
+configuration values.
+
+```toml
+dialect = "portable"
+format = "json"
+recursive = true
+key_order = true
+key_case = "upper"
+quote_style = "double"
+equals_spacing = "none"
+trim_trailing_whitespace = true
+```
+
+All fields are optional. Unknown fields are rejected so typos are visible.
+Configuration lookup is relative to the command's working directory.
+
 ## Rules
 
 The default policy reports duplicate keys only. Enable the other rules
