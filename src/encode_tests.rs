@@ -6,9 +6,10 @@ use alloc::{
 };
 
 use crate::{
-    encode_value, encode_value_with, parse_with, Dialect, DoubleEscapes, EditError, EncodeError,
-    InlineComments, InsertPosition, ItemKind, LineBreaks, Multiline, QuotedTail, Severity,
-    SingleEscapes, UnknownEscapes,
+    encode_value, encode_value_with, parse_with, BareKeys, BomPolicy, ColonSeparator, Dialect,
+    DoubleEscapes, Duplicates, EditError, EncodeError, InlineComments, InsertPosition, ItemKind,
+    KeySyntax, LineBreaks, MalformedLines, Multiline, QuotedTail, Severity, SingleEscapes,
+    UnknownEscapes, Whitespace,
 };
 
 const PRESETS: [Dialect; 5] = [
@@ -1053,4 +1054,35 @@ fn encode_error_has_stable_display_text() {
         EncodeError::Unrepresentable.to_string(),
         "value cannot be represented exactly in the selected dialect and context"
     );
+}
+
+#[test]
+fn append_tail_spells_a_quoted_body_without_extra_escapes() {
+    let dialect = Dialect {
+        inline_comments: InlineComments::None,
+        double_escapes: DoubleEscapes::BACKSLASH,
+        unknown_escapes: UnknownEscapes::Preserve,
+        single_escapes: SingleEscapes::None,
+        backticks: true,
+        colon: ColonSeparator::Whitespace,
+        keys: KeySyntax::Portable,
+        bare_keys: BareKeys::Ignore,
+        raw_values: false,
+        line_breaks: LineBreaks::Lf,
+        bom: BomPolicy::Strip,
+        duplicates: Duplicates::Last,
+        quoted_tail: QuotedTail::Append,
+        multiline: Multiline::NONE,
+        whitespace: Whitespace::EcmaScript,
+        export: true,
+        quoted_keys: false,
+        quoted_comments: true,
+        normalize_newlines: true,
+        malformed_lines: MalformedLines::Ignore,
+        node_object_keys: true,
+        line_byte_limit: Some(50),
+        ..Dialect::NODE_DOTENV
+    };
+    let value = "'9\\a\"``Q\u{7}\u{7}\u{7}\u{7}\u{4}]x0' \n\\'n\\m\\nn''";
+    assert_encodes(value, dialect);
 }

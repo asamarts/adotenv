@@ -507,6 +507,21 @@ fn encode_quoted(context: &mut Context<'_>, quote: Quote) -> Option<(String, Quo
     if let Some(actual) = context.verify(&token) {
         return Some((token, actual));
     }
+    if dialect.quoted_tail == QuotedTail::Append {
+        // An empty quoted body followed by the value as an appended tail can
+        // spell values whose own quote characters would otherwise need
+        // escaping. Verification decides whether this spelling is exact.
+        if let Some(body) = raw(value, dialect) {
+            let mark = delimiter(quote);
+            let mut candidate = String::with_capacity(body.len() + 2);
+            candidate.push(mark);
+            candidate.push(mark);
+            candidate.push_str(&body);
+            if let Some(actual) = context.verify(&candidate) {
+                return Some((candidate, actual));
+            }
+        }
+    }
     for append in [false, true] {
         if append && dialect.quoted_tail != QuotedTail::Append {
             continue;
