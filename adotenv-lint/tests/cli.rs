@@ -29,6 +29,7 @@ impl TempDir {
         fs::write(&path, source).unwrap();
         path
     }
+    #[cfg(windows)]
     fn file_at(&self, relative: &str, source: &str) -> PathBuf {
         let path = self.0.join(relative);
         if let Some(parent) = path.parent() {
