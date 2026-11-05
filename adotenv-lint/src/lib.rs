@@ -531,6 +531,6 @@ mod tests {
     fn python_quoted_keys_keep_their_case_policy() {
         let doc = parse_with("'A B'=1\n", Dialect::PYTHON_DOTENV).0;
         let findings = lint(&doc, LintOptions::new().with_key_case(KeyCase::Upper));
-        assert!(findings.is_empty());
+        assert_eq!(findings.len(), 0);
     }
 }
