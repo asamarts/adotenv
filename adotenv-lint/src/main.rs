@@ -16,7 +16,7 @@ use std::{
 };
 
 use adotenv::{parse_strict_with, Dialect, EqualsSpacing, QuoteStyle, Severity};
-use adotenv_lint::{lint, Finding, KeyCase, LintOptions};
+use adotenv_lint::{apply_fixes, lint, Finding, Fix, KeyCase, LintOptions};
 use serde::Deserialize;
 
 const SUCCESS: u8 = 0;
@@ -223,14 +223,25 @@ fn fix_file(path: &Path, mut source: String, options: &Options) -> Result<Vec<Fi
         let document = parse_strict_with(&source, options.dialect)
             .map_err(|error| format!("cannot parse after fix: {error}"))?;
         let findings = lint(&document, options.lint);
-        let Some(finding) = findings.iter().find(|finding| finding.fix().is_some()) else {
-            if source != original {
-                write_fixed(&target, &source, identity)?;
-            }
-            return Ok(findings);
+        let renames: Vec<Fix> = findings
+            .iter()
+            .filter_map(|finding| match finding.fix() {
+                Some(fix @ Fix::Rename { .. }) => Some(fix.clone()),
+                _ => None,
+            })
+            .collect();
+        let fixed = if renames.is_empty() {
+            let Some(finding) = findings.iter().find(|finding| finding.fix().is_some()) else {
+                if source != original {
+                    write_fixed(&target, &source, identity)?;
+                }
+                return Ok(findings);
+            };
+            adotenv_lint::apply_fix(&document, finding.fix().expect("checked fix"))
+                .map_err(|error| error.to_string())?
+        } else {
+            apply_fixes(&document, &renames).map_err(|error| error.to_string())?
         };
-        let fixed = adotenv_lint::apply_fix(&document, finding.fix().expect("checked fix"))
-            .map_err(|error| error.to_string())?;
         if fixed.as_str() == source {
             if source != original {
                 write_fixed(&target, &source, identity)?;

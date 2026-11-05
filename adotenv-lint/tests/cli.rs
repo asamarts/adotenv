@@ -217,3 +217,12 @@ fn recursive_discovery_is_case_insensitive_on_windows() {
     assert!(text.contains(".ENV.production"), "{text}");
     assert!(!text.contains("ignored.env"), "{text}");
 }
+
+#[test]
+fn fix_batches_multiple_key_case_renames() {
+    let dir = TempDir::new();
+    let file = dir.file("app.env", "a=1\nb=2\n");
+    let output = run(&["--fix", "--key-case=upper", file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(fs::read_to_string(&file).unwrap(), "A=1\nB=2\n");
+}
