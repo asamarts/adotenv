@@ -19,6 +19,25 @@ assert_eq!(fixed.as_str(), "A=1\nB=2\n");
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+## CLI
+
+```console
+adotenv-lint [options] <file-or-directory>...
+```
+
+Examples:
+
+```console
+adotenv-lint --key-order --key-case upper .env
+adotenv-lint --format=json --recursive .
+adotenv-lint --format=github --key-order .
+```
+
+The CLI is report-only. It discovers `.env` and `.env.*` files with
+`--recursive`, skips `.git`, `target` and `node_modules`, and exits with `0`
+for no findings, `1` for findings and `2` for usage, read or parse errors.
+Verified fixes are available through the library `apply_fix` API.
+
 ## Rules
 
 The default policy reports duplicate keys only. Enable the other rules

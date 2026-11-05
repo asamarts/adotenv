@@ -1,0 +1,109 @@
+//! End-to-end tests for the report-only linter command.
+
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::{Command, Output},
+    sync::atomic::{AtomicU64, Ordering},
+};
+
+static NEXT: AtomicU64 = AtomicU64::new(0);
+
+struct TempDir(PathBuf);
+
+impl TempDir {
+    fn new() -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "adotenv-lint-cli-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&path).unwrap();
+        Self(path)
+    }
+    fn file(&self, name: &str, source: &str) -> PathBuf {
+        let path = self.0.join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&path, source).unwrap();
+        path
+    }
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn run(args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_adotenv-lint"))
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn reports_findings_and_exit_code_one() {
+    let dir = TempDir::new();
+    let file = dir.file("app.env", "A=1\nA=2\n");
+    let output = run(&[file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("duplicate-key"), "{text}");
+    assert!(text.contains('A'), "{text}");
+}
+
+#[test]
+fn clean_file_exits_zero() {
+    let dir = TempDir::new();
+    let file = dir.file("app.env", "A=1\nB=2\n");
+    let output = run(&[file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout.len(), 0);
+}
+
+#[test]
+fn key_order_and_json_output_work() {
+    let dir = TempDir::new();
+    let file = dir.file("app.env", "B=2\nA=1\n");
+    let output = run(&["--format=json", "--key-order", file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.starts_with('['), "{text}");
+    assert!(text.contains("\"rule\":\"key-order\""), "{text}");
+    assert!(text.contains("\"path\":"), "{text}");
+}
+
+#[test]
+fn recursive_discovery_finds_env_cascades() {
+    let dir = TempDir::new();
+    dir.file("nested/.env", "A=1\n");
+    dir.file("nested/.env.production", "B=2\n");
+    dir.file("nested/ignored.txt", "A=1\nA=2\n");
+    let output = run(&["--recursive", dir.path().to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn parse_and_usage_failures_exit_two() {
+    let dir = TempDir::new();
+    let bad = dir.file("bad.env", "BAD KEY=value\n");
+    let output = run(&[bad.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(2));
+
+    let output = run(&["--unknown"]);
+    assert_eq!(output.status.code(), Some(2));
+}
+
+#[test]
+fn double_dash_allows_a_dash_prefixed_path() {
+    let dir = TempDir::new();
+    let file = dir.file("--dash.env", "A=1\nA=2\n");
+    let output = run(&["--", file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+}
