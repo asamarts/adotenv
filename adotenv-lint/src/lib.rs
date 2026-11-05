@@ -48,6 +48,15 @@ pub enum Rule {
 }
 
 impl Rule {
+    const fn index(self) -> usize {
+        match self {
+            Self::DuplicateKey => 0,
+            Self::KeyOrder => 1,
+            Self::KeyCase => 2,
+            Self::QuoteStyle => 3,
+            Self::Whitespace => 4,
+        }
+    }
     /// Returns the stable rule identifier.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -90,6 +99,7 @@ pub struct LintOptions {
     pub equals_spacing: EqualsSpacing,
     /// Remove trailing spaces and tabs.
     pub trim_trailing_whitespace: bool,
+    severities: [Severity; 5],
 }
 
 impl Default for LintOptions {
@@ -109,6 +119,7 @@ impl LintOptions {
             quote_style: QuoteStyle::Preserve,
             equals_spacing: EqualsSpacing::Preserve,
             trim_trailing_whitespace: false,
+            severities: [Severity::Warning; 5],
         }
     }
     /// Enables or disables duplicate-key findings.
@@ -147,6 +158,15 @@ impl LintOptions {
         self.trim_trailing_whitespace = value;
         self
     }
+    /// Sets the severity reported for one rule.
+    #[must_use]
+    pub const fn with_severity(mut self, rule: Rule, severity: Severity) -> Self {
+        self.severities[rule.index()] = severity;
+        self
+    }
+    const fn severity_for(self, rule: Rule) -> Severity {
+        self.severities[rule.index()]
+    }
     fn format_options(self) -> FormatOptions {
         FormatOptions::default()
             .with_quote_style(self.quote_style)
@@ -175,6 +195,7 @@ impl Finding {
     fn new(
         rule: Rule,
         message: &'static str,
+        severity: Severity,
         span: Range<usize>,
         line: usize,
         key: Option<&str>,
@@ -183,7 +204,7 @@ impl Finding {
         Self {
             rule,
             message,
-            severity: Severity::Warning,
+            severity,
             span,
             line,
             key: key.map(str::to_owned),
@@ -417,6 +438,7 @@ pub fn lint(document: &Document<'_>, options: LintOptions) -> Vec<Finding> {
                 findings.push(Finding::new(
                     Rule::DuplicateKey,
                     "key is declared more than once",
+                    options.severity_for(Rule::DuplicateKey),
                     entry.key_span(),
                     entry.line(),
                     Some(entry.key()),
@@ -432,6 +454,7 @@ pub fn lint(document: &Document<'_>, options: LintOptions) -> Vec<Finding> {
                 findings.push(Finding::new(
                     Rule::KeyOrder,
                     "declarations are not sorted",
+                    options.severity_for(Rule::KeyOrder),
                     first.range.clone(),
                     line_of(&line_index, first.range.start),
                     None,
@@ -452,6 +475,7 @@ pub fn lint(document: &Document<'_>, options: LintOptions) -> Vec<Finding> {
                 findings.push(Finding::new(
                     Rule::KeyCase,
                     "key does not use the configured case",
+                    options.severity_for(Rule::KeyCase),
                     entry.key_span(),
                     entry.line(),
                     Some(entry.key()),
@@ -475,6 +499,7 @@ pub fn lint(document: &Document<'_>, options: LintOptions) -> Vec<Finding> {
                     findings.push(Finding::new(
                         Rule::QuoteStyle,
                         "value does not use the configured quote style",
+                        options.severity_for(Rule::QuoteStyle),
                         entry.value_span().unwrap_or_else(|| entry.key_span()),
                         entry.line(),
                         Some(entry.key()),
@@ -488,6 +513,7 @@ pub fn lint(document: &Document<'_>, options: LintOptions) -> Vec<Finding> {
             findings.push(Finding::new(
                 Rule::Whitespace,
                 "assignment spacing or trailing whitespace is not normalized",
+                options.severity_for(Rule::Whitespace),
                 entry.tokens().key.clone(),
                 entry.line(),
                 Some(entry.key()),
@@ -669,4 +695,14 @@ fn apply_fixes_reports_two_keys_for_one_entry() {
             "one entry has two different replacement keys"
         ))
     ));
+}
+
+#[test]
+fn rule_severity_is_configurable() {
+    let doc = parse_strict("A=1\nA=2\n").unwrap();
+    let findings = lint(
+        &doc,
+        LintOptions::new().with_severity(Rule::DuplicateKey, Severity::Error),
+    );
+    assert_eq!(findings[0].severity(), Severity::Error);
 }

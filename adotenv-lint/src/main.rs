@@ -5,7 +5,7 @@
 //! same directory, preserving the target's permissions where possible.
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     env,
     fmt::Write as _,
     fs,
@@ -16,7 +16,8 @@ use std::{
 };
 
 use adotenv::{parse_strict_with, Dialect, EqualsSpacing, QuoteStyle, Severity};
-use adotenv_lint::{apply_fixes, lint, Finding, Fix, KeyCase, LintOptions};
+use adotenv_lint::{apply_fixes, lint, Finding, Fix, KeyCase, LintOptions, Rule};
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 
 const SUCCESS: u8 = 0;
@@ -37,6 +38,7 @@ Options:
   --equals-spacing <none|spaces|preserve>
   --trim-trailing-whitespace  Require trimmed trailing whitespace
   --config <path>             Read policy from a TOML file
+  --exclude <pattern>         Ignore paths matching a glob
   --fix                       Apply verified fixes and write changed files
   --                          End option parsing
 
@@ -65,6 +67,7 @@ struct Explicit {
     quote_style: bool,
     equals_spacing: bool,
     trim_trailing_whitespace: bool,
+    exclude: bool,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -78,6 +81,8 @@ struct Config {
     quote_style: Option<String>,
     equals_spacing: Option<String>,
     trim_trailing_whitespace: Option<bool>,
+    ignore: Option<Vec<String>>,
+    rules: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug)]
@@ -89,6 +94,7 @@ struct Options {
     lint: LintOptions,
     paths: Vec<String>,
     config: Option<String>,
+    exclude: Vec<String>,
     explicit: Explicit,
 }
 
@@ -118,7 +124,7 @@ fn run() -> Result<u8, String> {
 
     let mut options = parse_args(&mut args)?;
     apply_config(&mut options)?;
-    let paths = collect_paths(&options.paths, options.recursive)?;
+    let paths = collect_paths(&options.paths, options.recursive, &options.exclude)?;
     let mut total = 0usize;
     let mut first_error = None;
 
@@ -334,12 +340,10 @@ fn apply_config(options: &mut Options) -> Result<(), String> {
     let path = if let Some(path) = options.config.clone() {
         PathBuf::from(path)
     } else {
-        let default = Path::new(".adotenv-lint.toml");
-        if default.is_file() {
-            default.to_path_buf()
-        } else {
+        let Some(default) = find_config() else {
             return Ok(());
-        }
+        };
+        default
     };
     let source =
         fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
@@ -392,7 +396,95 @@ fn apply_config(options: &mut Options) -> Result<(), String> {
             options.lint = options.lint.with_trim_trailing_whitespace(value);
         }
     }
+    if !options.explicit.exclude {
+        if let Some(ignore) = config.ignore {
+            options.exclude = ignore;
+        }
+    }
+    if let Some(rules) = config.rules {
+        apply_rule_config(options, &rules, &path)?;
+    }
     Ok(())
+}
+
+fn find_config() -> Option<PathBuf> {
+    let mut directory = env::current_dir().ok()?;
+    loop {
+        let candidate = directory.join(".adotenv-lint.toml");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        if !directory.pop() {
+            return None;
+        }
+    }
+}
+
+fn apply_rule_config(
+    options: &mut Options,
+    rules: &BTreeMap<String, String>,
+    path: &Path,
+) -> Result<(), String> {
+    for (name, value) in rules {
+        let rule = match name.as_str() {
+            "duplicate-key" => Rule::DuplicateKey,
+            "key-order" => Rule::KeyOrder,
+            "key-case" => Rule::KeyCase,
+            "quote-style" => Rule::QuoteStyle,
+            "whitespace" => Rule::Whitespace,
+            other => {
+                return Err(format!("{}: unknown rule: {other}", path.display()));
+            }
+        };
+        let severity = match value.as_str() {
+            "off" => None,
+            "warning" => Some(Severity::Warning),
+            "error" => Some(Severity::Error),
+            other => {
+                return Err(format!(
+                    "{}: unknown severity for {name}: {other}",
+                    path.display()
+                ));
+            }
+        };
+        let enabled = severity.is_some();
+        match rule {
+            Rule::DuplicateKey => {
+                options.lint = options.lint.with_duplicate_keys(enabled);
+            }
+            Rule::KeyOrder if !options.explicit.key_order => {
+                options.lint = options.lint.with_key_order(enabled);
+            }
+            Rule::KeyCase if !options.explicit.key_case && !enabled => {
+                options.lint = options.lint.with_key_case(KeyCase::Off);
+            }
+            Rule::QuoteStyle if !options.explicit.quote_style && !enabled => {
+                options.lint = options.lint.with_quote_style(QuoteStyle::Preserve);
+            }
+            Rule::Whitespace if !options.explicit.equals_spacing && !enabled => {
+                options.lint = options
+                    .lint
+                    .with_equals_spacing(EqualsSpacing::Preserve)
+                    .with_trim_trailing_whitespace(false);
+            }
+            _ => {}
+        }
+        if let Some(severity) = severity {
+            options.lint = options.lint.with_severity(rule, severity);
+        }
+    }
+    Ok(())
+}
+
+fn build_excludes(patterns: &[String]) -> Result<GlobSet, String> {
+    let mut builder = GlobSetBuilder::new();
+    for pattern in patterns {
+        let glob = Glob::new(pattern).map_err(|error| format!("invalid exclude: {error}"))?;
+        builder.add(glob);
+    }
+    builder
+        .build()
+        .map_err(|error| format!("invalid exclude: {error}"))
 }
 
 #[allow(clippy::too_many_lines)]
@@ -405,6 +497,7 @@ fn parse_args(args: &mut [String]) -> Result<Options, String> {
         lint: LintOptions::default(),
         paths: Vec::new(),
         config: None,
+        exclude: Vec::new(),
         explicit: Explicit::default(),
     };
     let mut index = 0;
@@ -434,6 +527,13 @@ fn parse_args(args: &mut [String]) -> Result<Options, String> {
             "--config" => {
                 index += 1;
                 options.config = Some(value(args, index, "--config")?.to_owned());
+            }
+            "--exclude" => {
+                index += 1;
+                options
+                    .exclude
+                    .push(value(args, index, "--exclude")?.to_owned());
+                options.explicit.exclude = true;
             }
             "--dialect" => {
                 index += 1;
@@ -474,6 +574,15 @@ fn parse_args(args: &mut [String]) -> Result<Options, String> {
             argument if argument.starts_with("--dialect=") => {
                 options.dialect = parse_dialect(&argument["--dialect=".len()..])?;
                 options.explicit.dialect = true;
+            }
+            argument if argument.starts_with("--config=") => {
+                options.config = Some(argument["--config=".len()..].to_owned());
+            }
+            argument if argument.starts_with("--exclude=") => {
+                options
+                    .exclude
+                    .push(argument["--exclude=".len()..].to_owned());
+                options.explicit.exclude = true;
             }
             argument if argument.starts_with("--format=") => {
                 options.format = parse_format(&argument["--format=".len()..])?;
@@ -564,12 +673,20 @@ fn parse_spacing(value: &str) -> Result<EqualsSpacing, String> {
     }
 }
 
-fn collect_paths(paths: &[String], recursive: bool) -> Result<Vec<PathBuf>, String> {
+fn collect_paths(
+    paths: &[String],
+    recursive: bool,
+    exclude_patterns: &[String],
+) -> Result<Vec<PathBuf>, String> {
+    let excludes = build_excludes(exclude_patterns)?;
     let mut found = BTreeSet::new();
     for path in paths {
         let path = PathBuf::from(path);
         let metadata =
             fs::metadata(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+        if is_excluded(&excludes, &path, &path) {
+            continue;
+        }
         if metadata.is_file() {
             found.insert(path);
         } else if metadata.is_dir() {
@@ -579,7 +696,7 @@ fn collect_paths(paths: &[String], recursive: bool) -> Result<Vec<PathBuf>, Stri
                     path.display()
                 ));
             }
-            walk(&path, &mut found)?;
+            walk(&path, &path, &excludes, &mut found)?;
         } else {
             return Err(format!(
                 "{}: not a regular file or directory",
@@ -590,7 +707,19 @@ fn collect_paths(paths: &[String], recursive: bool) -> Result<Vec<PathBuf>, Stri
     Ok(found.into_iter().collect())
 }
 
-fn walk(directory: &Path, found: &mut BTreeSet<PathBuf>) -> Result<(), String> {
+fn is_excluded(excludes: &GlobSet, root: &Path, path: &Path) -> bool {
+    excludes.is_match(path)
+        || path
+            .strip_prefix(root)
+            .is_ok_and(|relative| excludes.is_match(relative))
+}
+
+fn walk(
+    directory: &Path,
+    root: &Path,
+    excludes: &GlobSet,
+    found: &mut BTreeSet<PathBuf>,
+) -> Result<(), String> {
     let entries =
         fs::read_dir(directory).map_err(|error| format!("{}: {error}", directory.display()))?;
     let mut entries = entries
@@ -599,6 +728,9 @@ fn walk(directory: &Path, found: &mut BTreeSet<PathBuf>) -> Result<(), String> {
     entries.sort_by_key(std::fs::DirEntry::file_name);
     for entry in entries {
         let path = entry.path();
+        if is_excluded(excludes, root, &path) {
+            continue;
+        }
         let file_type = entry
             .file_type()
             .map_err(|error| format!("{}: {error}", path.display()))?;
@@ -608,7 +740,7 @@ fn walk(directory: &Path, found: &mut BTreeSet<PathBuf>) -> Result<(), String> {
         if file_type.is_dir() {
             let name = entry.file_name();
             if !is_ignored_dir(&name.to_string_lossy()) {
-                walk(&path, found)?;
+                walk(&path, root, excludes, found)?;
             }
         } else if file_type.is_file() && is_env_file(&entry.file_name().to_string_lossy()) {
             found.insert(path);
@@ -817,6 +949,6 @@ mod tests {
 
     #[test]
     fn io_error_is_usage_failure() {
-        assert!(collect_paths(&["definitely-missing.env".to_owned()], false).is_err());
+        assert!(collect_paths(&["definitely-missing.env".to_owned()], false, &[]).is_err());
     }
 }

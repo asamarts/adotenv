@@ -29,7 +29,6 @@ impl TempDir {
         fs::write(&path, source).unwrap();
         path
     }
-    #[cfg(windows)]
     fn file_at(&self, relative: &str, source: &str) -> PathBuf {
         let path = self.0.join(relative);
         if let Some(parent) = path.parent() {
@@ -225,4 +224,45 @@ fn fix_batches_multiple_key_case_renames() {
     let output = run(&["--fix", "--key-case=upper", file.to_str().unwrap()]);
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(fs::read_to_string(&file).unwrap(), "A=1\nB=2\n");
+}
+
+#[test]
+fn rule_severity_and_ignore_patterns_are_honored() {
+    let dir = TempDir::new();
+    dir.file(
+        ".adotenv-lint.toml",
+        "ignore = [\".env.skip\"]\n[rules]\nduplicate-key = \"error\"\n",
+    );
+    dir.file(".env.skip", "A=1\nA=2\n");
+    dir.file(".env", "B=1\nB=2\n");
+
+    let output = run_in(dir.path(), &["--format=json", ".env"]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("\"severity\":\"error\""), "{text}");
+
+    let output = run_in(dir.path(), &["--recursive", "."]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains(".env"), "{text}");
+    assert!(!text.contains(".env.skip"), "{text}");
+
+    let output = run_in(
+        dir.path(),
+        &["--recursive", "--exclude=.env", "--exclude=.env.skip", "."],
+    );
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn config_is_discovered_from_an_ancestor_directory() {
+    let dir = TempDir::new();
+    dir.file(".adotenv-lint.toml", "key_order = true\n");
+    dir.file_at("nested/app.env", "B=2\nA=1\n");
+    let nested = dir.path().join("nested");
+    let output = run_in(&nested, &["app.env"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8(output.stdout)
+        .unwrap()
+        .contains("key-order"));
 }

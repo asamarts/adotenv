@@ -31,6 +31,7 @@ Examples:
 adotenv-lint --key-order --key-case upper .env
 adotenv-lint --format=json --recursive .
 adotenv-lint --format=github --key-order .
+adotenv-lint --recursive --exclude='target/**' .
 ```
 
 Without `--fix` the CLI is report-only. With `--fix` it applies verified
@@ -56,10 +57,23 @@ key_case = "upper"
 quote_style = "double"
 equals_spacing = "none"
 trim_trailing_whitespace = true
+ignore = ["target/**", "vendor/**"]
+
+[rules]
+duplicate-key = "error"
+key-order = "warning"
+key-case = "off"
 ```
 
-All fields are optional. Unknown fields are rejected so typos are visible.
-Configuration lookup is relative to the command's working directory.
+All fields are optional. Unknown fields and unknown rules are rejected so
+typos are visible. `rules` values are `off`, `warning` or `error`; `off`
+disables the rule. `warning`/`error` set severity but do not choose a policy:
+`key-case`, `quote-style` and `whitespace` still need their top-level
+configuration values. CLI options override the corresponding configuration
+values, and `--exclude` replaces configured `ignore` patterns.
+
+Configuration is searched from the working directory upward until a
+`.adotenv-lint.toml` is found. `--config <path>` selects an explicit file.
 
 ## Rules
 
