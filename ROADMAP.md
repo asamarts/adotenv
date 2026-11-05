@@ -23,7 +23,9 @@ the rename collision rule, which shipped in 1.0.0. The fixes are listed in
 [1.0-fix-round.md](docs/design/1.0-fix-round.md), and the 1.0 evidence was
 collected again on the fixed code
 ([1.0-readiness.md](docs/design/1.0-readiness.md)). The 1.1 audit and its
-fixes are in [1.1-audit.md](docs/design/1.1-audit.md).
+fixes are in [1.1-audit.md](docs/design/1.1-audit.md). Version 1.2.0 was
+released on 2026-11-05; the audit, release evidence and remaining companion
+work are recorded there.
 
 ## Near-term work
 

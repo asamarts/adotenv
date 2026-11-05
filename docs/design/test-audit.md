@@ -104,6 +104,11 @@ only when a conservative lower bound proves that even the shortest quoted and
 escaped form cannot fit the cap. The artifact is retained locally; no library
 panic or editing failure was involved.
 
+## Release fuzz evidence
+
+Four workflow fuzz runs passed on release commit `bf4b393`, each covering all
+five targets: 41941036521, 41941908663, 41942723663 and 41943612879.
+
 ## Mutation testing at 1.2.0
 
 A focused mutation campaign ran on the security and limit modules changed by
