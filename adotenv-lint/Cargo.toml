@@ -1,0 +1,25 @@
+[package]
+name = "adotenv-lint"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+description = "Opt-in lint rules and verified fixes for adotenv documents."
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/asamarts/adotenv"
+documentation = "https://docs.rs/adotenv-lint"
+readme = "README.md"
+keywords = ["dotenv", "env", "linter", "lint"]
+categories = ["development-tools"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+adotenv = { path = "..", version = "1.2.0" }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }

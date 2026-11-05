@@ -37,6 +37,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "adotenv-lint"
+version = "0.1.0"
+dependencies = [
+ "adotenv",
+]
+
+[[package]]
 name = "adotenv-process"
 version = "1.2.0"
 dependencies = [

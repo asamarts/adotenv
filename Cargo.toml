@@ -3,6 +3,7 @@ members = [
     ".",
     "adotenv-process",
     "adotenv-cli",
+    "adotenv-lint",
     "adotenv-config",
     "adotenv-figment",
 ]

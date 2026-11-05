@@ -32,9 +32,9 @@ Useful checks include duplicate keys, unordered
 keys, lowercase keys, quote style, whitespace, leading characters and schema
 rules. adotenv should not add those policies to the parser.
 
-A future `adotenv-lint` crate can use the existing document model and return
-structured findings and verified edits. It should not require changes to core
-parsing.
+The `adotenv-lint` companion crate uses the existing document model, returns
+structured findings and applies verified edits/formats. It does not change
+core parsing.
 
 ## LSP companion
 
