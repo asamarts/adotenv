@@ -29,6 +29,14 @@ impl TempDir {
         fs::write(&path, source).unwrap();
         path
     }
+    fn file_at(&self, relative: &str, source: &str) -> PathBuf {
+        let path = self.0.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&path, source).unwrap();
+        path
+    }
     fn path(&self) -> &Path {
         &self.0
     }
@@ -192,4 +200,19 @@ fn invalid_config_is_a_usage_failure() {
     assert!(String::from_utf8(output.stderr)
         .unwrap()
         .contains("unknown field"));
+}
+
+#[cfg(windows)]
+#[test]
+fn recursive_discovery_is_case_insensitive_on_windows() {
+    let dir = TempDir::new();
+    dir.file(".ENV", "A=1\nA=2\n");
+    dir.file(".ENV.production", "B=2\nB=3\n");
+    dir.file_at(".GIT/ignored.env", "C=1\nC=2\n");
+    let output = run(&["--recursive", dir.path().to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains(".ENV"), "{text}");
+    assert!(text.contains(".ENV.production"), "{text}");
+    assert!(!text.contains("ignored.env"), "{text}");
 }

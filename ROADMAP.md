@@ -37,9 +37,9 @@ work are recorded there.
    first.
 3. Work through the "After 1.0" list in
    [1.0-fix-round.md](docs/design/1.0-fix-round.md).
-4. The optional `adotenv-lint` prototype is in the workspace; start
-   `adotenv-lsp` after its rules are stable. See
-   [#14](https://github.com/asamarts/adotenv/issues/14).
+4. The optional `adotenv-lint` prototype is in the workspace; publishing its
+   0.1.0 release is deferred until 2026-11-12. Start `adotenv-lsp` after its
+   rules are stable. See [#14](https://github.com/asamarts/adotenv/issues/14).
 5. Expand conformance cases only when a real upstream behavior is pinned and
    reproducible.
 6. Keep the core dependency-free. New I/O, process or third-party behavior

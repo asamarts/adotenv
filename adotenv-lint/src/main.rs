@@ -596,8 +596,7 @@ fn walk(directory: &Path, found: &mut BTreeSet<PathBuf>) -> Result<(), String> {
         }
         if file_type.is_dir() {
             let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if !matches!(name.as_ref(), ".git" | "target" | "node_modules") {
+            if !is_ignored_dir(&name.to_string_lossy()) {
                 walk(&path, found)?;
             }
         } else if file_type.is_file() && is_env_file(&entry.file_name().to_string_lossy()) {
@@ -607,8 +606,27 @@ fn walk(directory: &Path, found: &mut BTreeSet<PathBuf>) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn is_env_file(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name == ".env" || name.starts_with(".env.")
+}
+
+#[cfg(not(windows))]
 fn is_env_file(name: &str) -> bool {
     name == ".env" || name.starts_with(".env.")
+}
+
+#[cfg(windows)]
+fn is_ignored_dir(name: &str) -> bool {
+    [".git", "target", "node_modules"]
+        .iter()
+        .any(|ignored| name.eq_ignore_ascii_case(ignored))
+}
+
+#[cfg(not(windows))]
+fn is_ignored_dir(name: &str) -> bool {
+    matches!(name, ".git" | "target" | "node_modules")
 }
 
 fn print_human(path: &Path, findings: &[Finding]) {

@@ -9,8 +9,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - `adotenv-lint` 0.1.0, an opt-in companion crate with structured findings,
-  rule options and verified fixes for duplicate keys, key order, key case,
-  quote style and whitespace.
+  rule options, verified fixes for duplicate keys, key order, key case, quote
+  style and whitespace, a report/fix CLI and TOML configuration. Publication
+  is deferred until 2026-11-12.
 
 ## [1.2.0] - 2026-11-04
 
