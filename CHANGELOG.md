@@ -73,9 +73,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   apostrophe.
 - `Mask` now covers loaded entries, portability reports and their nested
   reading/declaration types.
-- `encode_value_with` now uses an empty quoted body with an appended tail when
-  that is the shortest exact spelling for a custom `QuotedTail::Append`
-  dialect at a line cap.
+- `encode_value_with` now uses a quoted body with an appended tail, including
+  an empty or short quoted prefix, when that is the shortest exact spelling
+  for a custom `QuotedTail::Append` dialect at a line cap.
 - Escaped `$` inside a command is ineligible even when the containing value is
   double-quoted, matching the documented command grammar.
 - `fmt --write` and `set` resolve the write target once before reading and

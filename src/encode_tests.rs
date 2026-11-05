@@ -1086,3 +1086,34 @@ fn append_tail_spells_a_quoted_body_without_extra_escapes() {
     let value = "'9\\a\"``Q\u{7}\u{7}\u{7}\u{7}\u{4}]x0' \n\\'n\\m\\nn''";
     assert_encodes(value, dialect);
 }
+
+#[test]
+fn append_tail_quotes_a_leading_hash_without_escaping_the_tail() {
+    let dialect = Dialect {
+        inline_comments: InlineComments::AnyHash,
+        double_escapes: DoubleEscapes::LF.union(DoubleEscapes::DOLLAR),
+        unknown_escapes: UnknownEscapes::Error,
+        single_escapes: SingleEscapes::None,
+        backticks: false,
+        colon: ColonSeparator::Whitespace,
+        keys: KeySyntax::Portable,
+        bare_keys: BareKeys::Ignore,
+        raw_values: false,
+        line_breaks: LineBreaks::Lf,
+        bom: BomPolicy::Strip,
+        duplicates: Duplicates::Last,
+        quoted_tail: QuotedTail::Append,
+        multiline: Multiline::NONE,
+        whitespace: Whitespace::EcmaScript,
+        export: true,
+        quoted_keys: false,
+        quoted_comments: true,
+        normalize_newlines: true,
+        malformed_lines: MalformedLines::Ignore,
+        node_object_keys: true,
+        line_byte_limit: None,
+        ..Dialect::NODE_DOTENV
+    };
+    let value = "#x]]'\\07001k\\\nddd";
+    assert_encodes(value, dialect);
+}

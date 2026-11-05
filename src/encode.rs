@@ -508,15 +508,25 @@ fn encode_quoted(context: &mut Context<'_>, quote: Quote) -> Option<(String, Quo
         return Some((token, actual));
     }
     if dialect.quoted_tail == QuotedTail::Append {
-        // An empty quoted body followed by the value as an appended tail can
-        // spell values whose own quote characters would otherwise need
-        // escaping. Verification decides whether this spelling is exact.
-        if let Some(body) = raw(value, dialect) {
-            let mark = delimiter(quote);
-            let mut candidate = String::with_capacity(body.len() + 2);
-            candidate.push(mark);
-            candidate.push(mark);
+        // A quoted body followed by the rest of the value as an appended tail
+        // can spell values whose first characters need quoting but whose tail
+        // does not. The empty body handles a leading quote; the small prefix
+        // search handles delimiters such as a leading `#`. Verification
+        // decides whether each spelling is exact.
+        let mark = delimiter(quote);
+        let mut prefixes = Vec::new();
+        prefixes.push(0);
+        for (offset, _) in value.char_indices().skip(1).take(4) {
+            prefixes.push(offset);
+        }
+        for end in prefixes {
+            let Some(tail) = raw(&value[end..], dialect) else {
+                continue;
+            };
+            let body = conventional(&value[..end], quote, dialect);
+            let mut candidate = String::with_capacity(body.len() + tail.len());
             candidate.push_str(&body);
+            candidate.push_str(&tail);
             if let Some(actual) = context.verify(&candidate) {
                 return Some((candidate, actual));
             }

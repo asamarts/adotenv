@@ -110,9 +110,10 @@ Releases within 1.x keep the API. These fixes change results:
   an apostrophe.
 - 1.2.0: `Mask` also covers loaded entries, portability reports and their
   nested types.
-- 1.2.0: `encode_value_with` tries an empty quoted body with an appended tail
-  for custom `QuotedTail::Append` dialects, avoiding a false
-  `EncodeError::Unrepresentable` at a line cap.
+- 1.2.0: `encode_value_with` tries a quoted body with an appended tail,
+  including an empty or short quoted prefix, for custom `QuotedTail::Append`
+  dialects, avoiding false `EncodeError::Unrepresentable` results at a line
+  cap.
 - 1.1.2: `encode_value_with` represents a Node value whose only legal token
   needs a repeated backtick run to survive quote recovery, instead of returning
   `EncodeError::Unrepresentable`.
