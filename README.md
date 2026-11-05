@@ -478,6 +478,24 @@ values.
 
 See the [command-line tool guide](https://asamarts.github.io/adotenv/design/cli.html).
 
+## Linter
+
+`adotenv-lint` is an optional companion crate for project policy. It returns
+structured findings and applies fixes through the verified edit and format
+APIs; lint policy stays out of the parser.
+
+```rust,ignore
+use adotenv_lint::{lint, LintOptions};
+
+let doc = adotenv::parse_strict("B=2\nA=1\n")?;
+let findings = lint(&doc, LintOptions::default().with_key_order(true));
+let fixed = adotenv_lint::apply_fix(&doc, findings[0].fix().unwrap())?;
+assert_eq!(fixed.as_str(), "A=1\nB=2\n");
+```
+
+The default rule reports duplicate keys. Key order, key case, quote style and
+whitespace are opt-in.
+
 ## Adapters
 
 `adotenv-config` exposes literal values as a `config` source. `adotenv-figment`

@@ -12,7 +12,8 @@ The current release provides:
 - verified edits, formatting, sorting, comparison and examples;
 - literal reference inspection and opt-in resolution;
 - optional file loading with values, origins and reports;
-- optional serde, process, CLI and `config`/Figment adapters.
+- optional serde, process, CLI and `config`/Figment adapters;
+- the optional `adotenv-lint` policy companion.
 
 ## Current status
 
