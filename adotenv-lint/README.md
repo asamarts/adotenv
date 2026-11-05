@@ -34,9 +34,9 @@ adotenv-lint --format=github --key-order .
 adotenv-lint --recursive --exclude='target/**' .
 ```
 
-Without `--fix` the CLI is report-only. With `--fix` it applies verified
-library fixes and rewrites changed files through a temporary file in the same
-directory. It discovers `.env` and `.env.*` files with `--recursive`, skips
+Without `--fix` the CLI is report-only. With `--fix` it applies compatible
+verified fixes in batches and rewrites changed files through a temporary file
+in the same directory. It discovers `.env` and `.env.*` files with `--recursive`, skips
 `.git`, `target` and `node_modules`, and exits with `0` for no findings (or all
 findings fixed), `1` for remaining findings and `2` for usage, read, parse or
 write errors. The Windows replace fallback is best-effort and not
@@ -89,8 +89,9 @@ explicitly:
 | `whitespace` | preserve | Whitespace policy is project-specific; formatting is opt-in. |
 
 Findings include the rule, warning severity, one-based line, source span, key
-and an optional verified fix. Parse diagnostics remain available from
-`adotenv::parse`.
+and an optional verified fix. `apply_fix` applies one fix; `apply_batch` applies
+independent renames together and can follow them with sorting and one format
+policy. Parse diagnostics remain available from `adotenv::parse`.
 
 This crate requires Rust 1.81 and does not change the core crate's `no_std` or
 dependency-free guarantees.

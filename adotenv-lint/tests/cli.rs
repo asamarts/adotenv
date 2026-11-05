@@ -266,3 +266,18 @@ fn config_is_discovered_from_an_ancestor_directory() {
         .unwrap()
         .contains("key-order"));
 }
+
+#[test]
+fn fix_batches_renames_sorting_and_quote_style() {
+    let dir = TempDir::new();
+    let file = dir.file("app.env", "b='two'\na='one'\n");
+    let output = run(&[
+        "--fix",
+        "--key-case=upper",
+        "--key-order",
+        "--quote-style=double",
+        file.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(fs::read_to_string(&file).unwrap(), "A=\"one\"\nB=\"two\"\n");
+}

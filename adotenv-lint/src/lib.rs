@@ -27,8 +27,8 @@ use std::fmt;
 use std::ops::Range;
 
 use adotenv::{
-    ColumnEncoding, Document, Edit, EditError, EqualsSpacing, FormatError, FormatOptions,
-    FormatResult, LineIndex, Quote, QuoteStyle, Severity, VerifiedEdits,
+    parse_strict_with, ColumnEncoding, Document, Edit, EditError, EqualsSpacing, FormatError,
+    FormatOptions, FormatResult, LineIndex, Quote, QuoteStyle, Severity, VerifiedEdits,
 };
 
 /// The policy rules understood by the linter.
@@ -294,6 +294,108 @@ impl FixResult {
     }
 }
 
+/// The result of applying compatible fixes in stages.
+///
+/// Each stage is verified against the source at the start of that stage. The
+/// final [`output`](Self::output) is the complete result; stage edits are
+/// relative to their own stage input, not to the original source.
+#[derive(Debug)]
+pub struct BatchResult {
+    output: String,
+    stages: Vec<FixResult>,
+}
+
+impl BatchResult {
+    /// Returns the final verified output text.
+    #[must_use]
+    pub fn output(&self) -> &str {
+        &self.output
+    }
+    /// Returns the verified stages in application order.
+    #[must_use]
+    pub fn stages(&self) -> &[FixResult] {
+        &self.stages
+    }
+    /// Returns `true` when no fix changed anything.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.stages.is_empty()
+    }
+}
+
+/// Applies renames, sorting and formatting in compatible stages.
+///
+/// Renames are applied together in one edit batch. Sorting and one format
+/// policy can follow; each stage is verified before the next starts. Different
+/// format policies and conflicting replacement keys are rejected. This is the
+/// multi-stage companion to [`apply_fixes`].
+///
+/// # Errors
+///
+/// Returns [`LintError`] for conflicting fixes, a rejected edit/format, or an
+/// intermediate output that cannot be parsed.
+pub fn apply_batch(document: &Document<'_>, fixes: &[Fix]) -> Result<BatchResult, LintError> {
+    let mut renames: Vec<(usize, String)> = Vec::new();
+    let mut format = None;
+    let mut sort = false;
+    for fix in fixes {
+        match fix {
+            Fix::Rename { entry, key } => {
+                if let Some((_, existing)) = renames.iter().find(|(id, _)| id == entry) {
+                    if existing != key {
+                        return Err(LintError::Conflict(
+                            "one entry has two different replacement keys",
+                        ));
+                    }
+                    continue;
+                }
+                renames.push((*entry, key.clone()));
+            }
+            Fix::Format(options) => {
+                if format.is_some_and(|existing: FormatOptions| existing != *options) {
+                    return Err(LintError::Conflict(
+                        "different format policies cannot be combined",
+                    ));
+                }
+                format = Some(*options);
+            }
+            Fix::Sort => sort = true,
+        }
+    }
+
+    let mut output = document.source().to_owned();
+    let mut stages = Vec::new();
+    if !renames.is_empty() {
+        let current =
+            parse_strict_with(&output, document.dialect()).map_err(|_| LintError::Parse)?;
+        let edits: Vec<Edit<'_>> = renames
+            .iter()
+            .map(|(entry, key)| Edit::Rename { entry: *entry, key })
+            .collect();
+        let result = current.edit(&edits).map_err(LintError::Edit)?;
+        output.clear();
+        output.push_str(result.as_str());
+        stages.push(FixResult::Edits(result));
+    }
+    if sort {
+        let current =
+            parse_strict_with(&output, document.dialect()).map_err(|_| LintError::Parse)?;
+        let result = current.sort().map_err(LintError::Format)?;
+        output.clear();
+        output.push_str(result.as_str());
+        stages.push(FixResult::Format(result));
+    }
+    if let Some(options) = format {
+        let current =
+            parse_strict_with(&output, document.dialect()).map_err(|_| LintError::Parse)?;
+        let result = current.format(&options).map_err(LintError::Format)?;
+        output.clear();
+        output.push_str(result.as_str());
+        stages.push(FixResult::Format(result));
+    }
+    Ok(BatchResult { output, stages })
+}
+
 /// An error while applying a lint fix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -304,6 +406,8 @@ pub enum LintError {
     Edit(EditError),
     /// The supplied fixes cannot be combined in one verified batch.
     Conflict(&'static str),
+    /// An intermediate verified output could not be parsed again.
+    Parse,
 }
 
 impl fmt::Display for LintError {
@@ -312,6 +416,7 @@ impl fmt::Display for LintError {
             Self::Format(error) => write!(formatter, "cannot apply fix: {error}"),
             Self::Edit(error) => write!(formatter, "cannot apply fix: {error}"),
             Self::Conflict(message) => write!(formatter, "cannot combine fixes: {message}"),
+            Self::Parse => formatter.write_str("cannot parse an intermediate fix output"),
         }
     }
 }
@@ -705,4 +810,23 @@ fn rule_severity_is_configurable() {
         LintOptions::new().with_severity(Rule::DuplicateKey, Severity::Error),
     );
     assert_eq!(findings[0].severity(), Severity::Error);
+}
+
+#[test]
+fn apply_batch_combines_renames_sorting_and_formatting() {
+    let doc = parse_strict("b='two'\na='one'\n").unwrap();
+    let findings = lint(
+        &doc,
+        LintOptions::new()
+            .with_key_case(KeyCase::Upper)
+            .with_key_order(true)
+            .with_quote_style(QuoteStyle::Double),
+    );
+    let fixes: Vec<Fix> = findings
+        .iter()
+        .filter_map(|finding| finding.fix().cloned())
+        .collect();
+    let result = apply_batch(&doc, &fixes).unwrap();
+    assert_eq!(result.output(), "A=\"one\"\nB=\"two\"\n");
+    assert_eq!(result.stages().len(), 3);
 }
