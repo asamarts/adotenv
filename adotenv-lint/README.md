@@ -88,8 +88,8 @@ explicitly:
 | `quote-style` | preserve | Quote policy depends on the project and on values that contain references. |
 | `whitespace` | preserve | Whitespace policy is project-specific; formatting is opt-in. |
 
-Findings include the rule, warning severity, one-based line, source span, key
-and an optional verified fix. `apply_fix` applies one fix; `apply_batch` applies
+Findings include the rule, configured severity, one-based line, source span,
+key and an optional verified fix. `apply_fix` applies one fix; `apply_batch` applies
 independent renames together and can follow them with sorting and one format
 policy. Parse diagnostics remain available from `adotenv::parse`.
 

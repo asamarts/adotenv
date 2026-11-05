@@ -221,7 +221,7 @@ impl Finding {
     pub const fn message(&self) -> &'static str {
         self.message
     }
-    /// Returns the finding severity. Lint findings are warnings.
+    /// Returns the configured finding severity; warnings by default.
     #[must_use]
     pub const fn severity(&self) -> Severity {
         self.severity
