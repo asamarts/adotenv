@@ -44,6 +44,10 @@ work are recorded there.
    reproducible.
 6. Keep the core dependency-free. New I/O, process or third-party behavior
    belongs in opt-in features or companion crates.
+7. Follow the shared format contract in
+   [format-contract.md](docs/design/format-contract.md), which adotenv and ayaml both test
+   against. The core stays dependency-free and keeps its own types; shared code, if any,
+   is only for companion crates.
 
 ## 1.0 criteria
 
