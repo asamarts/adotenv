@@ -323,18 +323,13 @@ impl BatchResult {
     }
 }
 
-/// Applies renames, sorting and formatting in compatible stages.
-///
-/// Renames are applied together in one edit batch. Sorting and one format
-/// policy can follow; each stage is verified before the next starts. Different
-/// format policies and conflicting replacement keys are rejected. This is the
-/// multi-stage companion to [`apply_fixes`].
-///
-/// # Errors
-///
-/// Returns [`LintError`] for conflicting fixes, a rejected edit/format, or an
-/// intermediate output that cannot be parsed.
-pub fn apply_batch(document: &Document<'_>, fixes: &[Fix]) -> Result<BatchResult, LintError> {
+struct PlannedFixes {
+    renames: Vec<(usize, String)>,
+    format: Option<FormatOptions>,
+    sort: bool,
+}
+
+fn plan_fixes(fixes: &[Fix]) -> Result<PlannedFixes, LintError> {
     let mut renames: Vec<(usize, String)> = Vec::new();
     let mut format = None;
     let mut sort = false;
@@ -362,7 +357,30 @@ pub fn apply_batch(document: &Document<'_>, fixes: &[Fix]) -> Result<BatchResult
             Fix::Sort => sort = true,
         }
     }
+    Ok(PlannedFixes {
+        renames,
+        format,
+        sort,
+    })
+}
 
+/// Applies renames, sorting and formatting in compatible stages.
+///
+/// Renames are applied together in one edit batch. Sorting and one format
+/// policy can follow; each stage is verified before the next starts. Different
+/// format policies and conflicting replacement keys are rejected. This is the
+/// multi-stage companion to [`apply_fixes`].
+///
+/// # Errors
+///
+/// Returns [`LintError`] for conflicting fixes, a rejected edit/format, or an
+/// intermediate output that cannot be parsed.
+pub fn apply_batch(document: &Document<'_>, fixes: &[Fix]) -> Result<BatchResult, LintError> {
+    let PlannedFixes {
+        renames,
+        format,
+        sort,
+    } = plan_fixes(fixes)?;
     let mut output = document.source().to_owned();
     let mut stages = Vec::new();
     if !renames.is_empty() {
@@ -459,33 +477,11 @@ pub fn apply_fix(document: &Document<'_>, fix: &Fix) -> Result<FixResult, LintEr
 /// Returns [`LintError`] when the fixes conflict, a rename collides, or the
 /// formatter/sorter refuses the output.
 pub fn apply_fixes(document: &Document<'_>, fixes: &[Fix]) -> Result<FixResult, LintError> {
-    let mut renames: Vec<(usize, String)> = Vec::new();
-    let mut format = None;
-    let mut sort = false;
-    for fix in fixes {
-        match fix {
-            Fix::Rename { entry, key } => {
-                if let Some((_, existing)) = renames.iter().find(|(id, _)| id == entry) {
-                    if existing != key {
-                        return Err(LintError::Conflict(
-                            "one entry has two different replacement keys",
-                        ));
-                    }
-                    continue;
-                }
-                renames.push((*entry, key.clone()));
-            }
-            Fix::Format(options) => {
-                if format.is_some_and(|existing: FormatOptions| existing != *options) {
-                    return Err(LintError::Conflict(
-                        "different format policies cannot be combined",
-                    ));
-                }
-                format = Some(*options);
-            }
-            Fix::Sort => sort = true,
-        }
-    }
+    let PlannedFixes {
+        renames,
+        format,
+        sort,
+    } = plan_fixes(fixes)?;
     if !renames.is_empty() && (format.is_some() || sort) {
         return Err(LintError::Conflict(
             "renames cannot be combined with formatting or sorting",
@@ -829,4 +825,48 @@ fn apply_batch_combines_renames_sorting_and_formatting() {
     let result = apply_batch(&doc, &fixes).unwrap();
     assert_eq!(result.output(), "A=\"one\"\nB=\"two\"\n");
     assert_eq!(result.stages().len(), 3);
+}
+
+#[test]
+fn apply_batch_rejects_conflicting_renames() {
+    let doc = parse_strict("a=1\n").unwrap();
+    let fixes = [
+        Fix::Rename {
+            entry: 0,
+            key: "A".to_owned(),
+        },
+        Fix::Rename {
+            entry: 0,
+            key: "B".to_owned(),
+        },
+    ];
+    assert!(matches!(
+        apply_batch(&doc, &fixes),
+        Err(LintError::Conflict(
+            "one entry has two different replacement keys"
+        ))
+    ));
+}
+
+#[test]
+fn apply_batch_rejects_different_format_policies() {
+    let doc = parse_strict("A='one'\n").unwrap();
+    let fixes = [
+        Fix::Format(FormatOptions::default().with_quote_style(QuoteStyle::Double)),
+        Fix::Format(FormatOptions::default().with_quote_style(QuoteStyle::Single)),
+    ];
+    assert!(matches!(
+        apply_batch(&doc, &fixes),
+        Err(LintError::Conflict(
+            "different format policies cannot be combined"
+        ))
+    ));
+}
+
+#[test]
+fn apply_batch_without_fixes_is_empty() {
+    let doc = parse_strict("A=1\n").unwrap();
+    let result = apply_batch(&doc, &[]).unwrap();
+    assert!(result.is_empty());
+    assert_eq!(result.output(), "A=1\n");
 }
