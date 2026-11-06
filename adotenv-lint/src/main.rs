@@ -184,6 +184,7 @@ fn run() -> Result<u8, String> {
 }
 
 const MAX_FIX_ROUNDS: usize = 64;
+const TEMP_NAME_BYTES: usize = 160;
 static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -261,6 +262,11 @@ fn write_fixed(path: &Path, source: &str, expected: FileIdentity) -> Result<(), 
         .file_name()
         .ok_or_else(|| "target has no file name".to_owned())?
         .to_string_lossy();
+    let mut stem_end = name.len().min(TEMP_NAME_BYTES);
+    while !name.is_char_boundary(stem_end) {
+        stem_end -= 1;
+    }
+    let name = &name[..stem_end];
     let mut temporary = None;
     for _ in 0..16 {
         let candidate = parent.join(format!(
@@ -277,9 +283,13 @@ fn write_fixed(path: &Path, source: &str, expected: FileIdentity) -> Result<(), 
         }
         match open.open(&candidate) {
             Ok(mut file) => {
-                file.write_all(source.as_bytes())
+                if let Err(error) = file
+                    .write_all(source.as_bytes())
                     .and_then(|()| file.sync_all())
-                    .map_err(|error| error.to_string())?;
+                {
+                    let _ = fs::remove_file(&candidate);
+                    return Err(error.to_string());
+                }
                 temporary = Some(candidate);
                 break;
             }

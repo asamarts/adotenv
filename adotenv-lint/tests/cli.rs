@@ -290,3 +290,30 @@ fn exclude_matches_an_explicit_file_by_basename() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(output.stdout.len(), 0);
 }
+
+#[test]
+fn fix_handles_a_long_target_file_name() {
+    let dir = TempDir::new();
+    let name = format!("{}.env", "x".repeat(180));
+    let file = dir.file(&name, "B=2\nA=1\n");
+    let output = run(&["--fix", "--key-order", file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(fs::read_to_string(&file).unwrap(), "A=1\nB=2\n");
+}
+
+#[test]
+fn rules_table_can_enable_and_disable_rules() {
+    let dir = TempDir::new();
+    dir.file(".adotenv-lint.toml", "[rules]\nkey-order = \"error\"\n");
+    dir.file(".env", "B=2\nA=1\n");
+    let output = run_in(dir.path(), &[".env"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8(output.stdout)
+        .unwrap()
+        .contains("key-order"));
+
+    dir.file(".adotenv-lint.toml", "[rules]\nduplicate-key = \"off\"\n");
+    dir.file(".env", "A=1\nA=2\n");
+    let output = run_in(dir.path(), &[".env"]);
+    assert_eq!(output.status.code(), Some(0));
+}
