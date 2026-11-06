@@ -164,6 +164,7 @@ jobs:
       - run: cargo build -p adotenv --lib --no-default-features --features serde --locked
       - run: cargo build -p adotenv-process --locked
       - run: cargo build -p adotenv-cli --locked
+      - run: cargo build -p adotenv-lint --locked
       - run: cargo build -p adotenv-figment --locked
       - run: cargo build -p adotenv-figment --features load --locked
 
@@ -226,7 +227,7 @@ jobs:
           grep -qx 'docs/design/loading.md' <<<"$files"
           grep -qx 'docs/index.md' <<<"$files"
           grep -qx 'docs/guide/getting-started.md' <<<"$files"
-          for package in adotenv adotenv-process adotenv-config adotenv-figment adotenv-cli; do
+          for package in adotenv adotenv-process adotenv-config adotenv-figment adotenv-cli adotenv-lint; do
             files="$(cargo package -p "$package" --locked --list)"
             grep -qx 'LICENSE-APACHE' <<<"$files"
             grep -qx 'LICENSE-MIT' <<<"$files"
@@ -240,12 +241,12 @@ jobs:
             200)
               # The core version is on crates.io, so companion packages can
               # resolve their registry dependency and be fully verified.
-              cargo package -p adotenv-cli -p adotenv-process -p adotenv-config -p adotenv-figment --locked
+              cargo package -p adotenv-cli -p adotenv-lint -p adotenv-process -p adotenv-config -p adotenv-figment --locked
               ;;
             404)
               # Release-prep version: verify file lists now; the tag workflow
               # performs the full verified publish after publishing adotenv.
-              cargo package -p adotenv-cli -p adotenv-process -p adotenv-config -p adotenv-figment --locked --list
+              cargo package -p adotenv-cli -p adotenv-lint -p adotenv-process -p adotenv-config -p adotenv-figment --locked --list
               ;;
             *)
               echo "::error::crates.io lookup for adotenv $version returned HTTP $code"
