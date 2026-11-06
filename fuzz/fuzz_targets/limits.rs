@@ -2,8 +2,8 @@
 #![forbid(unsafe_code)]
 
 use adotenv::{
-    parse_strict_with_options, parse_values_with_options, parse_with_options, Dialect,
-    LimitKind, ParseOptions, Severity,
+    parse_strict_with_options, parse_values_with_options, parse_with_options, Dialect, LimitKind,
+    ParseOptions, Severity,
 };
 use libfuzzer_sys::fuzz_target;
 
