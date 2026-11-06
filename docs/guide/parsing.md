@@ -190,7 +190,26 @@ clamped. `Utf8` columns can address any byte.
 `Document::line_index()` builds a new index on each call, so keep it when
 converting many positions. A leading byte-order mark is part of line 0: it
 takes 3 `Utf8` columns, or 1 `Scalar` or `Utf16` column, before the first
-character.
+character. Build the index with `without_bom()` when the consumer hides the
+mark:
+
+```rust
+use adotenv::{ColumnEncoding, LineIndex, Position};
+
+let source = "\u{feff}A=1\n";
+let index = LineIndex::new(source).without_bom();
+assert_eq!(
+    index.to_position(3, ColumnEncoding::Scalar).unwrap(),
+    Position { line: 0, column: 0 }
+);
+assert_eq!(
+    index.to_offset(Position { line: 0, column: 0 }, ColumnEncoding::Scalar).unwrap(),
+    3
+);
+```
+
+The default still counts the mark in 1.x. Offsets inside a hidden mark map to
+column 0, and column 0 converts back to the first byte after it.
 
 ## Groups and comments
 

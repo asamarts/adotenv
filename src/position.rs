@@ -178,12 +178,15 @@ struct Line {
 /// has one empty line. A line ending has no column of its own: the offset of
 /// its first byte is the end of the line's content, and the offset between
 /// the CR and the LF of a CRLF is an error. The end of the source is always a
-/// valid offset. Conversions never round or clamp: an offset or position that
-/// does not name an exact place returns a [`PositionError`].
+/// valid offset. Except for offsets inside a hidden byte-order mark (see
+/// [`without_bom`](Self::without_bom)), conversions never round or clamp: an
+/// offset or position that does not name an exact place returns a
+/// [`PositionError`].
 ///
-/// A leading byte-order mark is part of line 0, like the spans of this crate:
-/// it takes 3 UTF-8 columns or 1 scalar or UTF-16 column before the first
-/// character. Subtract it yourself if your consumer hides the mark.
+/// A leading byte-order mark is part of line 0 by default, like the spans of
+/// this crate: it takes 3 UTF-8 columns or 1 scalar or UTF-16 column before the
+/// first character. [`without_bom`](Self::without_bom) makes editor-facing
+/// columns omit the mark while byte offsets stay unchanged.
 ///
 /// Building the index stores only where lines start and end, not a copy of
 /// the source, and borrows the source. Finding a line takes logarithmic time;
@@ -220,6 +223,7 @@ struct Line {
 pub struct LineIndex<'src> {
     source: &'src str,
     lines: Vec<Line>,
+    hide_bom: bool,
 }
 
 impl<'src> LineIndex<'src> {
@@ -248,7 +252,50 @@ impl<'src> LineIndex<'src> {
             start,
             end: source.len(),
         });
-        Self { source, lines }
+        Self {
+            source,
+            lines,
+            hide_bom: false,
+        }
+    }
+
+    /// Returns an index whose line 0 columns omit a leading byte-order mark.
+    ///
+    /// Byte offsets stay offsets into the original source. An offset inside the
+    /// hidden mark has no separate column: it maps to column 0, like the first
+    /// visible character. Converting column 0 back returns the first byte after
+    /// the mark. A source without a leading mark is unchanged.
+    ///
+    /// The 1.x default counts the mark. A future major release may make the
+    /// no-mark form the default.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::{ColumnEncoding, LineIndex, Position};
+    ///
+    /// let source = "\u{feff}A=1\n";
+    /// let default = LineIndex::new(source);
+    /// assert_eq!(default.to_position(3, ColumnEncoding::Scalar)?.column, 1);
+    ///
+    /// let visible = default.without_bom();
+    /// assert_eq!(visible.to_position(3, ColumnEncoding::Scalar)?, Position { line: 0, column: 0 });
+    /// assert_eq!(visible.to_offset(Position { line: 0, column: 0 }, ColumnEncoding::Scalar)?, 3);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn without_bom(mut self) -> Self {
+        self.hide_bom = true;
+        self
+    }
+
+    /// Returns the first byte whose column is counted on a line.
+    fn content_start(&self, line: usize) -> usize {
+        if line == 0 && self.hide_bom && self.source.starts_with('\u{feff}') {
+            self.lines[line].start + '\u{feff}'.len_utf8()
+        } else {
+            self.lines[line].start
+        }
     }
 
     /// Returns the number of lines, counting the empty line after a final line
@@ -267,6 +314,9 @@ impl<'src> LineIndex<'src> {
     /// [`ColumnEncoding::Utf16`] need the offset to be at a character
     /// boundary. The offset of a line ending's first byte is the column after
     /// the line's last character.
+    ///
+    /// When the index was built with [`without_bom`](Self::without_bom), an
+    /// offset inside a leading byte-order mark maps to column 0.
     ///
     /// # Errors
     ///
@@ -306,13 +356,17 @@ impl<'src> LineIndex<'src> {
         if offset > bounds.end {
             return Err(PositionError::InsideCrLf);
         }
+        let content_start = self.content_start(line);
+        if offset < content_start {
+            return Ok(Position { line, column: 0 });
+        }
         let column = match encoding {
-            ColumnEncoding::Utf8 => offset - bounds.start,
+            ColumnEncoding::Utf8 => offset - content_start,
             ColumnEncoding::Scalar | ColumnEncoding::Utf16 => {
                 if !self.source.is_char_boundary(offset) {
                     return Err(PositionError::InvalidUtf8Boundary);
                 }
-                let prefix = &self.source[bounds.start..offset];
+                let prefix = &self.source[content_start..offset];
                 match encoding {
                     ColumnEncoding::Scalar => prefix.chars().count(),
                     ColumnEncoding::Utf16 => prefix.chars().map(char::len_utf16).sum(),
@@ -329,6 +383,10 @@ impl<'src> LineIndex<'src> {
     /// cannot be addressed as extra columns. With [`ColumnEncoding::Utf8`] a
     /// column can point inside a multi-byte character, and the offset of that
     /// byte is returned.
+    ///
+    /// When the index was built with [`without_bom`](Self::without_bom),
+    /// column 0 on line 0 returns the first byte after a leading byte-order
+    /// mark.
     ///
     /// # Errors
     ///
@@ -365,17 +423,18 @@ impl<'src> LineIndex<'src> {
             .lines
             .get(position.line)
             .ok_or(PositionError::OutOfBounds)?;
-        let content = &self.source[line.start..line.end];
+        let content_start = self.content_start(position.line);
+        let content = &self.source[content_start..line.end];
         if position.column > content.len() {
             return Err(PositionError::OutOfBounds);
         }
         if encoding == ColumnEncoding::Utf8 {
-            return Ok(line.start + position.column);
+            return Ok(content_start + position.column);
         }
         let mut column = 0;
         for (offset, ch) in content.char_indices() {
             if column == position.column {
-                return Ok(line.start + offset);
+                return Ok(content_start + offset);
             }
             column += match encoding {
                 ColumnEncoding::Scalar => 1,

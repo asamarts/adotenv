@@ -117,6 +117,10 @@ Releases within 1.x keep the API. These fixes change results:
 - 1.1.2: `encode_value_with` represents a Node value whose only legal token
   needs a repeated backtick run to survive quote recovery, instead of returning
   `EncodeError::Unrepresentable`.
+- Unreleased: `adotenv-cli check` human and GitHub columns on line 1 no longer
+  count a leading byte-order mark, and `--source` hides it. Use
+  `LineIndex::without_bom` for the same columns in the library; the 1.x default
+  still counts the mark.
 
 ## From 0.11
 

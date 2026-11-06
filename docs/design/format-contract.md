@@ -9,8 +9,7 @@ and rules. The target is conformance by shared test data, not by a trait.
 
 This page defines a target, not current behavior. The shared vectors and check-report schema
 are tracked in [#27](https://github.com/asamarts/adotenv/issues/27). Known gaps in adotenv
-are [#28](https://github.com/asamarts/adotenv/issues/28) for BOM columns,
-[#29](https://github.com/asamarts/adotenv/issues/29) for limits and
+are [#29](https://github.com/asamarts/adotenv/issues/29) for limits and
 [#30](https://github.com/asamarts/adotenv/issues/30) for minimal versions. Until #27 lands,
 conformance is not enforced by CI.
 
@@ -42,9 +41,11 @@ conformance is not enforced by CI.
 - Machine positions are zero-based `Position`. Display positions are one-based.
 - Editor and command-line columns do not count a leading byte-order mark. A library position
   API may keep its documented, byte-relative columns as the 1.x default and offer the no-mark
-  form as an option; adotenv tracks this in #28.
+  form as an option; adotenv does this with `LineIndex::without_bom`. A 2.0 release should
+  make the no-mark form the default.
 - Each format documents its own line endings. LF, CRLF and a lone CR for adotenv and ayaml.
-- Conversions never clamp. A bad offset is an error.
+- Conversions never clamp, except offsets inside a hidden leading byte-order mark, which
+  share the first visible column. A bad offset is an error.
 
 ## Diagnostics
 

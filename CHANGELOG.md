@@ -13,6 +13,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   case, quote style and whitespace, a report/fix CLI, TOML configuration with
   ignored-path globs and per-rule severity, and ancestor config discovery.
   Publication is deferred until 2026-11-12.
+- `LineIndex::without_bom`, which omits a leading byte-order mark from line 1
+  columns. The 1.x default still counts it.
+
+### Fixed
+
+- `adotenv-cli check` human and GitHub columns no longer count a leading
+  byte-order mark on line 1. `--source` omits the mark from the displayed line.
+  JSON spans still count its bytes.
 
 ## [1.2.0] - 2026-11-04
 

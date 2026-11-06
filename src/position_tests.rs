@@ -243,6 +243,70 @@ fn non_ascii_line_starts_and_bom_use_source_columns() {
 }
 
 #[test]
+fn without_bom_omits_the_mark_from_line_zero_columns() {
+    let source = "\u{feff}A=1\nB=2\n";
+    let default = LineIndex::new(source);
+    let visible = default.clone().without_bom();
+
+    assert_eq!(
+        default.to_position(3, ColumnEncoding::Utf8),
+        Ok(position(0, 3))
+    );
+    assert_eq!(
+        default.to_position(3, ColumnEncoding::Scalar),
+        Ok(position(0, 1))
+    );
+    assert_eq!(
+        default.to_position(3, ColumnEncoding::Utf16),
+        Ok(position(0, 1))
+    );
+
+    for encoding in ENCODINGS {
+        for offset in 0..3 {
+            assert_eq!(visible.to_position(offset, encoding), Ok(position(0, 0)));
+        }
+        assert_eq!(visible.to_position(3, encoding), Ok(position(0, 0)));
+        assert_eq!(visible.to_position(6, encoding), Ok(position(0, 3)));
+        assert_eq!(visible.to_offset(position(0, 0), encoding), Ok(3));
+        assert_eq!(visible.to_offset(position(0, 3), encoding), Ok(6));
+        assert_eq!(visible.to_position(7, encoding), Ok(position(1, 0)));
+        assert_eq!(visible.to_offset(position(1, 0), encoding), Ok(7));
+    }
+}
+
+#[test]
+fn without_bom_is_a_no_op_without_a_mark_and_keeps_boundaries() {
+    let plain = LineIndex::new("A=1\n").without_bom();
+    for encoding in ENCODINGS {
+        assert_eq!(plain.to_position(0, encoding), Ok(position(0, 0)));
+        assert_eq!(plain.to_position(3, encoding), Ok(position(0, 3)));
+        assert_eq!(plain.to_offset(position(0, 0), encoding), Ok(0));
+        assert_eq!(plain.to_offset(position(0, 3), encoding), Ok(3));
+    }
+
+    let only = LineIndex::new("\u{feff}").without_bom();
+    for encoding in ENCODINGS {
+        assert_eq!(only.to_position(0, encoding), Ok(position(0, 0)));
+        assert_eq!(only.to_position(3, encoding), Ok(position(0, 0)));
+        assert_eq!(only.to_offset(position(0, 0), encoding), Ok(3));
+        assert_eq!(
+            only.to_offset(position(0, 1), encoding),
+            Err(PositionError::OutOfBounds)
+        );
+    }
+
+    let non_ascii = LineIndex::new("\u{feff}é\n").without_bom();
+    assert_eq!(
+        non_ascii.to_position(4, ColumnEncoding::Scalar),
+        Err(PositionError::InvalidUtf8Boundary)
+    );
+    assert_eq!(
+        non_ascii.to_position(5, ColumnEncoding::Scalar),
+        Ok(position(0, 1))
+    );
+}
+
+#[test]
 fn conversions_reject_out_of_range_coordinates_without_overflow() {
     let index = LineIndex::new("é\n😀");
     for encoding in ENCODINGS {
