@@ -49,3 +49,10 @@ path = "fuzz_targets/format.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "limits"
+path = "fuzz_targets/limits.rs"
+test = false
+doc = false
+bench = false

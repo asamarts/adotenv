@@ -52,6 +52,7 @@
 //! | Look up values | [`Document::get`], [`Document::get_entry`], [`Document::get_all`], [`Document::effective_entries`], [`Document::lookup_index`] |
 //! | Walk the source | [`Document::items`], [`Document::entries`], [`Item`], [`Entry`], [`EntryTokens`] |
 //! | Report problems | [`Diagnostic`], [`DiagnosticCode`], [`Severity`] |
+//! | Bound untrusted input | [`ParseOptions`], [`LimitExceeded`], [`LimitKind`] |
 //! | Choose reading rules | [`Dialect`] and its presets |
 //! | Edit | [`Document::set`], [`Document::remove`], [`Document::rename`], [`Document::insert`], [`Document::comment`], [`Document::uncomment`], [`Document::set_export`], or [`Document::edit`] with a batch of [`Edit`]s |
 //! | Set or remove one key of Portable text in one call | [`set`], [`remove`] |
@@ -181,6 +182,7 @@ mod example;
 #[cfg(feature = "exec")]
 pub mod exec;
 mod format;
+mod limit;
 #[cfg(feature = "load")]
 pub mod load;
 mod mask;
@@ -207,14 +209,16 @@ pub use encode::{encode_value, encode_value_with, EncodeError};
 pub use format::{
     BlankLines, EqualsSpacing, FinalNewline, FormatError, FormatOptions, FormatResult, QuoteStyle,
 };
+pub use limit::{LimitExceeded, LimitKind};
 pub use mask::{mask, Mask, Masked, REDACTED};
 pub use model::{
     AssignmentState, Document, EffectiveEntry, Entry, EntryTokens, Item, ItemKind, LineEnding,
     LookupIndex, Quote,
 };
 pub use parser::{
-    parse, parse_owned, parse_owned_with, parse_strict, parse_strict_with, parse_values,
-    parse_values_with, parse_with,
+    parse, parse_owned, parse_owned_with, parse_owned_with_options, parse_strict,
+    parse_strict_with, parse_strict_with_options, parse_values, parse_values_with,
+    parse_values_with_options, parse_with, parse_with_options, ParseOptions,
 };
 pub use portability::{
     PortabilityDeclaration, PortabilityDifference, PortabilityPart, PortabilityReading,
@@ -245,6 +249,8 @@ mod encode_tests;
 mod example_tests;
 #[cfg(test)]
 mod format_tests;
+#[cfg(test)]
+mod limit_tests;
 #[cfg(all(test, feature = "load"))]
 mod load_tests;
 #[cfg(test)]

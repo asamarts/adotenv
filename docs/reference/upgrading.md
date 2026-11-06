@@ -121,6 +121,11 @@ Releases within 1.x keep the API. These fixes change results:
   count a leading byte-order mark, and `--source` hides it. Use
   `LineIndex::without_bom` for the same columns in the library; the 1.x default
   still counts the mark.
+- Unreleased: `ParseOptions` and the `_with_options` parse functions add
+  opt-in limits for input bytes, items and diagnostics. A limit failure is a
+  `dotenv.limit-exceeded` diagnostic with `Diagnostic::limit()` data.
+  `LoadOptions::with_limits` applies the same limits to loading and bounds the
+  read itself; `LoadError::Limit` reports it. No limit is enabled by default.
 
 ## From 0.11
 

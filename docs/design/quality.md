@@ -66,8 +66,8 @@ not build diagnostic lists they do not use.
 
 ## Fuzzing
 
-The repository has five bounded fuzz targets with public seed corpora:
-`parser`, `edits`, `encoding`, `resolve` and `format`. The
+The repository has six bounded fuzz targets with public seed corpora:
+`parser`, `edits`, `encoding`, `resolve`, `format` and `limits`. The
 [fuzz workflow](https://github.com/asamarts/adotenv/blob/main/.github/workflows/fuzz.yml)
 runs each target for five minutes, weekly and on demand, with bounded time per
 input, memory and input length.

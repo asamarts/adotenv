@@ -19,9 +19,11 @@ assert_eq!(duplicate.secondary_span(), Some(0..1));
 ```
 
 `Diagnostic` has `code()`, `severity()`, `line()`, `span()`,
-`secondary_span()` and `message()`, and displays as `line N: message (code)`.
-`DiagnosticCode` has `as_str()`, `severity()` and `message()`. The same codes
-appear in the CLI's human, JSON and GitHub output.
+`secondary_span()`, `message()` and `limit()`, and displays as
+`line N: message (code)`. `DiagnosticCode` has `as_str()`, `severity()` and
+`message()`. The same codes appear in the CLI's human, JSON and GitHub output.
+`limit()` is `Some` for `dotenv.limit-exceeded` and carries the structured
+limit kind, configured maximum and observed size or count.
 
 `parse` returns the diagnostics ordered by the start of their spans. Spans are
 byte ranges into the original source, byte-order mark included. Lines count
@@ -68,6 +70,7 @@ custom dialects built from it.
 | `dotenv.ignored-statement` | Warning | `Ignored` | A statement is kept in the source but ignored by the dialect: a malformed statement under `MalformedLines::Ignore`, or a statement with text after its closing quote under `QuotedTail::Skip`. |
 | `dotenv.line-too-long` | Error | `Invalid` | A physical line is longer than the dialect's byte limit, counted without the final LF but with a CR before it. Docker allows 65,535 bytes; the other presets have no limit. |
 | `dotenv.too-many-diagnostics` | Warning | none | More than 10,000 ordinary diagnostics were found. The list is truncated; the first error found after the budget is retained before this summary. |
+| `dotenv.limit-exceeded` | Error | Invalid or none | An opt-in `ParseOptions` or `LoadOptions::with_limits` limit was exceeded. `Diagnostic::limit()` reports the kind, maximum and observed value. The default has no byte or item limit. |
 
 In dialects that ignore malformed lines (`MalformedLines::Ignore`, used by the
 Node preset), `dotenv.ignored-statement` replaces every error code above

@@ -165,6 +165,7 @@
 //! - [`LoadError::InvalidUtf8`]: a file is not valid UTF-8.
 //! - [`LoadError::Invalid`]: a file has an error under the dialect; the error
 //!   carries the first error-severity [`Diagnostic`].
+//! - [`LoadError::Limit`]: a configured read or parse limit was exceeded.
 //! - [`LoadError::InvalidMode`]: the mode name is not allowed.
 //!
 //! Resolution returns a [`LoadedResolveError`], which names the key and the
@@ -172,7 +173,8 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
-    fmt, fs, io,
+    fmt, fs,
+    io::{self, Read},
     ops::Range,
     path::{Path, PathBuf},
     string::String,
@@ -181,8 +183,9 @@ use std::{
 };
 
 use crate::{
-    encode_value, parse_strict_with, parse_with, Diagnostic, Dialect, ExpandOptions, ExpandScope,
-    KeySyntax, LineBreaks, ResolveError, Severity,
+    encode_value, parse_strict_with, parse_values_with_options, parse_with_options, Diagnostic,
+    Dialect, ExpandOptions, ExpandScope, KeySyntax, LimitExceeded, LineBreaks, ParseOptions,
+    ResolveError, Severity,
 };
 
 /// Where a loaded declaration is: its file, byte span and one-based line.
@@ -551,6 +554,8 @@ pub struct LoadOptions {
     /// Whether to keep the origin of each final value, and with reports the
     /// [`overrides`](LoadedEnvironment::overrides) report.
     pub retain_origins: bool,
+    /// Optional parse and read limits for each file.
+    pub limits: ParseOptions,
 }
 
 impl Default for LoadOptions {
@@ -572,6 +577,7 @@ impl LoadOptions {
             retain_raw_tokens: true,
             retain_reports: false,
             retain_origins: true,
+            limits: ParseOptions::new(),
         }
     }
     /// Returns options that keep values, origins, raw source text and every
@@ -583,6 +589,7 @@ impl LoadOptions {
             retain_raw_tokens: true,
             retain_reports: true,
             retain_origins: true,
+            limits: ParseOptions::new(),
         }
     }
     /// Sets the dialect used to parse every file.
@@ -624,6 +631,16 @@ impl LoadOptions {
     #[must_use]
     pub const fn with_origins(mut self, retain: bool) -> Self {
         self.retain_origins = retain;
+        self
+    }
+    /// Sets optional parse and read limits for every file.
+    ///
+    /// [`ParseOptions::max_input_bytes`](crate::ParseOptions::max_input_bytes)
+    /// also bounds the number of bytes read from a file. A failure is
+    /// [`LoadError::Limit`].
+    #[must_use]
+    pub const fn with_limits(mut self, limits: ParseOptions) -> Self {
+        self.limits = limits;
         self
     }
 }
@@ -1527,6 +1544,13 @@ pub enum LoadError {
     },
     /// The mode contains `/`, `\` or NUL, or is exactly `.` or `..`.
     InvalidMode,
+    /// A configured read or parse limit was exceeded.
+    Limit {
+        /// The file whose limit was exceeded.
+        path: PathBuf,
+        /// The structured limit and observed size or count.
+        limit: LimitExceeded,
+    },
 }
 
 impl fmt::Display for LoadError {
@@ -1540,6 +1564,9 @@ impl fmt::Display for LoadError {
             }
             Self::Invalid { path, diagnostic } => {
                 write!(formatter, "{}: {diagnostic}", path.display())
+            }
+            Self::Limit { path, limit } => {
+                write!(formatter, "{}: {limit}", path.display())
             }
             Self::InvalidMode => formatter
                 .write_str("mode must not contain path separators or NUL and must not be . or .."),
@@ -1656,6 +1683,7 @@ pub fn load_cascade_with<P: AsRef<Path>>(
 /// - [`LoadError::InvalidUtf8`] if a cascade file is not valid UTF-8.
 /// - [`LoadError::Invalid`] if a cascade file has an error-severity
 ///   diagnostic under `options.dialect`.
+/// - [`LoadError::Limit`] if a configured read or parse limit is exceeded.
 ///
 /// # Examples
 ///
@@ -1744,6 +1772,7 @@ where
 /// - [`LoadError::InvalidUtf8`] if a listed file is not valid UTF-8.
 /// - [`LoadError::Invalid`] if a listed file has an error-severity
 ///   diagnostic under `options.dialect`.
+/// - [`LoadError::Limit`] if a configured read or parse limit is exceeded.
 ///
 /// # Examples
 ///
@@ -1856,7 +1885,33 @@ pub fn load_cascade_values_with<P: AsRef<Path>>(
         return Err(LoadError::InvalidMode);
     }
     let directory = directory.as_ref();
-    load_value_paths(cascade_paths(directory, mode), dialect, true)
+    load_value_paths(
+        cascade_paths(directory, mode),
+        LoadOptions::new(dialect),
+        true,
+    )
+}
+
+/// Loads the `.env` cascade with options, keeping only the final values.
+///
+/// This is [`load_cascade_values`] with [`LoadOptions`]. Report-retention
+/// settings do not apply to the values-only result; the dialect and limits do.
+///
+/// # Errors
+///
+/// Returns [`LoadError::InvalidMode`], [`LoadError::Io`],
+/// [`LoadError::InvalidUtf8`], [`LoadError::Invalid`] or
+/// [`LoadError::Limit`] under the same rules as the full loader.
+pub fn load_cascade_values_with_options<P: AsRef<Path>>(
+    directory: P,
+    mode: &str,
+    options: LoadOptions,
+) -> Result<LoadedValues, LoadError> {
+    if !valid_mode(mode) {
+        return Err(LoadError::InvalidMode);
+    }
+    let directory = directory.as_ref();
+    load_value_paths(cascade_paths(directory, mode), options, true)
 }
 
 /// Loads the listed files in order with the given dialect, keeping only the
@@ -1901,10 +1956,35 @@ where
     I: IntoIterator<Item = P>,
     P: AsRef<Path>,
 {
-    load_value_paths(paths, dialect, false)
+    load_values_with_options(paths, LoadOptions::new(dialect))
 }
 
-fn read_load_path(path: &Path, skip_missing: bool) -> Result<Option<Vec<u8>>, LoadError> {
+/// Loads listed files with options, keeping only the final values.
+///
+/// This is [`load_values`] with [`LoadOptions`]. Report-retention settings do
+/// not apply to the values-only result; the dialect and limits do.
+///
+/// # Errors
+///
+/// Returns [`LoadError::Io`], [`LoadError::InvalidUtf8`],
+/// [`LoadError::Invalid`] or [`LoadError::Limit`] under the same rules as
+/// [`load_files_with_options`].
+pub fn load_values_with_options<I, P>(
+    paths: I,
+    options: LoadOptions,
+) -> Result<LoadedValues, LoadError>
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    load_value_paths(paths, options, false)
+}
+
+fn read_load_path(
+    path: &Path,
+    skip_missing: bool,
+    max_input_bytes: Option<usize>,
+) -> Result<Option<Vec<u8>>, LoadError> {
     let metadata = match fs::metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound && skip_missing => {
@@ -1935,15 +2015,44 @@ fn read_load_path(path: &Path, skip_missing: bool) -> Result<Option<Vec<u8>>, Lo
             source: io::Error::new(io::ErrorKind::InvalidInput, "path is not a regular file"),
         });
     }
-    fs::read(path).map(Some).map_err(|source| LoadError::Io {
+    if let Some(limit) = max_input_bytes {
+        let observed = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
+        if observed > limit {
+            return Err(LoadError::Limit {
+                path: path.to_path_buf(),
+                limit: LimitExceeded::new(crate::LimitKind::InputBytes, limit, observed),
+            });
+        }
+    }
+    let mut file = fs::File::open(path).map_err(|source| LoadError::Io {
         path: path.to_path_buf(),
         source,
-    })
+    })?;
+    let mut bytes = Vec::new();
+    let read_result = match max_input_bytes {
+        Some(limit) => file
+            .take(limit.saturating_add(1) as u64)
+            .read_to_end(&mut bytes),
+        None => file.read_to_end(&mut bytes),
+    };
+    read_result.map_err(|source| LoadError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    if let Some(limit) = max_input_bytes {
+        if bytes.len() > limit {
+            return Err(LoadError::Limit {
+                path: path.to_path_buf(),
+                limit: LimitExceeded::new(crate::LimitKind::InputBytes, limit, bytes.len()),
+            });
+        }
+    }
+    Ok(Some(bytes))
 }
 
 fn load_value_paths<I, P>(
     paths: I,
-    dialect: Dialect,
+    options: LoadOptions,
     skip_missing: bool,
 ) -> Result<LoadedValues, LoadError>
 where
@@ -1953,19 +2062,17 @@ where
     let mut values: Option<BTreeMap<String, String>> = None;
     for path in paths {
         let path = path.as_ref();
-        let Some(bytes) = read_load_path(path, skip_missing)? else {
+        let Some(bytes) = read_load_path(path, skip_missing, options.limits.max_input_bytes)?
+        else {
             continue;
         };
         let text = String::from_utf8(bytes).map_err(|_| LoadError::InvalidUtf8 {
             path: path.to_path_buf(),
         })?;
-        let projected = match crate::parse_values_with(&text, dialect) {
+        let projected = match parse_values_with_options(&text, options.dialect, options.limits) {
             Ok(values) => values,
             Err(diagnostic) => {
-                return Err(LoadError::Invalid {
-                    path: path.to_path_buf(),
-                    diagnostic,
-                });
+                return Err(load_parse_error(path, diagnostic));
             }
         };
         if let Some(values) = &mut values {
@@ -1977,6 +2084,19 @@ where
     Ok(LoadedValues {
         values: values.unwrap_or_default(),
     })
+}
+
+fn load_parse_error(path: &Path, diagnostic: Diagnostic) -> LoadError {
+    match diagnostic.limit() {
+        Some(limit) => LoadError::Limit {
+            path: path.to_path_buf(),
+            limit,
+        },
+        None => LoadError::Invalid {
+            path: path.to_path_buf(),
+            diagnostic,
+        },
+    }
 }
 
 fn valid_mode(mode: &str) -> bool {
@@ -2032,21 +2152,19 @@ where
     let mut next_order = 0;
     for path in paths {
         let path = path.as_ref();
-        let Some(bytes) = read_load_path(path, skip_missing)? else {
+        let Some(bytes) = read_load_path(path, skip_missing, options.limits.max_input_bytes)?
+        else {
             continue;
         };
         let text = String::from_utf8(bytes).map_err(|_| LoadError::InvalidUtf8 {
             path: path.to_path_buf(),
         })?;
-        let (document, diagnostics) = parse_with(&text, options.dialect);
+        let (document, diagnostics) = parse_with_options(&text, options.dialect, options.limits);
         if let Some(diagnostic) = diagnostics
             .into_iter()
             .find(|diagnostic| diagnostic.severity() == Severity::Error)
         {
-            return Err(LoadError::Invalid {
-                path: path.to_path_buf(),
-                diagnostic,
-            });
+            return Err(load_parse_error(path, diagnostic));
         }
         let file_index = if options.retain_reports || options.retain_origins {
             let index = loaded.files.len();

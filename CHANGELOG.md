@@ -18,6 +18,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Shared format-contract vectors under `tests/vectors/` for positions, text
   edit ordering and GitHub escaping, plus a JSON Schema for the `check` report.
   The vectors carry SHA-256 hashes in a manifest.
+- `ParseOptions` and `parse_with_options`, `parse_strict_with_options`,
+  `parse_values_with_options` and `parse_owned_with_options` for opt-in input
+  byte, item and diagnostic limits. Limit failures use the new
+  `dotenv.limit-exceeded` diagnostic and carry structured `LimitExceeded`
+  data.
+- `LoadOptions::with_limits`, values-only loader options, and a bounded file
+  read. Read and parse limits return `LoadError::Limit`.
+- A sixth fuzz target for parse limits.
 
 ### Changed
 

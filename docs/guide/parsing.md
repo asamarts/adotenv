@@ -44,6 +44,36 @@ the first error. The map, sorted by key, holds the same keys and values as
 copies the source only when the document still borrows it. `Document::reparse`
 reads the same source with another dialect.
 
+## Limits
+
+`ParseOptions` adds opt-in bounds for untrusted input: source bytes, parsed
+items and collected diagnostics. The default has no byte or item limit and
+keeps the established 10,000-diagnostic budget.
+
+```rust
+use adotenv::{parse_strict_with_options, Dialect, LimitKind, ParseOptions};
+
+let options = ParseOptions::default().with_max_input_bytes(4);
+let error = parse_strict_with_options("A=long-value\n", Dialect::PORTABLE, options)
+    .unwrap_err();
+let limit = error.limit().unwrap();
+assert_eq!(limit.kind(), LimitKind::InputBytes);
+assert_eq!(limit.limit(), 4);
+assert_eq!(limit.observed(), 13);
+```
+
+Use the `_with_options` variants of the parse functions. A recovering `parse`
+returns the source and a `dotenv.limit-exceeded` diagnostic; input and item
+limits also add an invalid item for the remainder. `parse_strict` and
+`parse_values` return that diagnostic as an error. `Diagnostic::limit()`
+carries the structured kind, configured maximum and observed size or count.
+`ParseOptions` item limits count statements for the values-only parser.
+
+The loader accepts the same limits through `LoadOptions::with_limits` and also
+uses `max_input_bytes` to bound the read itself. A load returns
+`LoadError::Limit` instead of reading an oversized file. See
+[Security and limits](../reference/security.md).
+
 ## Items and entries
 
 `Document::items()` yields every item in source order. Items cover the source

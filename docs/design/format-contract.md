@@ -8,9 +8,7 @@ and rules. The target is conformance by shared test data, not by a trait.
 ## Status
 
 This page defines a target, not current behavior. The shared vectors and check-report schema
-live under `tests/vectors/` and run in the test suite. Known gaps in adotenv are
-[#29](https://github.com/asamarts/adotenv/issues/29) for limits and
-[#30](https://github.com/asamarts/adotenv/issues/30) for minimal versions.
+live under `tests/vectors/` and run in the test suite.
 
 ## Layers
 
