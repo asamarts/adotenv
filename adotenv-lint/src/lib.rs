@@ -303,6 +303,7 @@ impl FixResult {
 pub struct BatchResult {
     output: String,
     stages: Vec<FixResult>,
+    empty: bool,
 }
 
 impl BatchResult {
@@ -319,7 +320,7 @@ impl BatchResult {
     /// Returns `true` when no fix changed anything.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.stages.is_empty()
+        self.empty
     }
 }
 
@@ -411,7 +412,11 @@ pub fn apply_batch(document: &Document<'_>, fixes: &[Fix]) -> Result<BatchResult
         output.push_str(result.as_str());
         stages.push(FixResult::Format(result));
     }
-    Ok(BatchResult { output, stages })
+    Ok(BatchResult {
+        empty: output == document.source(),
+        output,
+        stages,
+    })
 }
 
 /// An error while applying a lint fix.
@@ -869,4 +874,12 @@ fn apply_batch_without_fixes_is_empty() {
     let result = apply_batch(&doc, &[]).unwrap();
     assert!(result.is_empty());
     assert_eq!(result.output(), "A=1\n");
+}
+
+#[test]
+fn apply_batch_reports_no_change_for_a_noop_format() {
+    let doc = parse_strict("A='one'\n").unwrap();
+    let result = apply_batch(&doc, &[Fix::Format(FormatOptions::default())]).unwrap();
+    assert!(result.is_empty());
+    assert_eq!(result.output(), "A='one'\n");
 }

@@ -124,6 +124,10 @@ fn run() -> Result<u8, String> {
 
     let mut options = parse_args(&mut args)?;
     apply_config(&mut options)?;
+    if options.paths.is_empty() {
+        options.paths.push(".".to_owned());
+        options.recursive = true;
+    }
     let paths = collect_paths(&options.paths, options.recursive, &options.exclude)?;
     let mut total = 0usize;
     let mut first_error = None;
@@ -614,10 +618,6 @@ fn parse_args(args: &mut [String]) -> Result<Options, String> {
             path => options.paths.push(path.to_owned()),
         }
         index += 1;
-    }
-    if options.paths.is_empty() {
-        options.paths.push(".".to_owned());
-        options.recursive = true;
     }
     Ok(options)
 }
