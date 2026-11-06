@@ -22,9 +22,10 @@ version is not on crates.io yet. Bump an adapter or the linter when its code,
 its third-party dependency or its `adotenv` requirement changes. Changing the
 `adotenv` major version requirement is a breaking change for dependents.
 
-The five existing crates are registered with Trusted Publishing. They publish
-through GitHub Actions OIDC. `adotenv-lint` was first published manually on
-2026-11-06; register its trusted publisher before the next automated release.
+All six crates are registered with Trusted Publishing. They publish through
+GitHub Actions OIDC. `adotenv-lint` was first published manually on 2026-11-06
+and its Trusted Publisher is configured for this repository, workflow
+`release.yml` and no environment.
 
 ## Preflight
 
@@ -43,9 +44,8 @@ through GitHub Actions OIDC. `adotenv-lint` was first published manually on
    cargo semver-checks check-release -p adotenv --baseline-version <previous-version> --release-type <patch|minor|major>
    ```
 
-   Repeat for `adotenv-process`, `adotenv-config` and `adotenv-figment`.
-   `adotenv-lint` joins this check after its first publication. Review any
-   failure before release.
+   Repeat for `adotenv-process`, `adotenv-config`, `adotenv-figment` and
+   `adotenv-lint`. Review any failure before release.
 
 4. Update package manifests and path dependency constraints explicitly. Do not
    replace every matching version string in `Cargo.lock`. Third-party crates can
