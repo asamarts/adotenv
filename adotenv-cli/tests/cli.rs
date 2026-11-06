@@ -2592,6 +2592,26 @@ fn check_json_matches_the_shared_schema() {
         let report: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
         validate_schema(&report, &schema, "$");
     }
+
+    let extended = serde_json::json!({
+        "version": 1,
+        "files": [{
+            "path": "future.env",
+            "ok": false,
+            "diagnostics": [{
+                "line": 1,
+                "severity": "error",
+                "code": "dotenv.future",
+                "message": "future",
+                "span": {"start": 0, "end": 1, "future": true},
+                "secondary_span": {"start": 0, "end": 1, "future": true},
+                "future": true
+            }],
+            "future": true
+        }],
+        "future": true
+    });
+    validate_schema(&extended, &schema, "$optional");
 }
 
 #[test]
