@@ -51,6 +51,8 @@ The workflow also:
   with Rust 1.81, and `adotenv-config` with Rust 1.88;
 - builds the core for the `thumbv7em-none-eabi` target without default
   features;
+- resolves every workspace dependency to its lowest compatible version on
+  nightly and runs the full test suite;
 - checks that every package includes its license files;
 - runs the benchmarks once as a smoke test.
 

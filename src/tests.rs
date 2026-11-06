@@ -432,7 +432,7 @@ proptest! {
             prop_assert_eq!(index.get(key), document.get(key));
             prop_assert_eq!(
                 index.get_entry(key).map(crate::Entry::id),
-                document.get_entry(key).map(crate::Entry::id),
+                document.get_entry(key).map(crate::Entry::id)
             );
         }
     }
