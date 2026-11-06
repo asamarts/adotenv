@@ -22,8 +22,8 @@ adotenv-lsp
 adotenv-lsp --mask-values
 ```
 
-The binary speaks LSP over standard input and standard output. Clients should
-send full document text on open and change.
+The binary speaks LSP over standard input and standard output. It accepts
+incremental text changes and full-document replacements.
 
 ## Library
 

@@ -1,7 +1,8 @@
 //! Focused tests for the transport-free LSP operations.
 
 use adotenv_lsp::{
-    completion, definition, diagnostics, hover, references, rename, LspOptions, RenameError,
+    apply_change, completion, definition, diagnostics, hover, references, rename, LspOptions,
+    RenameError,
 };
 use lsp_types::{
     CompletionResponse, GotoDefinitionResponse, HoverContents, NumberOrString, Position, Uri,
@@ -20,6 +21,21 @@ fn code(value: &lsp_types::Diagnostic) -> Option<&str> {
         NumberOrString::String(value) => Some(value),
         NumberOrString::Number(_) => None,
     }
+}
+
+#[test]
+fn content_changes_use_utf16_ranges_and_accept_full_replacements() {
+    let range = lsp_types::Range::new(position(0, 2), position(0, 3));
+    assert_eq!(
+        apply_change("A=1\n", Some(range), "2"),
+        Some("A=2\n".to_owned())
+    );
+    assert_eq!(
+        apply_change("A=1\n", None, "B=2\n"),
+        Some("B=2\n".to_owned())
+    );
+    let out_of_bounds = lsp_types::Range::new(position(0, 9), position(0, 10));
+    assert_eq!(apply_change("A=1\n", Some(out_of_bounds), "x"), None);
 }
 
 #[test]
@@ -56,7 +72,13 @@ fn completion_lists_declared_keys() {
     let labels: Vec<_> = items.into_iter().map(|item| item.label).collect();
     assert_eq!(labels, ["HOST", "PORT"]);
 
-    let inside_value = completion("HOST=localhost\n", position(0, 4));
+    let partial_key = completion("HOST=localhost\nPORT=8080\n", position(0, 2));
+    let CompletionResponse::Array(items) = partial_key else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items.len(), 2);
+
+    let inside_value = completion("HOST=localhost\n", position(0, 6));
     let CompletionResponse::Array(items) = inside_value else {
         panic!("expected array completion");
     };

@@ -36,8 +36,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `adotenv-lsp` 0.1.0, an optional editor companion with parser diagnostics,
   completion, definition, hover, references, verified declaration rename and
   opt-in hover value masking. Completion is restricted to key positions and
-  `$`/`${` reference contexts. It reads only editor-supplied text and does not
-  resolve references or inspect the process environment.
+  `$`/`${` reference contexts. The stdio server accepts incremental UTF-16
+  changes and full-document replacements. It reads only editor-supplied text
+  and does not resolve references or inspect the process environment.
 
 ### Changed
 
