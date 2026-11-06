@@ -12,7 +12,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rule options, verified multi-stage fixes for duplicate keys, key order, key
   case, quote style and whitespace, a report/fix CLI, TOML configuration with
   ignored-path globs and per-rule severity, and ancestor config discovery.
-  Publication is deferred until 2026-11-12.
+  Published on 2026-11-06.
 - `LineIndex::without_bom`, which omits a leading byte-order mark from line 1
   columns. The 1.x default still counts it.
 - Shared format-contract vectors under `tests/vectors/` for positions, text

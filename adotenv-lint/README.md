@@ -96,5 +96,4 @@ policy. Parse diagnostics remain available from `adotenv::parse`.
 This crate requires Rust 1.81 and does not change the core crate's `no_std` or
 dependency-free guarantees.
 
-The 0.1.0 publication is intentionally deferred until 2026-11-12 while the
-rule and CLI contracts settle.
+Version 0.1.0 is the first published release of the companion crate.

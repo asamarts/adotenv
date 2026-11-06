@@ -23,8 +23,8 @@ its third-party dependency or its `adotenv` requirement changes. Changing the
 `adotenv` major version requirement is a breaking change for dependents.
 
 The five existing crates are registered with Trusted Publishing. They publish
-through GitHub Actions OIDC. `adotenv-lint` needs the first-publish bootstrap
-below; after that, register its trusted publisher too.
+through GitHub Actions OIDC. `adotenv-lint` was first published manually on
+2026-11-06; register its trusted publisher before the next automated release.
 
 ## Preflight
 
