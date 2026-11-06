@@ -2353,6 +2353,96 @@ fn parse_json(text: &str) -> Json {
     value
 }
 
+fn validate_schema(value: &serde_json::Value, schema: &serde_json::Value, path: &str) {
+    let schema = schema.as_object().expect("schema is an object");
+    if let Some(type_) = schema.get("type") {
+        assert!(
+            value_has_schema_type(value, type_),
+            "{path}: expected type {type_}, got {value}"
+        );
+    }
+    if let Some(constant) = schema.get("const") {
+        assert_eq!(value, constant, "{path}: const");
+    }
+    if let Some(options) = schema.get("enum").and_then(serde_json::Value::as_array) {
+        assert!(
+            options.iter().any(|option| option == value),
+            "{path}: value {value} is not in the enum"
+        );
+    }
+    if let Some(object) = value.as_object() {
+        if let Some(required) = schema.get("required").and_then(serde_json::Value::as_array) {
+            for name in required {
+                let name = name.as_str().expect("required name");
+                assert!(
+                    object.contains_key(name),
+                    "{path}: missing required field {name}"
+                );
+            }
+        }
+        if let Some(properties) = schema
+            .get("properties")
+            .and_then(serde_json::Value::as_object)
+        {
+            for (name, child) in properties {
+                if let Some(child_value) = object.get(name) {
+                    validate_schema(child_value, child, &format!("{path}.{name}"));
+                }
+            }
+            if schema
+                .get("additionalProperties")
+                .and_then(serde_json::Value::as_bool)
+                == Some(false)
+            {
+                for name in object.keys() {
+                    assert!(
+                        properties.contains_key(name),
+                        "{path}: unexpected field {name}"
+                    );
+                }
+            }
+        }
+    }
+    if let Some(items) = schema.get("items") {
+        if let Some(array) = value.as_array() {
+            for (index, item) in array.iter().enumerate() {
+                validate_schema(item, items, &format!("{path}[{index}]"));
+            }
+        }
+    }
+    if let Some(minimum) = schema.get("minimum").and_then(serde_json::Value::as_f64) {
+        let actual = value
+            .as_f64()
+            .unwrap_or_else(|| panic!("{path}: minimum applied to a non-number"));
+        assert!(actual >= minimum, "{path}: {actual} is below {minimum}");
+    }
+}
+
+fn value_has_schema_type(value: &serde_json::Value, type_: &serde_json::Value) -> bool {
+    if let Some(name) = type_.as_str() {
+        return value_has_type(value, name);
+    }
+    type_
+        .as_array()
+        .expect("schema type is a string or array")
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .any(|name| value_has_type(value, name))
+}
+
+fn value_has_type(value: &serde_json::Value, name: &str) -> bool {
+    match name {
+        "array" => value.is_array(),
+        "boolean" => value.is_boolean(),
+        "integer" => value.is_i64() || value.is_u64(),
+        "null" => value.is_null(),
+        "number" => value.is_number(),
+        "object" => value.is_object(),
+        "string" => value.is_string(),
+        other => panic!("unknown schema type {other}"),
+    }
+}
+
 /// Field lists observed per object role, in output order.
 type Observed = std::collections::BTreeMap<&'static str, Vec<Vec<String>>>;
 
@@ -2479,6 +2569,29 @@ fn json_fields_match_the_documented_schema() {
     let documented_roles: Vec<&String> = documented.keys().collect();
     let observed_roles: Vec<&str> = observed.keys().copied().collect();
     assert_eq!(documented_roles, observed_roles, "documented objects");
+}
+
+#[test]
+fn check_json_matches_the_shared_schema() {
+    let schema: serde_json::Value = serde_json::from_str(include_str!(
+        "../../tests/vectors/schema/check-report.v1.json"
+    ))
+    .unwrap();
+    let dir = TempDir::new();
+    dir.file_at("good.env", "A=1\n");
+    dir.file_at("findings.env", "A=1\nA=2\nBAD KEY=value\n");
+
+    for (path, code) in [("good.env", 0), ("findings.env", 1), ("missing.env", 2)] {
+        let output = run_in(dir.path(), &["check", "--json", path]);
+        assert_eq!(
+            output.status.code(),
+            Some(code),
+            "{path}: {}",
+            stderr(&output)
+        );
+        let report: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+        validate_schema(&report, &schema, "$");
+    }
 }
 
 #[test]

@@ -128,7 +128,8 @@ spans are stable.
 | span | `start` | number | Byte offset into the file. A leading byte-order mark is counted. |
 | span | `end` | number | Byte offset just past the range. |
 
-A file with no diagnostics produces an empty `diagnostics` array.
+A file with no diagnostics produces an empty `diagnostics` array. The shared
+JSON Schema is `tests/vectors/schema/check-report.v1.json`.
 
 ### `check --format github`
 
