@@ -13,12 +13,18 @@ name: Release
 # `adotenv-figment` keep their own 0.x versions; each independent crate is
 # published when its declared version is not on crates.io yet.
 #
-# Manual dispatch runs only the CI quality gate. The version checks and
-# publishing run only for a pushed tag.
+# Manual dispatch runs the CI quality gate. The `publish_linter` input can
+# additionally publish a new adotenv-lint version through OIDC without a core
+# tag; the version checks and full publish run only for a pushed tag.
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
   workflow_dispatch:
+    inputs:
+      publish_linter:
+        description: Publish adotenv-lint through crates.io Trusted Publishing
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -233,6 +239,49 @@ jobs:
             wait_for_index "$package" "$version"
             echo "::endgroup::"
           done
+
+  publish-linter:
+    name: publish adotenv-lint
+    needs: checks
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_linter == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # crates.io Trusted Publishing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: stable
+      - name: verify the linter version is unpublished
+        run: |
+          set -euo pipefail
+          version="$(
+            cargo metadata --no-deps --format-version 1 |
+              python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "adotenv-lint"))'
+          )"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H 'User-Agent: adotenv-release' \
+            "https://crates.io/api/v1/crates/adotenv-lint/$version")"
+          if [[ "$code" == "200" ]]; then
+            echo "::error::adotenv-lint $version is already published"
+            exit 1
+          fi
+          if [[ "$code" != "404" ]]; then
+            echo "::error::crates.io lookup for adotenv-lint $version returned HTTP $code"
+            exit 1
+          fi
+          echo "::notice::adotenv-lint $version is unpublished"
+      - name: mint a short-lived crates.io token via OIDC
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1
+        id: crates-auth
+      - name: publish adotenv-lint
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+        run: cargo publish -p adotenv-lint --locked
 
   github-release:
     name: GitHub Release

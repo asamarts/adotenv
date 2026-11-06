@@ -1,6 +1,6 @@
 [package]
 name = "adotenv-lint"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.81"
 description = "Opt-in lint rules and verified fixes for adotenv documents."
