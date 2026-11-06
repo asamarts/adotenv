@@ -46,9 +46,9 @@ work are recorded there.
    belongs in opt-in features or companion crates.
 7. Follow the shared format contract in
    [format-contract.md](docs/design/format-contract.md), which adotenv and ayaml are
-   adopting. Shared test vectors follow in
-   [#27](https://github.com/asamarts/adotenv/issues/27). The core stays dependency-free and
-   keeps its own types; shared code, if any, is only for companion crates.
+   adopting. The shared vectors and check-report schema live in `tests/vectors/`. The core
+   stays dependency-free and keeps its own types; shared code, if any, is only for companion
+   crates.
 
 ## 1.0 criteria
 

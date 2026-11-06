@@ -8,10 +8,9 @@ and rules. The target is conformance by shared test data, not by a trait.
 ## Status
 
 This page defines a target, not current behavior. The shared vectors and check-report schema
-are tracked in [#27](https://github.com/asamarts/adotenv/issues/27). Known gaps in adotenv
-are [#29](https://github.com/asamarts/adotenv/issues/29) for limits and
-[#30](https://github.com/asamarts/adotenv/issues/30) for minimal versions. Until #27 lands,
-conformance is not enforced by CI.
+live under `tests/vectors/` and run in the test suite. Known gaps in adotenv are
+[#29](https://github.com/asamarts/adotenv/issues/29) for limits and
+[#30](https://github.com/asamarts/adotenv/issues/30) for minimal versions.
 
 ## Layers
 
@@ -110,8 +109,8 @@ Trusted Publishing.
 
 ## Test data
 
-The shared vectors and schema are tracked in #27. They will live under `tests/vectors/` as
-plain files that a format crate vendors with a recorded hash:
+The shared vectors and schema live under `tests/vectors/` as plain files that a format crate
+vendors with a recorded hash in `manifest.json`:
 
 - `positions.json`: source, offset, and expected position per column unit, or expected error.
   Covers a byte-order mark, CRLF, a lone CR, astral characters, and NEL, LS and PS as content.

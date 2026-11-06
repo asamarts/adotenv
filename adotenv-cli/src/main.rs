@@ -2231,6 +2231,27 @@ mod tests {
     }
 
     #[test]
+    fn github_escaping_vectors_match() {
+        let vectors: serde_json::Value =
+            serde_json::from_str(include_str!("../../tests/vectors/github-escaping.json")).unwrap();
+        assert_eq!(
+            vectors["version"].as_u64(),
+            Some(1),
+            "GitHub vectors version"
+        );
+        for case in vectors["cases"].as_array().unwrap() {
+            let input = case["input"].as_str().unwrap();
+            let expected = case["expected"].as_str().unwrap();
+            let actual = match case["kind"].as_str().unwrap() {
+                "data" => github_escape_data(input),
+                "property" => github_escape_property(input),
+                other => panic!("unknown GitHub escaping kind {other}"),
+            };
+            assert_eq!(actual, expected, "{input:?}");
+        }
+    }
+
+    #[test]
     fn write_atomic_creates_missing_files_without_leftovers() {
         let directory = std::env::temp_dir().join(format!(
             "adotenv-write-missing-{}-{}",

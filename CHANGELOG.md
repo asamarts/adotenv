@@ -15,6 +15,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Publication is deferred until 2026-11-12.
 - `LineIndex::without_bom`, which omits a leading byte-order mark from line 1
   columns. The 1.x default still counts it.
+- Shared format-contract vectors under `tests/vectors/` for positions, text
+  edit ordering and GitHub escaping, plus a JSON Schema for the `check` report.
+  The vectors carry SHA-256 hashes in a manifest.
 
 ### Fixed
 

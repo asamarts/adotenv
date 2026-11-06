@@ -39,6 +39,8 @@ serde = { version = "1", optional = true, default-features = false, features = [
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
+serde_json = "=1.0.154"
+sha2 = "=0.10.9"
 proptest = { version = "1", default-features = false, features = ["std"] }
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 

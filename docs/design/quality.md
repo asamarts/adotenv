@@ -14,6 +14,8 @@ current coverage figures and known gaps are in the [test audit](test-audit.md).
   each.
 - Integration tests for loading, serde, the CLI and its JSON schemas, the
   adapters, and the memory use of reference scanning.
+- Shared format-contract vectors for positions, text edit order, GitHub
+  escaping and the check report schema, with a hash manifest.
 - Doctests for the rustdoc examples, the README and every page of this site.
 - Builds for `no_std`, the minimum supported Rust versions and each feature
   set.
