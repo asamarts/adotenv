@@ -41,9 +41,9 @@ core parsing.
 An editor integration needs completion, definition, hover, references, rename,
 diagnostics and value masking.
 
-A future `adotenv-lsp` crate can reuse `Document` spans and `VerifiedEdits`.
-It should keep value masking opt-in and avoid ambient environment lookup by
-default.
+The `adotenv-lsp` 0.1.0 prototype is now a separate workspace crate. It reuses
+`Document` spans and `VerifiedEdits`, keeps value masking opt-in and does not
+read the process environment.
 
 ## Syntax presets
 

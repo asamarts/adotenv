@@ -48,11 +48,13 @@ The workflow also:
   plus the adapters with `load`;
 - runs the tests on Linux, macOS and Windows;
 - builds the libraries, `adotenv-process`, `adotenv-cli` and `adotenv-figment`
-  with Rust 1.81, and `adotenv-config` with Rust 1.88;
+  with Rust 1.81, `adotenv-lsp` with Rust 1.85 and `adotenv-config` with Rust
+  1.88;
 - builds the core for the `thumbv7em-none-eabi` target without default
   features;
-- resolves every workspace dependency to its lowest compatible version on
-  nightly and runs the full test suite;
+- resolves the published workspace dependencies to their lowest compatible
+  versions on nightly and runs their test suite; the LSP prototype has its own
+  1.85 MSRV check;
 - checks that every package includes its license files;
 - runs the benchmarks once as a smoke test.
 
@@ -117,15 +119,17 @@ cargo mutants --file src/parser.rs --file src/edit.rs --file src/format.rs \
 
 ## Supported Rust versions and semver
 
-The minimum supported Rust version is 1.81. `adotenv-config` follows the
-minimum of `config`, currently 1.88. A minimum version rises only in a minor
-release.
+The minimum supported Rust version is 1.81. The `adotenv-lsp` prototype requires
+Rust 1.85 because its LSP transport uses the 2024 edition. `adotenv-config`
+follows the minimum of `config`, currently 1.88. A minimum version rises only
+in a minor release.
 
 The public API follows semantic versioning. Enums and structs that may grow
 are non-exhaustive, and options are set through builders. CI runs
-`cargo semver-checks` for the four library crates against their latest
-published versions. Breaking releases list their changes and a migration guide
-in the changelog; see [Upgrading to 1.0](../reference/upgrading.md).
+`cargo semver-checks` for the five published library crates against their
+latest published versions. The LSP prototype does not have a published baseline
+yet. Breaking releases list their changes and a migration guide in the
+changelog; see [Upgrading to 1.0](../reference/upgrading.md).
 
 ## Supply chain
 

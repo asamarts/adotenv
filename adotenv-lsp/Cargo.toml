@@ -1,0 +1,29 @@
+[package]
+name = "adotenv-lsp"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Language Server Protocol support for adotenv documents."
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/asamarts/adotenv"
+documentation = "https://docs.rs/adotenv-lsp"
+readme = "README.md"
+keywords = ["dotenv", "env", "lsp", "language-server", "editor"]
+categories = ["development-tools"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+adotenv = { path = "..", version = "1.2.0" }
+lsp-server = "=0.10.0"
+lsp-types = "=0.97.0"
+serde = "1"
+serde_json = "=1.0.154"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
