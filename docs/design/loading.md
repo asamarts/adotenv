@@ -42,7 +42,9 @@ the dialect, the retained data or an explicit file list:
 | `load_files_with_options(paths, options)` | Ordered file list | `LoadedEnvironment` |
 | `load_cascade_values(directory, mode)` | Cascade, Portable | `LoadedValues` |
 | `load_cascade_values_with(directory, mode, dialect)` | Cascade | `LoadedValues` |
+| `load_cascade_values_with_options(directory, mode, options)` | Cascade | `LoadedValues` |
 | `load_values(paths, dialect)` | Ordered file list | `LoadedValues` |
+| `load_values_with_options(paths, options)` | Ordered file list | `LoadedValues` |
 
 The functions that take a file list read the files in the order given, and
 later files override earlier ones as in a cascade. Every listed file must
@@ -150,6 +152,7 @@ Builders change one group each:
 | `with_raw_tokens(false)` | Drop the raw source text; `resolve_contextual` then returns an error |
 | `with_reports(true)` | Keep every report, as `full` does; without reports the report iterators yield nothing |
 | `with_origins(false)` | Drop origins and the override report; resolution errors then have no origin and serde errors report line 0 |
+| `with_limits(parse_options)` | Bound input bytes, items and diagnostics; input bytes also bounds the read |
 
 ## Resolution
 
@@ -227,12 +230,18 @@ assert_eq!(values.get("PORT"), Some("8080"));
 | `Io { path, source }` | A file exists but could not be read, or a listed file does not exist. `source()` returns the I/O error. |
 | `InvalidUtf8 { path }` | A file is not valid UTF-8. |
 | `Invalid { path, diagnostic }` | A file has an error-severity diagnostic; `diagnostic` is the first one in source order. |
+| `Limit { path, limit }` | A configured read or parse limit was exceeded; `limit` reports its kind, maximum and observed value. |
 | `InvalidMode` | The mode name is not allowed. |
 
 The `Display` of a file error names the file, for example
 `/srv/my-app/.env: line 2: key does not match the selected dialect (dotenv.invalid-key)`.
 A `LoadedResolveError` displays as `{path}:{line}: {message}` when its origin
 is known, and as the message alone otherwise.
+
+`LoadOptions::with_limits` applies `ParseOptions` to every file.
+`max_input_bytes` is checked against the file metadata and again while reading,
+so a file that changes after the check cannot grow without bound. A limit
+failure returns `LoadError::Limit`; no limit is enabled by default.
 
 ## Memory
 

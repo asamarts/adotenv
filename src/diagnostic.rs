@@ -1,5 +1,7 @@
 use core::{error::Error, fmt, ops::Range};
 
+use crate::limit::LimitExceeded;
+
 /// How serious a [`Diagnostic`] is.
 ///
 /// Each [`DiagnosticCode`] has a fixed severity ([`DiagnosticCode::severity`]).
@@ -218,6 +220,14 @@ pub enum DiagnosticCode {
     /// [`parse_values`](crate::parse_values) when only the first error matters;
     /// they do not collect the full list.
     TooManyDiagnostics,
+    /// A configured parse limit was exceeded.
+    ///
+    /// Error, `dotenv.limit-exceeded`. Use
+    /// [`Diagnostic::limit`](crate::Diagnostic::limit) for the structured
+    /// limit kind, configured maximum and observed count. The parser keeps
+    /// the rest of a recovering document where possible; a strict parse
+    /// returns this diagnostic.
+    LimitExceeded,
 }
 
 impl DiagnosticCode {
@@ -246,6 +256,7 @@ impl DiagnosticCode {
             Self::IgnoredStatement => "dotenv.ignored-statement",
             Self::LineTooLong => "dotenv.line-too-long",
             Self::TooManyDiagnostics => "dotenv.too-many-diagnostics",
+            Self::LimitExceeded => "dotenv.limit-exceeded",
         }
     }
 
@@ -259,7 +270,8 @@ impl DiagnosticCode {
             | Self::ForbiddenBareKey
             | Self::ForbiddenByteOrderMark
             | Self::InvalidEscape
-            | Self::LineTooLong => Severity::Error,
+            | Self::LineTooLong
+            | Self::LimitExceeded => Severity::Error,
             Self::ByteOrderMark => Severity::Info,
             _ => Severity::Warning,
         }
@@ -291,6 +303,7 @@ impl DiagnosticCode {
             Self::IgnoredStatement => "statement ignored by the selected dialect",
             Self::LineTooLong => "source line exceeds the selected scanner byte limit",
             Self::TooManyDiagnostics => "diagnostic limit reached; later diagnostics were omitted",
+            Self::LimitExceeded => "configured parse limit exceeded",
         }
     }
 }
@@ -334,6 +347,7 @@ pub struct Diagnostic {
     pub(crate) span: Range<usize>,
     pub(crate) secondary: Option<Range<usize>>,
     pub(crate) line: usize,
+    pub(crate) limit: Option<LimitExceeded>,
 }
 
 impl Diagnostic {
@@ -343,7 +357,13 @@ impl Diagnostic {
             span,
             secondary: None,
             line,
+            limit: None,
         }
+    }
+
+    pub(crate) fn with_limit(mut self, limit: LimitExceeded) -> Self {
+        self.limit = Some(limit);
+        self
     }
 
     /// Returns the diagnostic's code.
@@ -387,6 +407,14 @@ impl Diagnostic {
     #[must_use]
     pub const fn message(&self) -> &'static str {
         self.code.message()
+    }
+
+    /// Returns the structured limit behind [`DiagnosticCode::LimitExceeded`].
+    ///
+    /// Returns `None` for every other diagnostic.
+    #[must_use]
+    pub const fn limit(&self) -> Option<LimitExceeded> {
+        self.limit
     }
 }
 

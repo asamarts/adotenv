@@ -519,8 +519,9 @@ let config = config::Config::builder()
 - Input is UTF-8. Decode bytes before parsing; invalid UTF-8 is rejected rather
   than replaced.
 - Parsing does not read files, environment variables or commands.
-- Retained documents keep token and item metadata. Apply byte and line budgets
-  for untrusted input.
+- Retained documents keep token and item metadata. Use `ParseOptions` to bound
+  input bytes, items and diagnostics for untrusted input; the limits are opt-in.
+  The loader's `LoadOptions::with_limits` also bounds the read itself.
 - `Debug` output of documents, items, entries, edit and format results,
   comparisons, loaded environments and entries, resolved values, lookup
   indexes, effective entries, line indexes, groups and portability reports

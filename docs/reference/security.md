@@ -24,17 +24,27 @@ files, `Document::resolve` substitutes references from a lookup you pass,
 - Input must be UTF-8. Decode bytes yourself; the loader rejects invalid UTF-8
   instead of replacing it.
 - A retained `Document` keeps item and token metadata for the whole file, so
-  memory grows with the input. Check the byte length, line count or number of
-  declarations before parsing a file from an untrusted source.
-  `parse_values` keeps only final values and uses much less memory.
+  memory grows with the input. Use `ParseOptions` with `parse_with_options`,
+  `parse_strict_with_options`, `parse_values_with_options` or
+  `parse_owned_with_options` to bound input bytes, items and diagnostics.
+  Limits are opt-in; the 1.x default keeps accepting valid input. A future
+  major release may choose default limits. `parse_values` keeps only final
+  values and uses much less memory.
+- The loader accepts the same limits with `LoadOptions::with_limits`.
+  `max_input_bytes` bounds the file size and the read itself, so a file that
+  changes after its metadata check cannot grow without bound. Exceeding a
+  limit returns `LoadError::Limit` with the kind, configured maximum and
+  observed size or count.
 - `Document::lookup_index` grows with the number of participating keys, not
   the total number of declarations. A dialect that ignores bare keys still
   spends memory only for keys that take part in lookup.
 - `parse` collects at most 10,000 ordinary diagnostics, plus the first
   error found after the budget, and ends a truncated list with a
   `dotenv.too-many-diagnostics` warning. The retained error and summary make
-  the total at most 10,002 entries. `parse_strict` and `parse_values` stop
-  at the first error and do not collect the list.
+  the total at most 10,002 entries. `ParseOptions::with_max_diagnostics`
+  lowers the budget; a truncation then ends with `dotenv.limit-exceeded`.
+  `parse_strict` and `parse_values` stop at the first error and do not collect
+  the list.
 - Parsing and reference scanning run in linear time, including inputs with
   many statements on one line, long `$` runs and deeply nested forms.
   Resolution time is linear in the number of references in a value, and edit
@@ -51,8 +61,9 @@ files, `Document::resolve` substitutes references from a lookup you pass,
   `ResolveError::DepthExceeded`, `TooManyReferences`, `ValueTooLarge` or
   `OutputTooLarge`. See
   [References and resolution](../design/expansion.md#resolution).
-- Fuzz targets cover parsing, edits, encoding, resolution and formatting. A
-  bounded fuzz run is evidence, not a proof; see [Quality](../design/quality.md).
+- Fuzz targets cover parsing, edits, encoding, resolution, formatting and
+  parse limits. A bounded fuzz run is evidence, not a proof; see
+  [Quality](../design/quality.md).
 
 ## Secret values
 

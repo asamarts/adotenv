@@ -3,6 +3,7 @@ use alloc::{
     boxed::Box,
     collections::{BTreeMap, BTreeSet},
     string::{String, ToString},
+    vec,
     vec::Vec,
 };
 use core::{cell::Cell, ops::Range};
@@ -13,8 +14,8 @@ use crate::dialect::{
 };
 use crate::model::{EntryData, ItemData, NO_ENTRY};
 use crate::{
-    AssignmentState, Diagnostic, DiagnosticCode, Document, EntryTokens, ItemKind, LineEnding,
-    Quote, Severity,
+    AssignmentState, Diagnostic, DiagnosticCode, Document, EntryTokens, ItemKind, LimitExceeded,
+    LimitKind, LineEnding, Quote, Severity,
 };
 
 mod compose;
@@ -29,6 +30,90 @@ mod unicode;
 /// A pathological source can otherwise allocate one diagnostic per character.
 /// A final [`DiagnosticCode::TooManyDiagnostics`] warning reports truncation.
 pub(crate) const MAX_DIAGNOSTICS: usize = 10_000;
+
+/// Optional bounds for parsing untrusted input.
+///
+/// The default has no byte or item limit and keeps the established 10,000
+/// diagnostic budget. A limit is opt-in, so enabling one cannot change how
+/// input that stays within it is parsed. Limits count the original source,
+/// including a leading byte-order mark. A future major release may choose
+/// default limits.
+///
+/// Use [`parse_with_options`], [`parse_strict_with_options`],
+/// [`parse_values_with_options`] or [`parse_owned_with_options`] to apply
+/// these options. A limit failure is a
+/// [`DiagnosticCode::LimitExceeded`](crate::DiagnosticCode::LimitExceeded)
+/// diagnostic; [`Diagnostic::limit`](crate::Diagnostic::limit) carries its
+/// [`LimitExceeded`](crate::LimitExceeded) data.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_strict_with_options, Dialect, ParseOptions};
+///
+/// let options = ParseOptions::default().with_max_input_bytes(3);
+/// let error = parse_strict_with_options("A=1\n", Dialect::PORTABLE, options).unwrap_err();
+/// assert_eq!(error.limit().unwrap().kind(), adotenv::LimitKind::InputBytes);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct ParseOptions {
+    /// The maximum source length in bytes, or `None` for no limit.
+    pub max_input_bytes: Option<usize>,
+    /// The maximum number of parsed items, or `None` for no limit.
+    ///
+    /// The value parser counts statements rather than retaining item data.
+    pub max_items: Option<usize>,
+    /// The maximum number of collected diagnostics, or `None` for the
+    /// established 10,000-entry budget.
+    ///
+    /// This applies to the recovering parser only. Strict and values-only
+    /// parsing keep the first error and do not build a diagnostic list.
+    pub max_diagnostics: Option<usize>,
+}
+
+impl Default for ParseOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ParseOptions {
+    /// Returns options with no byte, item or diagnostic limit beyond the
+    /// established diagnostic budget.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            max_input_bytes: None,
+            max_items: None,
+            max_diagnostics: None,
+        }
+    }
+
+    /// Sets the maximum source length in bytes.
+    #[must_use]
+    pub const fn with_max_input_bytes(mut self, limit: usize) -> Self {
+        self.max_input_bytes = Some(limit);
+        self
+    }
+
+    /// Sets the maximum number of parsed items.
+    #[must_use]
+    pub const fn with_max_items(mut self, limit: usize) -> Self {
+        self.max_items = Some(limit);
+        self
+    }
+
+    /// Sets the maximum number of collected diagnostics.
+    ///
+    /// `0` keeps no ordinary diagnostics and reports a limit failure if any
+    /// exist.
+    #[must_use]
+    pub const fn with_max_diagnostics(mut self, limit: usize) -> Self {
+        self.max_diagnostics = Some(limit);
+        self
+    }
+}
 
 /// Parses `.env` text with the Portable dialect, recovering from errors.
 ///
@@ -99,11 +184,61 @@ pub fn parse(source: &str) -> (Document<'_>, Vec<Diagnostic>) {
 /// ```
 #[must_use]
 pub fn parse_with(source: &str, dialect: Dialect) -> (Document<'_>, Vec<Diagnostic>) {
-    parse_impl::<true>(source, dialect)
+    parse_with_options(source, dialect, ParseOptions::default())
 }
 
-fn parse_impl<const D: bool>(source: &str, dialect: Dialect) -> (Document<'_>, Vec<Diagnostic>) {
-    let mut parser = Parser::<D>::new(source, dialect, None);
+/// Parses `.env` text with the given dialect and opt-in limits, recovering
+/// from errors.
+///
+/// This is [`parse_with`] with [`ParseOptions`]. Input that exceeds a limit
+/// returns a document with an invalid item covering the remaining source and
+/// a [`DiagnosticCode::LimitExceeded`] diagnostic. Byte offsets still refer to
+/// the original source.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{parse_with_options, Dialect, ParseOptions};
+///
+/// let options = ParseOptions::default().with_max_input_bytes(3);
+/// let (document, diagnostics) =
+///     parse_with_options("A=1\n", Dialect::PORTABLE, options);
+/// assert_eq!(document.source(), "A=1\n");
+/// assert_eq!(
+///     diagnostics[0].limit().unwrap().kind(),
+///     adotenv::LimitKind::InputBytes
+/// );
+/// ```
+#[must_use]
+pub fn parse_with_options(
+    source: &str,
+    dialect: Dialect,
+    options: ParseOptions,
+) -> (Document<'_>, Vec<Diagnostic>) {
+    parse_impl::<true>(source, dialect, options)
+}
+
+fn parse_impl<const D: bool>(
+    source: &str,
+    dialect: Dialect,
+    options: ParseOptions,
+) -> (Document<'_>, Vec<Diagnostic>) {
+    if let Some(limit) = options.max_input_bytes {
+        if source.len() > limit {
+            let diagnostic = limit_diagnostic(
+                LimitKind::InputBytes,
+                limit,
+                source.len(),
+                0..source.len(),
+                1,
+            );
+            return (
+                limited_document(source, dialect, diagnostic.clone()),
+                vec![diagnostic],
+            );
+        }
+    }
+    let mut parser = Parser::<D>::new(source, dialect, None, options);
     parser.run();
     parser.document.has_duplicate_keys = if D {
         parser.has_duplicate_keys
@@ -111,28 +246,47 @@ fn parse_impl<const D: bool>(source: &str, dialect: Dialect) -> (Document<'_>, V
         has_duplicate_entries(&parser.document)
     };
     let parser_omitted_error = parser.first_omitted_error.take();
+    let diagnostics_limit = options.max_diagnostics.unwrap_or(MAX_DIAGNOSTICS);
     let (mut diagnostics, omitted, merge_omitted_error) = if D
         && dialect.syntax == Syntax::Portable
         && dialect.line_breaks == LineBreaks::Universal
     {
-        merge_lone_cr(source, parser.diagnostics, parser.omitted_diagnostics)
+        merge_lone_cr(
+            source,
+            parser.diagnostics,
+            parser.omitted_diagnostics,
+            diagnostics_limit,
+        )
     } else {
         (parser.diagnostics, parser.omitted_diagnostics, None)
     };
     if omitted > 0 {
-        let first_omitted_error = match (parser_omitted_error, merge_omitted_error) {
-            (Some(parser), Some(merged)) if merged.span.start < parser.span.start => Some(merged),
-            (Some(parser), _) => Some(parser),
-            (None, merged) => merged,
-        };
-        if let Some(error) = first_omitted_error {
-            diagnostics.push(error);
+        if let Some(limit) = options.max_diagnostics {
+            let observed = limit.saturating_add(omitted);
+            diagnostics.push(limit_diagnostic(
+                LimitKind::Diagnostics,
+                limit,
+                observed,
+                source.len()..source.len(),
+                line_breaks(source) + 1,
+            ));
+        } else {
+            let first_omitted_error = match (parser_omitted_error, merge_omitted_error) {
+                (Some(parser), Some(merged)) if merged.span.start < parser.span.start => {
+                    Some(merged)
+                }
+                (Some(parser), _) => Some(parser),
+                (None, merged) => merged,
+            };
+            if let Some(error) = first_omitted_error {
+                diagnostics.push(error);
+            }
+            diagnostics.push(Diagnostic::new(
+                DiagnosticCode::TooManyDiagnostics,
+                source.len()..source.len(),
+                line_breaks(source) + 1,
+            ));
         }
-        diagnostics.push(Diagnostic::new(
-            DiagnosticCode::TooManyDiagnostics,
-            source.len()..source.len(),
-            line_breaks(source) + 1,
-        ));
         diagnostics.sort_by_key(|diagnostic| diagnostic.span.start);
     }
     // Release geometric-growth slack before the tooling model is retained.
@@ -140,6 +294,46 @@ fn parse_impl<const D: bool>(source: &str, dialect: Dialect) -> (Document<'_>, V
     parser.document.items.shrink_to_fit();
     parser.document.entries.shrink_to_fit();
     (parser.document, diagnostics)
+}
+
+fn limit_diagnostic(
+    kind: LimitKind,
+    limit: usize,
+    observed: usize,
+    span: Range<usize>,
+    line: usize,
+) -> Diagnostic {
+    Diagnostic::new(DiagnosticCode::LimitExceeded, span, line)
+        .with_limit(LimitExceeded::new(kind, limit, observed))
+}
+
+fn limited_document(source: &str, dialect: Dialect, diagnostic: Diagnostic) -> Document<'_> {
+    let bom = source.starts_with('\u{feff}') && dialect.bom == BomPolicy::Strip;
+    let start = if bom { 3 } else { 0 };
+    let ending = if source.ends_with("\r\n") {
+        LineEnding::CrLf
+    } else if source.ends_with('\n') {
+        LineEnding::Lf
+    } else if source.ends_with('\r') {
+        LineEnding::Cr
+    } else {
+        LineEnding::None
+    };
+    Document {
+        source: Cow::Borrowed(source),
+        items: vec![ItemData {
+            kind: ItemKind::Invalid,
+            span: start..source.len(),
+            ending,
+            entry: NO_ENTRY,
+            comment: None,
+            invalid: Some(Box::new(diagnostic)),
+        }],
+        entries: Vec::new(),
+        bom,
+        dialect,
+        has_duplicate_keys: false,
+    }
 }
 
 /// Parses `.env` text with the Portable dialect into a map of effective
@@ -177,7 +371,7 @@ fn parse_impl<const D: bool>(source: &str, dialect: Dialect) -> (Document<'_>, V
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn parse_values(source: &str) -> Result<BTreeMap<String, String>, Diagnostic> {
-    parse_values_with(source, Dialect::PORTABLE)
+    parse_values_with_options(source, Dialect::PORTABLE, ParseOptions::default())
 }
 
 /// Parses `.env` text with the given dialect into a map of effective values.
@@ -218,7 +412,39 @@ pub fn parse_values_with(
     source: &str,
     dialect: Dialect,
 ) -> Result<BTreeMap<String, String>, Diagnostic> {
-    let mut parser = Parser::<false>::new(source, dialect, Some(Projection::new(dialect)));
+    parse_values_with_options(source, dialect, ParseOptions::default())
+}
+
+/// Parses `.env` text into a map of effective values with opt-in limits.
+///
+/// This is [`parse_values_with`] with [`ParseOptions`]. A limit failure is
+/// returned as one [`DiagnosticCode::LimitExceeded`] error.
+///
+/// # Errors
+///
+/// Returns the first error-severity diagnostic, including a limit failure.
+///
+/// # Panics
+///
+/// Panics only if an internal invariant is broken, which cannot happen
+/// through this API.
+pub fn parse_values_with_options(
+    source: &str,
+    dialect: Dialect,
+    options: ParseOptions,
+) -> Result<BTreeMap<String, String>, Diagnostic> {
+    if let Some(limit) = options.max_input_bytes {
+        if source.len() > limit {
+            return Err(limit_diagnostic(
+                LimitKind::InputBytes,
+                limit,
+                source.len(),
+                0..source.len(),
+                1,
+            ));
+        }
+    }
+    let mut parser = Parser::<false>::new(source, dialect, Some(Projection::new(dialect)), options);
     parser.run();
     let projection = parser
         .projection
@@ -271,8 +497,20 @@ pub fn parse_owned(source: String) -> (Document<'static>, Vec<Diagnostic>) {
 /// ```
 #[must_use]
 pub fn parse_owned_with(source: String, dialect: Dialect) -> (Document<'static>, Vec<Diagnostic>) {
+    parse_owned_with_options(source, dialect, ParseOptions::default())
+}
+
+/// Parses an owned `String` with opt-in limits.
+///
+/// This is [`parse_owned_with`] with [`ParseOptions`].
+#[must_use]
+pub fn parse_owned_with_options(
+    source: String,
+    dialect: Dialect,
+    options: ParseOptions,
+) -> (Document<'static>, Vec<Diagnostic>) {
     let (items, entries, bom, has_duplicate_keys, diagnostics) = {
-        let (document, diagnostics) = parse_with(&source, dialect);
+        let (document, diagnostics) = parse_with_options(&source, dialect, options);
         (
             document.items,
             document.entries,
@@ -356,13 +594,36 @@ pub fn parse_strict(source: &str) -> Result<Document<'_>, Diagnostic> {
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn parse_strict_with(source: &str, dialect: Dialect) -> Result<Document<'_>, Diagnostic> {
-    let document = parse_document(source, dialect);
-    let error = document
-        .items
-        .iter()
-        .filter_map(|item| item.invalid.as_ref())
+    parse_strict_with_options(source, dialect, ParseOptions::default())
+}
+
+/// Parses `.env` text with the given dialect and opt-in limits, failing on
+/// the first error or limit.
+///
+/// This is [`parse_strict_with`] with [`ParseOptions`].
+///
+/// # Errors
+///
+/// Returns the first error-severity diagnostic. A limit failure is a
+/// [`DiagnosticCode::LimitExceeded`] diagnostic with
+/// [`Diagnostic::limit`](crate::Diagnostic::limit) data.
+pub fn parse_strict_with_options(
+    source: &str,
+    dialect: Dialect,
+    options: ParseOptions,
+) -> Result<Document<'_>, Diagnostic> {
+    let (document, diagnostics) = parse_impl::<false>(source, dialect, options);
+    let error = diagnostics
+        .into_iter()
         .find(|diagnostic| diagnostic.severity() == Severity::Error)
-        .map(|diagnostic| diagnostic.as_ref().clone());
+        .or_else(|| {
+            document
+                .items
+                .iter()
+                .filter_map(|item| item.invalid.as_ref())
+                .find(|diagnostic| diagnostic.severity() == Severity::Error)
+                .map(|diagnostic| diagnostic.as_ref().clone())
+        });
     match error {
         Some(error) => Err(error),
         None => Ok(document),
@@ -371,7 +632,7 @@ pub fn parse_strict_with(source: &str, dialect: Dialect) -> Result<Document<'_>,
 
 /// Recover without allocating discarded warnings or a duplicate-key trie.
 pub(crate) fn parse_document(source: &str, dialect: Dialect) -> Document<'_> {
-    parse_impl::<false>(source, dialect).0
+    parse_impl::<false>(source, dialect, ParseOptions::default()).0
 }
 
 fn posix_key(key: &str) -> bool {
@@ -521,6 +782,8 @@ struct Parser<'src, const D: bool> {
     has_duplicate_keys: bool,
     failed_quotes: [Option<usize>; 3],
     line: usize,
+    options: ParseOptions,
+    item_count: usize,
     projection: Option<Projection>,
     /// The physical line found by the latest scan, and where that scan began.
     /// It answers every lookup from that start up to the line's content end.
@@ -536,7 +799,7 @@ struct Parser<'src, const D: bool> {
 /// Count the bytes that line-end and anchor scans examine while parsing.
 #[cfg(test)]
 pub(crate) fn scanned_bytes(source: &str, dialect: Dialect) -> usize {
-    let mut parser = Parser::<true>::new(source, dialect, None);
+    let mut parser = Parser::<true>::new(source, dialect, None, ParseOptions::default());
     parser.run();
     parser.scanned.get()
 }
@@ -606,7 +869,12 @@ fn project_entry(
 }
 
 impl<'src, const D: bool> Parser<'src, D> {
-    fn new(source: &'src str, dialect: Dialect, projection: Option<Projection>) -> Self {
+    fn new(
+        source: &'src str,
+        dialect: Dialect,
+        projection: Option<Projection>,
+        options: ParseOptions,
+    ) -> Self {
         Self {
             source,
             document: Document {
@@ -625,6 +893,8 @@ impl<'src, const D: bool> Parser<'src, D> {
             has_duplicate_keys: false,
             failed_quotes: [None; 3],
             line: 1,
+            options,
+            item_count: 0,
             projection,
             line_cache: Cell::new((
                 usize::MAX,
@@ -641,7 +911,8 @@ impl<'src, const D: bool> Parser<'src, D> {
     }
 
     fn push_diagnostic(&mut self, diagnostic: Diagnostic) {
-        if self.diagnostics.len() < MAX_DIAGNOSTICS {
+        let limit = self.options.max_diagnostics.unwrap_or(MAX_DIAGNOSTICS);
+        if self.diagnostics.len() < limit {
             self.diagnostics.push(diagnostic);
         } else {
             self.omitted_diagnostics = self.omitted_diagnostics.saturating_add(1);
@@ -649,6 +920,32 @@ impl<'src, const D: bool> Parser<'src, D> {
                 self.first_omitted_error = Some(diagnostic);
             }
         }
+    }
+
+    fn push_limit(
+        &mut self,
+        kind: LimitKind,
+        limit: usize,
+        observed: usize,
+        span: Range<usize>,
+        line: usize,
+    ) {
+        let diagnostic = limit_diagnostic(kind, limit, observed, span.clone(), line);
+        if let Some(projection) = &mut self.projection {
+            if projection.error.is_none() {
+                projection.error = Some(diagnostic);
+            }
+            return;
+        }
+        self.diagnostics.push(diagnostic.clone());
+        self.document.items.push(ItemData {
+            kind: ItemKind::Invalid,
+            span,
+            ending: LineEnding::None,
+            entry: NO_ENTRY,
+            comment: None,
+            invalid: Some(Box::new(diagnostic)),
+        });
     }
 
     fn run(&mut self) {
@@ -721,6 +1018,24 @@ impl<'src, const D: bool> Parser<'src, D> {
             debug_assert!(end > at && end <= source.len());
             self.line += line_breaks(&source[at..end]);
             at = end;
+            self.item_count = self.item_count.saturating_add(1);
+            if let Some(limit) = self.options.max_items {
+                let observed = if self.projection.is_some() {
+                    self.item_count
+                } else {
+                    self.document.items.len()
+                };
+                if observed > limit {
+                    self.push_limit(
+                        LimitKind::Items,
+                        limit,
+                        observed,
+                        at..source.len(),
+                        self.line,
+                    );
+                    break;
+                }
+            }
         }
     }
 }
@@ -1579,6 +1894,7 @@ fn merge_lone_cr(
     source: &str,
     diagnostics: Vec<Diagnostic>,
     mut omitted: usize,
+    limit: usize,
 ) -> (Vec<Diagnostic>, usize, Option<Diagnostic>) {
     let bytes = source.as_bytes();
     let mut carriage_returns = Vec::new();
@@ -1586,7 +1902,7 @@ fn merge_lone_cr(
     for (at, byte) in bytes.iter().enumerate() {
         if *byte == b'\r' {
             if bytes.get(at + 1) != Some(&b'\n') {
-                if carriage_returns.len() < MAX_DIAGNOSTICS {
+                if carriage_returns.len() < limit {
                     carriage_returns.push(Diagnostic::new(
                         DiagnosticCode::LoneCarriageReturn,
                         at..at + 1,
@@ -1607,12 +1923,12 @@ fn merge_lone_cr(
     let capacity = diagnostics
         .len()
         .saturating_add(carriage_returns.len())
-        .min(MAX_DIAGNOSTICS);
+        .min(limit);
     let mut output = Vec::with_capacity(capacity);
     let mut ordinary = diagnostics.into_iter().peekable();
     let mut carriage = carriage_returns.into_iter().peekable();
     while let (Some(a), Some(b)) = (ordinary.peek(), carriage.peek()) {
-        if output.len() == MAX_DIAGNOSTICS {
+        if output.len() == limit {
             break;
         }
         if a.span.start <= b.span.start {
@@ -1622,7 +1938,7 @@ fn merge_lone_cr(
         }
     }
     let mut omitted_error = None;
-    if output.len() == MAX_DIAGNOSTICS {
+    if output.len() == limit {
         for diagnostic in ordinary.chain(carriage) {
             omitted = omitted.saturating_add(1);
             if diagnostic.severity() == Severity::Error && omitted_error.is_none() {
@@ -1631,7 +1947,7 @@ fn merge_lone_cr(
         }
     } else {
         for diagnostic in ordinary.chain(carriage) {
-            if output.len() < MAX_DIAGNOSTICS {
+            if output.len() < limit {
                 output.push(diagnostic);
             } else {
                 omitted = omitted.saturating_add(1);
