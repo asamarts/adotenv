@@ -82,7 +82,7 @@ jobs:
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2
         with:
           tool: cargo-semver-checks@0.51.0
-      - run: cargo semver-checks check-release --package adotenv --package adotenv-process --package adotenv-config --package adotenv-figment
+      - run: cargo semver-checks check-release --package adotenv --package adotenv-process --package adotenv-config --package adotenv-figment --package adotenv-lint
 
   coverage:
     name: coverage report

@@ -36,7 +36,7 @@ cargo test -p adotenv --features load,serde --locked
 cargo audit --deny warnings
 cargo deny check
 cargo semver-checks check-release --package adotenv --package adotenv-process \
-  --package adotenv-config --package adotenv-figment
+  --package adotenv-config --package adotenv-figment --package adotenv-lint
 cargo package -p adotenv --locked
 python3 conformance/check_adotenv.py --setup
 ```
