@@ -9,9 +9,9 @@ name: Release
 # See RELEASING.md for the one-time bootstrap and verification steps.
 #
 # `adotenv`, `adotenv-process` and `adotenv-cli` share one version, which must
-# match the tag. `adotenv-config` and `adotenv-figment` keep their own 0.x
-# versions; each one is published when its declared version is not on
-# crates.io yet.
+# match the tag. `adotenv-lint` starts at 0.1.0, and `adotenv-config` and
+# `adotenv-figment` keep their own 0.x versions; each independent crate is
+# published when its declared version is not on crates.io yet.
 #
 # Manual dispatch runs only the CI quality gate. The version checks and
 # publishing run only for a pushed tag.
@@ -60,6 +60,7 @@ jobs:
           tag = sys.argv[1]
           expected = [
               "adotenv",
+              "adotenv-lint",
               "adotenv-process",
               "adotenv-config",
               "adotenv-figment",
@@ -97,7 +98,7 @@ jobs:
           BOOTSTRAP_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           set -euo pipefail
-          packages="adotenv adotenv-process adotenv-config adotenv-figment adotenv-cli"
+          packages="adotenv adotenv-lint adotenv-process adotenv-config adotenv-figment adotenv-cli"
           metadata="$(cargo metadata --no-deps --format-version 1)"
           package_version() {
             python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == sys.argv[1]))' "$1" <<<"$metadata"

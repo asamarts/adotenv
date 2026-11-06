@@ -1,30 +1,30 @@
 # Releasing
 
-The release workflow publishes five crates in dependency order:
+The release workflow publishes six crates in dependency order:
 
 1. `adotenv`
-2. `adotenv-process`
-3. `adotenv-config`
-4. `adotenv-figment`
-5. `adotenv-cli`
+2. `adotenv-lint`
+3. `adotenv-process`
+4. `adotenv-config`
+5. `adotenv-figment`
+6. `adotenv-cli`
 
 ## Versions
 
 `adotenv`, `adotenv-process` and `adotenv-cli` share one version. The release
 tag `vX.Y.Z` must match it.
 
-`adotenv-config` and `adotenv-figment` have their own 0.x versions, because
-their public API implements traits from `config` and `figment`. A new major of
-either dependency is a minor release of the adapter. The workflow publishes an
-adapter whenever its declared version is not on crates.io yet. Bump an adapter
-when its code, its third-party dependency or its `adotenv` requirement changes.
-Changing the `adotenv` major version requirement is a breaking change for the
-adapters.
+`adotenv-lint` has its own 0.1.0 line. `adotenv-config` and `adotenv-figment`
+have their own 0.x versions, because their public API implements traits from
+`config` and `figment`. A new major of either dependency is a minor release of
+the adapter. The workflow publishes an independent crate whenever its declared
+version is not on crates.io yet. Bump an adapter or the linter when its code,
+its third-party dependency or its `adotenv` requirement changes. Changing the
+`adotenv` major version requirement is a breaking change for dependents.
 
-All five crates are registered with Trusted Publishing. Existing crates publish
-through GitHub Actions OIDC. A temporary `CARGO_REGISTRY_TOKEN` is only needed
-for a new crate that has no trusted publisher yet; see
-[New crates](#new-crates).
+The five existing crates are registered with Trusted Publishing. They publish
+through GitHub Actions OIDC. `adotenv-lint` needs the first-publish bootstrap
+below; after that, register its trusted publisher too.
 
 ## Preflight
 
@@ -43,8 +43,9 @@ for a new crate that has no trusted publisher yet; see
    cargo semver-checks check-release -p adotenv --baseline-version <previous-version> --release-type <patch|minor|major>
    ```
 
-   Repeat for `adotenv-process`, `adotenv-config` and `adotenv-figment`. Review
-   any failure before release.
+   Repeat for `adotenv-process`, `adotenv-config` and `adotenv-figment`.
+   `adotenv-lint` joins this check after its first publication. Review any
+   failure before release.
 
 4. Update package manifests and path dependency constraints explicitly. Do not
    replace every matching version string in `Cargo.lock`. Third-party crates can
@@ -75,15 +76,16 @@ The workflow:
 
 ## Verify
 
-Check all five crate pages:
+Check all six crate pages:
 
 - <https://crates.io/crates/adotenv>
 - <https://crates.io/crates/adotenv-process>
 - <https://crates.io/crates/adotenv-config>
 - <https://crates.io/crates/adotenv-figment>
 - <https://crates.io/crates/adotenv-cli>
+- <https://crates.io/crates/adotenv-lint>
 
-Check the docs.rs builds of the four library crates. `adotenv-cli` is a binary
+Check the docs.rs builds of the five library crates. `adotenv-cli` is a binary
 crate and has no library documentation. Confirm that the GitHub Release points
 at the release tag.
 
@@ -103,7 +105,8 @@ workflow or adding an environment.
 ## New crates
 
 crates.io cannot register a trusted publisher for a crate that does not exist
-yet, so the first publish of a new crate uses a token:
+yet, so the first publish of `adotenv-lint` or any other new crate uses a
+token:
 
 1. Create a crates.io API token limited to `publish-new` for the new crate name,
    with a short expiry.
