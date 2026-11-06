@@ -14,7 +14,7 @@ The release workflow publishes six crates in dependency order:
 `adotenv`, `adotenv-process` and `adotenv-cli` share one version. The release
 tag `vX.Y.Z` must match it.
 
-`adotenv-lint` has its own 0.1.0 line. `adotenv-config` and `adotenv-figment`
+`adotenv-lint` has its own 0.1.x line. `adotenv-config` and `adotenv-figment`
 have their own 0.x versions, because their public API implements traits from
 `config` and `figment`. A new major of either dependency is a minor release of
 the adapter. The workflow publishes an independent crate whenever its declared
@@ -73,6 +73,10 @@ The workflow:
 - uses OIDC for existing crates;
 - waits for each version in the sparse index before publishing dependents;
 - creates the GitHub Release from the matching `CHANGELOG.md` section.
+
+For a linter-only release without a core tag, dispatch the same workflow with
+`publish_linter=true`. It runs the quality gate, verifies the current linter
+version is unpublished, and publishes it through OIDC.
 
 ## Verify
 
