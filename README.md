@@ -498,6 +498,20 @@ assert_eq!(fixed.as_str(), "A=1\nB=2\n");
 The default rule reports duplicate keys. Key order, key case, quote style and
 whitespace are opt-in.
 
+## Language server
+
+`adotenv-lsp` provides diagnostics, completion, definition, hover, references
+and verified key rename for editors. It reads only the text an editor sends,
+does not resolve references or inspect the process environment, and supports
+opt-in hover value masking.
+
+```console
+adotenv-lsp
+adotenv-lsp --mask-values
+```
+
+See the [language server guide](https://asamarts.github.io/adotenv/design/lsp.html).
+
 ## Adapters
 
 `adotenv-config` exposes literal values as a `config` source. `adotenv-figment`
@@ -536,8 +550,10 @@ let config = config::Config::builder()
 
 ## Rust version
 
-Rust 1.81, edition 2021. `adotenv-config` requires Rust 1.88 because `config`
-0.15 does. Development and fuzz dependencies may require a newer toolchain.
+Rust 1.81, edition 2021. `adotenv-lsp` requires Rust 1.85 because its LSP
+transport uses the 2024 edition. `adotenv-config` requires Rust 1.88 because
+`config` 0.15 does. Development and fuzz dependencies may require a newer
+toolchain.
 
 ## License
 

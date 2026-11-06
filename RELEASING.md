@@ -22,10 +22,13 @@ version is not on crates.io yet. Bump an adapter or the linter when its code,
 its third-party dependency or its `adotenv` requirement changes. Changing the
 `adotenv` major version requirement is a breaking change for dependents.
 
-All six crates are registered with Trusted Publishing. They publish through
-GitHub Actions OIDC. `adotenv-lint` 0.1.0 was first published manually on
-2026-11-06; 0.1.1 was its first OIDC release. Its Trusted Publisher is
+All six published crates are registered with Trusted Publishing. They publish
+through GitHub Actions OIDC. `adotenv-lint` 0.1.0 was first published manually
+on 2026-11-06; 0.1.1 was its first OIDC release. Its Trusted Publisher is
 configured for this repository, workflow `release.yml` and no environment.
+
+The `adotenv-lsp` prototype is not yet part of the release workflow and has no
+Trusted Publisher.
 
 ## Preflight
 

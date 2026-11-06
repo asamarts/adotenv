@@ -13,7 +13,8 @@ The current release provides:
 - literal reference inspection and opt-in resolution;
 - optional file loading with values, origins and reports;
 - optional serde, process, CLI and `config`/Figment adapters;
-- the optional `adotenv-lint` policy companion.
+- the optional `adotenv-lint` policy companion;
+- the optional `adotenv-lsp` editor companion prototype.
 
 ## Current status
 
@@ -38,8 +39,9 @@ work are recorded there.
 3. Work through the "After 1.0" list in
    [1.0-fix-round.md](docs/design/1.0-fix-round.md).
 4. The optional `adotenv-lint` 0.1.0 policy companion was published on
-   2026-11-06, followed by 0.1.1 through crates.io Trusted Publishing. Start
-   `adotenv-lsp` after its rules are stable. See
+   2026-11-06, followed by 0.1.1 through crates.io Trusted Publishing. The
+   `adotenv-lsp` 0.1.0 editor prototype is in the workspace, with focused
+   library tests and a stdio server. See
    [#14](https://github.com/asamarts/adotenv/issues/14).
 5. Expand conformance cases only when a real upstream behavior is pinned and
    reproducible.
@@ -95,6 +97,7 @@ All met for 1.0.0:
 | [performance.md](docs/design/performance.md) | Benchmarks, memory and budgets |
 | [feature-decisions.md](docs/design/feature-decisions.md) | Adopt, defer and reject decisions |
 | [format-contract.md](docs/design/format-contract.md) | Shared public shapes with ayaml |
+| [lsp.md](docs/design/lsp.md) | Language server prototype and limitations |
 | [1.0-readiness.md](docs/design/1.0-readiness.md) | Release evidence checklist |
 | [1.0-fix-round.md](docs/design/1.0-fix-round.md) | Pre-1.0 audit fixes and decisions |
 

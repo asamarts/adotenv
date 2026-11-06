@@ -185,8 +185,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           toolchain: nightly
+      # The LSP prototype has a separate 1.85 MSRV check. It is excluded here
+      # because its protocol dependencies are not part of the published crates.
       - run: cargo +nightly update -Z minimal-versions
-      - run: cargo +nightly test --workspace --all-features --locked
+      - run: cargo +nightly test --workspace --all-features --locked --exclude adotenv-lsp
 
   msrv-config:
     name: MSRV adotenv-config (1.88)
@@ -203,6 +205,20 @@ jobs:
       # config 0.15 requires Rust 1.88; the rest of the workspace stays on 1.81.
       - run: cargo build -p adotenv-config --locked
       - run: cargo build -p adotenv-config --features load --locked
+
+  msrv-lsp:
+    name: MSRV adotenv-lsp (1.85)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: "1.85"
+      - run: cargo build -p adotenv-lsp --all-targets --locked
 
   package:
     name: package
@@ -227,7 +243,7 @@ jobs:
           grep -qx 'docs/design/loading.md' <<<"$files"
           grep -qx 'docs/index.md' <<<"$files"
           grep -qx 'docs/guide/getting-started.md' <<<"$files"
-          for package in adotenv adotenv-process adotenv-config adotenv-figment adotenv-cli adotenv-lint; do
+          for package in adotenv adotenv-process adotenv-config adotenv-figment adotenv-cli adotenv-lint adotenv-lsp; do
             files="$(cargo package -p "$package" --locked --list)"
             grep -qx 'LICENSE-APACHE' <<<"$files"
             grep -qx 'LICENSE-MIT' <<<"$files"
@@ -241,12 +257,12 @@ jobs:
             200)
               # The core version is on crates.io, so companion packages can
               # resolve their registry dependency and be fully verified.
-              cargo package -p adotenv-cli -p adotenv-lint -p adotenv-process -p adotenv-config -p adotenv-figment --locked
+              cargo package -p adotenv-cli -p adotenv-lint -p adotenv-lsp -p adotenv-process -p adotenv-config -p adotenv-figment --locked
               ;;
             404)
               # Release-prep version: verify file lists now; the tag workflow
               # performs the full verified publish after publishing adotenv.
-              cargo package -p adotenv-cli -p adotenv-lint -p adotenv-process -p adotenv-config -p adotenv-figment --locked --list
+              cargo package -p adotenv-cli -p adotenv-lint -p adotenv-lsp -p adotenv-process -p adotenv-config -p adotenv-figment --locked --list
               ;;
             *)
               echo "::error::crates.io lookup for adotenv $version returned HTTP $code"
