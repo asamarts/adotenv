@@ -3,7 +3,7 @@
   "$id": "https://asamarts.github.io/adotenv/schema/check-report.v1.json",
   "title": "adotenv check report version 1",
   "type": "object",
-  "additionalProperties": false,
+  "additionalProperties": true,
   "required": ["version", "files"],
   "properties": {
     "version": {"const": 1},
@@ -11,7 +11,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "required": ["path", "ok", "diagnostics"],
         "properties": {
           "path": {"type": "string"},
@@ -21,7 +21,7 @@
             "type": "array",
             "items": {
               "type": "object",
-              "additionalProperties": false,
+              "additionalProperties": true,
               "required": [
                 "line",
                 "severity",
@@ -37,7 +37,7 @@
                 "message": {"type": "string"},
                 "span": {
                   "type": "object",
-                  "additionalProperties": false,
+                  "additionalProperties": true,
                   "required": ["start", "end"],
                   "properties": {
                     "start": {"type": "integer", "minimum": 0},
@@ -46,7 +46,7 @@
                 },
                 "secondary_span": {
                   "type": ["object", "null"],
-                  "additionalProperties": false,
+                  "additionalProperties": true,
                   "required": ["start", "end"],
                   "properties": {
                     "start": {"type": "integer", "minimum": 0},
