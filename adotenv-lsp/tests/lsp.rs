@@ -55,6 +55,18 @@ fn completion_lists_declared_keys() {
     };
     let labels: Vec<_> = items.into_iter().map(|item| item.label).collect();
     assert_eq!(labels, ["HOST", "PORT"]);
+
+    let inside_value = completion("HOST=localhost\n", position(0, 4));
+    let CompletionResponse::Array(items) = inside_value else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items.len(), 0);
+
+    let reference = completion("HOST=localhost\nURL=${HOST}\n", position(1, 5));
+    let CompletionResponse::Array(items) = reference else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items.len(), 2);
 }
 
 #[test]

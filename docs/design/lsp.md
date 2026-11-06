@@ -10,7 +10,8 @@ The prototype offers:
 
 - diagnostics from the recovering parser, including related locations for
   duplicate keys;
-- completion of declared keys, with triggers for `$` and `{`;
+- completion of declared keys at a key position or after `$`/`${`, with
+  triggers for `$` and `{`;
 - definition from a key or a literal `$VAR`/`${VAR}` reference to the winning
   declaration;
 - hover for a key or reference, with optional value masking;
