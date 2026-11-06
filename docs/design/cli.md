@@ -82,8 +82,10 @@ commands print values or text that can contain them:
 ## Diagnostics
 
 `check` prints one line per diagnostic: path, one-based line and column,
-severity, code and message. A summary line follows when any file has a
-diagnostic or could not be read; a clean run prints nothing.
+severity, code and message. A leading byte-order mark is hidden on line 1, so
+it does not count in the human or GitHub column. JSON spans still count its
+bytes. A summary line follows when any file has a diagnostic or could not be
+read; a clean run prints nothing.
 
 ```text
 $ adotenv-cli check bad.env
@@ -92,9 +94,10 @@ bad.env:3:1: warning[dotenv.duplicate-key]: duplicate key; lookup follows the se
 1 error, 1 warning, 0 info in 1 file
 ```
 
-`--source` adds the source line and a caret under the span. Diagnostics go to
-standard output and read errors to standard error. Human output is not a
-machine contract; use JSON or GitHub output in scripts. The codes are listed in
+`--source` adds the source line and a caret under the span. A leading
+byte-order mark is omitted from the source line. Diagnostics go to standard
+output and read errors to standard error. Human output is not a machine
+contract; use JSON or GitHub output in scripts. The codes are listed in
 [Diagnostic codes](../reference/diagnostics.md).
 
 ### `check --format json`
@@ -138,7 +141,8 @@ One GitHub Actions workflow command per line:
 
 The first form reports a diagnostic. `<level>` is `error`, `warning` or `notice`
 for an `info` diagnostic. `<column>` is one-based and counts Unicode scalar
-values. The second form reports a file that could not be read or a path that could not be searched. In `<path>` and
+values, not a leading byte-order mark. The second form reports a file that
+could not be read or a path that could not be searched. In `<path>` and
 `<code>`, `%`, CR, LF, `:` and `,` are percent-encoded. In `<message>` and
 `<error>`, `%`, CR and LF are percent-encoded. This format is stable.
 

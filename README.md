@@ -354,6 +354,8 @@ assert_eq!(
 `ColumnEncoding` supports UTF-8 bytes, Unicode scalars and UTF-16 code units.
 Out-of-range positions and split surrogates return an error instead of being
 clamped. Entry and diagnostic lines are one-based; `Position` is zero-based.
+A leading byte-order mark counts in columns by default; chain `without_bom()`
+on the index when the consumer hides it.
 
 ## Load files
 

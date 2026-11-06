@@ -762,10 +762,11 @@ fn render_human(path: &str, source: &str, diagnostic: &Diagnostic, show_source: 
         diagnostic.message()
     );
     if show_source {
-        let line_text = expand_tabs(&source[line_start..line_end]);
-        let caret_start = floor_char_boundary(source, span.start.clamp(line_start, line_end));
+        let content_start = line_content_start(source, line_start);
+        let line_text = expand_tabs(&source[content_start..line_end]);
+        let caret_start = floor_char_boundary(source, span.start.clamp(content_start, line_end));
         let caret_end = floor_char_boundary(source, span.end.clamp(caret_start, line_end));
-        let padding = display_padding(&source[line_start..caret_start]);
+        let padding = display_padding(&source[content_start..caret_start]);
         let mut carets = display_carets(&source[caret_start..caret_end]);
         if carets.is_empty() {
             carets.push('^');
@@ -803,9 +804,18 @@ fn line_bounds(source: &str, offset: usize) -> (usize, usize) {
     (line_start, line_end)
 }
 
+fn line_content_start(source: &str, line_start: usize) -> usize {
+    if line_start == 0 && source.starts_with('\u{feff}') {
+        line_start + '\u{feff}'.len_utf8()
+    } else {
+        line_start
+    }
+}
+
 fn source_column(source: &str, line_start: usize, offset: usize) -> usize {
-    let offset = floor_char_boundary(source, offset.max(line_start).min(source.len()));
-    source[line_start..offset].chars().count() + 1
+    let content_start = line_content_start(source, line_start);
+    let offset = floor_char_boundary(source, offset.max(content_start).min(source.len()));
+    source[content_start..offset].chars().count() + 1
 }
 
 fn expand_tabs(value: &str) -> String {

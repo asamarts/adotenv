@@ -1345,11 +1345,41 @@ fn check_github_uses_notice_for_info_diagnostics() {
     let output = run(&["check", "--format=github", file.to_str().unwrap()]);
     assert!(output.status.success());
     assert!(stdout(&output).contains("::notice"));
-    assert!(stdout(&output).contains("title=dotenv.bom"));
+    assert!(stdout(&output).contains("line=1,col=1,title=dotenv.bom"));
 
     let output = run(&["check", "--format=json", file.to_str().unwrap()]);
     assert!(output.status.success());
     assert!(stdout(&output).contains("\"version\":1"));
+}
+
+#[test]
+fn check_hides_a_leading_bom_from_columns_and_source() {
+    let dir = TempDir::new();
+    let file = dir.file("bom.env", "\u{feff}BAD KEY=secret\n");
+
+    let output = run(&["check", file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = stdout(&output);
+    assert!(text.contains(":1:1: error[dotenv.invalid-key]"));
+    assert!(text.contains(":1:1: info[dotenv.bom]"));
+
+    let output = run(&["check", "--source", file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = stdout(&output);
+    assert!(text.contains("1 | BAD KEY=secret"));
+    assert!(!text.contains('\u{feff}'));
+    assert!(text.contains("| ^^^^^^^"));
+
+    let output = run(&["check", "--format", "github", file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = stdout(&output);
+    assert!(text.contains("line=1,col=1,title=dotenv.invalid-key"));
+    assert!(text.contains("line=1,col=1,title=dotenv.bom"));
+    assert!(!text.contains("col=2"));
+
+    let output = run(&["check", "--format", "json", file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stdout(&output).contains("\"span\":{\"start\":3,\"end\":10}"));
 }
 
 #[test]
