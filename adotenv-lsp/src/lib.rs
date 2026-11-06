@@ -143,11 +143,10 @@ pub fn completion(text: &str, position: Position) -> CompletionResponse {
         .map_or(0, |index| index + 1);
     let prefix = &text[line_start..offset];
     let trimmed = prefix.trim_start();
-    let at_key_start = trimmed.is_empty()
-        || trimmed == "export"
-        || trimmed
-            .strip_prefix("export ")
-            .is_some_and(|rest| rest.trim().is_empty());
+    let key_prefix = trimmed.strip_prefix("export ").unwrap_or(trimmed);
+    let at_key_start = !key_prefix.contains('=')
+        && !key_prefix.contains('#')
+        && !key_prefix.chars().any(char::is_whitespace);
     let after_reference = prefix.rfind('$').is_some_and(|dollar| {
         let tail = &prefix[dollar + 1..];
         let name = tail.strip_prefix('{').unwrap_or(tail);
@@ -174,6 +173,27 @@ pub fn completion(text: &str, position: Position) -> CompletionResponse {
             })
             .collect(),
     )
+}
+
+/// Applies one LSP content change to a document string.
+///
+/// A `None` range replaces the whole document. A ranged change uses UTF-16
+/// line and column coordinates, including the same BOM-adjusted columns as the
+/// rest of this crate. Returns `None` when the range is out of bounds.
+#[must_use]
+pub fn apply_change(text: &str, range: Option<Range>, replacement: &str) -> Option<String> {
+    let Some(range) = range else {
+        return Some(replacement.to_owned());
+    };
+    let mapped = Mapped::new(text);
+    let start = mapped.offset(range.start)?;
+    let end = mapped.offset(range.end)?;
+    if start > end || end > text.len() {
+        return None;
+    }
+    let mut output = text.to_owned();
+    output.replace_range(start..end, replacement);
+    Some(output)
 }
 
 /// Finds the declaration of the key or reference at `position`.

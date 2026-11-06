@@ -2,7 +2,9 @@
 
 use std::{collections::HashMap, error::Error};
 
-use adotenv_lsp::{completion, definition, diagnostics, hover, references, rename, LspOptions};
+use adotenv_lsp::{
+    apply_change, completion, definition, diagnostics, hover, references, rename, LspOptions,
+};
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
     CompletionOptions, CompletionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
@@ -18,7 +20,9 @@ fn main() -> Result<()> {
         .with_mask_values(std::env::args().any(|argument| argument == "--mask-values"));
     let (connection, io_threads) = Connection::stdio();
     let capabilities = ServerCapabilities {
-        text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
+        text_document_sync: Some(TextDocumentSyncCapability::Kind(
+            TextDocumentSyncKind::INCREMENTAL,
+        )),
         completion_provider: Some(CompletionOptions {
             trigger_characters: Some(vec!["$".to_owned(), "{".to_owned()]),
             ..CompletionOptions::default()
@@ -79,10 +83,13 @@ fn handle_notification(
             let params: DidChangeTextDocumentParams =
                 serde_json::from_value(notification.params.clone())?;
             let uri = params.text_document.uri;
-            if let Some(change) = params.content_changes.into_iter().last() {
-                documents.insert(uri.as_str().to_owned(), change.text);
-                publish_diagnostics(connection, &uri, documents)?;
+            let mut text = documents.get(uri.as_str()).cloned().unwrap_or_default();
+            for change in params.content_changes {
+                text = apply_change(&text, change.range, &change.text)
+                    .ok_or("invalid incremental document change")?;
             }
+            documents.insert(uri.as_str().to_owned(), text);
+            publish_diagnostics(connection, &uri, documents)?;
         }
         "textDocument/didClose" => {
             let params: DidCloseTextDocumentParams =

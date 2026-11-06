@@ -34,9 +34,9 @@ environment values must be explicit and opt-in.
 
 ## Transport
 
-The binary is a synchronous LSP server over standard input and output. It asks
-clients for full document synchronization and publishes diagnostics after
-`didOpen` and `didChange`.
+The binary is a synchronous LSP server over standard input and output. It
+uses UTF-16 incremental document synchronization, accepts full-document
+replacements, and publishes diagnostics after `didOpen` and `didChange`.
 
 The library functions are transport-free and accept an `lsp_types::Uri` plus
 source text, so tests and other clients can use the operations directly.
@@ -48,5 +48,4 @@ The LSP companion requires Rust 1.85 because its `lsp-server` transport uses the
 and dependency-free.
 
 The companion is a prototype. It does not yet offer workspace symbols, code
-actions, completion resolution, incremental synchronization or a verified
-reference rename.
+actions, completion resolution or a verified reference rename.
