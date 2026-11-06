@@ -135,7 +135,29 @@ fn severity(severity: Severity) -> DiagnosticSeverity {
 /// can filter it using their normal completion prefix.
 #[must_use]
 pub fn completion(text: &str, position: Position) -> CompletionResponse {
-    let _ = position;
+    let Some(offset) = Mapped::new(text).offset(position) else {
+        return CompletionResponse::Array(Vec::new());
+    };
+    let line_start = text[..offset]
+        .rfind(['\n', '\r'])
+        .map_or(0, |index| index + 1);
+    let prefix = &text[line_start..offset];
+    let trimmed = prefix.trim_start();
+    let at_key_start = trimmed.is_empty()
+        || trimmed == "export"
+        || trimmed
+            .strip_prefix("export ")
+            .is_some_and(|rest| rest.trim().is_empty());
+    let after_reference = prefix.rfind('$').is_some_and(|dollar| {
+        let tail = &prefix[dollar + 1..];
+        let name = tail.strip_prefix('{').unwrap_or(tail);
+        name.chars()
+            .all(|character| character.is_alphanumeric() || character == '_')
+    });
+    if !at_key_start && !after_reference {
+        return CompletionResponse::Array(Vec::new());
+    }
+
     let (document, _) = parse(text);
     let mut keys = BTreeSet::new();
     for entry in document.entries() {
