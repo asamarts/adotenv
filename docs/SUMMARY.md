@@ -28,6 +28,7 @@
 
 - [Architecture](design/architecture.md)
 - [Feature decisions](design/feature-decisions.md)
+- [Format contract](design/format-contract.md)
 - [Quality](design/quality.md)
 - [Test audit](design/test-audit.md)
 - [Performance](design/performance.md)

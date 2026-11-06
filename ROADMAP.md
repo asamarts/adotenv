@@ -44,6 +44,11 @@ work are recorded there.
    reproducible.
 6. Keep the core dependency-free. New I/O, process or third-party behavior
    belongs in opt-in features or companion crates.
+7. Follow the shared format contract in
+   [format-contract.md](docs/design/format-contract.md), which adotenv and ayaml are
+   adopting. Shared test vectors follow in
+   [#27](https://github.com/asamarts/adotenv/issues/27). The core stays dependency-free and
+   keeps its own types; shared code, if any, is only for companion crates.
 
 ## 1.0 criteria
 
@@ -88,6 +93,7 @@ All met for 1.0.0:
 | [test-audit.md](docs/design/test-audit.md) | Coverage and known test gaps |
 | [performance.md](docs/design/performance.md) | Benchmarks, memory and budgets |
 | [feature-decisions.md](docs/design/feature-decisions.md) | Adopt, defer and reject decisions |
+| [format-contract.md](docs/design/format-contract.md) | Shared public shapes with ayaml |
 | [1.0-readiness.md](docs/design/1.0-readiness.md) | Release evidence checklist |
 | [1.0-fix-round.md](docs/design/1.0-fix-round.md) | Pre-1.0 audit fixes and decisions |
 
