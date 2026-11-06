@@ -704,6 +704,9 @@ fn is_excluded(excludes: &GlobSet, root: &Path, path: &Path) -> bool {
         || path
             .strip_prefix(root)
             .is_ok_and(|relative| excludes.is_match(relative))
+        || path
+            .file_name()
+            .is_some_and(|name| excludes.is_match(Path::new(name)))
 }
 
 fn walk(

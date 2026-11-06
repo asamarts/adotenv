@@ -281,3 +281,12 @@ fn fix_batches_renames_sorting_and_quote_style() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(fs::read_to_string(&file).unwrap(), "A=\"one\"\nB=\"two\"\n");
 }
+
+#[test]
+fn exclude_matches_an_explicit_file_by_basename() {
+    let dir = TempDir::new();
+    let file = dir.file("app.env", "A=1\nA=2\n");
+    let output = run(&["--exclude=app.env", file.to_str().unwrap()]);
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout.len(), 0);
+}
