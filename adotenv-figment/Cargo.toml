@@ -20,7 +20,7 @@ all-features = true
 
 [dependencies]
 adotenv = { path = "..", version = "1.0.0" }
-figment = { version = "0.10", default-features = false }
+figment = { version = "0.10.19", default-features = false }
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }

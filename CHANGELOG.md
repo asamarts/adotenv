@@ -19,6 +19,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   edit ordering and GitHub escaping, plus a JSON Schema for the `check` report.
   The vectors carry SHA-256 hashes in a manifest.
 
+### Changed
+
+- `adotenv-figment` requires `figment` 0.10.19 or later; earlier 0.10 releases
+  use a serde path that current releases no longer provide.
+- The CI gate resolves workspace dependencies to their lowest compatible
+  versions and runs the full test suite.
+
 ### Fixed
 
 - `adotenv-cli check` human and GitHub columns no longer count a leading
