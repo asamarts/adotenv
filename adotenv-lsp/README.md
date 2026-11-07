@@ -30,17 +30,29 @@ incremental text changes and full-document replacements.
 ## Library
 
 Linter findings are opt-in through `LspOptions::with_lint_options`. Parser
-diagnostics remain enabled independently.
+diagnostics remain enabled independently. The crate re-exports `LintOptions`,
+`KeyCase`, `QuoteStyle`, `EqualsSpacing`, `Rule` and `Severity` so callers can
+configure a policy without a separate direct dependency.
+
+`LintOptions::new()` includes duplicate-key findings, which overlap parser
+diagnostics. Disable `duplicate_keys` when publishing both. The stdio binary
+does not currently expose linter flags; embedding clients enable linter policy
+explicitly.
 
 The operations are also available as functions over a source string and an
 `lsp_types::Uri`:
 
 ```rust,ignore
-use adotenv_lsp::{diagnostics, LspOptions};
+use adotenv_lsp::{diagnostics, KeyCase, LintOptions, LspOptions};
 use lsp_types::Uri;
 
 let uri: Uri = "file:///tmp/.env".parse().unwrap();
-let diagnostics = diagnostics("A=1\nBAD KEY=2\n", &uri, &LspOptions::new());
+let options = LspOptions::new().with_lint_options(
+    LintOptions::new()
+        .with_duplicate_keys(false)
+        .with_key_case(KeyCase::Upper),
+);
+let diagnostics = diagnostics("A=1\nBAD KEY=2\n", &uri, &options);
 ```
 
 Rename deliberately refuses a key that is referenced from a value, because the

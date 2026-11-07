@@ -1,11 +1,12 @@
 //! Focused tests for the transport-free LSP operations.
 
 use adotenv_lsp::{
-    apply_change, completion, definition, diagnostics, hover, references, rename, LintOptions,
-    LspOptions, RenameError,
+    apply_change, completion, definition, diagnostics, hover, references, rename, EqualsSpacing,
+    KeyCase, LintOptions, LspOptions, QuoteStyle, RenameError, Rule, Severity,
 };
 use lsp_types::{
-    CompletionResponse, GotoDefinitionResponse, HoverContents, NumberOrString, Position, Uri,
+    CompletionResponse, DiagnosticSeverity, GotoDefinitionResponse, HoverContents, NumberOrString,
+    Position, Uri,
 };
 
 fn uri() -> Uri {
@@ -36,6 +37,20 @@ fn content_changes_use_utf16_ranges_and_accept_full_replacements() {
     );
     let out_of_bounds = lsp_types::Range::new(position(0, 9), position(0, 10));
     assert_eq!(apply_change("A=1\n", Some(out_of_bounds), "x"), None);
+
+    let bom = apply_change(
+        "\u{feff}A=1\n",
+        Some(lsp_types::Range::new(position(0, 0), position(0, 1))),
+        "B",
+    );
+    assert_eq!(bom, Some("\u{feff}B=1\n".to_owned()));
+
+    let astral = apply_change(
+        "A=😀\n",
+        Some(lsp_types::Range::new(position(0, 2), position(0, 4))),
+        "x",
+    );
+    assert_eq!(astral, Some("A=x\n".to_owned()));
 }
 
 #[test]
@@ -59,6 +74,24 @@ fn optional_linter_findings_are_published() {
     let diagnostics = diagnostics("B=2\nA=1\n", &uri(), &options);
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(code(&diagnostics[0]), Some("adotenv-lint.key-order"));
+}
+
+#[test]
+fn linter_policy_types_are_reexported_and_keep_severity() {
+    let options = LspOptions::default().with_lint_options(
+        LintOptions::new()
+            .with_duplicate_keys(false)
+            .with_key_case(KeyCase::Upper)
+            .with_quote_style(QuoteStyle::Double)
+            .with_equals_spacing(EqualsSpacing::Spaces)
+            .with_severity(Rule::KeyCase, Severity::Error),
+    );
+    let diagnostics = diagnostics("host=\"localhost\"\n", &uri(), &options);
+    let finding = diagnostics
+        .iter()
+        .find(|diagnostic| code(diagnostic) == Some("adotenv-lint.key-case"))
+        .expect("key-case finding");
+    assert_eq!(finding.severity, Some(DiagnosticSeverity::ERROR));
 }
 
 #[test]
@@ -101,6 +134,12 @@ fn completion_lists_declared_keys() {
         panic!("expected array completion");
     };
     assert_eq!(items.len(), 2);
+
+    let comment = completion("HOST=localhost\n# $HOST\n", position(1, 3));
+    let CompletionResponse::Array(items) = comment else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items.len(), 0);
 }
 
 #[test]

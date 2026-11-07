@@ -96,7 +96,9 @@ fn handle_notification(
         "textDocument/didClose" => {
             let params: DidCloseTextDocumentParams =
                 serde_json::from_value(notification.params.clone())?;
-            documents.remove(params.text_document.uri.as_str());
+            let uri = params.text_document.uri;
+            documents.remove(uri.as_str());
+            publish_empty_diagnostics(connection, &uri)?;
         }
         _ => {}
     }
@@ -112,7 +114,19 @@ fn publish_diagnostics(
     let text = documents
         .get(uri.as_str())
         .ok_or("diagnostics requested for an unopened document")?;
-    let params = PublishDiagnosticsParams::new(uri.clone(), diagnostics(text, uri, &options), None);
+    send_diagnostics(connection, uri, diagnostics(text, uri, &options))
+}
+
+fn publish_empty_diagnostics(connection: &Connection, uri: &Uri) -> Result<()> {
+    send_diagnostics(connection, uri, Vec::new())
+}
+
+fn send_diagnostics(
+    connection: &Connection,
+    uri: &Uri,
+    diagnostics: Vec<lsp_types::Diagnostic>,
+) -> Result<()> {
+    let params = PublishDiagnosticsParams::new(uri.clone(), diagnostics, None);
     connection
         .sender
         .send(Message::Notification(Notification::new(
