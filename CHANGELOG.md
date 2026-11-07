@@ -15,6 +15,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The LSP rename operation now uses `Document::rename_with_references`, so
   editor renames include literal value references.
 
+### Fixed
+
+- LSP definition, hover, references and rename resolve the innermost nested
+  reference in forms such as `${OUTER:-$INNER}` instead of the containing form.
+
 ## [adotenv-lint 0.1.1] - 2026-11-06
 
 ### Changed

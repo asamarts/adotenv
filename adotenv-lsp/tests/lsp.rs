@@ -202,6 +202,28 @@ fn rename_uses_verified_edits_when_the_key_is_unreferenced() {
 }
 
 #[test]
+fn nested_references_resolve_to_the_innermost_name() {
+    let source = "HOST=localhost\nOTHER=other\nURL=${OTHER:-$HOST}\n";
+    let target = definition(source, &uri(), position(2, 15)).unwrap();
+    let GotoDefinitionResponse::Scalar(location) = target else {
+        panic!("expected one definition location");
+    };
+    assert_eq!(location.range.start, position(0, 0));
+    assert_eq!(location.range.end, position(0, 4));
+
+    let locations = references(source, &uri(), position(2, 15), true);
+    assert_eq!(locations.len(), 2);
+    assert_eq!(locations[0].range.start, position(0, 0));
+    assert_eq!(locations[1].range.start, position(2, 13));
+
+    let edit = rename(source, &uri(), position(2, 15), "SERVER").unwrap();
+    let edits = edit.changes.unwrap().get(&uri()).unwrap().clone();
+    assert_eq!(edits.len(), 2);
+    assert_eq!(edits[0].new_text, "SERVER");
+    assert_eq!(edits[1].new_text, "SERVER");
+}
+
+#[test]
 #[allow(clippy::mutable_key_type)]
 fn rename_updates_literal_value_references() {
     let source = "HOST=localhost\nURL=${HOST}\nPORT=$HOST\n";
