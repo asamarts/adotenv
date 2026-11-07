@@ -22,36 +22,31 @@ version is not on crates.io yet. Bump an adapter or the linter when its code,
 its third-party dependency or its `adotenv` requirement changes. Changing the
 `adotenv` major version requirement is a breaking change for dependents.
 
-All six published crates are registered with Trusted Publishing. They publish
-through GitHub Actions OIDC. `adotenv-lint` 0.1.0 was first published manually
-on 2026-11-06; 0.1.1 was its first OIDC release. Its Trusted Publisher is
-configured for this repository, workflow `release.yml` and no environment.
+The six core and companion crates are registered with Trusted Publishing. They
+publish through GitHub Actions OIDC. `adotenv-lint` 0.1.0 was first published
+manually on 2026-11-06; 0.1.1 was its first OIDC release. Its Trusted Publisher
+is configured for this repository, workflow `release.yml` and no environment.
 
-The `adotenv-lsp` prototype is published independently through the
-`publish_lsp=true` workflow dispatch, not through a core `vX.Y.Z` tag. Its
-0.1.0 package currently verifies, and
-`cargo publish --dry-run -p adotenv-lsp --locked` succeeds against `adotenv`
-1.4.0 and `adotenv-lint` 0.1.1.
+`adotenv-lsp` 0.1.0 was first published on 2026-11-07 through the
+`publish_lsp=true` workflow dispatch, using a temporary bootstrap token. The
+token secret has been removed and must be revoked on crates.io. Register its
+Trusted Publisher for this repository, workflow `release.yml` and no
+environment before the next LSP release so subsequent runs can use OIDC.
 
-### LSP publication checklist
+### LSP releases
 
-The first LSP upload needs a temporary `publish-new` token because crates.io
-cannot register a trusted publisher for a crate that does not exist yet:
+For each later `adotenv-lsp` version:
 
-1. Freeze the public API for the intended 0.x line and document any remaining
+1. Freeze the public API for the intended 0.x line and document remaining
    prototype limitations.
 2. Add an `## [adotenv-lsp X.Y.Z] - YYYY-MM-DD` changelog section rather than
    relying on the core release entry.
-3. Create a short-lived `publish-new` token and add it as
-   `CARGO_REGISTRY_TOKEN`.
-4. Dispatch `release.yml` with `publish_lsp=true`. It runs the quality gate,
+3. Update the `adotenv` and `adotenv-lint` dependency constraints if needed.
+4. Run `cargo package -p adotenv-lsp --locked` and
+   `cargo publish --dry-run -p adotenv-lsp --locked`.
+5. Dispatch `release.yml` with `publish_lsp=true`. It runs the quality gate,
    checks the version is unpublished and publishes after the core dependencies.
-5. Register a Trusted Publisher for this repository, workflow `release.yml` and
-   no environment.
-6. Delete the bootstrap secret and revoke the token.
-7. Add the crates.io and docs.rs pages to the verification checklist.
-8. For later LSP versions, only the version and changelog need to change;
-   `publish_lsp=true` uses OIDC.
+6. Verify the new crates.io and docs.rs pages.
 
 ## Preflight
 
@@ -104,9 +99,13 @@ For a linter-only release without a core tag, dispatch the same workflow with
 `publish_linter=true`. It runs the quality gate, verifies the current linter
 version is unpublished, and publishes it through OIDC.
 
+For an LSP release, dispatch the same workflow with `publish_lsp=true`. The
+first LSP upload uses a temporary bootstrap token; later versions use OIDC once
+its Trusted Publisher is registered.
+
 ## Verify
 
-Check all six crate pages:
+Check the published crate pages:
 
 - <https://crates.io/crates/adotenv>
 - <https://crates.io/crates/adotenv-process>
@@ -114,8 +113,9 @@ Check all six crate pages:
 - <https://crates.io/crates/adotenv-figment>
 - <https://crates.io/crates/adotenv-cli>
 - <https://crates.io/crates/adotenv-lint>
+- <https://crates.io/crates/adotenv-lsp>
 
-Check the docs.rs builds of the five library crates. `adotenv-cli` is a binary
+Check the docs.rs builds of the six library crates. `adotenv-cli` is a binary
 crate and has no library documentation. Confirm that the GitHub Release points
 at the release tag.
 
@@ -130,7 +130,8 @@ changes, use a new patch version.
 
 Trusted Publishing is tied to the workflow filename `release.yml` and to an empty
 GitHub environment. Update every crate's trusted publisher before renaming the
-workflow or adding an environment.
+workflow or adding an environment. `adotenv-lsp` still needs its trusted
+publisher registered after the 0.1.0 bootstrap publish.
 
 ## New crates
 
