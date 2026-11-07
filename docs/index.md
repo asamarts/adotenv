@@ -61,7 +61,7 @@ assert_eq!(values.get("A").map(String::as_str), Some("2"));
 | [`adotenv-process`](https://crates.io/crates/adotenv-process) | Apply a loaded environment to the current process. | [API](https://docs.rs/adotenv-process) |
 | [`adotenv-config`](https://crates.io/crates/adotenv-config) | Use values as a `config` source. | [API](https://docs.rs/adotenv-config) |
 | [`adotenv-figment`](https://crates.io/crates/adotenv-figment) | Use values as a Figment provider. | [API](https://docs.rs/adotenv-figment) |
-| `adotenv-lsp` (workspace prototype) | Language server operations for editors. | [Language server](design/lsp.md) |
+| [`adotenv-lsp`](https://crates.io/crates/adotenv-lsp) | Language server operations for editors. | [Language server](design/lsp.md) |
 
 ## Explore
 
