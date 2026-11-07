@@ -366,10 +366,14 @@ fn entry_at<'a>(document: &'a Document<'_>, offset: usize) -> Option<Entry<'a>> 
 }
 
 fn reference_at(document: &Document<'_>, offset: usize) -> Option<Reference> {
+    // An outer operator or command span contains every nested reference.
+    // Select the deepest candidate so a position inside `${OUTER:-$INNER}`
+    // resolves to `INNER`, not to the containing form.
     document
         .entries()
         .flat_map(Entry::references)
-        .find(|reference| reference.span.contains(&offset))
+        .filter(|reference| reference.span.contains(&offset))
+        .max_by_key(|reference| reference.depth)
 }
 
 fn reference_name<'a>(document: &'a Document<'_>, reference: &Reference) -> Option<&'a str> {
