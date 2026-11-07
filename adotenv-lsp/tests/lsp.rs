@@ -1,5 +1,6 @@
 //! Focused tests for the transport-free LSP operations.
 
+use adotenv::EditError;
 use adotenv_lsp::{
     apply_change, completion, definition, diagnostics, hover, references, rename, EqualsSpacing,
     KeyCase, LintOptions, LspOptions, QuoteStyle, RenameError, Rule, Severity,
@@ -201,13 +202,59 @@ fn rename_uses_verified_edits_when_the_key_is_unreferenced() {
 }
 
 #[test]
-fn rename_refuses_a_referenced_key() {
+#[allow(clippy::mutable_key_type)]
+fn rename_updates_literal_value_references() {
+    let source = "HOST=localhost\nURL=${HOST}\nPORT=$HOST\n";
+    let edit = rename(source, &uri(), position(0, 0), "SERVER").unwrap();
+    let changes = edit.changes.unwrap();
+    let edits = changes.get(&uri()).unwrap();
+    assert_eq!(edits.len(), 3);
+    assert!(edits.iter().all(|edit| edit.new_text == "SERVER"));
+    assert_eq!(
+        edits[1].range,
+        lsp_types::Range::new(position(1, 6), position(1, 10))
+    );
+    assert_eq!(
+        edits[2].range,
+        lsp_types::Range::new(position(2, 6), position(2, 10))
+    );
+}
+
+#[test]
+#[allow(clippy::mutable_key_type)]
+fn rename_from_a_reference_targets_the_referenced_key() {
+    let source = "HOST=localhost\nURL=${HOST}\n";
+    let edit = rename(source, &uri(), position(1, 7), "SERVER").unwrap();
+    let edits = edit.changes.unwrap().get(&uri()).unwrap().clone();
+    assert_eq!(edits.len(), 2);
+    assert!(edits.iter().all(|edit| edit.new_text == "SERVER"));
+}
+
+#[test]
+#[allow(clippy::mutable_key_type)]
+fn rename_braces_a_dotted_reference() {
+    let source = "HOST=localhost\nURL=$HOST\n";
+    let edit = rename(source, &uri(), position(0, 0), "APP.HOST").unwrap();
+    let edits = edit.changes.unwrap().get(&uri()).unwrap().clone();
+    assert_eq!(edits.len(), 2);
+    assert_eq!(edits[1].new_text, "${APP.HOST}");
+    assert_eq!(
+        edits[1].range,
+        lsp_types::Range::new(position(1, 4), position(1, 9))
+    );
+}
+
+#[test]
+fn rename_rejects_a_key_that_cannot_be_a_reference() {
     let error = rename(
         "HOST=localhost\nURL=${HOST}\n",
         &uri(),
         position(0, 0),
-        "SERVER",
+        "APP-HOST",
     )
     .unwrap_err();
-    assert!(matches!(error, RenameError::References));
+    assert!(matches!(
+        error,
+        RenameError::Edit(EditError::InvalidReferenceKey)
+    ));
 }

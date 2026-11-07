@@ -12,6 +12,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   matching variable reference in one verified result. It preserves simple
   unbraced references, converts references that need braces, and rejects keys
   that cannot be written in reference syntax.
+- The LSP rename operation now uses `Document::rename_with_references`, so
+  editor renames include literal value references.
 
 ## [adotenv-lint 0.1.1] - 2026-11-06
 
