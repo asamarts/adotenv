@@ -4,12 +4,11 @@
 //! [`Uri`], and receive LSP types. The binary in this crate adapts the
 //! functions to stdio using `lsp-server`.
 //!
-//! The operations are intentionally conservative. Definition follows keys and
-//! literal `$VAR`/`${VAR}` references; rename is refused when a value refers
-//! to the key because this companion has not adopted the core
-//! `Document::rename_with_references` primitive yet. Hover values can be masked
-//! with [`LspOptions::with_mask_values`] and linter findings can be enabled with
-//! [`LspOptions::with_lint_options`].
+//! The operations are conservative. Definition follows keys and literal
+//! `$VAR`/`${VAR}` references; rename uses `Document::rename_with_references`
+//! so the declaration and its literal references change together. Hover values
+//! can be masked with [`LspOptions::with_mask_values`] and linter findings can
+//! be enabled with [`LspOptions::with_lint_options`].
 
 use std::{
     collections::{BTreeSet, HashMap},
@@ -71,12 +70,7 @@ impl LspOptions {
 pub enum RenameError {
     /// No declaration or reference exists at the requested position.
     NoSymbol,
-    /// The key is referenced from at least one value.
-    ///
-    /// Renaming only the declaration would change meaning; this companion has
-    /// not adopted the core `Document::rename_with_references` primitive yet.
-    References,
-    /// The declaration rename was refused by `adotenv`.
+    /// The rename was refused by `adotenv`.
     Edit(EditError),
 }
 
@@ -84,9 +78,6 @@ impl fmt::Display for RenameError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NoSymbol => formatter.write_str("no .env key at the requested position"),
-            Self::References => {
-                formatter.write_str("rename refused: the key is referenced from a value")
-            }
             Self::Edit(error) => write!(formatter, "rename refused: {error}"),
         }
     }
@@ -321,15 +312,17 @@ pub fn references(
     locations
 }
 
-/// Renames a key declaration when no value references it.
+/// Renames a key declaration and its literal references.
 ///
-/// The result uses the verified edits returned by `adotenv`.
+/// The symbol may be selected from a declaration key or from a `$VAR`/`${VAR}`
+/// reference. The result uses the verified text edits returned by
+/// `Document::rename_with_references`.
 ///
 /// # Errors
 ///
-/// Returns [`RenameError::NoSymbol`] when `position` is not on an entry,
-/// [`RenameError::References`] when a value references the key, and
-/// [`RenameError::Edit`] when the declaration rename is invalid.
+/// Returns [`RenameError::NoSymbol`] when `position` is not on a key or
+/// reference, and [`RenameError::Edit`] when the rename is invalid or a new key
+/// cannot be written as a variable reference.
 pub fn rename(
     text: &str,
     uri: &Uri,
@@ -339,17 +332,10 @@ pub fn rename(
     let document = parse_strict(text).map_err(|_| RenameError::NoSymbol)?;
     let mapped = Mapped::new(text);
     let offset = mapped.offset(position).ok_or(RenameError::NoSymbol)?;
-    let entry = entry_at(&document, offset).ok_or(RenameError::NoSymbol)?;
-    let old_name = entry.key().to_owned();
-    if document
-        .entries()
-        .flat_map(Entry::references)
-        .filter_map(|reference| reference_name(&document, &reference))
-        .any(|name| name == old_name)
-    {
-        return Err(RenameError::References);
-    }
-    let edits = document.rename(&old_name, new_name)?;
+    let old_name = name_at(&document, offset)
+        .ok_or(RenameError::NoSymbol)?
+        .to_owned();
+    let edits = document.rename_with_references(&old_name, new_name)?;
     let changes = edits
         .edits()
         .iter()

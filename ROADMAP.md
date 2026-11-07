@@ -18,16 +18,17 @@ The current release provides:
 
 ## Current status
 
-`adotenv`, `adotenv-process` and `adotenv-cli` are at 1.3.0;
+`adotenv`, `adotenv-process` and `adotenv-cli` are in development at 1.4.0;
 `adotenv-config` is at 0.12.0 and `adotenv-figment` at 0.12.1. A pre-release
 audit of 0.10.4 found defects in behavior that 1.0 would freeze. They were
-fixed in 0.11.0, apart from
-the rename collision rule, which shipped in 1.0.0. The fixes are listed in
+fixed in 0.11.0, apart from the rename collision rule, which shipped in 1.0.0.
+The fixes are listed in
 [1.0-fix-round.md](docs/design/1.0-fix-round.md), and the 1.0 evidence was
 collected again on the fixed code
 ([1.0-readiness.md](docs/design/1.0-readiness.md)). The 1.1 audit and its
 fixes are in [1.1-audit.md](docs/design/1.1-audit.md). Version 1.2.0 was
-released on 2026-11-05; version 1.3.0 was released on 2026-11-06. The audit,
+released on 2026-11-05; version 1.3.0 was released on 2026-11-06. The current
+1.4.0 development line adds the verified reference-rename primitive. The audit,
 release evidence and remaining companion work are recorded there.
 
 ## Near-term work
@@ -42,8 +43,8 @@ release evidence and remaining companion work are recorded there.
 4. The optional `adotenv-lint` 0.1.0 policy companion was published on
    2026-11-06, followed by 0.1.1 through crates.io Trusted Publishing. The
    `adotenv-lsp` 0.1.0 editor prototype is in the workspace, with focused
-   library tests and a stdio server. The core reference-aware rename primitive
-   is implemented; adopting it in the LSP is the next editor step. See
+   library tests and a stdio server. It now uses the core reference-aware
+   rename primitive. See
    [#14](https://github.com/asamarts/adotenv/issues/14).
 5. Expand conformance cases only when a real upstream behavior is pinned and
    reproducible.

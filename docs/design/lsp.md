@@ -18,13 +18,12 @@ The prototype offers:
   declaration;
 - hover for a key or reference, with optional value masking;
 - references across declarations and values;
-- rename of a key declaration through `Document::rename` and its
-  `VerifiedEdits`.
+- rename of a key declaration and its literal references through
+  `Document::rename_with_references` and its `VerifiedEdits`.
 
-Rename refuses a key that is referenced from a value. The core now provides
-`Document::rename_with_references`, but this companion has not adopted it yet;
-changing only the declaration would still change meaning. The refusal is
-explicit and tested.
+Rename follows matching `$VAR`/`${VAR}` names. Keys that cannot be written as
+variable-reference names, such as keys containing `-`, fail with the core
+`EditError::InvalidReferenceKey` instead of changing only the declaration.
 
 ## Diagnostics, masking and environment
 
@@ -61,4 +60,4 @@ The LSP companion requires Rust 1.85 because its `lsp-server` transport uses the
 and dependency-free.
 
 The companion is a prototype. It does not yet offer workspace symbols, code
-actions, completion resolution or adoption of the verified reference rename.
+actions or completion resolution.
