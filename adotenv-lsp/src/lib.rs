@@ -18,10 +18,11 @@ use std::{
 
 use adotenv::{
     parse, parse_strict, ColumnEncoding, Document, EditError, Entry, LineIndex,
-    Position as ParserPosition, Reference, Severity,
+    Position as ParserPosition, Reference,
 };
+pub use adotenv::{EqualsSpacing, QuoteStyle, Severity};
 use adotenv_lint::lint;
-pub use adotenv_lint::LintOptions;
+pub use adotenv_lint::{KeyCase, LintOptions, Rule};
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionResponse, Diagnostic as LspDiagnostic,
     DiagnosticRelatedInformation, DiagnosticSeverity, GotoDefinitionResponse, Hover, HoverContents,
@@ -179,6 +180,9 @@ pub fn completion(text: &str, position: Position) -> CompletionResponse {
         .map_or(0, |index| index + 1);
     let prefix = &text[line_start..offset];
     let trimmed = prefix.trim_start();
+    if trimmed.starts_with('#') {
+        return CompletionResponse::Array(Vec::new());
+    }
     let key_prefix = trimmed.strip_prefix("export ").unwrap_or(trimmed);
     let at_key_start = !key_prefix.contains('=')
         && !key_prefix.contains('#')

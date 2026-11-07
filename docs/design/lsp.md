@@ -28,9 +28,13 @@ meaning. The refusal is explicit and tested.
 ## Diagnostics, masking and environment
 
 Parser diagnostics are always enabled. Linter findings are an explicit policy:
-`LspOptions::with_lint_options` accepts the linter's own rule, severity and
-ignored-path options. The default `LspOptions` does not run the linter, so
-diagnostics do not silently depend on a policy configuration.
+`LspOptions::with_lint_options` accepts the linter's own `LintOptions` rule and
+severity policy. The default `LspOptions` does not run the linter, so
+diagnostics do not silently depend on a policy configuration. The stdio binary
+does not expose linter flags yet; embedding clients opt in.
+
+`LintOptions::new()` includes duplicate-key findings, which overlap the parser
+diagnostics. Callers publishing both should disable the linter duplicate rule.
 
 Hover values are visible by default. `LspOptions::with_mask_values(true)` or
 the binary's `--mask-values` flag replaces them with `<redacted>`.
@@ -43,7 +47,8 @@ environment values must be explicit and opt-in.
 
 The binary is a synchronous LSP server over standard input and output. It
 uses UTF-16 incremental document synchronization, accepts full-document
-replacements, and publishes diagnostics after `didOpen` and `didChange`.
+replacements, publishes diagnostics after `didOpen` and `didChange`, and clears
+them on `didClose`.
 
 The library functions are transport-free and accept an `lsp_types::Uri` plus
 source text, so tests and other clients can use the operations directly.
