@@ -18,12 +18,14 @@ The prototype offers:
   declaration;
 - hover for a key or reference, with optional value masking;
 - references across declarations and values;
-- rename of a key declaration and its literal references through
-  `Document::rename_with_references` and its `VerifiedEdits`.
+- rename of a key declaration and its literal references, selected from either
+  a declaration or a reference, through `Document::rename_with_references` and
+  its `VerifiedEdits`.
 
-Rename follows matching `$VAR`/`${VAR}` names. Keys that cannot be written as
-variable-reference names, such as keys containing `-`, fail with the core
-`EditError::InvalidReferenceKey` instead of changing only the declaration.
+Rename follows matching `$VAR`/`${VAR}` names. When references exist, keys
+that cannot be written as variable-reference names, such as keys containing
+`-`, fail with the core `EditError::InvalidReferenceKey` instead of changing
+only the declaration.
 
 ## Diagnostics, masking and environment
 

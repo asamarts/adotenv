@@ -11,7 +11,7 @@ It supports:
 - definition lookup for keys and `$VAR`/`${VAR}` references;
 - hover information;
 - references across declarations and values;
-- verified key rename, including literal value references.
+- verified key rename from a key or reference, including literal value references.
 
 The server reads only text sent by the editor. It does not read the process
 environment or resolve references. Hover values can be masked explicitly with
@@ -56,8 +56,9 @@ let diagnostics = diagnostics("A=1\nBAD KEY=2\n", &uri, &options);
 ```
 
 Rename uses `Document::rename_with_references`, so the declaration and every
-matching `$VAR`/`${VAR}` name change together. Keys that cannot be written as
-variable references are rejected through `EditError::InvalidReferenceKey`.
+matching `$VAR`/`${VAR}` name change together. When references exist, keys that
+cannot be written as variable references are rejected through
+`EditError::InvalidReferenceKey`.
 
 This crate requires Rust 1.85 because its LSP transport dependency uses the
 2024 edition. The core `adotenv` crate remains `no_std`, dependency-free and

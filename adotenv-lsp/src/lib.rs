@@ -321,8 +321,9 @@ pub fn references(
 /// # Errors
 ///
 /// Returns [`RenameError::NoSymbol`] when `position` is not on a key or
-/// reference, and [`RenameError::Edit`] when the rename is invalid or a new key
-/// cannot be written as a variable reference.
+/// reference, and [`RenameError::Edit`] when the rename is invalid or, with
+/// matching references present, a new key cannot be written as a variable
+/// reference.
 pub fn rename(
     text: &str,
     uri: &Uri,

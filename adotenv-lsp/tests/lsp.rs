@@ -234,7 +234,7 @@ fn rename_from_a_reference_targets_the_referenced_key() {
 #[allow(clippy::mutable_key_type)]
 fn rename_braces_a_dotted_reference() {
     let source = "HOST=localhost\nURL=$HOST\n";
-    let edit = rename(source, &uri(), position(0, 0), "APP.HOST").unwrap();
+    let edit = rename(source, &uri(), position(1, 5), "APP.HOST").unwrap();
     let edits = edit.changes.unwrap().get(&uri()).unwrap().clone();
     assert_eq!(edits.len(), 2);
     assert_eq!(edits[1].new_text, "${APP.HOST}");
@@ -242,6 +242,28 @@ fn rename_braces_a_dotted_reference() {
         edits[1].range,
         lsp_types::Range::new(position(1, 4), position(1, 9))
     );
+}
+
+#[test]
+#[allow(clippy::mutable_key_type)]
+fn rename_keeps_bom_adjusted_positions() {
+    let source = "\u{feff}HOST=localhost\nURL=${HOST}\n";
+    let edit = rename(source, &uri(), position(0, 0), "SERVER").unwrap();
+    let edits = edit.changes.unwrap().get(&uri()).unwrap().clone();
+    assert_eq!(
+        edits[0].range,
+        lsp_types::Range::new(position(0, 0), position(0, 4))
+    );
+    assert_eq!(
+        edits[1].range,
+        lsp_types::Range::new(position(1, 6), position(1, 10))
+    );
+}
+
+#[test]
+fn rename_requires_a_key_or_reference_position() {
+    let error = rename("HOST=localhost\n", &uri(), position(0, 6), "SERVER").unwrap_err();
+    assert!(matches!(error, RenameError::NoSymbol));
 }
 
 #[test]
