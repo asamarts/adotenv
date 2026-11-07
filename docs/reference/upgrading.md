@@ -117,11 +117,11 @@ Releases within 1.x keep the API. These fixes change results:
 - 1.1.2: `encode_value_with` represents a Node value whose only legal token
   needs a repeated backtick run to survive quote recovery, instead of returning
   `EncodeError::Unrepresentable`.
-- Unreleased: `adotenv-cli check` human and GitHub columns on line 1 no longer
+- 1.3.0: `adotenv-cli check` human and GitHub columns on line 1 no longer
   count a leading byte-order mark, and `--source` hides it. Use
   `LineIndex::without_bom` for the same columns in the library; the 1.x default
   still counts the mark.
-- Unreleased: `ParseOptions` and the `_with_options` parse functions add
+- 1.3.0: `ParseOptions` and the `_with_options` parse functions add
   opt-in limits for input bytes, items and diagnostics. A limit failure is a
   `dotenv.limit-exceeded` diagnostic with `Diagnostic::limit()` data.
   `LoadOptions::with_limits` applies the same limits to loading and bounds the
