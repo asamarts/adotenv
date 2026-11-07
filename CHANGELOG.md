@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `Document::rename_with_references`, which renames a declaration and every
+  matching variable reference in one verified result. It preserves simple
+  unbraced references, converts references that need braces, and rejects keys
+  that cannot be written in reference syntax.
+
 ## [adotenv-lint 0.1.1] - 2026-11-06
 
 ### Changed

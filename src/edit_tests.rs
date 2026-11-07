@@ -389,6 +389,139 @@ fn duplicate_keys_require_occurrences_but_occurrence_batches_are_supported() {
 }
 
 #[test]
+fn rename_with_references_updates_declaration_and_matching_names() {
+    let source = "HOST=localhost\nURL=${HOST}/api\nPORT=$HOST\n# keep HOST\n";
+    let (doc, _) = parse(source);
+    let result = doc.rename_with_references("HOST", "SERVER").unwrap();
+    assert_eq!(
+        result.as_str(),
+        "SERVER=localhost\nURL=${SERVER}/api\nPORT=$SERVER\n# keep HOST\n"
+    );
+    assert_eq!(result.edits().len(), 3);
+    replay(source, &result);
+    let (after, _) = parse(result.as_str());
+    assert_eq!(after.get_entry("SERVER").unwrap().line(), 1);
+    let reference = &after.unique("URL").unwrap().references()[0];
+    assert_eq!(
+        reference.name.clone().map(|name| &after.source()[name]),
+        Some("SERVER")
+    );
+}
+
+#[test]
+fn rename_with_references_braces_a_dotted_unbraced_name() {
+    let source = "HOST=localhost\nURL=$HOST/api\n";
+    let (doc, _) = parse(source);
+    let result = doc.rename_with_references("HOST", "APP.HOST").unwrap();
+    assert_eq!(result.as_str(), "APP.HOST=localhost\nURL=${APP.HOST}/api\n");
+    assert_eq!(result.edits().len(), 2);
+    replay(source, &result);
+    let (after, _) = parse(result.as_str());
+    let reference = &after.unique("URL").unwrap().references()[0];
+    assert_eq!(
+        reference.name.clone().map(|name| &after.source()[name]),
+        Some("APP.HOST")
+    );
+}
+
+#[test]
+fn rename_with_references_handles_nested_operators_and_existing_targets() {
+    let source = "HOST=localhost\nURL=${HOST:-$HOST}/api\nOTHER=$HOST\n";
+    let (doc, _) = parse(source);
+    let result = doc.rename_with_references("HOST", "SERVER").unwrap();
+    assert_eq!(
+        result.as_str(),
+        "SERVER=localhost\nURL=${SERVER:-$SERVER}/api\nOTHER=$SERVER\n"
+    );
+    assert_eq!(result.edits().len(), 4);
+    replay(source, &result);
+
+    let source = "A=1\nB=$NEW\nC=$A\n";
+    let (doc, _) = parse(source);
+    let result = doc.rename_with_references("A", "NEW").unwrap();
+    assert_eq!(result.as_str(), "NEW=1\nB=$NEW\nC=$NEW\n");
+    replay(source, &result);
+
+    let source = "A=1\nURL=${A:-$A}\n";
+    let (doc, _) = parse(source);
+    let result = doc.rename_with_references("A", "APP.A").unwrap();
+    assert_eq!(result.as_str(), "APP.A=1\nURL=${APP.A:-${APP.A}}\n");
+    replay(source, &result);
+}
+
+#[test]
+fn rename_with_references_keeps_escaped_and_single_quoted_text() {
+    let source = "A=1\nB=\"\\$A\"\nC='$A'\n";
+    let (doc, _) = parse(source);
+    let result = doc.rename_with_references("A", "SERVER").unwrap();
+    assert_eq!(result.as_str(), "SERVER=1\nB=\"\\$SERVER\"\nC='$SERVER'\n");
+    replay(source, &result);
+}
+
+#[test]
+fn rename_with_references_preserves_bom_crlf_and_multiline_items() {
+    let source = "\u{feff}A=1\r\nB='line one\r\n$A'\r\nC=$A\r\n";
+    let (doc, _) = parse(source);
+    let result = doc.rename_with_references("A", "NEW").unwrap();
+    assert_eq!(
+        result.as_str(),
+        "\u{feff}NEW=1\r\nB='line one\r\n$NEW'\r\nC=$NEW\r\n"
+    );
+    replay(source, &result);
+}
+
+#[test]
+fn rename_with_references_preserves_unrelated_source_and_rejects_unspellable_names() {
+    let source = "# A=old\nBAD KEY=value\nA=1\nB=$A\n";
+    let (doc, _) = parse(source);
+    let result = doc.rename_with_references("A", "RENAMED").unwrap();
+    assert_eq!(
+        result.as_str(),
+        "# A=old\nBAD KEY=value\nRENAMED=1\nB=$RENAMED\n"
+    );
+    replay(source, &result);
+
+    let (doc, _) = parse("A=1\nB=$A\n");
+    assert_eq!(
+        doc.rename_with_references("A", "A-B"),
+        Err(EditError::InvalidReferenceKey)
+    );
+    let (doc, _) = parse("A=1\nB=2\n");
+    assert_eq!(
+        doc.rename_with_references("A", "A-B").unwrap().as_str(),
+        "A-B=1\nB=2\n"
+    );
+}
+
+#[test]
+fn rename_with_references_rejects_a_new_line_limit_error() {
+    let dialect = crate::Dialect::PORTABLE.with_line_byte_limit(Some(8));
+    let (doc, _) = parse_with("A=1\nC=xxxx$A\n", dialect);
+    assert_eq!(
+        doc.rename_with_references("A", "LONG"),
+        Err(EditError::WouldChangeMeaning)
+    );
+}
+
+#[test]
+fn rename_with_references_uses_regular_rename_errors() {
+    let (doc, _) = parse("A=1\nA=2\n");
+    assert_eq!(
+        doc.rename_with_references("A", "B"),
+        Err(EditError::Duplicate(2))
+    );
+    let (doc, _) = parse("A=1\nB=2\n");
+    assert_eq!(
+        doc.rename_with_references("A", "B"),
+        Err(EditError::Duplicate(2))
+    );
+    assert_eq!(
+        doc.rename_with_references("MISSING", "B"),
+        Err(EditError::Missing)
+    );
+}
+
+#[test]
 fn insertion_preserves_endings_and_final_newline_conventions() {
     for (source, expected) in [
         ("", "B=x"),

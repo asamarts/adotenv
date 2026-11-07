@@ -6,9 +6,9 @@
 //!
 //! The operations are intentionally conservative. Definition follows keys and
 //! literal `$VAR`/`${VAR}` references; rename is refused when a value refers
-//! to the key because the verified edit API does not yet have a verified
-//! reference-rename primitive. Hover values can be masked with
-//! [`LspOptions::with_mask_values`] and linter findings can be enabled with
+//! to the key because this companion has not adopted the core
+//! `Document::rename_with_references` primitive yet. Hover values can be masked
+//! with [`LspOptions::with_mask_values`] and linter findings can be enabled with
 //! [`LspOptions::with_lint_options`].
 
 use std::{
