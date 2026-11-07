@@ -16,6 +16,7 @@ all-features = true
 
 [dependencies]
 adotenv = { path = "..", version = "1.2.0" }
+adotenv-lint = { path = "../adotenv-lint", version = "0.1.1" }
 lsp-server = "=0.10.0"
 lsp-types = "=0.97.0"
 serde = "1"

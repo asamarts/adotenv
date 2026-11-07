@@ -37,8 +37,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   completion, definition, hover, references, verified declaration rename and
   opt-in hover value masking. Completion is restricted to key positions and
   `$`/`${` reference contexts. The stdio server accepts incremental UTF-16
-  changes and full-document replacements. It reads only editor-supplied text
-  and does not resolve references or inspect the process environment.
+  changes and full-document replacements. Diagnostics can optionally include
+  `adotenv-lint` findings through an explicit `LintOptions` policy. It reads
+  only editor-supplied text and does not resolve references or inspect the
+  process environment.
 
 ### Changed
 

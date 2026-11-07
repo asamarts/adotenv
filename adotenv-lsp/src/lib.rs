@@ -8,7 +8,8 @@
 //! literal `$VAR`/`${VAR}` references; rename is refused when a value refers
 //! to the key because the verified edit API does not yet have a verified
 //! reference-rename primitive. Hover values can be masked with
-//! [`LspOptions::with_mask_values`].
+//! [`LspOptions::with_mask_values`] and linter findings can be enabled with
+//! [`LspOptions::with_lint_options`].
 
 use std::{
     collections::{BTreeSet, HashMap},
@@ -19,6 +20,8 @@ use adotenv::{
     parse, parse_strict, ColumnEncoding, Document, EditError, Entry, LineIndex,
     Position as ParserPosition, Reference, Severity,
 };
+use adotenv_lint::lint;
+pub use adotenv_lint::LintOptions;
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionResponse, Diagnostic as LspDiagnostic,
     DiagnosticRelatedInformation, DiagnosticSeverity, GotoDefinitionResponse, Hover, HoverContents,
@@ -32,19 +35,31 @@ use lsp_types::{
 pub struct LspOptions {
     /// Replace hover values with `<redacted>`.
     pub mask_values: bool,
+    /// Optional linter policy. Parser diagnostics remain enabled.
+    pub lint: Option<LintOptions>,
 }
 
 impl LspOptions {
     /// Returns options that leave hover values visible.
     #[must_use]
     pub const fn new() -> Self {
-        Self { mask_values: false }
+        Self {
+            mask_values: false,
+            lint: None,
+        }
     }
 
     /// Sets whether hover values are masked.
     #[must_use]
     pub const fn with_mask_values(mut self, mask: bool) -> Self {
         self.mask_values = mask;
+        self
+    }
+
+    /// Enables an explicit linter policy for diagnostics.
+    #[must_use]
+    pub const fn with_lint_options(mut self, lint: LintOptions) -> Self {
+        self.lint = Some(lint);
         self
     }
 }
@@ -93,11 +108,14 @@ impl From<EditError> for RenameError {
 }
 
 /// Converts parser diagnostics into LSP diagnostics.
+///
+/// Parser diagnostics are always included. Linter findings are added when
+/// `options.lint` contains an explicit policy.
 #[must_use]
-pub fn diagnostics(text: &str, uri: &Uri) -> Vec<LspDiagnostic> {
-    let (_, diagnostics) = parse(text);
+pub fn diagnostics(text: &str, uri: &Uri, options: &LspOptions) -> Vec<LspDiagnostic> {
+    let (document, diagnostics) = parse(text);
     let mapped = Mapped::new(text);
-    diagnostics
+    let mut output = diagnostics
         .into_iter()
         .map(|diagnostic| {
             let related_information = diagnostic.secondary_span().map(|span| {
@@ -118,7 +136,25 @@ pub fn diagnostics(text: &str, uri: &Uri) -> Vec<LspDiagnostic> {
                 ..LspDiagnostic::default()
             }
         })
-        .collect()
+        .collect::<Vec<_>>();
+    if let Some(lint_options) = options.lint {
+        output.extend(
+            lint(&document, lint_options)
+                .into_iter()
+                .map(|finding| LspDiagnostic {
+                    range: mapped.range(finding.span()),
+                    severity: Some(severity(finding.severity())),
+                    code: Some(NumberOrString::String(format!(
+                        "adotenv-lint.{}",
+                        finding.rule().as_str()
+                    ))),
+                    source: Some("adotenv-lint".to_owned()),
+                    message: finding.message().to_owned(),
+                    ..LspDiagnostic::default()
+                }),
+        );
+    }
+    output
 }
 
 fn severity(severity: Severity) -> DiagnosticSeverity {

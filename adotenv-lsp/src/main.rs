@@ -53,7 +53,8 @@ fn main() -> Result<()> {
                 }
             }
             Message::Notification(notification) => {
-                if let Err(error) = handle_notification(&connection, &notification, &mut documents)
+                if let Err(error) =
+                    handle_notification(&connection, &notification, &mut documents, options)
                 {
                     let _ = error;
                 }
@@ -70,6 +71,7 @@ fn handle_notification(
     connection: &Connection,
     notification: &Notification,
     documents: &mut HashMap<String, String>,
+    options: LspOptions,
 ) -> Result<()> {
     match notification.method.as_str() {
         "textDocument/didOpen" => {
@@ -77,7 +79,7 @@ fn handle_notification(
                 serde_json::from_value(notification.params.clone())?;
             let uri = params.text_document.uri;
             documents.insert(uri.as_str().to_owned(), params.text_document.text);
-            publish_diagnostics(connection, &uri, documents)?;
+            publish_diagnostics(connection, &uri, documents, options)?;
         }
         "textDocument/didChange" => {
             let params: DidChangeTextDocumentParams =
@@ -89,7 +91,7 @@ fn handle_notification(
                     .ok_or("invalid incremental document change")?;
             }
             documents.insert(uri.as_str().to_owned(), text);
-            publish_diagnostics(connection, &uri, documents)?;
+            publish_diagnostics(connection, &uri, documents, options)?;
         }
         "textDocument/didClose" => {
             let params: DidCloseTextDocumentParams =
@@ -105,11 +107,12 @@ fn publish_diagnostics(
     connection: &Connection,
     uri: &Uri,
     documents: &HashMap<String, String>,
+    options: LspOptions,
 ) -> Result<()> {
     let text = documents
         .get(uri.as_str())
         .ok_or("diagnostics requested for an unopened document")?;
-    let params = PublishDiagnosticsParams::new(uri.clone(), diagnostics(text, uri), None);
+    let params = PublishDiagnosticsParams::new(uri.clone(), diagnostics(text, uri, &options), None);
     connection
         .sender
         .send(Message::Notification(Notification::new(

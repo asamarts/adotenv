@@ -1,8 +1,8 @@
 //! Focused tests for the transport-free LSP operations.
 
 use adotenv_lsp::{
-    apply_change, completion, definition, diagnostics, hover, references, rename, LspOptions,
-    RenameError,
+    apply_change, completion, definition, diagnostics, hover, references, rename, LintOptions,
+    LspOptions, RenameError,
 };
 use lsp_types::{
     CompletionResponse, GotoDefinitionResponse, HoverContents, NumberOrString, Position, Uri,
@@ -40,13 +40,25 @@ fn content_changes_use_utf16_ranges_and_accept_full_replacements() {
 
 #[test]
 fn diagnostics_map_codes_ranges_and_related_locations() {
-    let diagnostics = diagnostics("A=1\nA=2\nBAD KEY=3\n", &uri());
+    let diagnostics = diagnostics("A=1\nA=2\nBAD KEY=3\n", &uri(), &LspOptions::default());
     assert_eq!(diagnostics.len(), 2);
     assert_eq!(code(&diagnostics[0]), Some("dotenv.duplicate-key"));
     assert_eq!(diagnostics[0].range.start, position(1, 0));
     assert!(diagnostics[0].related_information.is_some());
     assert_eq!(code(&diagnostics[1]), Some("dotenv.invalid-key"));
     assert_eq!(diagnostics[1].range.start, position(2, 0));
+}
+
+#[test]
+fn optional_linter_findings_are_published() {
+    let options = LspOptions::default().with_lint_options(
+        LintOptions::default()
+            .with_duplicate_keys(false)
+            .with_key_order(true),
+    );
+    let diagnostics = diagnostics("B=2\nA=1\n", &uri(), &options);
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(code(&diagnostics[0]), Some("adotenv-lint.key-order"));
 }
 
 #[test]
