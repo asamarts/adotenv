@@ -73,9 +73,8 @@ pub enum RenameError {
     NoSymbol,
     /// The key is referenced from at least one value.
     ///
-    /// Renaming the declaration without changing those references would
-    /// change meaning; the current verified edit API cannot prove a reference
-    /// rename.
+    /// Renaming only the declaration would change meaning; this companion has
+    /// not adopted the core `Document::rename_with_references` primitive yet.
     References,
     /// The declaration rename was refused by `adotenv`.
     Edit(EditError),
