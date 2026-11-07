@@ -18,7 +18,7 @@ The current release provides:
 
 ## Current status
 
-`adotenv`, `adotenv-process` and `adotenv-cli` are prepared at 1.3.0;
+`adotenv`, `adotenv-process` and `adotenv-cli` are at 1.3.0;
 `adotenv-config` is at 0.12.0 and `adotenv-figment` at 0.12.1. A pre-release
 audit of 0.10.4 found defects in behavior that 1.0 would freeze. They were
 fixed in 0.11.0, apart from
@@ -27,9 +27,8 @@ the rename collision rule, which shipped in 1.0.0. The fixes are listed in
 collected again on the fixed code
 ([1.0-readiness.md](docs/design/1.0-readiness.md)). The 1.1 audit and its
 fixes are in [1.1-audit.md](docs/design/1.1-audit.md). Version 1.2.0 was
-released on 2026-11-05; the audit, release evidence and remaining companion
-work are recorded there. The 1.3.0 release commit is prepared and awaits a
-release tag.
+released on 2026-11-05; version 1.3.0 was released on 2026-11-06. The audit,
+release evidence and remaining companion work are recorded there.
 
 ## Near-term work
 
