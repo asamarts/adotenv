@@ -28,7 +28,28 @@ on 2026-11-06; 0.1.1 was its first OIDC release. Its Trusted Publisher is
 configured for this repository, workflow `release.yml` and no environment.
 
 The `adotenv-lsp` prototype is not yet part of the release workflow and has no
-Trusted Publisher.
+Trusted Publisher. Its 0.1.0 package currently verifies, and
+`cargo publish --dry-run -p adotenv-lsp --locked` succeeds against `adotenv`
+1.4.0 and `adotenv-lint` 0.1.1.
+
+### LSP publication checklist
+
+Before adding the language server to a release:
+
+1. Freeze the public API for the intended 0.x line and document any remaining
+   prototype limitations.
+2. Add an `## [adotenv-lsp X.Y.Z] - YYYY-MM-DD` changelog section rather than
+   relying on the core release entry.
+3. Register a Trusted Publisher for this repository, workflow `release.yml` and
+   no environment. The first publish still needs a temporary `publish-new`
+   token because crates.io cannot register a trusted publisher for a crate that
+   does not exist yet.
+4. Add `adotenv-lsp` to the version verification, publish order and retry plan
+   in the release workflow. It depends on `adotenv` and `adotenv-lint`, so it
+   must publish after both.
+5. Add its crates.io and docs.rs pages to the verification checklist.
+6. Run `cargo package -p adotenv-lsp --locked` and
+   `cargo publish --dry-run -p adotenv-lsp --locked` before tagging.
 
 ## Preflight
 
