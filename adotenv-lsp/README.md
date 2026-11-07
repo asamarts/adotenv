@@ -55,10 +55,10 @@ let options = LspOptions::new().with_lint_options(
 let diagnostics = diagnostics("A=1\nBAD KEY=2\n", &uri, &options);
 ```
 
-Rename deliberately refuses a key that is referenced from a value, because the
-current verified edit API cannot verify a reference rename. A later rule or LSP
-release can add that operation after the edit layer has a verified reference
-primitive.
+Rename deliberately refuses a key that is referenced from a value until the LSP
+adopts the core `Document::rename_with_references` primitive. A later LSP
+release can add that operation without weakening the current verified
+declaration rename.
 
 This crate requires Rust 1.85 because its LSP transport dependency uses the
 2024 edition. The core `adotenv` crate remains `no_std`, dependency-free and

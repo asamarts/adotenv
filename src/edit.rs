@@ -1,5 +1,6 @@
 use alloc::{
     borrow::Cow,
+    format,
     string::{String, ToString},
     vec,
     vec::Vec,
@@ -391,6 +392,14 @@ pub enum EditError {
     /// not even in quotes where it accepts quoted keys. Examples are an empty
     /// key and a key with a space in [`Dialect::PORTABLE`].
     InvalidKey,
+    /// A key cannot be written as a variable reference.
+    ///
+    /// Returned by [`Document::rename_with_references`] when the new key needs
+    /// a character that the reference grammar treats as an operator or
+    /// delimiter. For example, a key containing `-` cannot be written as
+    /// `$A-B` or `${A-B}`; the scanner reads it as a reference to `A` with an
+    /// operator. Such a key can still be renamed when no reference uses it.
+    InvalidReferenceKey,
     /// The dialect cannot spell the value in this position.
     ///
     /// For example, a line break in a [`Dialect::DOCKER_RAW`] value, which
@@ -425,6 +434,9 @@ impl fmt::Display for EditError {
                 f.write_str("edit target is out of range or has the wrong item kind")
             }
             Self::InvalidKey => f.write_str("key cannot be represented by the selected dialect"),
+            Self::InvalidReferenceKey => {
+                f.write_str("key cannot be written as a variable reference")
+            }
             Self::Unencodable => f.write_str("value cannot be represented in the selected dialect"),
             Self::ConflictingEdits => f.write_str("conflicting operations in edit batch"),
             Self::WouldChangeMeaning => {
@@ -711,6 +723,94 @@ fn verify_new_keys(parsed: &Document<'_>, mut keys: Vec<&str>) -> Result<(), Edi
         None => Ok(()),
     }
 }
+fn unbraced_reference_name(key: &str) -> bool {
+    !key.is_empty()
+        && key
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
+fn braced_reference_name(key: &str) -> bool {
+    !key.is_empty()
+        && !key.bytes().any(|byte| {
+            byte.is_ascii_control()
+                || matches!(byte, b':' | b'-' | b'?' | b'+' | b'{' | b'}' | b'$')
+        })
+}
+
+fn reference_rename_edit(
+    reference: &crate::Reference,
+    new_key: &str,
+) -> Result<TextEdit, EditError> {
+    let name = reference
+        .name
+        .clone()
+        .ok_or(EditError::InvalidReferenceKey)?;
+    if reference.braced {
+        if !braced_reference_name(new_key) {
+            return Err(EditError::InvalidReferenceKey);
+        }
+        return Ok(TextEdit {
+            range: name,
+            replacement: new_key.to_string(),
+        });
+    }
+    if unbraced_reference_name(new_key) {
+        return Ok(TextEdit {
+            range: name,
+            replacement: new_key.to_string(),
+        });
+    }
+    if !reference.escaped && braced_reference_name(new_key) {
+        return Ok(TextEdit {
+            range: reference.span.clone(),
+            replacement: format!("${{{new_key}}}"),
+        });
+    }
+    Err(EditError::InvalidReferenceKey)
+}
+
+fn rewrite_span(
+    source: &str,
+    span: &Range<usize>,
+    edits: &[TextEdit],
+) -> Result<String, EditError> {
+    let first = edits.partition_point(|edit| edit.range.end <= span.start);
+    let last = edits.partition_point(|edit| edit.range.start < span.end);
+    let mut output = String::new();
+    let mut at = span.start;
+    for edit in &edits[first..last] {
+        if edit.range.start < at || edit.range.end > span.end {
+            return Err(EditError::WouldChangeMeaning);
+        }
+        output.push_str(&source[at..edit.range.start]);
+        output.push_str(&edit.replacement);
+        at = edit.range.end;
+    }
+    output.push_str(&source[at..span.end]);
+    Ok(output)
+}
+
+fn error_code(item: crate::Item<'_>) -> Option<&str> {
+    item.diagnostic()
+        .filter(|diagnostic| diagnostic.severity() == Severity::Error)
+        .map(|diagnostic| diagnostic.code().as_str())
+}
+
+fn reference_count(document: &Document<'_>, key: &str) -> usize {
+    document
+        .entries()
+        .flat_map(crate::Entry::references)
+        .filter(|reference| {
+            reference
+                .name
+                .as_ref()
+                .and_then(|name| document.source().get(name.clone()))
+                == Some(key)
+        })
+        .count()
+}
+
 struct InsertGroup<'a> {
     offset: usize,
     len: usize,
@@ -1737,6 +1837,63 @@ impl Document<'_> {
         verify_new_keys(&parsed, new_keys)
     }
 
+    fn verify_reference_rename(
+        &self,
+        output: &str,
+        edits: &[TextEdit],
+        old_key: &str,
+        new_key: &str,
+        old_references: usize,
+        existing_new: usize,
+    ) -> Result<(), EditError> {
+        let parsed = crate::parser::parse_document(output, self.dialect());
+        if parsed.has_bom() != self.has_bom() {
+            return Err(EditError::WouldChangeMeaning);
+        }
+        let before: Vec<_> = self.items().collect();
+        let after: Vec<_> = parsed.items().collect();
+        if before.len() != after.len() {
+            return Err(EditError::WouldChangeMeaning);
+        }
+        let mut item = 0;
+        for edit in edits {
+            while item < before.len() && before[item].span().end <= edit.range.start {
+                item += 1;
+            }
+            let Some(owner) = before.get(item) else {
+                return Err(EditError::WouldChangeMeaning);
+            };
+            if owner.span().start > edit.range.start || edit.range.end > owner.span().end {
+                return Err(EditError::WouldChangeMeaning);
+            }
+        }
+        let boundaries = Boundaries::new(edits);
+        for (original, rewritten) in before.iter().zip(after.iter()) {
+            let expected = rewrite_span(self.source(), &original.span(), edits)?;
+            if rewritten.span().start != boundaries.map(original.span().start)
+                || rewritten.kind() != original.kind()
+                || rewritten.raw() != expected.as_str()
+            {
+                return Err(EditError::WouldChangeMeaning);
+            }
+        }
+        let mut before_errors: Vec<_> =
+            before.iter().filter_map(|item| error_code(*item)).collect();
+        let mut after_errors: Vec<_> = after.iter().filter_map(|item| error_code(*item)).collect();
+        before_errors.sort_unstable();
+        after_errors.sort_unstable();
+        if before_errors != after_errors {
+            return Err(EditError::WouldChangeMeaning);
+        }
+        if old_key != new_key && reference_count(&parsed, old_key) != 0 {
+            return Err(EditError::WouldChangeMeaning);
+        }
+        if reference_count(&parsed, new_key) != old_references + existing_new {
+            return Err(EditError::WouldChangeMeaning);
+        }
+        Ok(())
+    }
+
     /// Sets the literal value of the only declaration of `key`.
     ///
     /// The value is written so that it reads back as exactly `value` in the
@@ -1843,6 +2000,99 @@ impl Document<'_> {
             entry: self.unique(key)?.id(),
             key: new_key,
         }])
+    }
+    /// Renames the only declaration of `key` and every variable reference to
+    /// it in the document's values.
+    ///
+    /// This is the reference-aware counterpart of [`Document::rename`]. The
+    /// declaration key and each matching `$VAR`/`${VAR}` name change in one
+    /// verified edit; values, quotes, operators, comments and unrelated source
+    /// stay as written. A simple new key keeps an unbraced `$OLD` reference
+    /// unbraced. A key that needs the braced form becomes `${NEW}`; for
+    /// example, renaming `PORT` to `APP.PORT` changes `$PORT` to
+    /// `${APP.PORT}`.
+    ///
+    /// Every variable candidate whose name is `key` is renamed, including
+    /// candidates that are escaped or single-quoted. The rewrite is textual:
+    /// this method does not apply [`ReferenceRules`](crate::ReferenceRules).
+    /// Commands themselves have no name and are not renamed, but variable
+    /// candidates nested inside their arguments are.
+    ///
+    /// The new key must be writable as a reference when the document has any
+    /// matching candidates. A key containing `-`, `:`, `?` or `+` cannot be
+    /// written as a reference name because the scanner treats those bytes as
+    /// operators; such a rename fails with
+    /// [`EditError::InvalidReferenceKey`]. A key with no matching references
+    /// can use those characters normally.
+    ///
+    /// The complete output is parsed and verified: the declaration has the new
+    /// key, every old reference now names the new key, newly matching references
+    /// keep their meaning, and every other item is byte-for-byte unchanged.
+    ///
+    /// # Errors
+    ///
+    /// - [`EditError::Missing`] when no declaration has `key`.
+    /// - [`EditError::Duplicate`] when `key` has more than one declaration, or
+    ///   when `new_key` is already declared.
+    /// - [`EditError::InvalidKey`] when the dialect cannot spell `new_key`.
+    /// - [`EditError::InvalidReferenceKey`] when a matching reference cannot
+    ///   be rewritten to `new_key`.
+    /// - [`EditError::WouldChangeMeaning`] when the output fails verification.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let source = "HOST=localhost\nURL=${HOST}/api\nPORT=$HOST\n";
+    /// let doc = adotenv::parse_strict(source)?;
+    /// let verified = doc.rename_with_references("HOST", "SERVER")?;
+    /// assert_eq!(
+    ///     verified.as_str(),
+    ///     "SERVER=localhost\nURL=${SERVER}/api\nPORT=$SERVER\n"
+    /// );
+    ///
+    /// // A dotted key needs the braced form in a reference.
+    /// let verified = doc.rename_with_references("HOST", "APP.HOST")?;
+    /// assert_eq!(
+    ///     verified.as_str(),
+    ///     "APP.HOST=localhost\nURL=${APP.HOST}/api\nPORT=${APP.HOST}\n"
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn rename_with_references(
+        &self,
+        key: &str,
+        new_key: &str,
+    ) -> Result<VerifiedEdits, EditError> {
+        if key == new_key {
+            return self.rename(key, new_key);
+        }
+        let declaration = self.rename(key, new_key)?;
+        let mut edits = declaration.edits().to_vec();
+        let mut references = 0usize;
+        let mut existing_new = 0usize;
+        for entry in self.entries() {
+            for reference in entry.references() {
+                let Some(name) = reference.name.as_ref() else {
+                    continue;
+                };
+                let Some(candidate) = self.source().get(name.clone()) else {
+                    continue;
+                };
+                if candidate == key {
+                    edits.push(reference_rename_edit(&reference, new_key)?);
+                    references += 1;
+                } else if candidate == new_key {
+                    existing_new += 1;
+                }
+            }
+        }
+        if references == 0 {
+            return Ok(declaration);
+        }
+        let edits = Self::normalize_edits(edits)?;
+        let output = Self::apply_edits(self.source(), &edits);
+        self.verify_reference_rename(&output, &edits, key, new_key, references, existing_new)?;
+        Ok(VerifiedEdits { edits, output })
     }
     /// Inserts a declaration of a key that the document does not declare yet.
     ///

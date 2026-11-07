@@ -54,7 +54,7 @@
 //! | Report problems | [`Diagnostic`], [`DiagnosticCode`], [`Severity`] |
 //! | Bound untrusted input | [`ParseOptions`], [`LimitExceeded`], [`LimitKind`] |
 //! | Choose reading rules | [`Dialect`] and its presets |
-//! | Edit | [`Document::set`], [`Document::remove`], [`Document::rename`], [`Document::insert`], [`Document::comment`], [`Document::uncomment`], [`Document::set_export`], or [`Document::edit`] with a batch of [`Edit`]s |
+//! | Edit | [`Document::set`], [`Document::remove`], [`Document::rename`], [`Document::rename_with_references`], [`Document::insert`], [`Document::comment`], [`Document::uncomment`], [`Document::set_export`], or [`Document::edit`] with a batch of [`Edit`]s |
 //! | Set or remove one key of Portable text in one call | [`set`], [`remove`] |
 //! | Quote a value for a file | [`encode_value`], [`encode_value_with`] |
 //! | Format and sort | [`Document::format`] with [`FormatOptions`], [`Document::sort`] |

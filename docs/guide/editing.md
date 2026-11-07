@@ -18,6 +18,7 @@ key. The key must be declared exactly once; otherwise they return
 | `set(key, value)` | Set the literal value, quoting and escaping it as the dialect needs |
 | `remove(key)` | Remove the declaration, keeping the comments around it |
 | `rename(key, new_key)` | Rename the key |
+| `rename_with_references(key, new_key)` | Rename the key and every matching variable reference in values |
 | `insert(key, value, position)` | Add a declaration of a key that is not declared yet; `None` adds a bare key |
 | `comment(key)` | Comment out every physical line of the declaration |
 | `uncomment(item)` | Remove the marker of a comment item, selected by item ID |
@@ -41,6 +42,26 @@ Values are literal. `set("URL", "${HOST}/api")` writes text that reads back as
 reference is written as typed and not escaped against expansion, so
 `Document::resolve` can still expand it. A value that the dialect cannot
 spell, such as a line break in Docker, fails with `EditError::Unencodable`.
+
+`rename_with_references` is the reference-aware form of `rename`. It changes
+the declaration and every variable candidate whose name is the old key in one
+verified result:
+
+```rust
+let doc = adotenv::parse_strict("HOST=localhost\nURL=${HOST}/api\nPORT=$HOST\n")?;
+let verified = doc.rename_with_references("HOST", "APP.HOST")?;
+assert_eq!(
+    verified.as_str(),
+    "APP.HOST=localhost\nURL=${APP.HOST}/api\nPORT=${APP.HOST}\n"
+);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+A simple new name keeps an unbraced `$OLD` reference unbraced. A name that
+cannot be written unbraced, such as one containing `.`, becomes `${NEW}`.
+Operator characters such as `-`, `:`, `?` and `+` cannot be written in a
+reference name, so a key containing them can be renamed only when no reference
+uses it; otherwise the result is `EditError::InvalidReferenceKey`.
 
 Inserted lines use the line ending that is most common in the document, or LF
 when it has none. At the end of a file without a final line ending, including
@@ -140,6 +161,7 @@ them.
 | `Duplicate(n)` | The key selects `n` declarations, or an insert or rename would leave `n` declarations of its key. |
 | `InvalidTarget` | An ID is out of range or names the wrong kind of item. |
 | `InvalidKey` | The dialect cannot spell the key. |
+| `InvalidReferenceKey` | The new key cannot be written as a variable reference. |
 | `Unencodable` | The dialect cannot spell the value in this position. |
 | `ConflictingEdits` | Operations in one batch overlap or change the same property twice. |
 | `WouldChangeMeaning` | The output would change unrelated source or miss the requested change. |
