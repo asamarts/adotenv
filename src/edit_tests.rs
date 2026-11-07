@@ -459,6 +459,17 @@ fn rename_with_references_keeps_escaped_and_single_quoted_text() {
 }
 
 #[test]
+fn rename_with_references_handles_quoted_keys() {
+    let dialect = crate::Dialect::PYTHON_DOTENV;
+    let (doc, _) = parse_with("'A B'=1\nX=${A B}\n", dialect);
+    let result = doc.rename_with_references("A B", "C").unwrap();
+    assert_eq!(result.as_str(), "'C'=1\nX=${C}\n");
+    let (doc, _) = parse_with("'A B'=1\nX=${A B}\n", dialect);
+    let result = doc.rename_with_references("A B", "D E").unwrap();
+    assert_eq!(result.as_str(), "'D E'=1\nX=${D E}\n");
+}
+
+#[test]
 fn rename_with_references_preserves_bom_crlf_and_multiline_items() {
     let source = "\u{feff}A=1\r\nB='line one\r\n$A'\r\nC=$A\r\n";
     let (doc, _) = parse(source);
