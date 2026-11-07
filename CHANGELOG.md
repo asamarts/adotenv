@@ -11,7 +11,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - First release published through crates.io Trusted Publishing. No API or
   behavior changes.
 
-## [Unreleased]
+## [1.3.0] - 2026-11-06
 
 ### Added
 
@@ -45,8 +45,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- `adotenv-figment` requires `figment` 0.10.19 or later; earlier 0.10 releases
-  use a serde path that current releases no longer provide.
+- `adotenv-figment` 0.12.1 requires `figment` 0.10.19 or later; earlier 0.10
+  releases use a serde path that current releases no longer provide.
 - The CI gate resolves workspace dependencies to their lowest compatible
   versions and runs the full test suite.
 
