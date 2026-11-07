@@ -5,6 +5,8 @@ An optional Language Server Protocol companion for `adotenv` documents.
 It supports:
 
 - diagnostics from the recovering parser;
+- optional linter findings, including key-order, key-case, quote-style and
+  whitespace rules;
 - completion of declared keys and `$` references;
 - definition lookup for keys and `$VAR`/`${VAR}` references;
 - hover information;
@@ -27,15 +29,18 @@ incremental text changes and full-document replacements.
 
 ## Library
 
+Linter findings are opt-in through `LspOptions::with_lint_options`. Parser
+diagnostics remain enabled independently.
+
 The operations are also available as functions over a source string and an
 `lsp_types::Uri`:
 
 ```rust,ignore
-use adotenv_lsp::diagnostics;
+use adotenv_lsp::{diagnostics, LspOptions};
 use lsp_types::Uri;
 
 let uri: Uri = "file:///tmp/.env".parse().unwrap();
-let diagnostics = diagnostics("A=1\nBAD KEY=2\n", &uri);
+let diagnostics = diagnostics("A=1\nBAD KEY=2\n", &uri, &LspOptions::new());
 ```
 
 Rename deliberately refuses a key that is referenced from a value, because the

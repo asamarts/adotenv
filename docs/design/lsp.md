@@ -10,6 +10,8 @@ The prototype offers:
 
 - diagnostics from the recovering parser, including related locations for
   duplicate keys;
+- optional linter findings when the caller supplies an explicit
+  `LintOptions` policy;
 - completion of declared keys at a key position or after `$`/`${`, with
   triggers for `$` and `{`;
 - definition from a key or a literal `$VAR`/`${VAR}` reference to the winning
@@ -23,7 +25,12 @@ Rename refuses a key that is referenced from a value. The core edit API cannot
 yet verify a reference rename, so changing only the declaration would change
 meaning. The refusal is explicit and tested.
 
-## Masking and environment
+## Diagnostics, masking and environment
+
+Parser diagnostics are always enabled. Linter findings are an explicit policy:
+`LspOptions::with_lint_options` accepts the linter's own rule, severity and
+ignored-path options. The default `LspOptions` does not run the linter, so
+diagnostics do not silently depend on a policy configuration.
 
 Hover values are visible by default. `LspOptions::with_mask_values(true)` or
 the binary's `--mask-values` flag replaces them with `<redacted>`.
