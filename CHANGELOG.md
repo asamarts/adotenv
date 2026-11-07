@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [adotenv-lsp 0.1.0] - 2026-11-07
+
+### Added
+
+- Initial release of `adotenv-lsp`, a Language Server Protocol companion with
+  parser diagnostics, optional linter findings, completion, definition, hover,
+  references, reference-aware rename, incremental UTF-16 synchronization and
+  opt-in hover value masking.
+- Rename resolves the innermost nested reference in forms such as
+  `${OUTER:-$INNER}`.
+
 ## [1.4.0] - 2026-11-07
 
 ### Added

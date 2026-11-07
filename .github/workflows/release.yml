@@ -13,9 +13,10 @@ name: Release
 # `adotenv-figment` keep their own 0.x versions; each independent crate is
 # published when its declared version is not on crates.io yet.
 #
-# Manual dispatch runs the CI quality gate. The `publish_linter` input can
-# additionally publish a new adotenv-lint version through OIDC without a core
-# tag; the version checks and full publish run only for a pushed tag.
+# Manual dispatch runs the CI quality gate. The `publish_linter` and
+# `publish_lsp` inputs can additionally publish those independent 0.x crates
+# without a core tag. The LSP's first publish uses a temporary bootstrap token
+# because crates.io cannot register a trusted publisher for a new crate.
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
@@ -23,6 +24,10 @@ on:
     inputs:
       publish_linter:
         description: Publish adotenv-lint through crates.io Trusted Publishing
+        type: boolean
+        default: false
+      publish_lsp:
+        description: Publish adotenv-lsp (bootstrap token, then OIDC)
         type: boolean
         default: false
 
@@ -282,6 +287,87 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
         run: cargo publish -p adotenv-lint --locked
+
+  publish-lsp:
+    name: publish adotenv-lsp
+    needs: checks
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_lsp == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # crates.io Trusted Publishing after bootstrap
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: stable
+      - name: verify the lsp version and crate state
+        id: check
+        run: |
+          set -euo pipefail
+          version="$(
+            cargo metadata --no-deps --format-version 1 |
+              python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "adotenv-lsp"))'
+          )"
+          code="$(curl -sS -o /dev/null -w '%{http_code}'             -H 'User-Agent: adotenv-release'             "https://crates.io/api/v1/crates/adotenv-lsp/$version")"
+          if [[ "$code" == "200" ]]; then
+            echo "::error::adotenv-lsp $version is already published"
+            exit 1
+          fi
+          if [[ "$code" != "404" ]]; then
+            echo "::error::crates.io version lookup for adotenv-lsp $version returned HTTP $code"
+            exit 1
+          fi
+          crate_code="$(curl -sS -o /dev/null -w '%{http_code}'             -H 'User-Agent: adotenv-release'             "https://crates.io/api/v1/crates/adotenv-lsp")"
+          case "$crate_code" in
+            200)
+              echo "crate_exists=true" >> "$GITHUB_OUTPUT"
+              echo "::notice::adotenv-lsp exists; publish will use OIDC"
+              ;;
+            404)
+              echo "crate_exists=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::adotenv-lsp is a first publish; a bootstrap token is required"
+              ;;
+            *)
+              echo "::error::crates.io crate lookup for adotenv-lsp returned HTTP $crate_code"
+              exit 1
+              ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: mint a short-lived crates.io token via OIDC
+        if: steps.check.outputs.crate_exists == 'true'
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1
+        id: crates-auth
+      - name: publish adotenv-lsp
+        env:
+          VERSION: ${{ steps.check.outputs.version }}
+          BOOTSTRAP_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          OIDC_TOKEN: ${{ steps.crates-auth.outputs.token }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.check.outputs.crate_exists }}" == "true" ]]; then
+            token="$OIDC_TOKEN"
+          else
+            token="$BOOTSTRAP_TOKEN"
+          fi
+          if [[ -z "$token" ]]; then
+            echo "::error::no crates.io credential is available for adotenv-lsp $VERSION"
+            exit 1
+          fi
+          CARGO_REGISTRY_TOKEN="$token" cargo publish -p adotenv-lsp --locked
+          for _ in $(seq 1 90); do
+            code="$(curl -sS -o /dev/null -w '%{http_code}'               -H 'User-Agent: adotenv-release'               "https://crates.io/api/v1/crates/adotenv-lsp/$VERSION")"
+            if [[ "$code" == "200" ]]; then
+              echo "::notice::adotenv-lsp $VERSION is visible on crates.io"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::adotenv-lsp $VERSION did not appear on crates.io within 180 seconds"
+          exit 1
 
   github-release:
     name: GitHub Release
