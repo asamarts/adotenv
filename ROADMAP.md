@@ -44,7 +44,7 @@ The audit, release evidence and remaining companion work are recorded there.
    2026-11-06, followed by 0.1.1 through crates.io Trusted Publishing. The
    `adotenv-lsp` 0.1.0 was published on 2026-11-07, and 0.2.0 was published on
    2026-11-07 with document-symbol outlines and the core reference-aware rename
-   primitive. See
+   primitive. Version 0.2.1 fixes document-symbol ranges. See
    [#14](https://github.com/asamarts/adotenv/issues/14).
 5. Expand conformance cases only when a real upstream behavior is pinned and
    reproducible.

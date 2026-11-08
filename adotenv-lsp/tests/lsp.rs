@@ -154,6 +154,7 @@ fn document_symbols_outline_declared_keys_without_values() {
     assert!(symbols.iter().all(|symbol| symbol.kind == SymbolKind::KEY));
     assert!(symbols.iter().all(|symbol| symbol.detail.is_none()));
     assert_eq!(symbols[0].range.start, position(1, 0));
+    assert_eq!(symbols[0].range.end, position(1, 14));
     assert_eq!(
         symbols[0].selection_range,
         lsp_types::Range::new(position(1, 0), position(1, 4))
@@ -161,6 +162,18 @@ fn document_symbols_outline_declared_keys_without_values() {
     assert_eq!(
         symbols[2].selection_range,
         lsp_types::Range::new(position(3, 0), position(3, 4))
+    );
+    assert_eq!(symbols[2].range.end, position(3, 4));
+
+    let DocumentSymbolResponse::Nested(symbols) = document_symbols("\u{feff}HOST=localhost\n")
+    else {
+        panic!("expected nested document symbols");
+    };
+    assert_eq!(symbols[0].range.start, position(0, 0));
+    assert_eq!(symbols[0].range.end, position(0, 14));
+    assert_eq!(
+        symbols[0].selection_range,
+        lsp_types::Range::new(position(0, 0), position(0, 4))
     );
 }
 
