@@ -224,7 +224,11 @@ pub fn document_symbols(text: &str) -> DocumentSymbolResponse {
                 kind: SymbolKind::KEY,
                 tags: None,
                 deprecated: None,
-                range: mapped.range(entry.line_span()),
+                range: mapped.range(
+                    document
+                        .item(entry.item_id())
+                        .map_or_else(|| entry.line_span(), adotenv::Item::content_span),
+                ),
                 selection_range: mapped.range(entry.key_span()),
                 children: None,
             })
