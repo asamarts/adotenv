@@ -2,12 +2,12 @@
 
 use adotenv::EditError;
 use adotenv_lsp::{
-    apply_change, completion, definition, diagnostics, hover, references, rename, EqualsSpacing,
-    KeyCase, LintOptions, LspOptions, QuoteStyle, RenameError, Rule, Severity,
+    apply_change, completion, definition, diagnostics, document_symbols, hover, references, rename,
+    EqualsSpacing, KeyCase, LintOptions, LspOptions, QuoteStyle, RenameError, Rule, Severity,
 };
 use lsp_types::{
-    CompletionResponse, DiagnosticSeverity, GotoDefinitionResponse, HoverContents, NumberOrString,
-    Position, Uri,
+    CompletionResponse, DiagnosticSeverity, DocumentSymbolResponse, GotoDefinitionResponse,
+    HoverContents, NumberOrString, Position, SymbolKind, Uri,
 };
 
 fn uri() -> Uri {
@@ -141,6 +141,44 @@ fn completion_lists_declared_keys() {
         panic!("expected array completion");
     };
     assert_eq!(items.len(), 0);
+}
+
+#[test]
+fn document_symbols_outline_declared_keys_without_values() {
+    let source = "\u{feff}# app\nHOST=localhost\nPORT=8080\nBARE\nBAD KEY=1\n";
+    let DocumentSymbolResponse::Nested(symbols) = document_symbols(source) else {
+        panic!("expected nested document symbols");
+    };
+    let names: Vec<_> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
+    assert_eq!(names, ["HOST", "PORT", "BARE"]);
+    assert!(symbols.iter().all(|symbol| symbol.kind == SymbolKind::KEY));
+    assert!(symbols.iter().all(|symbol| symbol.detail.is_none()));
+    assert_eq!(symbols[0].range.start, position(1, 0));
+    assert_eq!(
+        symbols[0].selection_range,
+        lsp_types::Range::new(position(1, 0), position(1, 4))
+    );
+    assert_eq!(
+        symbols[2].selection_range,
+        lsp_types::Range::new(position(3, 0), position(3, 4))
+    );
+}
+
+#[test]
+fn document_symbols_keep_duplicate_declarations_and_empty_documents() {
+    let DocumentSymbolResponse::Nested(symbols) = document_symbols("A=1\nA=2\n") else {
+        panic!("expected nested document symbols");
+    };
+    assert_eq!(symbols.len(), 2);
+    assert_eq!(symbols[0].name, "A");
+    assert_eq!(symbols[1].name, "A");
+    assert_eq!(symbols[0].selection_range.start, position(0, 0));
+    assert_eq!(symbols[1].selection_range.start, position(1, 0));
+
+    let DocumentSymbolResponse::Nested(symbols) = document_symbols("# only comments\n") else {
+        panic!("expected nested document symbols");
+    };
+    assert_eq!(symbols.len(), 0);
 }
 
 #[test]

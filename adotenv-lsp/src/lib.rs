@@ -24,9 +24,9 @@ use adotenv_lint::lint;
 pub use adotenv_lint::{KeyCase, LintOptions, Rule};
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionResponse, Diagnostic as LspDiagnostic,
-    DiagnosticRelatedInformation, DiagnosticSeverity, GotoDefinitionResponse, Hover, HoverContents,
-    Location, MarkupContent, MarkupKind, NumberOrString, Position, Range, TextEdit, Uri,
-    WorkspaceEdit,
+    DiagnosticRelatedInformation, DiagnosticSeverity, DocumentSymbol, DocumentSymbolResponse,
+    GotoDefinitionResponse, Hover, HoverContents, Location, MarkupContent, MarkupKind,
+    NumberOrString, Position, Range, SymbolKind, TextEdit, Uri, WorkspaceEdit,
 };
 
 /// Options for LSP operations.
@@ -200,6 +200,33 @@ pub fn completion(text: &str, position: Position) -> CompletionResponse {
                 detail: Some("declared .env key".to_owned()),
                 insert_text: Some(key),
                 ..CompletionItem::default()
+            })
+            .collect(),
+    )
+}
+
+/// Returns an outline of the document's declared keys.
+///
+/// Each entry becomes a [`SymbolKind::KEY`] symbol. The range covers the
+/// declaration and the selection range covers its key. Values are never
+/// included in the symbol data.
+#[must_use]
+#[allow(deprecated)]
+pub fn document_symbols(text: &str) -> DocumentSymbolResponse {
+    let (document, _) = parse(text);
+    let mapped = Mapped::new(text);
+    DocumentSymbolResponse::Nested(
+        document
+            .entries()
+            .map(|entry| DocumentSymbol {
+                name: entry.key().to_owned(),
+                detail: None,
+                kind: SymbolKind::KEY,
+                tags: None,
+                deprecated: None,
+                range: mapped.range(entry.line_span()),
+                selection_range: mapped.range(entry.key_span()),
+                children: None,
             })
             .collect(),
     )
