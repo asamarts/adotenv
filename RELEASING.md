@@ -31,8 +31,8 @@ configured for this repository, workflow `release.yml` and no environment.
 `publish_lsp=true` workflow dispatch, using a temporary bootstrap token. The
 token secret was removed and the token revoked, and its Trusted Publisher is
 registered for this repository, workflow `release.yml` and no environment.
-`adotenv-lsp` 0.2.0 and 0.2.1 were published through the same dispatch using
-OIDC, which validated the Trusted Publisher path.
+`adotenv-lsp` 0.2.0, 0.2.1 and 0.3.0 were published through the same dispatch
+using OIDC, which validated the Trusted Publisher path.
 
 ### LSP releases
 
