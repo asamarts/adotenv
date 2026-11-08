@@ -4,14 +4,15 @@ use std::{collections::HashMap, error::Error};
 
 use adotenv_lsp::{
     apply_change, completion, definition, diagnostics, document_symbols, hover, references, rename,
-    LspOptions,
+    workspace_symbols, LspOptions,
 };
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
     CompletionOptions, CompletionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DocumentSymbolParams, GotoDefinitionParams, HoverParams,
     HoverProviderCapability, InitializeParams, OneOf, PublishDiagnosticsParams, ReferenceParams,
-    RenameParams, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
+    RenameParams, ServerCapabilities, SymbolInformation, TextDocumentSyncCapability,
+    TextDocumentSyncKind, Uri, WorkspaceSymbolParams,
 };
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
@@ -31,6 +32,7 @@ fn main() -> Result<()> {
         definition_provider: Some(OneOf::Left(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
+        workspace_symbol_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
         rename_provider: Some(OneOf::Left(true)),
         ..ServerCapabilities::default()
@@ -158,6 +160,14 @@ fn handle_request(
                 &completion(text, params.text_document_position.position),
             )
         }
+        "workspace/symbol" => {
+            let params: WorkspaceSymbolParams = serde_json::from_value(request.params.clone())?;
+            send_ok(
+                connection,
+                request.id.clone(),
+                &workspace_symbol_response(documents, &params.query),
+            )
+        }
         "textDocument/documentSymbol" => {
             let params: DocumentSymbolParams = serde_json::from_value(request.params.clone())?;
             let uri = &params.text_document.uri;
@@ -236,6 +246,24 @@ fn handle_request(
             "unsupported request",
         ),
     }
+}
+
+fn workspace_symbol_response(
+    documents: &HashMap<String, String>,
+    query: &str,
+) -> Vec<SymbolInformation> {
+    let mut symbols = Vec::new();
+    for (uri_text, text) in documents {
+        if let Ok(uri) = uri_text.parse::<Uri>() {
+            symbols.extend(workspace_symbols(text, &uri, query));
+        }
+    }
+    symbols.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then_with(|| left.location.uri.as_str().cmp(right.location.uri.as_str()))
+    });
+    symbols
 }
 
 fn send_ok<T: serde::Serialize>(
