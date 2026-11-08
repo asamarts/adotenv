@@ -3,14 +3,15 @@
 use std::{collections::HashMap, error::Error};
 
 use adotenv_lsp::{
-    apply_change, completion, definition, diagnostics, hover, references, rename, LspOptions,
+    apply_change, completion, definition, diagnostics, document_symbols, hover, references, rename,
+    LspOptions,
 };
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
     CompletionOptions, CompletionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, GotoDefinitionParams, HoverParams, HoverProviderCapability,
-    InitializeParams, OneOf, PublishDiagnosticsParams, ReferenceParams, RenameParams,
-    ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
+    DidOpenTextDocumentParams, DocumentSymbolParams, GotoDefinitionParams, HoverParams,
+    HoverProviderCapability, InitializeParams, OneOf, PublishDiagnosticsParams, ReferenceParams,
+    RenameParams, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
 };
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
@@ -28,6 +29,7 @@ fn main() -> Result<()> {
             ..CompletionOptions::default()
         }),
         definition_provider: Some(OneOf::Left(true)),
+        document_symbol_provider: Some(OneOf::Left(true)),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         references_provider: Some(OneOf::Left(true)),
         rename_provider: Some(OneOf::Left(true)),
@@ -155,6 +157,14 @@ fn handle_request(
                 request.id.clone(),
                 &completion(text, params.text_document_position.position),
             )
+        }
+        "textDocument/documentSymbol" => {
+            let params: DocumentSymbolParams = serde_json::from_value(request.params.clone())?;
+            let uri = &params.text_document.uri;
+            let text = documents
+                .get(uri.as_str())
+                .ok_or("document symbols requested for an unopened document")?;
+            send_ok(connection, request.id.clone(), &document_symbols(text))
         }
         "textDocument/definition" => {
             let params: GotoDefinitionParams = serde_json::from_value(request.params.clone())?;

@@ -13,6 +13,7 @@ It supports:
 - definition lookup for keys and `$VAR`/`${VAR}` references;
 - hover information;
 - references across declarations and values;
+- document-symbol outlines of declared keys;
 - verified key rename from a key or reference, including literal value references.
 
 The server reads only text sent by the editor. It does not read the process
