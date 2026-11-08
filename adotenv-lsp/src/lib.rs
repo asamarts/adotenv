@@ -26,7 +26,7 @@ use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionResponse, Diagnostic as LspDiagnostic,
     DiagnosticRelatedInformation, DiagnosticSeverity, DocumentSymbol, DocumentSymbolResponse,
     GotoDefinitionResponse, Hover, HoverContents, Location, MarkupContent, MarkupKind,
-    NumberOrString, Position, Range, SymbolKind, TextEdit, Uri, WorkspaceEdit,
+    NumberOrString, Position, Range, SymbolInformation, SymbolKind, TextEdit, Uri, WorkspaceEdit,
 };
 
 /// Options for LSP operations.
@@ -224,16 +224,40 @@ pub fn document_symbols(text: &str) -> DocumentSymbolResponse {
                 kind: SymbolKind::KEY,
                 tags: None,
                 deprecated: None,
-                range: mapped.range(
-                    document
-                        .item(entry.item_id())
-                        .map_or_else(|| entry.line_span(), adotenv::Item::content_span),
-                ),
+                range: mapped.range(entry_content_span(&document, entry)),
                 selection_range: mapped.range(entry.key_span()),
                 children: None,
             })
             .collect(),
     )
+}
+
+/// Returns workspace symbols for declared keys in one document.
+///
+/// `query` is matched case-insensitively against the key. The result uses flat
+/// [`SymbolInformation`] values so clients without hierarchical symbol support
+/// can consume it. Values are never included.
+#[must_use]
+#[allow(deprecated)]
+pub fn workspace_symbols(text: &str, uri: &Uri, query: &str) -> Vec<SymbolInformation> {
+    let (document, _) = parse(text);
+    let mapped = Mapped::new(text);
+    let query = query.to_lowercase();
+    document
+        .entries()
+        .filter(|entry| query.is_empty() || entry.key().to_lowercase().contains(&query))
+        .map(|entry| SymbolInformation {
+            name: entry.key().to_owned(),
+            kind: SymbolKind::KEY,
+            tags: None,
+            deprecated: None,
+            location: Location::new(
+                uri.clone(),
+                mapped.range(entry_content_span(&document, entry)),
+            ),
+            container_name: None,
+        })
+        .collect()
 }
 
 /// Applies one LSP content change to a document string.
@@ -410,6 +434,12 @@ fn reference_at(document: &Document<'_>, offset: usize) -> Option<Reference> {
 fn reference_name<'a>(document: &'a Document<'_>, reference: &Reference) -> Option<&'a str> {
     let name = reference.name.clone()?;
     document.source().get(name)
+}
+
+fn entry_content_span(document: &Document<'_>, entry: Entry<'_>) -> std::ops::Range<usize> {
+    document
+        .item(entry.item_id())
+        .map_or_else(|| entry.line_span(), adotenv::Item::content_span)
 }
 
 struct Mapped<'a> {

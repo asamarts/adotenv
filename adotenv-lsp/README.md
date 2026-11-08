@@ -1,7 +1,7 @@
 # adotenv-lsp
 
 An optional Language Server Protocol companion for `adotenv` documents.
-Version 0.2.1 is published on crates.io as an unstable prototype; breaking
+Version 0.3.0 is published on crates.io as an unstable prototype; breaking
 changes may occur within the 0.x line.
 
 It supports:
@@ -14,6 +14,7 @@ It supports:
 - hover information;
 - references across declarations and values;
 - document-symbol outlines of declared keys;
+- workspace symbols across open documents;
 - verified key rename from a key or reference, including literal value references.
 
 The server reads only text sent by the editor. It does not read the process

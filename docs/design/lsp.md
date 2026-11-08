@@ -19,6 +19,7 @@ The prototype offers:
 - hover for a key or reference, with optional value masking;
 - references across declarations and values;
 - document-symbol outlines of declared keys;
+- workspace symbols across currently open documents;
 - rename of a key declaration and its literal references, selected from either
   a declaration or a reference, through `Document::rename_with_references` and
   its `VerifiedEdits`.

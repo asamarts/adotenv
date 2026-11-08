@@ -3,7 +3,8 @@
 use adotenv::EditError;
 use adotenv_lsp::{
     apply_change, completion, definition, diagnostics, document_symbols, hover, references, rename,
-    EqualsSpacing, KeyCase, LintOptions, LspOptions, QuoteStyle, RenameError, Rule, Severity,
+    workspace_symbols, EqualsSpacing, KeyCase, LintOptions, LspOptions, QuoteStyle, RenameError,
+    Rule, Severity,
 };
 use lsp_types::{
     CompletionResponse, DiagnosticSeverity, DocumentSymbolResponse, GotoDefinitionResponse,
@@ -192,6 +193,24 @@ fn document_symbols_keep_duplicate_declarations_and_empty_documents() {
         panic!("expected nested document symbols");
     };
     assert_eq!(symbols.len(), 0);
+}
+
+#[test]
+fn workspace_symbols_filter_and_locate_declared_keys() {
+    let source = "\u{feff}HOST=localhost\nPORT=8080\nBARE\n";
+    let filtered = workspace_symbols(source, &uri(), "po");
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].name, "PORT");
+    assert_eq!(filtered[0].kind, SymbolKind::KEY);
+    assert_eq!(filtered[0].location.uri, uri());
+    assert_eq!(filtered[0].location.range.start, position(1, 0));
+    assert_eq!(filtered[0].location.range.end, position(1, 9));
+
+    let all = workspace_symbols(source, &uri(), "");
+    let names: Vec<_> = all.iter().map(|symbol| symbol.name.as_str()).collect();
+    assert_eq!(names, ["HOST", "PORT", "BARE"]);
+    assert!(all.iter().all(|symbol| symbol.container_name.is_none()));
+    assert_eq!(workspace_symbols(source, &uri(), "missing").len(), 0);
 }
 
 #[test]
