@@ -42,9 +42,10 @@ The audit, release evidence and remaining companion work are recorded there.
    [1.0-fix-round.md](docs/design/1.0-fix-round.md).
 4. The optional `adotenv-lint` 0.1.0 policy companion was published on
    2026-11-06, followed by 0.1.1 through crates.io Trusted Publishing. The
-   `adotenv-lsp` 0.1.0 was published on 2026-11-07, followed by 0.2.0 and
-   0.2.1. The 0.2 line adds document-symbol outlines and the core reference-aware
-   rename primitive. See
+   `adotenv-lsp` 0.1.0 was published on 2026-11-07, followed by 0.2.0 on
+   2026-11-07 and 0.2.1 on 2026-11-08. The 0.2 line adds document-symbol
+   outlines, corrected symbol ranges and the core reference-aware rename
+   primitive. See
    [#14](https://github.com/asamarts/adotenv/issues/14).
 5. Expand conformance cases only when a real upstream behavior is pinned and
    reproducible.
