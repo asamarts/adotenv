@@ -1,0 +1,29 @@
+[package]
+name = "adotenv-bench"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.81"
+publish = false
+description = "Deterministic fixture and benchmark foundation for adotenv."
+license = "Apache-2.0 OR MIT"
+
+[lib]
+bench = false
+
+[dependencies]
+adotenv = { path = ".." }
+sha2 = "=0.10.9"
+
+[dev-dependencies]
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "fixtures"
+harness = false
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
