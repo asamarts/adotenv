@@ -55,6 +55,9 @@ The audit, release evidence and remaining companion work are recorded there.
    adopting. The shared vectors and check-report schema live in `tests/vectors/`. The core
    stays dependency-free and keeps its own types; shared code, if any, is only for companion
    crates.
+8. Execute the [1.4.1 / linter 0.2.0 / LSP 0.4.0 plan](docs/design/1.4.1-plan.md):
+   competitive benchmarks, strict performance/memory targets, hardening and
+   shared lint configuration.
 
 ## 1.0 criteria
 
