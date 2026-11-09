@@ -5,6 +5,7 @@ members = [
     "adotenv-cli",
     "adotenv-lint",
     "adotenv-lsp",
+    "adotenv-bench",
     "adotenv-config",
     "adotenv-figment",
 ]

@@ -14,6 +14,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "adotenv-bench"
+version = "0.0.0"
+dependencies = [
+ "adotenv",
+ "criterion",
+ "sha2",
+]
+
+[[package]]
 name = "adotenv-cli"
 version = "1.4.0"
 dependencies = [
