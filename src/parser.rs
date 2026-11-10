@@ -1,5 +1,5 @@
 use alloc::{
-    borrow::Cow,
+    borrow::{Cow, ToOwned},
     boxed::Box,
     collections::{BTreeMap, BTreeSet},
     string::{String, ToString},
