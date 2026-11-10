@@ -1985,8 +1985,8 @@ fn read_load_path(
     skip_missing: bool,
     max_input_bytes: Option<usize>,
 ) -> Result<Option<Vec<u8>>, LoadError> {
-    let metadata = match fs::metadata(path) {
-        Ok(metadata) => metadata,
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound && skip_missing => {
             // A missing cascade file is optional. A dangling symlink is not:
             // the directory entry exists but its target cannot be read.
@@ -2009,11 +2009,18 @@ fn read_load_path(
             });
         }
     };
+    let metadata = file.metadata().map_err(|source| LoadError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
     if !metadata.is_file() {
         return Err(LoadError::Io {
             path: path.to_path_buf(),
             source: io::Error::new(io::ErrorKind::InvalidInput, "path is not a regular file"),
         });
+    }
+    if metadata.len() == 0 {
+        return Ok(Some(Vec::new()));
     }
     if let Some(limit) = max_input_bytes {
         let observed = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
@@ -2024,10 +2031,6 @@ fn read_load_path(
             });
         }
     }
-    let mut file = fs::File::open(path).map_err(|source| LoadError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
     let mut bytes = Vec::new();
     let read_result = match max_input_bytes {
         Some(limit) => file
@@ -2069,6 +2072,9 @@ where
         let text = String::from_utf8(bytes).map_err(|_| LoadError::InvalidUtf8 {
             path: path.to_path_buf(),
         })?;
+        if text.is_empty() {
+            continue;
+        }
         let projected = match parse_values_with_options(&text, options.dialect, options.limits) {
             Ok(values) => values,
             Err(diagnostic) => {

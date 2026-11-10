@@ -444,6 +444,14 @@ pub fn parse_values_with_options(
             ));
         }
     }
+    if source.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    if dialect == Dialect::PORTABLE && options.max_items.is_none() {
+        if let Some(values) = parse_simple_portable_values(source) {
+            return Ok(values);
+        }
+    }
     let mut parser = Parser::<false>::new(source, dialect, Some(Projection::new(dialect)), options);
     parser.run();
     let projection = parser
@@ -453,6 +461,43 @@ pub fn parse_values_with_options(
         Some(error) => Err(error),
         None => Ok(projection.values),
     }
+}
+
+/// Fast path for the common Portable `KEY=value` line shape.
+///
+/// The regular scanner handles quoting, escapes, comments, whitespace,
+/// non-POSIX keys, BOMs, CRLF and every diagnostic. This helper accepts only
+/// lines that need none of that work, and returns `None` for the rest.
+fn parse_simple_portable_values(source: &str) -> Option<BTreeMap<String, String>> {
+    let mut values = BTreeMap::new();
+    for line in source.split('\n') {
+        if line.is_empty() {
+            continue;
+        }
+        let (key, value) = line.split_once('=')?;
+        if key.is_empty() || !simple_portable_key(key) {
+            return None;
+        }
+        if value.bytes().any(|byte| {
+            matches!(
+                byte,
+                b' ' | b'\t' | b'\r' | b'\n' | b'\'' | b'"' | b'\\' | b'#' | b'\0'
+            )
+        }) {
+            return None;
+        }
+        values.insert(key.to_owned(), value.to_owned());
+    }
+    Some(values)
+}
+
+fn simple_portable_key(key: &str) -> bool {
+    let mut bytes = key.bytes();
+    let Some(first) = bytes.next() else {
+        return false;
+    };
+    (first.is_ascii_alphabetic() || first == b'_')
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 /// Parses an owned `String` with the Portable dialect, recovering from
