@@ -161,13 +161,8 @@ pub fn load_values(
 pub fn adotenv_load_values(source: &str) -> Result<BTreeMap<String, String>, String> {
     let path = temporary_path();
     fs::write(&path, source).map_err(|error| error.to_string())?;
-    let result = adotenv::load::load_files([path.as_path()], adotenv::Dialect::PORTABLE)
-        .map(|loaded| {
-            loaded
-                .values()
-                .map(|(key, value)| (key.to_owned(), value.to_owned()))
-                .collect()
-        })
+    let result = adotenv::load::load_values([path.as_path()], adotenv::Dialect::PORTABLE)
+        .map(adotenv::load::LoadedValues::into_values)
         .map_err(|error| error.to_string());
     let _ = fs::remove_file(path);
     result
