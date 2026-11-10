@@ -199,22 +199,19 @@ CI separates deterministic internal gates from publication wall-time evidence:
 The comparable matrix on `kbench` (five sizes, `plain`/`long-line`/`empty`,
 values and load) is recorded in
 [`docs/benchmarks/speed.md`](../benchmarks/speed.md) and
-[`docs/benchmarks/memory.md`](../benchmarks/memory.md). The speed snapshot is
-from SHA `e2134be` and the memory snapshot is from SHA `5009b86`; both predate
-only an import/regular-file guard follow-up, and the final release evidence
-must re-run both from one candidate SHA. Against the best
+[`docs/benchmarks/memory.md`](../benchmarks/memory.md). The speed and memory snapshots share SHA `1985e5d`. The final release evidence
+must still re-run both from the release-candidate SHA. Against the best
 competitor in each cell:
 
 - speed: **25/25 strict wins**;
 - peak heap: **30/30 strict wins**;
 - allocation count: **30/30 strict wins**;
-- retained heap: ties or losses in all cells.
+- retained heap: ties in all 30 cells, with no losses.
 
 The retained result cannot become a strict win without changing the public
-`BTreeMap<String, String>` result type: at small sizes both APIs return the
-same map, so the measurement is exactly equal; at larger sizes the same map
-content is already at the compact-tree floor. This is an escalation point for
-the release claim, not a reason to weaken the measurement.
+`BTreeMap<String, String>` result type: both APIs return the same map at small
+sizes, and larger cells are already at the compact-tree floor. This is an
+escalation point for the release claim, not a reason to weaken the measurement.
 
 ## Earlier measurements
 
