@@ -395,7 +395,7 @@ fn command_queue(args: &[String]) -> Result<()> {
         shell_quote(modes)
     );
     let queue_command = format!(
-        "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add --group bench --label adotenv-bench --print-task-id -- bash -lc {}",
+        "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add --group bench --label adotenv-bench --print-task-id -- {}",
         shell_quote(&remote_command)
     );
     if has_flag(args, "--dry-run") {
