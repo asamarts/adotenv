@@ -469,6 +469,23 @@ pub fn parse_values_with_options(
 /// non-POSIX keys, BOMs, CRLF and every diagnostic. This helper accepts only
 /// lines that need none of that work, and returns `None` for the rest.
 fn parse_simple_portable_values(source: &str) -> Option<BTreeMap<String, String>> {
+    if source.len() <= 512 {
+        let mut values = BTreeMap::new();
+        for line in source.split('\n') {
+            if line.is_empty() {
+                continue;
+            }
+            let (key, value) = line.split_once('=')?;
+            if key.is_empty() || !simple_portable_key(key) {
+                return None;
+            }
+            if value.bytes().any(simple_value_forbidden) {
+                return None;
+            }
+            values.insert(key.to_owned(), value.to_owned());
+        }
+        return Some(values);
+    }
     let mut entries = Vec::new();
     let mut previous_key: Option<&str> = None;
     for line in source.split('\n') {
@@ -483,12 +500,7 @@ fn parse_simple_portable_values(source: &str) -> Option<BTreeMap<String, String>
             return None;
         }
         previous_key = Some(key);
-        if value.bytes().any(|byte| {
-            matches!(
-                byte,
-                b' ' | b'\t' | b'\r' | b'\n' | b'\'' | b'"' | b'\\' | b'#' | b'\0'
-            )
-        }) {
+        if value.bytes().any(simple_value_forbidden) {
             return None;
         }
         entries.push((key, value));
@@ -499,6 +511,13 @@ fn parse_simple_portable_values(source: &str) -> Option<BTreeMap<String, String>
             .rev()
             .map(|(key, value)| (key.to_owned(), value.to_owned()))
             .collect(),
+    )
+}
+
+fn simple_value_forbidden(byte: u8) -> bool {
+    matches!(
+        byte,
+        b' ' | b'\t' | b'\r' | b'\n' | b'\'' | b'"' | b'\\' | b'#' | b'\0'
     )
 }
 
