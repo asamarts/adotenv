@@ -1,5 +1,6 @@
 //! Internal benchmark automation for adotenv.
 
+use std::collections::BTreeMap;
 use std::env;
 use std::fmt::Write as _;
 use std::fs;
@@ -30,6 +31,7 @@ fn run() -> Result<()> {
         Some("micro") => command_micro(&args[1..]),
         Some("cli") => command_cli(&args[1..]),
         Some("report") => command_report(&args[1..]),
+        Some("compare") => command_compare(&args[1..]),
         Some("fingerprint") => command_fingerprint(),
         Some("queue") => command_queue(&args[1..]),
         Some("help" | "--help" | "-h") | None => {
@@ -47,9 +49,10 @@ memory  --out <path> [--sizes 8,128] [--shapes plain,...] [--modes values,...]
 micro   [--bench fixtures|competitors] [--quick]
 cli     [--out <path>] [--size <label>] [--shape <label>]
 report  --input <path> [--out <path>]
+compare --baseline <path> --current <path> [--out <path>]
 fingerprint
 queue   --remote-root <path> [--out <path>] [--remote-out <path>]
-        [--sizes ...] [--shapes ...] [--modes ...] [--dry-run]";
+        [--sizes ...] [--shapes ...] [--modes ...] [--sync] [--dry-run]";
 
 #[allow(clippy::unnecessary_wraps)]
 fn command_fixtures(_args: &[String]) -> Result<()> {
@@ -152,9 +155,7 @@ fn command_cli(args: &[String]) -> Result<()> {
     if !status.success() {
         return Err(format!("building adotenv-cli exited with {status}"));
     }
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .ok_or("xtask has no parent")?;
+    let root = workspace_root()?;
     let binary = root.join("target").join("release").join(if cfg!(windows) {
         "adotenv-cli.exe"
     } else {
@@ -207,27 +208,22 @@ fn command_report(args: &[String]) -> Result<()> {
          |---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n",
     );
     for row in rows {
-        let field = |name: &str| match row.get(name) {
-            Some(serde_json::Value::String(value)) => value.clone(),
-            Some(serde_json::Value::Null) | None => "-".to_owned(),
-            Some(value) => value.to_string(),
-        };
         writeln!(
             report,
             "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
-            field("size"),
-            field("shape"),
-            field("mode"),
-            field("implementation"),
-            field("entries"),
-            field("source_bytes"),
-            field("peak_heap_bytes"),
-            field("retained_heap_bytes"),
-            field("heap_after_drop_bytes"),
-            field("allocations"),
-            field("rss_before_bytes"),
-            field("rss_peak_bytes"),
-            field("rss_after_bytes")
+            field(&row, "size"),
+            field(&row, "shape"),
+            field(&row, "mode"),
+            field(&row, "implementation"),
+            field(&row, "entries"),
+            field(&row, "source_bytes"),
+            field(&row, "peak_heap_bytes"),
+            field(&row, "retained_heap_bytes"),
+            field(&row, "heap_after_drop_bytes"),
+            field(&row, "allocations"),
+            field(&row, "rss_before_bytes"),
+            field(&row, "rss_peak_bytes"),
+            field(&row, "rss_after_bytes")
         )
         .expect("writing to String cannot fail");
     }
@@ -241,6 +237,93 @@ fn command_report(args: &[String]) -> Result<()> {
         print!("{report}");
     }
     Ok(())
+}
+
+fn command_compare(args: &[String]) -> Result<()> {
+    let baseline = option(args, "--baseline").ok_or("missing --baseline")?;
+    let current = option(args, "--current").ok_or("missing --current")?;
+    let baseline = read_rows(baseline)?;
+    let current = read_rows(current)?;
+    let mut report = String::from(
+        "| size | shape | mode | implementation | metric | baseline | current | delta |\n\
+         |---|---|---|---|---:|---:|---:|\n",
+    );
+    for (key, row) in &current {
+        let Some(base) = baseline.get(key) else {
+            continue;
+        };
+        for metric in [
+            "peak_heap_bytes",
+            "retained_heap_bytes",
+            "heap_after_drop_bytes",
+            "allocations",
+        ] {
+            let Some(base_value) = numeric(base, metric) else {
+                continue;
+            };
+            let Some(current_value) = numeric(row, metric) else {
+                continue;
+            };
+            let delta = if base_value == 0.0 {
+                "n/a".to_owned()
+            } else {
+                format!("{:+.2}%", (current_value - base_value) / base_value * 100.0)
+            };
+            writeln!(
+                report,
+                "| {} | {} | {} | {} | {} | {} | {} | {} |",
+                field(row, "size"),
+                field(row, "shape"),
+                field(row, "mode"),
+                field(row, "implementation"),
+                metric,
+                base_value,
+                current_value,
+                delta
+            )
+            .expect("writing to String cannot fail");
+        }
+    }
+    if let Some(output) = option(args, "--out") {
+        if let Some(parent) = Path::new(output).parent() {
+            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        fs::write(output, report).map_err(|error| error.to_string())?;
+        println!("wrote {output}");
+    } else {
+        print!("{report}");
+    }
+    Ok(())
+}
+
+fn read_rows(path: &str) -> Result<BTreeMap<String, serde_json::Value>> {
+    let text = fs::read_to_string(path).map_err(|error| error.to_string())?;
+    let mut rows = BTreeMap::new();
+    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+        let value: serde_json::Value =
+            serde_json::from_str(line).map_err(|error| error.to_string())?;
+        let key = format!(
+            "{}|{}|{}|{}",
+            field(&value, "size"),
+            field(&value, "shape"),
+            field(&value, "mode"),
+            field(&value, "implementation")
+        );
+        rows.insert(key, value);
+    }
+    Ok(rows)
+}
+
+fn field(row: &serde_json::Value, name: &str) -> String {
+    match row.get(name) {
+        Some(serde_json::Value::String(value)) => value.clone(),
+        Some(serde_json::Value::Null) | None => "-".to_owned(),
+        Some(value) => value.to_string(),
+    }
+}
+
+fn numeric(row: &serde_json::Value, name: &str) -> Option<f64> {
+    row.get(name).and_then(serde_json::Value::as_f64)
 }
 
 #[allow(clippy::unnecessary_wraps)]
@@ -270,7 +353,10 @@ fn fingerprint_json() -> String {
         "cpu": cpu,
         "load1": load,
         "rustc": command_output("rustc", &["--version"]),
-        "git_sha": command_output("git", &["rev-parse", "HEAD"]),
+        "git_sha": env::var("ADOTENV_GIT_SHA")
+            .ok()
+            .filter(|sha| !sha.trim().is_empty())
+            .unwrap_or_else(|| command_output("git", &["rev-parse", "HEAD"])),
         "hyperfine": command_output("hyperfine", &["--version"]),
     })
     .to_string()
@@ -295,9 +381,14 @@ fn command_queue(args: &[String]) -> Result<()> {
     let sizes = option(args, "--sizes").unwrap_or("8,128");
     let shapes = option(args, "--shapes").unwrap_or("plain");
     let modes = option(args, "--modes").unwrap_or("values,load,document,resolve");
+    if has_flag(args, "--sync") && !has_flag(args, "--dry-run") {
+        sync_repository(remote_root)?;
+    }
+    let git_sha = command_output("git", &["rev-parse", "HEAD"]);
     let remote_command = format!(
-        "cd {} && PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml cargo run -q -p adotenv-xtask -- memory --out {} --sizes {} --shapes {} --modes {}",
+        "cd {} && ADOTENV_GIT_SHA={} PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml cargo run -q -p adotenv-xtask -- memory --out {} --sizes {} --shapes {} --modes {}",
         shell_quote(remote_root),
+        shell_quote(&git_sha),
         shell_quote(remote_out),
         shell_quote(sizes),
         shell_quote(shapes),
@@ -344,6 +435,34 @@ fn command_queue(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+fn sync_repository(remote_root: &str) -> Result<()> {
+    if !command_output("git", &["status", "--porcelain"])
+        .trim()
+        .is_empty()
+    {
+        return Err("--sync requires a clean working tree".to_owned());
+    }
+    ssh(&format!("mkdir -p {}", shell_quote(remote_root)))?;
+    let root = workspace_root()?;
+    let status = Command::new("rsync")
+        .args(["-a", "--exclude", "target", "--exclude", ".git"])
+        .arg(format!("{}/", root.display()))
+        .arg(format!("kbench:{remote_root}/"))
+        .status()
+        .map_err(|error| error.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("rsync exited with {status}"))
+    }
+}
+
+fn workspace_root() -> Result<&'static Path> {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .ok_or_else(|| "xtask has no parent".to_owned())
+}
+
 fn build_memory_binary() -> Result<PathBuf> {
     let status = Command::new(cargo())
         .args([
@@ -359,9 +478,7 @@ fn build_memory_binary() -> Result<PathBuf> {
     if !status.success() {
         return Err(format!("building memory binary exited with {status}"));
     }
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .ok_or("xtask has no parent")?;
+    let root = workspace_root()?;
     let name = if cfg!(windows) {
         "memory.exe"
     } else {
