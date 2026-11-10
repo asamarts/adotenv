@@ -46,18 +46,19 @@ export PATH="$HOME/.cargo/bin:$PATH"
 worktree="$(mktemp -d)"
 cleanup() {
   git worktree remove --force "$worktree" >/dev/null 2>&1 || true
-  rm -rf "$worktree"
+  rm -rf "$worktree" "$base_target" "$head_target"
 }
 trap cleanup EXIT
 
-export CARGO_TARGET_DIR="$PWD/target/det-gate"
+base_target="$PWD/target/det-gate-base"
+head_target="$PWD/target/det-gate-head"
+rm -rf "$base_target" "$head_target"
 echo "det-perf: baseline $base"
 git worktree add --detach "$worktree" "$base" >/dev/null
-(cd "$worktree" && cargo bench -p adotenv-bench --bench det_parse --locked -- --save-baseline=det_base)
+(cd "$worktree" && CARGO_TARGET_DIR="$base_target" cargo bench -p adotenv-bench --bench det_parse --locked -- --save-baseline=det_base)
+mkdir -p "$head_target"
+cp -a "$base_target/gungraun" "$head_target/"
 
 echo "det-perf: head $head"
-# Force the head benchmark binary to rebuild when base and head share a target
-# directory but resolve to the same artifact name.
-cargo clean -p adotenv-bench
-cargo bench -p adotenv-bench --bench det_parse --locked -- --baseline=det_base
+CARGO_TARGET_DIR="$head_target" cargo bench -p adotenv-bench --bench det_parse --locked -- --baseline=det_base
 echo "det-perf: PASS"
