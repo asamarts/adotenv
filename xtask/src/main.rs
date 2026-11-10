@@ -5,7 +5,7 @@ use std::env;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, Stdio};
+use std::process::{Command, ExitCode};
 
 use adotenv_bench::competitors::Competitor;
 use adotenv_bench::memory::{Implementation, Mode};
@@ -377,22 +377,41 @@ fn command_output(program: &str, arguments: &[&str]) -> String {
 fn command_queue(args: &[String]) -> Result<()> {
     let remote_root = option(args, "--remote-root").ok_or("missing --remote-root")?;
     let local_out = option(args, "--out").unwrap_or("docs/benchmarks/memory.jsonl");
-    let remote_out = option(args, "--remote-out").unwrap_or("target/bench-memory.jsonl");
+    let remote_out = option(args, "--remote-out").unwrap_or("bench-memory.jsonl");
     let sizes = option(args, "--sizes").unwrap_or("8,128");
     let shapes = option(args, "--shapes").unwrap_or("plain");
     let modes = option(args, "--modes").unwrap_or("values,load,document,resolve");
     if has_flag(args, "--sync") && !has_flag(args, "--dry-run") {
-        sync_repository(remote_root)?;
+        sync_binaries(remote_root)?;
     }
     let git_sha = command_output("git", &["rev-parse", "HEAD"]);
+    let remote_fingerprint = Path::new(remote_out).with_extension("fingerprint.json");
+    let mut memory_commands = Vec::new();
+    for size in parse_sizes(sizes)? {
+        for shape in parse_shapes(shapes)? {
+            for mode in parse_modes(modes)? {
+                for implementation in implementations() {
+                    if !implementation.supports(mode) {
+                        continue;
+                    }
+                    memory_commands.push(format!(
+                        "./memory --mode {} --implementation {} --size {} --shape {}",
+                        shell_quote(mode.label()),
+                        shell_quote(implementation.label()),
+                        shell_quote(size.label()),
+                        shell_quote(shape.label())
+                    ));
+                }
+            }
+        }
+    }
     let remote_command = format!(
-        "cd {} && ADOTENV_GIT_SHA={} PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml cargo run -q -p adotenv-xtask -- memory --out {} --sizes {} --shapes {} --modes {}",
+        "cd {} && ADOTENV_GIT_SHA={} ./adotenv-xtask fingerprint > {} && ({} ) > {}",
         shell_quote(remote_root),
         shell_quote(&git_sha),
-        shell_quote(remote_out),
-        shell_quote(sizes),
-        shell_quote(shapes),
-        shell_quote(modes)
+        shell_quote(&remote_fingerprint.to_string_lossy()),
+        memory_commands.join(" && "),
+        shell_quote(remote_out)
     );
     let queue_command = format!(
         "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add --group bench --label adotenv-bench --print-task-id -- {}",
@@ -435,41 +454,52 @@ fn command_queue(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn sync_repository(remote_root: &str) -> Result<()> {
+fn sync_binaries(remote_root: &str) -> Result<()> {
     if !command_output("git", &["status", "--porcelain"])
         .trim()
         .is_empty()
     {
         return Err("--sync requires a clean working tree".to_owned());
     }
-    let mut archive = Command::new("git")
-        .args(["archive", "--format=tar", "HEAD"])
-        .stdout(Stdio::piped())
-        .spawn()
-        .map_err(|error| error.to_string())?;
-    let stdout = archive
-        .stdout
-        .take()
-        .ok_or_else(|| "git archive produced no stdout".to_owned())?;
-    let remote_command = format!(
-        "mkdir -p {} && tar -C {} -xf -",
-        shell_quote(remote_root),
-        shell_quote(remote_root)
-    );
-    let status = Command::new("ssh")
-        .arg("kbench")
-        .arg(remote_command)
-        .stdin(stdout)
+    let memory = build_memory_binary()?;
+    let status = Command::new(cargo())
+        .args([
+            "build",
+            "-p",
+            "adotenv-xtask",
+            "--bin",
+            "adotenv-xtask",
+            "--locked",
+        ])
         .status()
         .map_err(|error| error.to_string())?;
-    let archive_status = archive.wait().map_err(|error| error.to_string())?;
-    if status.success() && archive_status.success() {
-        Ok(())
-    } else {
-        Err(format!(
-            "syncing to kbench failed: ssh {status}, git archive {archive_status}"
-        ))
+    if !status.success() {
+        return Err(format!("building adotenv-xtask exited with {status}"));
     }
+    let root = workspace_root()?;
+    let xtask = root.join("target").join("debug").join(if cfg!(windows) {
+        "adotenv-xtask.exe"
+    } else {
+        "adotenv-xtask"
+    });
+    ssh(&format!(
+        "mkdir -p {} && chgrp benchmark {} && chmod 2775 {}",
+        shell_quote(remote_root),
+        shell_quote(remote_root),
+        shell_quote(remote_root)
+    ))?;
+    for binary in [memory, xtask] {
+        let name = binary.file_name().ok_or("binary has no name")?;
+        let status = Command::new("scp")
+            .arg(&binary)
+            .arg(format!("kbench:{remote_root}/{}", name.to_string_lossy()))
+            .status()
+            .map_err(|error| error.to_string())?;
+        if !status.success() {
+            return Err(format!("scp {} exited with {status}", binary.display()));
+        }
+    }
+    Ok(())
 }
 
 fn workspace_root() -> Result<&'static Path> {

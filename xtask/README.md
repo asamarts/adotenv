@@ -23,17 +23,20 @@ JSONL file; it is advisory until the deterministic gates in #77 land.
 
 ## kbench
 
-`queue` accepts an absolute workspace path at `--remote-root` on `kbench` and
-uses `--sync` to mirror the current clean commit there before queueing. It
-queues a serialized task through the shared benchq daemon:
+`queue` accepts an absolute, benchq-readable working directory at
+`--remote-root`. With `--sync` it builds the local memory and xtask binaries,
+copies them there, and queues a serialized task through the shared benchq
+daemon. The daemon runs as `benchq`, so do not use a `0700` home directory as
+the remote root:
 
 ```console
-adotenv-xtask queue --remote-root /home/kaminsod/projects/adotenv \
+adotenv-xtask queue --remote-root /var/tmp/adotenv-bench \
   --out docs/benchmarks/memory.jsonl --sync
 ```
 
 The daemon configuration is `/etc/benchq/pueue.yml` and the group is `bench`
-with one parallel slot. Use `--dry-run` to inspect the queued command without
-contacting the host. The task copies `target/bench-memory.jsonl` and its
-fingerprint back after it finishes. Do not change host-wide settings or other
-projects' queues.
+with one parallel slot. `--sync` requires a clean working tree so the queued
+result can be tied to the local git SHA. Use `--dry-run` to inspect the queued
+command without contacting the host. The task writes `bench-memory.jsonl` and
+`bench-memory.fingerprint.json` in the remote root and copies both back. Do not
+change host-wide settings or other projects' queues.
