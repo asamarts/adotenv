@@ -34,6 +34,7 @@
 - [Test audit](design/test-audit.md)
 - [Performance](design/performance.md)
 - [Memory benchmark results](benchmarks/memory.md)
+- [Speed benchmark results](benchmarks/speed.md)
 - [1.4.1 plan](design/1.4.1-plan.md)
 - [1.0 readiness](design/1.0-readiness.md)
 - [1.0 fix round](design/1.0-fix-round.md)
