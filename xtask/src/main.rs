@@ -5,7 +5,7 @@ use std::env;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Stdio};
 
 use adotenv_bench::competitors::Competitor;
 use adotenv_bench::memory::{Implementation, Mode};
@@ -442,18 +442,33 @@ fn sync_repository(remote_root: &str) -> Result<()> {
     {
         return Err("--sync requires a clean working tree".to_owned());
     }
-    ssh(&format!("mkdir -p {}", shell_quote(remote_root)))?;
-    let root = workspace_root()?;
-    let status = Command::new("rsync")
-        .args(["-a", "--exclude", "target", "--exclude", ".git"])
-        .arg(format!("{}/", root.display()))
-        .arg(format!("kbench:{remote_root}/"))
+    let mut archive = Command::new("git")
+        .args(["archive", "--format=tar", "HEAD"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|error| error.to_string())?;
+    let stdout = archive
+        .stdout
+        .take()
+        .ok_or_else(|| "git archive produced no stdout".to_owned())?;
+    let remote_command = format!(
+        "mkdir -p {} && tar -C {} -xf -",
+        shell_quote(remote_root),
+        shell_quote(remote_root)
+    );
+    let status = Command::new("ssh")
+        .arg("kbench")
+        .arg(remote_command)
+        .stdin(stdout)
         .status()
         .map_err(|error| error.to_string())?;
-    if status.success() {
+    let archive_status = archive.wait().map_err(|error| error.to_string())?;
+    if status.success() && archive_status.success() {
         Ok(())
     } else {
-        Err(format!("rsync exited with {status}"))
+        Err(format!(
+            "syncing to kbench failed: ssh {status}, git archive {archive_status}"
+        ))
     }
 }
 
