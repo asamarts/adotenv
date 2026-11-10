@@ -56,5 +56,8 @@ git worktree add --detach "$worktree" "$base" >/dev/null
 (cd "$worktree" && cargo bench -p adotenv-bench --bench det_parse --locked -- --save-baseline=det_base)
 
 echo "det-perf: head $head"
+# Force the head benchmark binary to rebuild when base and head share a target
+# directory but resolve to the same artifact name.
+cargo clean -p adotenv-bench
 cargo bench -p adotenv-bench --bench det_parse --locked -- --baseline=det_base
 echo "det-perf: PASS"
