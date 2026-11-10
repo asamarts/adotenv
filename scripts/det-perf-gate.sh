@@ -53,8 +53,8 @@ trap cleanup EXIT
 export CARGO_TARGET_DIR="$PWD/target/det-gate"
 echo "det-perf: baseline $base"
 git worktree add --detach "$worktree" "$base" >/dev/null
-(cd "$worktree" && cargo bench -p adotenv-bench --bench det_parse --locked -- --save-baseline=det-base)
+(cd "$worktree" && cargo bench -p adotenv-bench --bench det_parse --locked -- --save-baseline=det_base)
 
 echo "det-perf: head $head"
-cargo bench -p adotenv-bench --bench det_parse --locked -- --baseline=det-base
+cargo bench -p adotenv-bench --bench det_parse --locked -- --baseline=det_base
 echo "det-perf: PASS"
