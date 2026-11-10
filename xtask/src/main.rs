@@ -42,7 +42,8 @@ fn run() -> Result<()> {
     }
 }
 
-const USAGE: &str = "adotenv-xtask <fixtures|memory|micro|report|queue> [options]
+const USAGE: &str =
+    "adotenv-xtask <fixtures|memory|micro|cli|report|compare|fingerprint|queue> [options]
 
 fixtures
 memory  --out <path> [--sizes 8,128] [--shapes plain,...] [--modes values,...]
@@ -74,9 +75,7 @@ fn command_memory(args: &[String]) -> Result<()> {
     let shapes = option(args, "--shapes").unwrap_or("plain");
     let modes = option(args, "--modes").unwrap_or("values,load,document,resolve");
     let out = PathBuf::from(out);
-    if let Some(parent) = out.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
+    ensure_parent(&out)?;
     let sizes = parse_sizes(sizes)?;
     let shapes = parse_shapes(shapes)?;
     let modes = parse_modes(modes)?;
@@ -145,9 +144,7 @@ fn command_cli(args: &[String]) -> Result<()> {
     let size = Size::from_label(option(args, "--size").unwrap_or("128")).ok_or("unknown size")?;
     let shape =
         Shape::from_label(option(args, "--shape").unwrap_or("plain")).ok_or("unknown shape")?;
-    if let Some(parent) = out.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
+    ensure_parent(&out)?;
     let status = Command::new(cargo())
         .args(["build", "--release", "-p", "adotenv-cli", "--locked"])
         .status()
@@ -228,11 +225,10 @@ fn command_report(args: &[String]) -> Result<()> {
         .expect("writing to String cannot fail");
     }
     if let Some(output) = output {
-        if let Some(parent) = Path::new(output).parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
+        let output = Path::new(output);
+        ensure_parent(output)?;
         fs::write(output, report).map_err(|error| error.to_string())?;
-        println!("wrote {output}");
+        println!("wrote {}", output.display());
     } else {
         print!("{report}");
     }
@@ -285,11 +281,10 @@ fn command_compare(args: &[String]) -> Result<()> {
         }
     }
     if let Some(output) = option(args, "--out") {
-        if let Some(parent) = Path::new(output).parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
+        let output = Path::new(output);
+        ensure_parent(output)?;
         fs::write(output, report).map_err(|error| error.to_string())?;
-        println!("wrote {output}");
+        println!("wrote {}", output.display());
     } else {
         print!("{report}");
     }
@@ -332,6 +327,15 @@ fn command_fingerprint() -> Result<()> {
     Ok(())
 }
 
+fn cpu_count() -> usize {
+    fs::read_to_string("/proc/cpuinfo").map_or(0, |contents| {
+        contents
+            .lines()
+            .filter(|line| line.starts_with("processor"))
+            .count()
+    })
+}
+
 fn fingerprint_json() -> String {
     let cpu = fs::read_to_string("/proc/cpuinfo")
         .ok()
@@ -350,7 +354,10 @@ fn fingerprint_json() -> String {
     serde_json::json!({
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
+        "hostname": command_output("hostname", &[]),
+        "kernel": command_output("uname", &["-sr"]),
         "cpu": cpu,
+        "cpu_count": cpu_count(),
         "load1": load,
         "rustc": env::var("ADOTENV_RUSTC")
             .ok()
@@ -379,6 +386,13 @@ fn command_output(program: &str, arguments: &[&str]) -> String {
 
 fn command_queue(args: &[String]) -> Result<()> {
     let remote_root = option(args, "--remote-root").ok_or("missing --remote-root")?;
+    if remote_root.is_empty()
+        || remote_root == "/"
+        || !Path::new(remote_root).is_absolute()
+        || remote_root.contains('~')
+    {
+        return Err("--remote-root must be an absolute, non-root, non-home path".to_owned());
+    }
     let local_out = option(args, "--out").unwrap_or("docs/benchmarks/memory.jsonl");
     let remote_out = option(args, "--remote-out").unwrap_or("bench-memory.jsonl");
     let sizes = option(args, "--sizes").unwrap_or("8,128");
@@ -436,9 +450,8 @@ fn command_queue(args: &[String]) -> Result<()> {
     ssh(&format!(
         "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue wait {task}"
     ))?;
-    if let Some(parent) = Path::new(local_out).parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
+    ensure_task_succeeded(task)?;
+    ensure_parent(Path::new(local_out))?;
     let status = Command::new("scp")
         .arg(format!("kbench:{remote_root}/{remote_out}"))
         .arg(local_out)
@@ -449,13 +462,17 @@ fn command_queue(args: &[String]) -> Result<()> {
     }
     let local_fingerprint = Path::new(local_out).with_extension("fingerprint.json");
     let remote_fingerprint = Path::new(remote_out).with_extension("fingerprint.json");
-    let _ = Command::new("scp")
+    let status = Command::new("scp")
         .arg(format!(
             "kbench:{remote_root}/{}",
             remote_fingerprint.display()
         ))
         .arg(&local_fingerprint)
-        .status();
+        .status()
+        .map_err(|error| error.to_string())?;
+    if !status.success() {
+        return Err(format!("copying fingerprint exited with {status}"));
+    }
     println!("copied {local_out} and {}", local_fingerprint.display());
     Ok(())
 }
@@ -471,6 +488,7 @@ fn sync_binaries(remote_root: &str) -> Result<()> {
     let status = Command::new(cargo())
         .args([
             "build",
+            "--release",
             "-p",
             "adotenv-xtask",
             "--bin",
@@ -483,7 +501,7 @@ fn sync_binaries(remote_root: &str) -> Result<()> {
         return Err(format!("building adotenv-xtask exited with {status}"));
     }
     let root = workspace_root()?;
-    let xtask = root.join("target").join("debug").join(if cfg!(windows) {
+    let xtask = root.join("target").join("release").join(if cfg!(windows) {
         "adotenv-xtask.exe"
     } else {
         "adotenv-xtask"
@@ -516,16 +534,48 @@ fn sync_binaries(remote_root: &str) -> Result<()> {
     Ok(())
 }
 
+fn ensure_parent(path: &Path) -> Result<()> {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 fn workspace_root() -> Result<&'static Path> {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .ok_or_else(|| "xtask has no parent".to_owned())
 }
 
+fn ensure_task_succeeded(task: &str) -> Result<()> {
+    let status = ssh("PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue status --json")?;
+    let value: serde_json::Value =
+        serde_json::from_str(&status).map_err(|error| format!("parsing pueue status: {error}"))?;
+    let result = value
+        .get("tasks")
+        .and_then(|tasks| tasks.get(task))
+        .and_then(|task| task.get("status"))
+        .and_then(|status| status.get("Done"))
+        .and_then(|done| done.get("result"))
+        .and_then(serde_json::Value::as_str);
+    if result == Some("Success") {
+        Ok(())
+    } else {
+        Err(format!(
+            "kbench task {task} did not succeed (result: {})",
+            result.unwrap_or("unknown")
+        ))
+    }
+}
+
 fn build_memory_binary() -> Result<PathBuf> {
     let status = Command::new(cargo())
         .args([
             "build",
+            "--release",
             "-p",
             "adotenv-bench",
             "--bin",
@@ -543,7 +593,7 @@ fn build_memory_binary() -> Result<PathBuf> {
     } else {
         "memory"
     };
-    Ok(root.join("target").join("debug").join(name))
+    Ok(root.join("target").join("release").join(name))
 }
 
 fn implementations() -> Vec<Implementation> {
@@ -626,5 +676,24 @@ mod tests {
     #[test]
     fn shell_quotes_apostrophes() {
         assert_eq!(shell_quote("a'b"), "'a'\\''b'");
+    }
+
+    #[test]
+    fn renders_json_fields_without_quotes() {
+        let row = serde_json::json!({"size": "8", "peak_heap_bytes": 632, "missing": null});
+        assert_eq!(field(&row, "size"), "8");
+        assert_eq!(field(&row, "peak_heap_bytes"), "632");
+        assert_eq!(field(&row, "missing"), "-");
+        assert_eq!(numeric(&row, "peak_heap_bytes"), Some(632.0));
+        assert_eq!(numeric(&row, "size"), None);
+    }
+
+    #[test]
+    fn parses_comparable_shapes() {
+        assert_eq!(
+            parse_shapes("plain,long-line,empty").unwrap(),
+            vec![Shape::Plain, Shape::LongLine, Shape::Empty]
+        );
+        assert!(parse_shapes("not-a-shape").is_err());
     }
 }

@@ -15,8 +15,8 @@ adotenv-xtask compare --baseline old.jsonl --current docs/benchmarks/memory.json
 adotenv-xtask fingerprint
 ```
 
-`memory` builds and invokes the isolated memory binary, writes JSONL results,
-and writes a sibling `<name>.fingerprint.json`. `cli` builds `adotenv-cli` and
+`memory` builds and invokes the release-mode isolated memory binary, writes
+JSONL results, and writes a sibling `<name>.fingerprint.json`. `cli` builds `adotenv-cli` and
 runs hyperfine over a generated fixture. `report` renders memory JSONL rows as
 a Markdown table. `compare` reports numeric deltas against a previous memory
 JSONL file; it is advisory until the deterministic gates in #77 land.
@@ -24,8 +24,8 @@ JSONL file; it is advisory until the deterministic gates in #77 land.
 ## kbench
 
 `queue` accepts an absolute, benchq-readable working directory at
-`--remote-root`. With `--sync` it builds the local memory and xtask binaries,
-copies them there, and queues a serialized task through the shared benchq
+`--remote-root`. With `--sync` it builds the release-mode memory and xtask
+binaries, copies them there, and queues a serialized task through the shared benchq
 daemon. The daemon runs as `benchq` with `ProtectHome`, `ProtectSystem=strict`
 and `PrivateTmp`, so the remote root must be writable by that user. On `kbench`
 use its state directory and passwordless `sudo -n -u benchq`:

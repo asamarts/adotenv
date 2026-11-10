@@ -28,10 +28,12 @@ allocator. It reports peak live heap, live heap while the result is held,
 heap after dropping it, allocation count and Linux RSS fields.
 
 ```console
-cargo run -p adotenv-bench --bin memory -- \
+cargo run --release -p adotenv-bench --bin memory -- \
   --mode values --implementation adotenv --size 8 --shape plain
 ```
 
-Use `--format markdown` for one table row. Supported modes are `values`,
+Use `--release` for publication measurements; the xtask memory and queue
+commands build this binary in release mode automatically. Use `--format
+markdown` for one table row. Supported modes are `values`,
 `document`, `load` and `resolve`; competitor document/resolve cells are
 intentionally unsupported because their stateful semantics are not comparable.
