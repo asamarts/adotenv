@@ -9,6 +9,7 @@ not a runtime dependency of the library or CLI.
 adotenv-xtask fixtures
 adotenv-xtask memory --out docs/benchmarks/memory.jsonl --sizes 8,128 --shapes plain
 adotenv-xtask micro --bench fixtures --quick
+adotenv-xtask speed --out docs/benchmarks/speed.txt --bench competitors
 adotenv-xtask cli --out docs/benchmarks/cli.json --size 128 --shape plain
 adotenv-xtask report --input docs/benchmarks/memory.jsonl --out docs/benchmarks/memory.md
 adotenv-xtask compare --baseline old.jsonl --current docs/benchmarks/memory.jsonl
@@ -33,12 +34,15 @@ use its state directory and passwordless `sudo -n -u benchq`:
 ```console
 adotenv-xtask queue --remote-root /var/lib/benchq/adotenv-bench \
   --out docs/benchmarks/memory.jsonl --sync
+adotenv-xtask queue-speed --remote-root /var/lib/benchq/adotenv-bench \
+  --out docs/benchmarks/speed.txt --sync
 ```
 
 The daemon configuration is `/etc/benchq/pueue.yml` and the group is `bench`
 with one parallel slot. `--sync` requires a clean working tree so the queued
 result can be tied to the local git SHA. Use `--dry-run` to inspect the queued
-command without contacting the host. The task writes `bench-memory.jsonl` and
-`bench-memory.fingerprint.json` in the remote root and copies both back. The
-binary-copy path uses `sudo -n -u benchq`; it does not change host-wide settings
-or other projects' queues.
+command without contacting the host. Memory tasks write `bench-memory.jsonl`
+and its fingerprint; speed tasks write `bench-speed.txt`, `bench-speed.md` and
+the fingerprint. Both are copied back to the local path. The binary-copy path
+uses `sudo -n -u benchq`; it does not change host-wide settings or other
+projects' queues.
