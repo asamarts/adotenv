@@ -193,7 +193,7 @@ fn command_report(args: &[String]) -> Result<()> {
             serde_json::from_str(line).map_err(|error| error.to_string())?;
         rows.push(value);
     }
-    let mut report = String::new();
+    let mut report = String::from("# Memory benchmark results\n\n");
     let sidecar = Path::new(input).with_extension("fingerprint.json");
     if let Ok(fingerprint) = fs::read_to_string(&sidecar) {
         report.push_str("## Fingerprint\n\n```json\n");
