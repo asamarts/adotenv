@@ -10,6 +10,7 @@ use adotenv::parse;
 use sha2::{Digest, Sha256};
 
 pub mod competitors;
+pub mod memory;
 
 /// The fixed seed represented in generated fixture metadata.
 ///
@@ -63,6 +64,12 @@ impl Size {
             Self::TenK => "10k",
             Self::HundredK => "100k",
         }
+    }
+
+    /// Parses a stable size label.
+    #[must_use]
+    pub fn from_label(label: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|size| size.label() == label)
     }
 }
 
@@ -125,6 +132,12 @@ impl Shape {
             Self::Realistic => "realistic",
             Self::Empty => "empty",
         }
+    }
+
+    /// Parses a stable shape label.
+    #[must_use]
+    pub fn from_label(label: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|shape| shape.label() == label)
     }
 }
 

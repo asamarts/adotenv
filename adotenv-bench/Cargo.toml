@@ -30,8 +30,12 @@ harness = false
 name = "competitors"
 harness = false
 
+[[bin]]
+name = "memory"
+path = "src/bin/memory.rs"
+
 [lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
 missing_docs = "warn"
 
 [lints.clippy]

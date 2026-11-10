@@ -20,3 +20,18 @@ reported as unsupported because the libraries disagree on their semantics.
 Reference resolution is not compared because the competitors interpolate with
 different policies; `unsupported_cells()` records every excluded cell and
 reason.
+
+## Memory runs
+
+The `memory` binary measures one case in a fresh process using a counting
+allocator. It reports peak live heap, live heap while the result is held,
+heap after dropping it, allocation count and Linux RSS fields.
+
+```console
+cargo run -p adotenv-bench --bin memory -- \
+  --mode values --implementation adotenv --size 8 --shape plain
+```
+
+Use `--format markdown` for one table row. Supported modes are `values`,
+`document`, `load` and `resolve`; competitor document/resolve cells are
+intentionally unsupported because their stateful semantics are not comparable.
