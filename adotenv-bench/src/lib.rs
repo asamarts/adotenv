@@ -9,6 +9,8 @@ use std::fmt::Write as _;
 use adotenv::parse;
 use sha2::{Digest, Sha256};
 
+pub mod competitors;
+
 /// The fixed seed represented in generated fixture metadata.
 ///
 /// Generation is deterministic and does not currently use randomness.
