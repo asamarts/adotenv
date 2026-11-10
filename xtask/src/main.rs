@@ -29,11 +29,13 @@ fn run() -> Result<()> {
         Some("fixtures") => command_fixtures(&args[1..]),
         Some("memory") => command_memory(&args[1..]),
         Some("micro") => command_micro(&args[1..]),
+        Some("speed") => command_speed(&args[1..]),
         Some("cli") => command_cli(&args[1..]),
         Some("report") => command_report(&args[1..]),
         Some("compare") => command_compare(&args[1..]),
         Some("fingerprint") => command_fingerprint(),
         Some("queue") => command_queue(&args[1..]),
+        Some("queue-speed") => command_queue_speed(&args[1..]),
         Some("help" | "--help" | "-h") | None => {
             println!("{USAGE}");
             Ok(())
@@ -43,17 +45,21 @@ fn run() -> Result<()> {
 }
 
 const USAGE: &str =
-    "adotenv-xtask <fixtures|memory|micro|cli|report|compare|fingerprint|queue> [options]
+    "adotenv-xtask <fixtures|memory|micro|speed|cli|report|compare|fingerprint|queue|queue-speed> [options]
 
 fixtures
 memory  --out <path> [--sizes 8,128] [--shapes plain,...] [--modes values,...]
 micro   [--bench fixtures|competitors] [--quick]
+speed   [--out <path>] [--bench competitors] [--filter <text>] [--quick]
 cli     [--out <path>] [--size <label>] [--shape <label>]
 report  --input <path> [--out <path>]
 compare --baseline <path> --current <path> [--out <path>]
 fingerprint
 queue   --remote-root <path> [--out <path>] [--remote-out <path>]
-        [--sizes ...] [--shapes ...] [--modes ...] [--sync] [--dry-run]";
+        [--sizes ...] [--shapes ...] [--modes ...] [--sync] [--dry-run]
+queue-speed --remote-root <path> [--out <path>] [--remote-out <path>]
+        [--bench competitors] [--filter <text>] [--quick] [--sample-size N]
+        [--warm-up-time SECS] [--measurement-time SECS] [--sync] [--dry-run]";
 
 #[allow(clippy::unnecessary_wraps)]
 fn command_fixtures(_args: &[String]) -> Result<()> {
@@ -137,6 +143,61 @@ fn command_micro(args: &[String]) -> Result<()> {
     } else {
         Err(format!("cargo bench exited with {status}"))
     }
+}
+
+fn command_speed(args: &[String]) -> Result<()> {
+    let out = PathBuf::from(option(args, "--out").unwrap_or("docs/benchmarks/speed.txt"));
+    let bench = option(args, "--bench").unwrap_or("competitors");
+    ensure_parent(&out)?;
+    let binary = build_bench_binary(bench)?;
+    let mut command = Command::new(binary);
+    command.args(["--bench", "--output-format", "bencher", "--noplot"]);
+    if has_flag(args, "--quick") {
+        command.arg("--quick");
+    }
+    if let Some(filter) = option(args, "--filter") {
+        command.arg(filter);
+    }
+    let output = command.output().map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(format!(
+            "criterion exited with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    fs::write(&out, &output.stdout).map_err(|error| error.to_string())?;
+    let sidecar = out.with_extension("fingerprint.json");
+    fs::write(&sidecar, fingerprint_json()).map_err(|error| error.to_string())?;
+    write_speed_markdown(&out)?;
+    println!("wrote {} and {}", out.display(), sidecar.display());
+    Ok(())
+}
+
+fn write_speed_markdown(path: &Path) -> Result<()> {
+    let text = fs::read_to_string(path).map_err(|error| error.to_string())?;
+    let mut report = String::from("# Speed benchmark results\n\n");
+    let sidecar = path.with_extension("fingerprint.json");
+    if let Ok(fingerprint) = fs::read_to_string(&sidecar) {
+        report.push_str("## Fingerprint\n\n```json\n");
+        report.push_str(fingerprint.trim());
+        report.push_str("\n```\n\n");
+    }
+    report.push_str("| benchmark | time |\n|---|---:|\n");
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix("test ") else {
+            continue;
+        };
+        let Some((name, value)) = rest.split_once(" ... bench:") else {
+            continue;
+        };
+        writeln!(report, "| {} | {} |", name.trim(), value.trim())
+            .expect("writing to String cannot fail");
+    }
+    let markdown = path.with_extension("md");
+    fs::write(&markdown, report).map_err(|error| error.to_string())?;
+    println!("wrote {}", markdown.display());
+    Ok(())
 }
 
 fn command_cli(args: &[String]) -> Result<()> {
@@ -386,13 +447,7 @@ fn command_output(program: &str, arguments: &[&str]) -> String {
 
 fn command_queue(args: &[String]) -> Result<()> {
     let remote_root = option(args, "--remote-root").ok_or("missing --remote-root")?;
-    if remote_root.is_empty()
-        || remote_root == "/"
-        || !Path::new(remote_root).is_absolute()
-        || remote_root.contains('~')
-    {
-        return Err("--remote-root must be an absolute, non-root, non-home path".to_owned());
-    }
+    validate_remote_root(remote_root)?;
     let local_out = option(args, "--out").unwrap_or("docs/benchmarks/memory.jsonl");
     let remote_out = option(args, "--remote-out").unwrap_or("bench-memory.jsonl");
     let sizes = option(args, "--sizes").unwrap_or("8,128");
@@ -475,6 +530,217 @@ fn command_queue(args: &[String]) -> Result<()> {
     }
     println!("copied {local_out} and {}", local_fingerprint.display());
     Ok(())
+}
+
+fn command_queue_speed(args: &[String]) -> Result<()> {
+    let remote_root = option(args, "--remote-root").ok_or("missing --remote-root")?;
+    validate_remote_root(remote_root)?;
+    let local_out = option(args, "--out").unwrap_or("docs/benchmarks/speed.txt");
+    let remote_out = option(args, "--remote-out").unwrap_or("bench-speed.txt");
+    let bench = option(args, "--bench").unwrap_or("competitors");
+    if !bench
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err("--bench must be a simple target name".to_owned());
+    }
+    if has_flag(args, "--sync") && !has_flag(args, "--dry-run") {
+        sync_speed_binaries(remote_root, bench)?;
+    }
+    let git_sha = command_output("git", &["rev-parse", "HEAD"]);
+    let rustc = command_output("rustc", &["--version"]);
+    let remote_fingerprint = Path::new(remote_out).with_extension("fingerprint.json");
+    let mut bench_args = vec!["--bench", "--output-format", "bencher", "--noplot"];
+    if has_flag(args, "--quick") {
+        bench_args.push("--quick");
+    }
+    if let Some(filter) = option(args, "--filter") {
+        bench_args.push(filter);
+    }
+    for (name, flag) in [
+        ("--sample-size", "--sample-size"),
+        ("--warm-up-time", "--warm-up-time"),
+        ("--measurement-time", "--measurement-time"),
+    ] {
+        if let Some(value) = option(args, name) {
+            bench_args.push(flag);
+            bench_args.push(value);
+        }
+    }
+    let bench_args = bench_args
+        .iter()
+        .map(|argument| shell_quote(argument))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let remote_command = format!(
+        "cd {} && ADOTENV_GIT_SHA={} ADOTENV_RUSTC={} ./adotenv-xtask fingerprint > {} && ./{} {} > {}",
+        shell_quote(remote_root),
+        shell_quote(&git_sha),
+        shell_quote(&rustc),
+        shell_quote(&remote_fingerprint.to_string_lossy()),
+        shell_quote(bench),
+        bench_args,
+        shell_quote(remote_out)
+    );
+    let queue_command = format!(
+        "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add --group bench --working-directory {} --label adotenv-speed --print-task-id -- {}",
+        shell_quote(remote_root),
+        shell_quote(&remote_command)
+    );
+    if has_flag(args, "--dry-run") {
+        println!("ssh kbench {queue_command}");
+        return Ok(());
+    }
+    let task = ssh(&queue_command)?;
+    let task = task.trim();
+    if task.is_empty() {
+        return Err("pueue did not return a task id".to_owned());
+    }
+    println!("queued kbench task {task}");
+    ssh(&format!(
+        "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue wait {task}"
+    ))?;
+    ensure_task_succeeded(task)?;
+    ensure_parent(Path::new(local_out))?;
+    let status = Command::new("scp")
+        .arg(format!("kbench:{remote_root}/{remote_out}"))
+        .arg(local_out)
+        .status()
+        .map_err(|error| error.to_string())?;
+    if !status.success() {
+        return Err(format!("scp exited with {status}"));
+    }
+    let local_fingerprint = Path::new(local_out).with_extension("fingerprint.json");
+    let status = Command::new("scp")
+        .arg(format!(
+            "kbench:{remote_root}/{}",
+            remote_fingerprint.display()
+        ))
+        .arg(&local_fingerprint)
+        .status()
+        .map_err(|error| error.to_string())?;
+    if !status.success() {
+        return Err(format!("copying fingerprint exited with {status}"));
+    }
+    write_speed_markdown(Path::new(local_out))?;
+    println!("copied {local_out} and {}", local_fingerprint.display());
+    Ok(())
+}
+
+fn sync_speed_binaries(remote_root: &str, bench: &str) -> Result<()> {
+    if !command_output("git", &["status", "--porcelain"])
+        .trim()
+        .is_empty()
+    {
+        return Err("--sync requires a clean working tree".to_owned());
+    }
+    let bench_binary = build_bench_binary(bench)?;
+    let xtask = build_xtask_binary()?;
+    prepare_remote_root(remote_root)?;
+    copy_binary(remote_root, &bench_binary, bench)?;
+    copy_binary(remote_root, &xtask, "adotenv-xtask")?;
+    Ok(())
+}
+
+fn validate_remote_root(remote_root: &str) -> Result<()> {
+    if remote_root.is_empty()
+        || remote_root == "/"
+        || !Path::new(remote_root).is_absolute()
+        || remote_root.contains('~')
+    {
+        return Err("--remote-root must be an absolute, non-root, non-home path".to_owned());
+    }
+    Ok(())
+}
+
+fn prepare_remote_root(remote_root: &str) -> Result<()> {
+    ssh(&format!(
+        "sudo -n -u benchq mkdir -p {} && sudo -n -u benchq chmod 750 {}",
+        shell_quote(remote_root),
+        shell_quote(remote_root)
+    ))?;
+    Ok(())
+}
+
+fn copy_binary(remote_root: &str, binary: &Path, name: &str) -> Result<()> {
+    let staging = format!("/var/tmp/adotenv-{}-{name}", std::process::id());
+    let status = Command::new("scp")
+        .arg(binary)
+        .arg(format!("kbench:{staging}"))
+        .status()
+        .map_err(|error| error.to_string())?;
+    if !status.success() {
+        return Err(format!("scp {} exited with {status}", binary.display()));
+    }
+    let destination = format!("{remote_root}/{name}");
+    ssh(&format!(
+        "sudo -n -u benchq install -m 755 {} {}; status=$?; rm -f {}; exit $status",
+        shell_quote(&staging),
+        shell_quote(&destination),
+        shell_quote(&staging)
+    ))?;
+    Ok(())
+}
+
+fn build_bench_binary(bench: &str) -> Result<PathBuf> {
+    let output = Command::new(cargo())
+        .args([
+            "bench",
+            "-p",
+            "adotenv-bench",
+            "--bench",
+            bench,
+            "--no-run",
+            "--locked",
+            "--message-format=json",
+        ])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+    }
+    let mut executable = None;
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if value.get("reason").and_then(serde_json::Value::as_str) == Some("compiler-artifact")
+            && value
+                .get("target")
+                .and_then(|target| target.get("name"))
+                .and_then(serde_json::Value::as_str)
+                == Some(bench)
+        {
+            if let Some(path) = value.get("executable").and_then(serde_json::Value::as_str) {
+                executable = Some(PathBuf::from(path));
+            }
+        }
+    }
+    executable.ok_or_else(|| format!("cargo did not report an executable for {bench}"))
+}
+
+fn build_xtask_binary() -> Result<PathBuf> {
+    let status = Command::new(cargo())
+        .args([
+            "build",
+            "--release",
+            "-p",
+            "adotenv-xtask",
+            "--bin",
+            "adotenv-xtask",
+            "--locked",
+        ])
+        .status()
+        .map_err(|error| error.to_string())?;
+    if !status.success() {
+        return Err(format!("building adotenv-xtask exited with {status}"));
+    }
+    let root = workspace_root()?;
+    Ok(root.join("target").join("release").join(if cfg!(windows) {
+        "adotenv-xtask.exe"
+    } else {
+        "adotenv-xtask"
+    }))
 }
 
 fn sync_binaries(remote_root: &str) -> Result<()> {
