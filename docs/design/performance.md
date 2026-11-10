@@ -210,8 +210,9 @@ competitor in each cell:
 
 The retained result cannot become a strict win without changing the public
 `BTreeMap<String, String>` result type: both APIs return the same map at small
-sizes, and larger cells are already at the compact-tree floor. This is an
-escalation point for the release claim, not a reason to weaken the measurement.
+sizes, and larger cells are already at the compact-tree floor. For 1.4.1 this is
+accepted as a no-loss result, not treated as a strict win; a compact values API
+is a candidate for a later minor release.
 
 ## Earlier measurements
 
