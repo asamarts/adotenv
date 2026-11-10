@@ -196,10 +196,13 @@ CI separates deterministic internal gates from publication wall-time evidence:
 
 ### 1.4.1 comparable baseline
 
-The comparable matrix on `kbench` (SHA `e2134be`, five sizes, `plain`/
-`long-line`/`empty`, values and load) is recorded in
+The comparable matrix on `kbench` (five sizes, `plain`/`long-line`/`empty`,
+values and load) is recorded in
 [`docs/benchmarks/speed.md`](../benchmarks/speed.md) and
-[`docs/benchmarks/memory.md`](../benchmarks/memory.md). Against the best
+[`docs/benchmarks/memory.md`](../benchmarks/memory.md). The speed snapshot is
+from SHA `e2134be` and the memory snapshot is from SHA `5009b86`; both predate
+only an import/regular-file guard follow-up, and the final release evidence
+must re-run both from one candidate SHA. Against the best
 competitor in each cell:
 
 - speed: **25/25 strict wins**;

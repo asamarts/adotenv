@@ -1980,14 +1980,25 @@ where
     load_value_paths(paths, options, false)
 }
 
+#[allow(clippy::too_many_lines)]
 fn read_load_path(
     path: &Path,
     skip_missing: bool,
     max_input_bytes: Option<usize>,
 ) -> Result<Option<Vec<u8>>, LoadError> {
     if max_input_bytes.is_none() {
-        if fs::metadata(path).is_ok_and(|metadata| metadata.is_file() && metadata.len() == 0) {
-            return Ok(Some(Vec::new()));
+        match fs::metadata(path) {
+            Ok(metadata) if !metadata.is_file() => {
+                return Err(LoadError::Io {
+                    path: path.to_path_buf(),
+                    source: io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "path is not a regular file",
+                    ),
+                });
+            }
+            Ok(metadata) if metadata.len() == 0 => return Ok(Some(Vec::new())),
+            _ => {}
         }
         let mut file = match fs::File::open(path) {
             Ok(file) => file,
