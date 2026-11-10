@@ -13,6 +13,7 @@ adotenv-xtask speed --out docs/benchmarks/speed.txt --bench competitors
 adotenv-xtask cli --out docs/benchmarks/cli.json --size 128 --shape plain
 adotenv-xtask report --input docs/benchmarks/memory.jsonl --out docs/benchmarks/memory.md
 adotenv-xtask compare --baseline old.jsonl --current docs/benchmarks/memory.jsonl
+adotenv-xtask gate --baseline docs/benchmarks/memory.jsonl --current target/memory-current.jsonl
 adotenv-xtask fingerprint
 ```
 
