@@ -9,6 +9,9 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 head="$(git rev-parse HEAD)"
+worktree=""
+base_target="$PWD/target/det-gate-base"
+head_target="$PWD/target/det-gate-head"
 base="${BASE_SHA:-}"
 if [[ -z "$base" ]]; then
   if [[ -n "${GITHUB_BASE_REF:-}" ]]; then
@@ -45,13 +48,13 @@ export PATH="$HOME/.cargo/bin:$PATH"
 
 worktree="$(mktemp -d)"
 cleanup() {
-  git worktree remove --force "$worktree" >/dev/null 2>&1 || true
+  if [[ -n "$worktree" ]]; then
+    git worktree remove --force "$worktree" >/dev/null 2>&1 || true
+  fi
   rm -rf "$worktree" "$base_target" "$head_target"
 }
 trap cleanup EXIT
 
-base_target="$PWD/target/det-gate-base"
-head_target="$PWD/target/det-gate-head"
 rm -rf "$base_target" "$head_target"
 echo "det-perf: baseline $base"
 git worktree add --detach "$worktree" "$base" >/dev/null

@@ -294,10 +294,10 @@ jobs:
         run: cargo bench -p adotenv-bench --bench det_parse --locked -- --save-baseline=smoke
       - name: memory baseline gate
         run: |
-          cargo run --release -p adotenv-xtask -- memory --out target/memory-current.jsonl \
+          cargo run --release --locked -p adotenv-xtask -- memory --out target/memory-current.jsonl \
             --sizes 8,128,1k,10k,100k --shapes plain,long-line,empty \
             --modes values,load,document,resolve
-          cargo run --release -p adotenv-xtask -- gate \
+          cargo run --release --locked -p adotenv-xtask -- gate \
             --baseline docs/benchmarks/memory.jsonl --current target/memory-current.jsonl
 
   det-perf:

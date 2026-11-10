@@ -184,8 +184,9 @@ CI separates deterministic internal gates from publication wall-time evidence:
 - `adotenv-xtask gate` compares a fresh release memory JSONL against
   `docs/benchmarks/memory.jsonl` for every adotenv case. Allocation counts must
   match exactly; peak and retained heap may grow by at most 5% or 64 bytes.
-- `bench-smoke` compiles and runs the deterministic harness and the memory gate
-  on every PR. It is a non-gating smoke check for the harness itself.
+- `bench-smoke` compiles and exercises the deterministic harness and runs the
+  memory gate on every PR. The harness smoke is non-gating; the memory gate is
+  gating. The deterministic `Ir`/cycle gate runs in `det-perf`.
 - Competitor criterion and kbench wall-time results are advisory at PR time.
   Only the deterministic gates block a change.
 - Update the memory baseline only with an intentional, reviewed code change and
