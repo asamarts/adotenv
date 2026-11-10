@@ -352,7 +352,10 @@ fn fingerprint_json() -> String {
         "arch": std::env::consts::ARCH,
         "cpu": cpu,
         "load1": load,
-        "rustc": command_output("rustc", &["--version"]),
+        "rustc": env::var("ADOTENV_RUSTC")
+            .ok()
+            .filter(|version| !version.trim().is_empty())
+            .unwrap_or_else(|| command_output("rustc", &["--version"])),
         "git_sha": env::var("ADOTENV_GIT_SHA")
             .ok()
             .filter(|sha| !sha.trim().is_empty())
@@ -385,6 +388,7 @@ fn command_queue(args: &[String]) -> Result<()> {
         sync_binaries(remote_root)?;
     }
     let git_sha = command_output("git", &["rev-parse", "HEAD"]);
+    let rustc = command_output("rustc", &["--version"]);
     let remote_fingerprint = Path::new(remote_out).with_extension("fingerprint.json");
     let mut memory_commands = Vec::new();
     for size in parse_sizes(sizes)? {
@@ -406,9 +410,10 @@ fn command_queue(args: &[String]) -> Result<()> {
         }
     }
     let remote_command = format!(
-        "cd {} && ADOTENV_GIT_SHA={} ./adotenv-xtask fingerprint > {} && ({} ) > {}",
+        "cd {} && ADOTENV_GIT_SHA={} ADOTENV_RUSTC={} ./adotenv-xtask fingerprint > {} && ({} ) > {}",
         shell_quote(remote_root),
         shell_quote(&git_sha),
+        shell_quote(&rustc),
         shell_quote(&remote_fingerprint.to_string_lossy()),
         memory_commands.join(" && "),
         shell_quote(remote_out)
@@ -484,21 +489,29 @@ fn sync_binaries(remote_root: &str) -> Result<()> {
         "adotenv-xtask"
     });
     ssh(&format!(
-        "mkdir -p {} && chgrp benchmark {} && chmod 2775 {}",
-        shell_quote(remote_root),
+        "sudo -n -u benchq mkdir -p {} && sudo -n -u benchq chmod 750 {}",
         shell_quote(remote_root),
         shell_quote(remote_root)
     ))?;
     for binary in [memory, xtask] {
         let name = binary.file_name().ok_or("binary has no name")?;
+        let name = name.to_string_lossy();
+        let staging = format!("/var/tmp/adotenv-{}-{name}", std::process::id());
         let status = Command::new("scp")
             .arg(&binary)
-            .arg(format!("kbench:{remote_root}/{}", name.to_string_lossy()))
+            .arg(format!("kbench:{staging}"))
             .status()
             .map_err(|error| error.to_string())?;
         if !status.success() {
             return Err(format!("scp {} exited with {status}", binary.display()));
         }
+        let destination = format!("{remote_root}/{name}");
+        ssh(&format!(
+            "sudo -n -u benchq install -m 755 {} {}; status=$?; rm -f {}; exit $status",
+            shell_quote(&staging),
+            shell_quote(&destination),
+            shell_quote(&staging)
+        ))?;
     }
     Ok(())
 }
