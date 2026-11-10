@@ -1,0 +1,4 @@
+# The legacy dotenv crate is a benchmark-only comparator, never a runtime or
+# published dependency. RUSTSEC-2021-0141 marks it unmaintained, not vulnerable.
+[advisories]
+ignore = ["RUSTSEC-2021-0141"]
