@@ -37,7 +37,13 @@ fn run_cli() -> Result<(), String> {
     let implementation = argument(&args, "--implementation")?;
     let size = argument(&args, "--size")?;
     let shape = argument(&args, "--shape")?;
-    let format = optional_argument(&args, "--format").unwrap_or("json");
+    let format = match optional_argument(&args, "--format") {
+        Some(value) => value,
+        None if args.iter().any(|argument| argument == "--format") => {
+            return Err("missing value for --format".to_owned())
+        }
+        None => "json",
+    };
     let mode = Mode::from_label(mode).ok_or_else(|| format!("unknown mode: {mode}"))?;
     let implementation = Implementation::from_label(implementation)
         .ok_or_else(|| format!("unknown implementation: {implementation}"))?;
