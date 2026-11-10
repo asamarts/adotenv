@@ -208,6 +208,20 @@ impl<const D: bool> Parser<'_, D> {
         let dialect = self.dialect();
         let source = self.source;
         let bytes = source.as_bytes();
+        let body_text = &source[body.clone()];
+        // The common path has no escapes, no newline normalization and no
+        // Node outer-unquote pass. Returning no decoded string lets the
+        // projection copy the body directly instead of walking it as chars.
+        let needs_decode = tail.is_some()
+            || dialect.syntax == Syntax::Node
+            || body_text.bytes().any(|byte| {
+                (byte == b'\\' && !dialect.raw_values)
+                    || (byte == b'\r' && dialect.normalize_newlines)
+            })
+            || (D && body_text.bytes().any(|byte| matches!(byte, b'#' | b'`')));
+        if !needs_decode {
+            return (None, Vec::new(), None);
+        }
         let mut output = Output::new(source, &body);
         let mut error = None;
         let mut position = Position {

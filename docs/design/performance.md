@@ -194,6 +194,25 @@ CI separates deterministic internal gates from publication wall-time evidence:
   gungraun gate has no committed output; it always compares against the live
   merge base.
 
+### 1.4.1 comparable baseline
+
+The comparable matrix on `kbench` (SHA `e2134be`, five sizes, `plain`/
+`long-line`/`empty`, values and load) is recorded in
+[`docs/benchmarks/speed.md`](../benchmarks/speed.md) and
+[`docs/benchmarks/memory.md`](../benchmarks/memory.md). Against the best
+competitor in each cell:
+
+- speed: **25/25 strict wins**;
+- peak heap: **30/30 strict wins**;
+- allocation count: **30/30 strict wins**;
+- retained heap: ties or losses in all cells.
+
+The retained result cannot become a strict win without changing the public
+`BTreeMap<String, String>` result type: at small sizes both APIs return the
+same map, so the measurement is exactly equal; at larger sizes the same map
+content is already at the compact-tree floor. This is an escalation point for
+the release claim, not a reason to weaken the measurement.
+
 ## Earlier measurements
 
 These were recorded for 0.10.4 on 2026-10-27, on the same host, and were not

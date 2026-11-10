@@ -95,13 +95,8 @@ fn loads(c: &mut Criterion) {
 }
 
 fn load_adotenv(path: &Path) -> Result<BTreeMap<String, String>, String> {
-    adotenv::load::load_files([path], Dialect::PORTABLE)
-        .map(|loaded| {
-            loaded
-                .values()
-                .map(|(key, value)| (key.to_owned(), value.to_owned()))
-                .collect()
-        })
+    adotenv::load::load_values([path], Dialect::PORTABLE)
+        .map(adotenv::load::LoadedValues::into_values)
         .map_err(|error| error.to_string())
 }
 

@@ -11,7 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use adotenv::{load::LoadedEnvironment, parse_strict, Document, ExpandOptions, ResolvedDocument};
+use adotenv::{load::LoadedValues, parse_strict, Document, ExpandOptions, ResolvedDocument};
 
 use crate::competitors::{load_values, parse_values, Competitor};
 use crate::{fixture, Shape, Size};
@@ -354,7 +354,7 @@ pub fn run(
 enum Holding<'a> {
     Values(BTreeMap<String, String>),
     Document(Document<'a>),
-    Load(LoadedEnvironment),
+    Load(LoadedValues),
     Resolve(ResolvedDocument),
 }
 
@@ -377,7 +377,7 @@ fn execute<'a>(
         (Mode::Load, Implementation::Adotenv) => {
             let path = path.ok_or("load case has no path")?;
             Ok(Holding::Load(
-                adotenv::load::load_files([path], adotenv::Dialect::PORTABLE)
+                adotenv::load::load_values([path], adotenv::Dialect::PORTABLE)
                     .map_err(|error| error.to_string())?,
             ))
         }
