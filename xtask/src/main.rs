@@ -33,6 +33,7 @@ fn run() -> Result<()> {
         Some("cli") => command_cli(&args[1..]),
         Some("report") => command_report(&args[1..]),
         Some("compare") => command_compare(&args[1..]),
+        Some("gate") => command_gate(&args[1..]),
         Some("fingerprint") => command_fingerprint(),
         Some("queue") => command_queue(&args[1..]),
         Some("queue-speed") => command_queue_speed(&args[1..]),
@@ -54,6 +55,8 @@ speed   [--out <path>] [--bench competitors] [--filter <text>] [--quick]
 cli     [--out <path>] [--size <label>] [--shape <label>]
 report  --input <path> [--out <path>]
 compare --baseline <path> --current <path> [--out <path>]
+gate    --baseline <path> --current <path> [--max-heap-percent 5]
+        [--max-heap-bytes 64] [--max-allocation-delta 0]
 fingerprint
 queue   --remote-root <path> [--out <path>] [--remote-out <path>]
         [--sizes ...] [--shapes ...] [--modes ...] [--sync] [--dry-run]
@@ -352,6 +355,108 @@ fn command_compare(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+fn command_gate(args: &[String]) -> Result<()> {
+    let baseline = option(args, "--baseline").ok_or("missing --baseline")?;
+    let current = option(args, "--current").ok_or("missing --current")?;
+    let max_heap_percent = option(args, "--max-heap-percent")
+        .unwrap_or("5")
+        .parse::<u64>()
+        .map_err(|error| format!("invalid --max-heap-percent: {error}"))?;
+    let max_heap_bytes = option(args, "--max-heap-bytes")
+        .unwrap_or("64")
+        .parse::<u64>()
+        .map_err(|error| format!("invalid --max-heap-bytes: {error}"))?;
+    let max_allocation_delta = option(args, "--max-allocation-delta")
+        .unwrap_or("0")
+        .parse::<u64>()
+        .map_err(|error| format!("invalid --max-allocation-delta: {error}"))?;
+    let baseline = read_rows(baseline)?;
+    let current = read_rows(current)?;
+    let violations = check_memory_gate(
+        &baseline,
+        &current,
+        max_heap_percent,
+        max_heap_bytes,
+        max_allocation_delta,
+    );
+    if violations.is_empty() {
+        let checked = baseline
+            .values()
+            .filter(|row| field(row, "implementation") == "adotenv")
+            .count();
+        println!("memory gate: {checked} adotenv cases passed");
+        Ok(())
+    } else {
+        for violation in &violations {
+            eprintln!("{violation}");
+        }
+        Err(format!(
+            "memory gate failed with {} violation(s)",
+            violations.len()
+        ))
+    }
+}
+
+fn check_memory_gate(
+    baseline: &BTreeMap<String, serde_json::Value>,
+    current: &BTreeMap<String, serde_json::Value>,
+    max_heap_percent: u64,
+    max_heap_bytes: u64,
+    max_allocation_delta: u64,
+) -> Vec<String> {
+    let mut violations = Vec::new();
+    for (key, base) in baseline {
+        if field(base, "implementation") != "adotenv" {
+            continue;
+        }
+        let Some(cur) = current.get(key) else {
+            violations.push(format!("{key}: missing current case"));
+            continue;
+        };
+        if let (Some(base_hash), Some(cur_hash)) = (
+            base.get("fixture_sha256")
+                .and_then(serde_json::Value::as_str),
+            cur.get("fixture_sha256")
+                .and_then(serde_json::Value::as_str),
+        ) {
+            if base_hash != cur_hash {
+                violations.push(format!(
+                    "{key}: fixture hash changed ({base_hash} -> {cur_hash})"
+                ));
+            }
+        }
+        for metric in ["peak_heap_bytes", "retained_heap_bytes"] {
+            let Some(base_value) = unsigned(base, metric) else {
+                continue;
+            };
+            let Some(cur_value) = unsigned(cur, metric) else {
+                violations.push(format!("{key}: missing current {metric}"));
+                continue;
+            };
+            let percent_delta = base_value.saturating_mul(max_heap_percent) / 100;
+            let allowed = base_value
+                .saturating_add(percent_delta)
+                .max(base_value.saturating_add(max_heap_bytes));
+            if cur_value > allowed {
+                violations.push(format!(
+                    "{key}: {metric} {cur_value} > allowed {allowed} (baseline {base_value}, +{max_heap_percent}% or +{max_heap_bytes} B)"
+                ));
+            }
+        }
+        if let (Some(base_value), Some(cur_value)) =
+            (unsigned(base, "allocations"), unsigned(cur, "allocations"))
+        {
+            let allowed = base_value.saturating_add(max_allocation_delta);
+            if cur_value > allowed {
+                violations.push(format!(
+                    "{key}: allocations {cur_value} > allowed {allowed} (baseline {base_value}, +{max_allocation_delta})"
+                ));
+            }
+        }
+    }
+    violations
+}
+
 fn read_rows(path: &str) -> Result<BTreeMap<String, serde_json::Value>> {
     let text = fs::read_to_string(path).map_err(|error| error.to_string())?;
     let mut rows = BTreeMap::new();
@@ -380,6 +485,10 @@ fn field(row: &serde_json::Value, name: &str) -> String {
 
 fn numeric(row: &serde_json::Value, name: &str) -> Option<f64> {
     row.get(name).and_then(serde_json::Value::as_f64)
+}
+
+fn unsigned(row: &serde_json::Value, name: &str) -> Option<u64> {
+    row.get(name).and_then(serde_json::Value::as_u64)
 }
 
 #[allow(clippy::unnecessary_wraps)]
@@ -961,5 +1070,25 @@ mod tests {
             vec![Shape::Plain, Shape::LongLine, Shape::Empty]
         );
         assert!(parse_shapes("not-a-shape").is_err());
+    }
+
+    #[test]
+    fn memory_gate_detects_allocation_and_heap_regressions() {
+        let key = "8|plain|values|adotenv";
+        let base = serde_json::json!({
+            "size": "8", "shape": "plain", "mode": "values",
+            "implementation": "adotenv", "peak_heap_bytes": 1000,
+            "retained_heap_bytes": 800, "allocations": 10
+        });
+        let regressed = serde_json::json!({
+            "size": "8", "shape": "plain", "mode": "values",
+            "implementation": "adotenv", "peak_heap_bytes": 1000,
+            "retained_heap_bytes": 800, "allocations": 11
+        });
+        let mut baseline = BTreeMap::new();
+        baseline.insert(key.to_owned(), base);
+        let mut current = BTreeMap::new();
+        current.insert(key.to_owned(), regressed);
+        assert_eq!(check_memory_gate(&baseline, &current, 5, 0, 0).len(), 1);
     }
 }

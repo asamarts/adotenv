@@ -199,6 +199,8 @@ pub struct MemoryReport {
     pub entries: usize,
     /// Fixture source byte length.
     pub source_bytes: usize,
+    /// SHA-256 of the generated fixture source.
+    pub fixture_sha256: String,
     /// Peak live heap above the pre-operation baseline.
     pub peak_heap_bytes: usize,
     /// Live heap retained by the operation result before it is dropped.
@@ -245,6 +247,7 @@ impl MemoryReport {
                 "{{",
                 "\"size\":\"{}\",\"shape\":\"{}\",\"mode\":\"{}\",",
                 "\"implementation\":\"{}\",\"entries\":{},\"source_bytes\":{},",
+                "\"fixture_sha256\":\"{}\",",
                 "\"peak_heap_bytes\":{},\"retained_heap_bytes\":{},\"heap_after_drop_bytes\":{},\"allocations\":{},",
                 "\"rss_before_bytes\":{},\"rss_peak_bytes\":{},\"rss_after_bytes\":{}",
                 "}}"
@@ -255,6 +258,7 @@ impl MemoryReport {
             self.implementation,
             self.entries,
             self.source_bytes,
+            self.fixture_sha256,
             self.peak_heap_bytes,
             self.retained_heap_bytes,
             self.heap_after_drop_bytes,
@@ -333,6 +337,7 @@ pub fn run(
         implementation: implementation.label(),
         entries: fixture.entries(),
         source_bytes: fixture.bytes(),
+        fixture_sha256: fixture.sha256().to_owned(),
         peak_heap_bytes,
         retained_heap_bytes,
         heap_after_drop_bytes,
@@ -467,6 +472,7 @@ mod tests {
             implementation: "adotenv",
             entries: 8,
             source_bytes: 64,
+            fixture_sha256: "abc123".to_owned(),
             peak_heap_bytes: 128,
             retained_heap_bytes: 64,
             heap_after_drop_bytes: 0,
@@ -477,7 +483,7 @@ mod tests {
         };
         assert_eq!(
             report.json(),
-            "{\"size\":\"8\",\"shape\":\"plain\",\"mode\":\"values\",\"implementation\":\"adotenv\",\"entries\":8,\"source_bytes\":64,\"peak_heap_bytes\":128,\"retained_heap_bytes\":64,\"heap_after_drop_bytes\":0,\"allocations\":4,\"rss_before_bytes\":null,\"rss_peak_bytes\":null,\"rss_after_bytes\":null}"
+            "{\"size\":\"8\",\"shape\":\"plain\",\"mode\":\"values\",\"implementation\":\"adotenv\",\"entries\":8,\"source_bytes\":64,\"fixture_sha256\":\"abc123\",\"peak_heap_bytes\":128,\"retained_heap_bytes\":64,\"heap_after_drop_bytes\":0,\"allocations\":4,\"rss_before_bytes\":null,\"rss_peak_bytes\":null,\"rss_after_bytes\":null}"
         );
     }
 }

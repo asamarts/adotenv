@@ -171,6 +171,29 @@ the budget was raised to 17 MB. The difference is memory that the allocator
 keeps after the document is dropped while the map stays alive, not memory that
 adotenv holds.
 
+## CI regression gates
+
+CI separates deterministic internal gates from publication wall-time evidence:
+
+- `scripts/det-perf-gate.sh` builds the merge base and the PR in one session and
+  runs `adotenv-bench/benches/det_parse.rs` under Valgrind Callgrind. The
+  gungraun soft limits are `Ir` +2% and `EstimatedCycles` +5%; branch counters
+  are diagnostic only. The comparison uses only instruction simulation, so
+  hosted-runner load cannot fail it. The gate skips its first PR when the base
+  predates `det_parse`, then gates subsequent changes.
+- `adotenv-xtask gate` compares a fresh release memory JSONL against
+  `docs/benchmarks/memory.jsonl` for every adotenv case. Allocation counts must
+  match exactly; peak and retained heap may grow by at most 5% or 64 bytes.
+- `bench-smoke` compiles and exercises the deterministic harness and runs the
+  memory gate on every PR. The harness smoke is non-gating; the memory gate is
+  gating. The deterministic `Ir`/cycle gate runs in `det-perf`.
+- Competitor criterion and kbench wall-time results are advisory at PR time.
+  Only the deterministic gates block a change.
+- Update the memory baseline only with an intentional, reviewed code change and
+  a fresh fingerprint. Do not update it to make a failing gate pass. The
+  gungraun gate has no committed output; it always compares against the live
+  merge base.
+
 ## Earlier measurements
 
 These were recorded for 0.10.4 on 2026-10-27, on the same host, and were not

@@ -271,6 +271,51 @@ jobs:
           esac
       - run: cargo bench -p adotenv --bench core --locked -- --test
 
+  bench-smoke:
+    name: benchmark smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: stable
+      - name: install valgrind
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq valgrind
+      - name: install gungraun-runner
+        run: |
+          version="$(awk '/^name = "gungraun"$/{f=1; next} f && /^version = /{gsub(/"/,"",$3); print $3; exit}' Cargo.lock)"
+          cargo install gungraun-runner --version "$version" --locked
+      - name: deterministic harness smoke
+        run: cargo bench -p adotenv-bench --bench det_parse --locked -- --save-baseline=smoke
+      - name: memory baseline gate
+        run: |
+          cargo run --release --locked -p adotenv-xtask -- memory --out target/memory-current.jsonl \
+            --sizes 8,128,1k,10k,100k --shapes plain,long-line,empty \
+            --modes values,load,document,resolve
+          cargo run --release --locked -p adotenv-xtask -- gate \
+            --baseline docs/benchmarks/memory.jsonl --current target/memory-current.jsonl
+
+  det-perf:
+    name: deterministic perf
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: stable
+      - run: bash scripts/det-perf-gate.sh
+
   no-std:
     name: alloc-only core
     runs-on: ubuntu-latest
