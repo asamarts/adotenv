@@ -469,7 +469,8 @@ pub fn parse_values_with_options(
 /// non-POSIX keys, BOMs, CRLF and every diagnostic. This helper accepts only
 /// lines that need none of that work, and returns `None` for the rest.
 fn parse_simple_portable_values(source: &str) -> Option<BTreeMap<String, String>> {
-    let mut values = BTreeMap::new();
+    let mut entries = Vec::new();
+    let mut previous_key: Option<&str> = None;
     for line in source.split('\n') {
         if line.is_empty() {
             continue;
@@ -478,6 +479,10 @@ fn parse_simple_portable_values(source: &str) -> Option<BTreeMap<String, String>
         if key.is_empty() || !simple_portable_key(key) {
             return None;
         }
+        if previous_key.is_some_and(|previous| key <= previous) {
+            return None;
+        }
+        previous_key = Some(key);
         if value.bytes().any(|byte| {
             matches!(
                 byte,
@@ -486,9 +491,15 @@ fn parse_simple_portable_values(source: &str) -> Option<BTreeMap<String, String>
         }) {
             return None;
         }
-        values.insert(key.to_owned(), value.to_owned());
+        entries.push((key, value));
     }
-    Some(values)
+    Some(
+        entries
+            .into_iter()
+            .rev()
+            .map(|(key, value)| (key.to_owned(), value.to_owned()))
+            .collect(),
+    )
 }
 
 fn simple_portable_key(key: &str) -> bool {
