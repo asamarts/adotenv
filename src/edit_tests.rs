@@ -1,6 +1,6 @@
 use crate::{
     parse, parse_with, remove, set, AssignmentState, DiagnosticCode, Edit, EditError,
-    InsertPosition, ItemKind, Quote, TextEdit,
+    InsertPosition, ItemKind, Quote, Severity, TextEdit,
 };
 use alloc::{
     format,
@@ -1280,4 +1280,26 @@ fn uncommenting_an_ignored_statement_is_rejected() {
     assert_eq!(doc.uncomment(0), Err(EditError::WouldChangeMeaning));
     let (doc, _) = parse_with("# A=1\n", crate::Dialect::NODE_DOTENV);
     assert_eq!(doc.uncomment(0).unwrap().as_str(), "A=1\n");
+}
+
+#[test]
+fn compose_value_edits_preserve_a_separate_comment_suffix() {
+    for source in [
+        "A='one' # note\n",
+        "A = 'one'\t# note\n",
+        "A='one'   # note\n",
+    ] {
+        let (doc, diagnostics) = parse_with(source, crate::Dialect::COMPOSE);
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.severity() != Severity::Error),
+            "{source:?}: {diagnostics:?}"
+        );
+        let result = doc.set("A", "two").unwrap();
+        assert!(result.as_str().contains("# note"), "{:?}", result.as_str());
+        let (after, _) = parse_with(result.as_str(), crate::Dialect::COMPOSE);
+        assert_eq!(after.get("A"), Some("two"));
+        replay(source, &result);
+    }
 }

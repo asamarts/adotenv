@@ -2034,3 +2034,59 @@ fn merge_lone_cr(
     }
     (output, omitted, omitted_error)
 }
+
+#[cfg(test)]
+mod mutation_tests {
+    use super::*;
+
+    fn warning(span: Range<usize>) -> Diagnostic {
+        Diagnostic::new(DiagnosticCode::BareKey, span, 1)
+    }
+
+    fn error(span: Range<usize>) -> Diagnostic {
+        Diagnostic::new(DiagnosticCode::InvalidKey, span, 1)
+    }
+
+    #[test]
+    fn merge_lone_cr_stops_adding_at_the_budget() {
+        let (_, omitted, first_error) = merge_lone_cr("\r\r", Vec::new(), 0, 1);
+        assert_eq!(omitted, 1);
+        assert!(first_error.is_none());
+    }
+
+    #[test]
+    fn merge_lone_cr_prefers_an_omitted_error_over_an_omitted_warning() {
+        let diagnostics = vec![warning(0..1), error(1..2)];
+        let (output, omitted, first_error) = merge_lone_cr("\r", diagnostics, 0, 2);
+        assert_eq!(output.len(), 2);
+        assert_eq!(omitted, 1);
+        assert_eq!(first_error.unwrap().code(), DiagnosticCode::InvalidKey);
+    }
+
+    #[test]
+    fn merge_lone_cr_ignores_omitted_warnings_in_the_full_budget_branch() {
+        let diagnostics = vec![warning(0..1), warning(1..2), warning(2..3)];
+        let (output, omitted, first_error) = merge_lone_cr("\r", diagnostics, 0, 2);
+        assert_eq!(output.len(), 2);
+        assert_eq!(omitted, 2);
+        assert!(first_error.is_none());
+    }
+
+    #[test]
+    fn merge_lone_cr_ignores_omitted_warnings_after_the_while_loop() {
+        let diagnostics = vec![warning(0..1), warning(1..2), warning(2..3), warning(3..4)];
+        let (output, omitted, first_error) = merge_lone_cr("\r", diagnostics, 0, 3);
+        assert_eq!(output.len(), 3);
+        assert_eq!(omitted, 2);
+        assert!(first_error.is_none());
+    }
+
+    #[test]
+    fn merge_lone_cr_prefers_an_error_after_the_while_loop() {
+        let diagnostics = vec![warning(0..1), warning(1..2), warning(2..3), error(3..4)];
+        let (output, omitted, first_error) = merge_lone_cr("\r", diagnostics, 0, 3);
+        assert!(output.len() <= 3);
+        assert_eq!(omitted, 2);
+        assert_eq!(first_error.unwrap().code(), DiagnosticCode::InvalidKey);
+    }
+}

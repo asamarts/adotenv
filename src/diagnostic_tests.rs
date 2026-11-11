@@ -159,3 +159,104 @@ fn parse_reports_the_exact_budget_when_an_error_follows() {
         DiagnosticCode::TooManyDiagnostics
     );
 }
+
+#[test]
+fn lone_cr_merging_honors_limits_and_omitted_error_selection() {
+    use crate::{parse_with_options, Dialect, ParseOptions};
+
+    // These cases exercise the exact boundary where the lone-CR stream and
+    // the ordinary diagnostic stream share the configured budget.
+    let cases: &[(&str, usize, &[DiagnosticCode])] = &[
+        (
+            "\r\r",
+            1,
+            &[
+                DiagnosticCode::LoneCarriageReturn,
+                DiagnosticCode::LimitExceeded,
+            ],
+        ),
+        (
+            "\r\r",
+            2,
+            &[
+                DiagnosticCode::LoneCarriageReturn,
+                DiagnosticCode::LoneCarriageReturn,
+            ],
+        ),
+        (
+            "\rA=#\r",
+            1,
+            &[
+                DiagnosticCode::LoneCarriageReturn,
+                DiagnosticCode::LimitExceeded,
+            ],
+        ),
+        (
+            "\rA=#\r",
+            2,
+            &[
+                DiagnosticCode::LoneCarriageReturn,
+                DiagnosticCode::TightHash,
+                DiagnosticCode::LimitExceeded,
+            ],
+        ),
+        (
+            "A=#\r\r",
+            1,
+            &[DiagnosticCode::TightHash, DiagnosticCode::LimitExceeded],
+        ),
+        (
+            "A=#\r\r",
+            2,
+            &[
+                DiagnosticCode::TightHash,
+                DiagnosticCode::LoneCarriageReturn,
+                DiagnosticCode::LimitExceeded,
+            ],
+        ),
+        (
+            "\rBAD KEY=1\r",
+            2,
+            &[
+                DiagnosticCode::LoneCarriageReturn,
+                DiagnosticCode::InvalidKey,
+                DiagnosticCode::LimitExceeded,
+            ],
+        ),
+    ];
+    for (source, limit, expected) in cases {
+        let (_, diagnostics) = parse_with_options(
+            source,
+            Dialect::PORTABLE,
+            ParseOptions::new().with_max_diagnostics(*limit),
+        );
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(crate::Diagnostic::code)
+                .collect::<Vec<_>>(),
+            *expected,
+            "source={source:?}, limit={limit}"
+        );
+    }
+}
+
+#[test]
+fn lone_cr_budget_keeps_the_first_omitted_error_after_warnings() {
+    let source = format!("{}WARN\rBAD KEY=1\n", "\r".repeat(10_001));
+    let (_, diagnostics) = parse(&source);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code() == DiagnosticCode::InvalidKey),
+        "{:?}",
+        diagnostics
+            .iter()
+            .map(crate::Diagnostic::code)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        diagnostics.last().unwrap().code(),
+        DiagnosticCode::TooManyDiagnostics
+    );
+}
