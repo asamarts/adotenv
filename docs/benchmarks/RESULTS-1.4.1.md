@@ -1,7 +1,7 @@
 # 1.4.1 benchmark results
 
 Status: final release-candidate baseline, recorded on `kbench` at source SHA
-`2a751c0`. Re-run this complete matrix if the benchmark code or baseline
+`0649096`. Re-run this complete matrix if the benchmark code or baseline
 changes before publishing 1.4.1.
 
 This page uses the [methodology](METHODOLOGY.md), [scenario catalogue](SCENARIOS.md)
@@ -18,13 +18,13 @@ and [result schema](SCHEMA.md). Raw evidence:
 
 | Item | Value |
 |---|---|
-| Source SHA | `2a751c0` |
+| Source SHA | `0649096` |
 | Reference host | `kbench` |
 | CPU | Intel Core i7-6700HQ, 8 logical CPUs |
 | OS / kernel | Linux / 7.1.3-arch1-2 |
 | Rust | 1.97.1 (8bab26f4f 2026-07-14) |
-| Criterion environment | Speed fingerprint `load1=0.08` |
-| Memory environment | Memory fingerprint `load1=0.98` |
+| Criterion environment | Speed fingerprint `load1=0.46` |
+| Memory environment | Memory fingerprint `load1=0.25` |
 | Queue | benchq/pueue, group `bench`, one slot |
 
 The two runs share the same source SHA. The memory fingerprint records a
@@ -49,7 +49,7 @@ The retained result is a documented no-loss result, not a strict win. See
 Speed cells are 40 values lines (5 sizes × 2 non-empty shapes × 4 supported
 implementations) and 75 load lines (5 sizes × 3 shapes × 5 implementations).
 For the 25 adotenv-vs-best comparisons, the speed ratio ranges from 0.27 to
-0.78 (median 0.34); every value is below 1.0. Memory peak-heap ratios range
+0.80 (median 0.35); every value is below 1.0. Memory peak-heap ratios range
 from 0.00 to 0.90 (median 0.49); every value is below 1.0. Allocation ratios
 range from 0.00 to 0.965 (median 0.51); every value is below 1.0.
 
