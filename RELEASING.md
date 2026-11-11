@@ -45,10 +45,10 @@ For each later `adotenv-lsp` version:
 3. Update the `adotenv` and `adotenv-lint` dependency constraints if needed.
 4. Run `cargo package -p adotenv-lsp --locked` and
    `cargo publish --dry-run -p adotenv-lsp --locked`.
-5. Publish the required `adotenv-lint` release first when the LSP's declared
-   dependency version is not yet on crates.io. Wait for the sparse index, then
-   dispatch `release.yml` with `publish_lsp=true`. For 0.4.0, publish lint
-   0.2.0 before dispatching the LSP release.
+5. Ensure the required `adotenv-lint` release is on crates.io when the LSP's
+   declared dependency version is not yet published, and wait for the sparse
+   index. For 0.4.0, ensure core 1.4.1 and lint 0.2.0 are published; the core
+   1.4.1 tag publishes both.
 6. Dispatch `release.yml` with `publish_lsp=true`. It runs the quality gate,
    checks the LSP version is unpublished and publishes it.
 7. Verify the new crates.io and docs.rs pages.
@@ -60,8 +60,9 @@ For each later `adotenv-lsp` version:
    [quality.md](docs/design/quality.md) summarizes it. A manual dispatch of the
    release workflow runs the same gate in CI without checking versions or
    publishing.
-2. Confirm the lockstep crates use the same version and that every path
-   dependency on `adotenv` requires that version.
+2. Confirm the lockstep crates use the same version and that their path
+   dependencies on `adotenv` require that version. The config and Figment
+   adapters keep their own minimum compatible core requirement.
 3. The CI `semver` job checks each library crate against its latest
    published version on every pull request, push to `main` and release tag.
    As a cross-check, run it locally with the intended release type:
@@ -117,10 +118,14 @@ The workflow:
 
 For a linter-only release without a core tag, dispatch the same workflow with
 `publish_linter=true`. It runs the quality gate, verifies the current linter
-version is unpublished, and publishes it through OIDC.
+version is unpublished, and publishes it through OIDC. Its declared `adotenv`
+requirement must already be published; `adotenv-lint` 0.2.0 therefore requires
+the core 1.4.1 tag first.
 
 For an LSP release, dispatch the same workflow with `publish_lsp=true`; it uses
-OIDC.
+OIDC. When both dispatch inputs are selected, the LSP job waits for the linter
+job. For 0.4.0, the core 1.4.1 tag publishes lint 0.2.0; dispatch after that
+tag, or publish lint 0.2.0 separately once core 1.4.1 is on crates.io.
 
 ## Verify
 
