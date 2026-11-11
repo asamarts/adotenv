@@ -34,6 +34,12 @@ jobs:
       - run: cargo fmt --manifest-path fuzz/Cargo.toml --all --check
       - run: cargo fmt --manifest-path conformance/rust/Cargo.toml --all --check
       - run: python3 scripts/check_docs.py
+      - name: lint shell scripts
+        run: shellcheck scripts/*.sh
+      - name: install actionlint
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: lint workflows
+        run: '"$(go env GOPATH)/bin/actionlint"'
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo clippy -p adotenv-config -p adotenv-figment --features load --all-targets --locked -- -D warnings
       - run: cargo clippy -p adotenv --features exec --all-targets --locked -- -D warnings
