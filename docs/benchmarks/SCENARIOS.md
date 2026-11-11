@@ -64,11 +64,11 @@ hashes are recorded in every memory JSONL row.
 | `long-line-100k` | 100k | long-line | 100000 | 7600000 | `8b971bc0fb16dcf52b7917fae7a0c6cce691a91bc67b888f4a6937009fb4bd8b` |
 | `empty-100k` | 100k | empty | 0 | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
 
-The memory output contains 165 rows: 60 internal adotenv cells across
-`document`/`resolve` and the supported values/load cells, plus competitor
-values/load cells. The speed output contains 115 cells: 40 values and 75 load
-lines. Empty values are skipped by the Criterion values target because there is
-no non-empty parse workload.
+The memory output contains 165 rows: 60 adotenv rows (15 size/shape
+combinations × 4 modes), 45 competitor values rows and 60 competitor load rows.
+The speed output contains 115 cells: 40 values and 75 load lines. Empty values
+are skipped by the Criterion values target because there is no non-empty parse
+workload.
 
 ## Fixture generation
 

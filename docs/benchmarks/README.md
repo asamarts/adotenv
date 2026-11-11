@@ -29,17 +29,16 @@ The rendered tables are also available directly:
 
 ```console
 cargo run --release -p adotenv-xtask -- memory \
-  --out /tmp/adotenv-memory.jsonl \
+  --out ~/.tmp/adotenv-bench/one-memory.jsonl \
   --sizes 128 --shapes plain --modes values
 cargo run --release -p adotenv-xtask -- speed \
-  --out /tmp/adotenv-speed.txt --bench competitors --filter 'plain/128'
+  --out ~/.tmp/adotenv-bench/one-speed.txt --bench competitors --filter 'plain/128'
 ```
 
-`/tmp` is illustrative; on a shared host use a private scratch directory, for example
-`~/.tmp/adotenv-bench`. The
-raw result and fingerprint files are the source of truth. Publication runs use
-`kbench` through the serialized benchq queue; do not run a publication
-benchmark concurrently with another benchmark.
+Use a private scratch directory such as `~/.tmp/adotenv-bench` rather than
+`/tmp`. The raw result and fingerprint files are the source of truth.
+Publication runs use `kbench` through the serialized benchq queue; do not run a
+publication benchmark concurrently with another benchmark.
 
 ## Scope
 
