@@ -500,6 +500,9 @@ mod tests {
         let ignore = IgnoredPaths::new(&[".env.skip".to_owned()]).unwrap();
         let uri: lsp_types::Uri = "file:///tmp/.env.skip".parse().unwrap();
         assert!(ignored_uri(&uri, Some(&ignore)));
+        let nested: lsp_types::Uri = "file:///project/target/.env".parse().unwrap();
+        let target_ignore = IgnoredPaths::new(&["target/**".to_owned()]).unwrap();
+        assert!(ignored_uri(&nested, Some(&target_ignore)));
         let uri: lsp_types::Uri = "file:///tmp/.env".parse().unwrap();
         assert!(!ignored_uri(&uri, Some(&ignore)));
         assert!(!ignored_uri(&uri, None));
