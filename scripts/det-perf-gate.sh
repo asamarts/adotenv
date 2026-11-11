@@ -8,6 +8,11 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
+tooling_failure() {
+  echo "::error title=Deterministic perf gate::$1 (tooling failure, not a perf signal); the gate did not run" >&2
+  exit 1
+}
+
 head="$(git rev-parse HEAD)"
 worktree=""
 base_target="$PWD/target/det-gate-base"
@@ -31,8 +36,18 @@ if ! git cat-file -e "$base:adotenv-bench/benches/det_parse.rs" 2>/dev/null; the
 fi
 
 if ! command -v valgrind >/dev/null 2>&1; then
-  sudo apt-get update -qq
-  sudo apt-get install -y -qq valgrind
+  installed=false
+  for attempt in 1 2 3; do
+    if sudo apt-get update -qq && sudo apt-get install -y -qq valgrind; then
+      installed=true
+      break
+    fi
+    echo "det-perf: valgrind install failed (attempt ${attempt}); retrying" >&2
+    sleep 10
+  done
+  if [[ "$installed" != "true" ]] || ! command -v valgrind >/dev/null 2>&1; then
+    tooling_failure "could not install valgrind"
+  fi
 fi
 
 version="$(awk '/^name = "gungraun"$/{f=1; next} f && /^version = /{gsub(/"/,"",$3); print $3; exit}' Cargo.lock)"

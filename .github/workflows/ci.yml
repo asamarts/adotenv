@@ -294,7 +294,15 @@ jobs:
         with:
           toolchain: stable
       - name: install valgrind
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq valgrind
+        run: |
+          for attempt in 1 2 3; do
+            if sudo apt-get update -qq && sudo apt-get install -y -qq valgrind; then
+              exit 0
+            fi
+            echo "valgrind install failed (attempt $attempt); retrying" >&2
+            sleep 10
+          done
+          exit 1
       - name: install gungraun-runner
         run: |
           version="$(awk '/^name = "gungraun"$/{f=1; next} f && /^version = /{gsub(/"/,"",$3); print $3; exit}' Cargo.lock)"

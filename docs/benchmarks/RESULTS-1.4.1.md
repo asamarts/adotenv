@@ -10,7 +10,7 @@ and [result schema](SCHEMA.md). Raw evidence:
 - [Memory JSONL](memory.jsonl) -- 165 cases
 - [Memory table](memory.md)
 - [Memory fingerprint](memory.fingerprint.json)
-- [Speed raw bencher output](speed.txt) -- 115 lines
+- [Speed raw bencher output](speed.txt) -- 115 benchmark results
 - [Speed table](speed.md)
 - [Speed fingerprint](speed.fingerprint.json)
 
