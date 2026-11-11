@@ -19,9 +19,8 @@ use adotenv::{parse_strict_with, Dialect, Severity};
 use adotenv_lint::{
     apply_batch, lint, load_effective_config, parse_dialect, parse_equals_spacing as parse_spacing,
     parse_key_case, parse_output_format as parse_format, parse_quote_style, ConfigExplicit,
-    Finding, Fix, LintOptions, LintPolicy, OutputFormat,
+    Finding, Fix, IgnoredPaths, LintOptions, LintPolicy, OutputFormat,
 };
-use globset::{Glob, GlobSet, GlobSetBuilder};
 
 const SUCCESS: u8 = 0;
 const FINDINGS: u8 = 1;
@@ -359,17 +358,6 @@ fn apply_config(options: &mut Options) -> Result<(), String> {
     Ok(())
 }
 
-fn build_excludes(patterns: &[String]) -> Result<GlobSet, String> {
-    let mut builder = GlobSetBuilder::new();
-    for pattern in patterns {
-        let glob = Glob::new(pattern).map_err(|error| format!("invalid exclude: {error}"))?;
-        builder.add(glob);
-    }
-    builder
-        .build()
-        .map_err(|error| format!("invalid exclude: {error}"))
-}
-
 #[allow(clippy::too_many_lines)]
 fn parse_args(args: &mut [String]) -> Result<Options, String> {
     let mut options = Options {
@@ -510,13 +498,13 @@ fn collect_paths(
     recursive: bool,
     exclude_patterns: &[String],
 ) -> Result<Vec<PathBuf>, String> {
-    let excludes = build_excludes(exclude_patterns)?;
+    let excludes = IgnoredPaths::new(exclude_patterns)?;
     let mut found = BTreeSet::new();
     for path in paths {
         let path = PathBuf::from(path);
         let metadata =
             fs::metadata(&path).map_err(|error| format!("{}: {error}", path.display()))?;
-        if is_excluded(&excludes, &path, &path) {
+        if excludes.is_ignored_with_root(&path, &path) {
             continue;
         }
         if metadata.is_file() {
@@ -539,20 +527,10 @@ fn collect_paths(
     Ok(found.into_iter().collect())
 }
 
-fn is_excluded(excludes: &GlobSet, root: &Path, path: &Path) -> bool {
-    excludes.is_match(path)
-        || path
-            .strip_prefix(root)
-            .is_ok_and(|relative| excludes.is_match(relative))
-        || path
-            .file_name()
-            .is_some_and(|name| excludes.is_match(Path::new(name)))
-}
-
 fn walk(
     directory: &Path,
     root: &Path,
-    excludes: &GlobSet,
+    excludes: &IgnoredPaths,
     found: &mut BTreeSet<PathBuf>,
 ) -> Result<(), String> {
     let entries =
@@ -563,7 +541,7 @@ fn walk(
     entries.sort_by_key(std::fs::DirEntry::file_name);
     for entry in entries {
         let path = entry.path();
-        if is_excluded(excludes, root, &path) {
+        if excludes.is_ignored_with_root(&path, root) {
             continue;
         }
         let file_type = entry

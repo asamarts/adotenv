@@ -19,6 +19,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use adotenv::{Dialect, EqualsSpacing, QuoteStyle, Severity};
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 
 use crate::{KeyCase, LintOptions, Rule};
@@ -314,6 +315,9 @@ impl LintConfig {
                     .map_err(|_| ConfigError::at(path, unknown("equals spacing", value)))
             })
             .transpose()?;
+        if let Some(ignore) = &raw.ignore {
+            IgnoredPaths::new(ignore).map_err(|error| ConfigError::at(path, error))?;
+        }
         let mut rules = None;
         if let Some(raw_rules) = raw.rules {
             let mut parsed = BTreeMap::new();
@@ -377,6 +381,51 @@ fn apply_rules(
     }
 }
 
+/// Compiled ignore globs shared by the CLI and LSP.
+#[derive(Debug, Clone)]
+pub struct IgnoredPaths {
+    globs: GlobSet,
+}
+
+impl IgnoredPaths {
+    /// Compiles ignore glob patterns.
+    ///
+    /// # Errors
+    ///
+    /// Returns the invalid glob error text.
+    pub fn new(patterns: &[String]) -> Result<Self, String> {
+        let mut builder = GlobSetBuilder::new();
+        for pattern in patterns {
+            let glob = Glob::new(pattern).map_err(|error| format!("invalid exclude: {error}"))?;
+            builder.add(glob);
+        }
+        let globs = builder
+            .build()
+            .map_err(|error| format!("invalid exclude: {error}"))?;
+        Ok(Self { globs })
+    }
+
+    /// Returns whether `path` matches a configured pattern by full path or
+    /// basename.
+    #[must_use]
+    pub fn is_ignored(&self, path: &Path) -> bool {
+        self.globs.is_match(path)
+            || path
+                .file_name()
+                .is_some_and(|name| self.globs.is_match(Path::new(name)))
+    }
+
+    /// Returns whether `path` matches by full path, path relative to `root`,
+    /// or basename.
+    #[must_use]
+    pub fn is_ignored_with_root(&self, path: &Path, root: &Path) -> bool {
+        self.is_ignored(path)
+            || path
+                .strip_prefix(root)
+                .is_ok_and(|relative| self.globs.is_match(relative))
+    }
+}
+
 /// The policy resolved from a config plus caller-selected defaults.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LintPolicy {
@@ -401,6 +450,17 @@ impl Default for LintPolicy {
             lint: LintOptions::default(),
             ignore: Vec::new(),
         }
+    }
+}
+
+impl LintPolicy {
+    /// Compiles this policy's ignore patterns.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error only if a pattern is not a valid glob.
+    pub fn ignored_paths(&self) -> Result<IgnoredPaths, String> {
+        IgnoredPaths::new(&self.ignore)
     }
 }
 
@@ -630,6 +690,7 @@ mod tests {
         assert!(LintConfig::from_toml("unknown = true\n", path).is_err());
         assert!(LintConfig::from_toml("[rules]\nunknown = \"warning\"\n", path).is_err());
         assert!(LintConfig::from_toml("[rules]\nkey-order = \"nope\"\n", path).is_err());
+        assert!(LintConfig::from_toml("ignore = [\"[\"]\n", path).is_err());
     }
 
     #[test]
