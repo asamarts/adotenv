@@ -147,7 +147,10 @@ fn load_policy(cli: &Cli) -> Result<(LspOptions, Option<IgnoredPaths>)> {
     let Some(config) = config else {
         return Ok((options, None));
     };
+    // Parser diagnostics already publish duplicate-key findings. A config
+    // file should not duplicate them unless it explicitly selects the rule.
     let mut policy = LintPolicy::default();
+    policy.lint = policy.lint.with_duplicate_keys(false);
     config.apply(&mut policy, ConfigExplicit::default());
     options = options.with_lint_options(policy.lint);
     let ignore = policy
@@ -463,6 +466,32 @@ mod tests {
             adotenv::Severity::Error
         );
         assert!(ignore.unwrap().is_ignored(Path::new(".env.skip")));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn config_policy_does_not_duplicate_parser_diagnostics() {
+        let path =
+            std::env::temp_dir().join(format!("adotenv-lsp-duplicate-{}.toml", std::process::id()));
+        std::fs::write(&path, "key_order = true\n").unwrap();
+        let cli = Cli {
+            mask_values: false,
+            config: Some(path.clone()),
+            discover_lint_config: false,
+        };
+        let (options, _) = load_policy(&cli).unwrap();
+        let uri: lsp_types::Uri = "file:///tmp/.env".parse().unwrap();
+        let diagnostics = adotenv_lsp::diagnostics("B=2\nA=1\nA=2\n", &uri, &options);
+        assert!(
+            !diagnostics.iter().any(|diagnostic| {
+                matches!(
+                    diagnostic.code.as_ref(),
+                    Some(lsp_types::NumberOrString::String(code))
+                        if code == "adotenv-lint.duplicate-key"
+                )
+            }),
+            "parser duplicate diagnostics were duplicated by the linter"
+        );
         let _ = std::fs::remove_file(path);
     }
 
