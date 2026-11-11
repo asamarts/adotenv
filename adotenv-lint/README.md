@@ -75,6 +75,29 @@ values, and `--exclude` replaces configured `ignore` patterns.
 Configuration is searched from the working directory upward until a
 `.adotenv-lint.toml` is found. `--config <path>` selects an explicit file.
 
+## Library policy API
+
+The same configuration model is available without the CLI:
+
+```rust
+use adotenv_lint::{ConfigExplicit, LintPolicy, load_effective_config};
+
+let start = std::env::current_dir()?;
+let config = load_effective_config(None, &start)?;
+let mut policy = LintPolicy::default();
+if let Some(config) = config {
+    config.apply(&mut policy, ConfigExplicit::default());
+}
+assert_eq!(policy.dialect, adotenv::Dialect::PORTABLE);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+`load_effective_config` handles explicit paths and ancestor discovery.
+`LintConfig::from_toml` is available for callers that already have the source.
+`LintPolicy` carries the resolved dialect, format, recursive mode, lint rules
+and ignored glob patterns, so the language server can share the CLI policy
+without a second parser or discovery implementation.
+
 ## Rules
 
 The default policy reports duplicate keys only. Enable the other rules
