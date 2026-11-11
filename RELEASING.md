@@ -78,6 +78,13 @@ For each later `adotenv-lsp` version:
    `## [X.Y.Z] - YYYY-MM-DD` for the lockstep version, and update the version in
    the README and docs install snippets.
 
+6. Publish benchmark evidence from a clean release-candidate commit. Run both
+   matrices through `kbench`/benchq, record fingerprints and load, render the
+   tables, and update the per-version page in `docs/benchmarks/`. Every claim
+   must link to the exact raw file, fixture hashes, competitor versions and
+   host provenance. Do not tag when a publication run mixed source SHAs, hosts,
+   or queue sessions, or when the comparable claim regressed.
+
 ## Publish
 
 Create and push an annotated tag from the release commit:
@@ -100,6 +107,8 @@ The workflow:
 - waits for each version in the sparse index before publishing dependents;
 - uploads the `.crate` files and `.sha256` files as GitHub Release assets;
 - creates the GitHub Release from the matching `CHANGELOG.md` section.
+- publishes the benchmark evidence linked from `docs/benchmarks/` as part of
+  the release checklist.
 
 For a linter-only release without a core tag, dispatch the same workflow with
 `publish_linter=true`. It runs the quality gate, verifies the current linter
