@@ -1,9 +1,9 @@
 # adotenv-lsp
 
 An optional Language Server Protocol companion for `adotenv` documents.
-Version 0.3.0 is published on crates.io as an unstable prototype; the next
-0.4.0 release adds explicit lint configuration. Breaking changes may occur
-within the 0.x line.
+Version 0.3.0 is published on crates.io as an unstable prototype; 0.4.0 is the
+release candidate adding explicit lint configuration. Breaking changes may
+occur within the 0.x line.
 
 It supports:
 

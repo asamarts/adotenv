@@ -18,10 +18,9 @@ The current release provides:
 
 ## Current status
 
-`adotenv`, `adotenv-process` and `adotenv-cli` are at 1.4.0;
-`adotenv-config` is at 0.12.0 and `adotenv-figment` at 0.12.1. The next
-release candidate is 1.4.1 for the lockstep crates, `adotenv-lint` 0.2.0 and
-`adotenv-lsp` 0.4.0. A pre-release
+`adotenv`, `adotenv-process` and `adotenv-cli` are at 1.4.1;
+`adotenv-config` is at 0.12.0 and `adotenv-figment` at 0.12.1. The companion
+release candidates are `adotenv-lint` 0.2.0 and `adotenv-lsp` 0.4.0. A pre-release
 audit of 0.10.4 found defects in behavior that 1.0 would freeze. They were
 fixed in 0.11.0, apart from the rename collision rule, which shipped in 1.0.0.
 The fixes are listed in
