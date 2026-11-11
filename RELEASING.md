@@ -43,12 +43,12 @@ For each later `adotenv-lsp` version:
 2. Add an `## [adotenv-lsp X.Y.Z] - YYYY-MM-DD` changelog section rather than
    relying on the core release entry.
 3. Update the `adotenv` and `adotenv-lint` dependency constraints if needed.
-4. Run `cargo package -p adotenv-lsp --locked` and
+4. Ensure the required `adotenv` and `adotenv-lint` releases are on crates.io
+   when the LSP's declared dependency versions are not yet published, and wait
+   for the sparse index. For 0.4.0, ensure core 1.4.1 and lint 0.2.0 are
+   published; the core 1.4.1 tag publishes both.
+5. Run `cargo package -p adotenv-lsp --locked` and
    `cargo publish --dry-run -p adotenv-lsp --locked`.
-5. Ensure the required `adotenv-lint` release is on crates.io when the LSP's
-   declared dependency version is not yet published, and wait for the sparse
-   index. For 0.4.0, ensure core 1.4.1 and lint 0.2.0 are published; the core
-   1.4.1 tag publishes both.
 6. Dispatch `release.yml` with `publish_lsp=true`. It runs the quality gate,
    checks the LSP version is unpublished and publishes it.
 7. Verify the new crates.io and docs.rs pages.

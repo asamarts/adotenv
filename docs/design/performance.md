@@ -199,8 +199,8 @@ CI separates deterministic internal gates from publication wall-time evidence:
 The comparable matrix on `kbench` (five sizes, `plain`/`long-line`/`empty`,
 values and load) is recorded in
 [`docs/benchmarks/speed.md`](../benchmarks/speed.md) and
-[`docs/benchmarks/memory.md`](../benchmarks/memory.md). The speed and memory snapshots share SHA `0649096`. The final release evidence
-must still re-run both from the release-candidate SHA. Against the best
+[`docs/benchmarks/memory.md`](../benchmarks/memory.md). The speed and memory
+snapshots share the final release-candidate SHA `0649096`. Against the best
 competitor in each cell:
 
 - speed: **25/25 strict wins**;
