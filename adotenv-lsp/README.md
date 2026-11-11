@@ -38,7 +38,9 @@ Parser diagnostics are the default. Linter policy is loaded only when
 `--config <path>` names a file or `--discover-lint-config` explicitly opts into
 ancestor discovery from the launch directory. There is no implicit discovery.
 Invalid configuration fails visibly before the server starts. Configured
-ignore globs suppress published diagnostics for matching document URIs.
+ignore globs suppress published diagnostics for matching document URIs. Because
+parser diagnostics already report duplicate keys, config-driven lint policy
+disables the linter duplicate-key rule unless `[rules]` explicitly enables it.
 
 ## Library
 

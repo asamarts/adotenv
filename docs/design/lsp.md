@@ -40,7 +40,9 @@ The stdio server loads policy only from `--config <path>` or from
 `--discover-lint-config`, which explicitly searches ancestors of the launch
 directory. It never discovers a config implicitly. Invalid configuration is a
 startup error rather than a silent fallback. Configured ignore globs suppress
-published diagnostics for matching document paths. Embedding clients can still
+published diagnostics for matching document paths. Parser diagnostics already
+report duplicate keys, so config-driven policy disables the linter duplicate
+rule unless `[rules]` explicitly enables it. Embedding clients can still
 construct `LspOptions` and supply `LintOptions` directly.
 
 `LintOptions::new()` includes duplicate-key findings, which overlap the parser

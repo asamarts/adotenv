@@ -14,7 +14,7 @@ The release workflow publishes six crates in dependency order:
 `adotenv`, `adotenv-process` and `adotenv-cli` share one version. The release
 tag `vX.Y.Z` must match it.
 
-`adotenv-lint` has its own 0.1.x line. `adotenv-config` and `adotenv-figment`
+`adotenv-lint` has its own 0.x line. `adotenv-config` and `adotenv-figment`
 have their own 0.x versions, because their public API implements traits from
 `config` and `figment`. A new major of either dependency is a minor release of
 the adapter. The workflow publishes an independent crate whenever its declared
@@ -93,7 +93,12 @@ The workflow:
 - checks that the tag matches the lockstep version;
 - skips versions already present on crates.io;
 - uses OIDC for existing crates;
+- packages each pending crate before publishing it, compares the local
+  SHA-256 with the crates.io index checksum, and fails on a mismatch;
+- creates a Sigstore build-provenance attestation for the packaged `.crate`
+  files;
 - waits for each version in the sparse index before publishing dependents;
+- uploads the `.crate` files and `.sha256` files as GitHub Release assets;
 - creates the GitHub Release from the matching `CHANGELOG.md` section.
 
 For a linter-only release without a core tag, dispatch the same workflow with
@@ -104,6 +109,19 @@ For an LSP release, dispatch the same workflow with `publish_lsp=true`; it uses
 OIDC.
 
 ## Verify
+
+Verify a release asset before using it:
+
+```console
+gh release download vX.Y.Z --pattern '*.crate' --pattern '*.crate.sha256'
+sha256sum -c adotenv-X.Y.Z.crate.sha256
+gh attestation verify adotenv-X.Y.Z.crate --repo asamarts/adotenv
+```
+
+The release workflow compares the local package checksum with the checksum
+served by the crates.io sparse index and fails the publish job on a mismatch.
+Attestations are created in the publishing job, so the verified bytes are the
+same bytes recorded by crates.io.
 
 Check the published crate pages:
 
