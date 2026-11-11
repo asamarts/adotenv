@@ -29,6 +29,8 @@ Its main steps:
 ```console
 cargo fmt --all --check
 python3 scripts/check_docs.py
+shellcheck scripts/*.sh
+actionlint
 cargo clippy --workspace --all-targets --locked -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features --locked
 cargo test --workspace --locked
