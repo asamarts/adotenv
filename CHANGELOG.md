@@ -4,14 +4,10 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.1] - 2026-11-11
 
 ### Added
 
-- `adotenv-lint` 0.2 shared `.adotenv-lint.toml` model, discovery,
-  validation, rule/ignore resolution and ignored-path API for the CLI and LSP.
-- `adotenv-lsp` 0.4 explicit `--config <path>` and opt-in
-  `--discover-lint-config`, with configured lint policy and ignored paths.
 - Sigstore build-provenance attestations for packaged release crates, with
   crates.io checksum verification and GitHub Release assets.
 - Differential parser fuzz target and reviewed seed corpus.
@@ -25,9 +21,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- LSP config-driven policy no longer duplicates parser duplicate-key findings.
 - Single-open load reads retain the regular-file guard.
 - no_std builds include the `ToOwned` import required by the values fast path.
+
+## [adotenv-lint 0.2.0] - 2026-11-11
+
+### Added
+
+- Shared `.adotenv-lint.toml` model, discovery, validation, rule/ignore
+  resolution and ignored-path API for the CLI and LSP.
+
+## [adotenv-lsp 0.4.0] - 2026-11-11
+
+### Added
+
+- Explicit `--config <path>` and opt-in `--discover-lint-config`, with
+  configured lint policy and ignored paths.
+
+### Fixed
+
+- Config-driven policy no longer duplicates parser duplicate-key findings.
 
 ## [adotenv-lsp 0.3.0] - 2026-11-08
 

@@ -363,8 +363,13 @@ jobs:
 
   publish-lsp:
     name: publish adotenv-lsp
-    needs: checks
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_lsp == true
+    needs: [checks, publish-linter]
+    if: |
+      always() &&
+      github.event_name == 'workflow_dispatch' &&
+      inputs.publish_lsp == true &&
+      needs.checks.result == 'success' &&
+      (needs.publish-linter.result == 'success' || needs.publish-linter.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
