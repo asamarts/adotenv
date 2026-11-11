@@ -2,6 +2,7 @@ use crate::{parse, parse_strict, DiagnosticCode, Severity};
 use alloc::{
     format,
     string::{String, ToString},
+    vec::Vec,
 };
 use core::fmt::Write as _;
 
