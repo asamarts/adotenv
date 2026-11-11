@@ -22,6 +22,14 @@
 //! assert_eq!(findings[0].rule(), adotenv_lint::Rule::KeyOrder);
 //! ```
 
+pub mod config;
+
+pub use config::{
+    discover_config, load_effective_config, parse_dialect, parse_equals_spacing, parse_key_case,
+    parse_output_format, parse_quote_style, ConfigError, ConfigExplicit, LintConfig, LintPolicy,
+    OutputFormat, RuleSeverity,
+};
+
 use std::collections::BTreeMap;
 use std::fmt;
 use std::ops::Range;
@@ -164,7 +172,9 @@ impl LintOptions {
         self.severities[rule.index()] = severity;
         self
     }
-    const fn severity_for(self, rule: Rule) -> Severity {
+    /// Returns the configured severity for one rule.
+    #[must_use]
+    pub const fn severity_for_rule(self, rule: Rule) -> Severity {
         self.severities[rule.index()]
     }
     fn format_options(self) -> FormatOptions {
@@ -544,7 +554,7 @@ pub fn lint(document: &Document<'_>, options: LintOptions) -> Vec<Finding> {
                 findings.push(Finding::new(
                     Rule::DuplicateKey,
                     "key is declared more than once",
-                    options.severity_for(Rule::DuplicateKey),
+                    options.severity_for_rule(Rule::DuplicateKey),
                     entry.key_span(),
                     entry.line(),
                     Some(entry.key()),
@@ -560,7 +570,7 @@ pub fn lint(document: &Document<'_>, options: LintOptions) -> Vec<Finding> {
                 findings.push(Finding::new(
                     Rule::KeyOrder,
                     "declarations are not sorted",
-                    options.severity_for(Rule::KeyOrder),
+                    options.severity_for_rule(Rule::KeyOrder),
                     first.range.clone(),
                     line_of(&line_index, first.range.start),
                     None,
@@ -581,7 +591,7 @@ pub fn lint(document: &Document<'_>, options: LintOptions) -> Vec<Finding> {
                 findings.push(Finding::new(
                     Rule::KeyCase,
                     "key does not use the configured case",
-                    options.severity_for(Rule::KeyCase),
+                    options.severity_for_rule(Rule::KeyCase),
                     entry.key_span(),
                     entry.line(),
                     Some(entry.key()),
@@ -605,7 +615,7 @@ pub fn lint(document: &Document<'_>, options: LintOptions) -> Vec<Finding> {
                     findings.push(Finding::new(
                         Rule::QuoteStyle,
                         "value does not use the configured quote style",
-                        options.severity_for(Rule::QuoteStyle),
+                        options.severity_for_rule(Rule::QuoteStyle),
                         entry.value_span().unwrap_or_else(|| entry.key_span()),
                         entry.line(),
                         Some(entry.key()),
@@ -619,7 +629,7 @@ pub fn lint(document: &Document<'_>, options: LintOptions) -> Vec<Finding> {
             findings.push(Finding::new(
                 Rule::Whitespace,
                 "assignment spacing or trailing whitespace is not normalized",
-                options.severity_for(Rule::Whitespace),
+                options.severity_for_rule(Rule::Whitespace),
                 entry.tokens().key.clone(),
                 entry.line(),
                 Some(entry.key()),

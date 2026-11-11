@@ -5,7 +5,7 @@
 //! same directory, preserving the target's permissions where possible.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     env,
     fmt::Write as _,
     fs,
@@ -15,10 +15,13 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use adotenv::{parse_strict_with, Dialect, EqualsSpacing, QuoteStyle, Severity};
-use adotenv_lint::{apply_batch, lint, Finding, Fix, KeyCase, LintOptions, Rule};
+use adotenv::{parse_strict_with, Dialect, Severity};
+use adotenv_lint::{
+    apply_batch, lint, load_effective_config, parse_dialect, parse_equals_spacing as parse_spacing,
+    parse_key_case, parse_output_format as parse_format, parse_quote_style, ConfigExplicit,
+    Finding, Fix, LintOptions, LintPolicy, OutputFormat,
+};
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use serde::Deserialize;
 
 const SUCCESS: u8 = 0;
 const FINDINGS: u8 = 1;
@@ -48,12 +51,7 @@ Exit codes: 0 no findings (or all findings fixed), 1 remaining findings,
 The default rule reports duplicate keys. Fixes are verified through the
 library before they are written.";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Format {
-    Human,
-    Json,
-    Github,
-}
+type Format = OutputFormat;
 
 // These independent flags record which command-line values override config.
 #[allow(clippy::struct_excessive_bools)]
@@ -68,21 +66,6 @@ struct Explicit {
     equals_spacing: bool,
     trim_trailing_whitespace: bool,
     exclude: bool,
-}
-
-#[derive(Debug, Deserialize, Default)]
-#[serde(deny_unknown_fields)]
-struct Config {
-    dialect: Option<String>,
-    format: Option<String>,
-    recursive: Option<bool>,
-    key_order: Option<bool>,
-    key_case: Option<String>,
-    quote_style: Option<String>,
-    equals_spacing: Option<String>,
-    trim_trailing_whitespace: Option<bool>,
-    ignore: Option<Vec<String>>,
-    rules: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug)]
@@ -163,7 +146,6 @@ fn run() -> Result<u8, String> {
         }
         total += findings.len();
         match options.format {
-            Format::Human => print_human(&path, &findings),
             Format::Json => {
                 for finding in &findings {
                     if printed > 0 {
@@ -174,6 +156,7 @@ fn run() -> Result<u8, String> {
                 }
             }
             Format::Github => print_github(&path, &findings),
+            _ => print_human(&path, &findings),
         }
     }
     if options.format == Format::Json {
@@ -343,142 +326,36 @@ fn replace_file(temporary: &Path, target: &Path) -> Result<(), String> {
 }
 
 fn apply_config(options: &mut Options) -> Result<(), String> {
-    let path = if let Some(path) = options.config.clone() {
-        PathBuf::from(path)
-    } else {
-        let Some(default) = find_config() else {
-            return Ok(());
-        };
-        default
+    let start = env::current_dir().map_err(|error| error.to_string())?;
+    let config = load_effective_config(options.config.as_deref().map(Path::new), &start)
+        .map_err(|error| error.to_string())?;
+    let Some(config) = config else {
+        return Ok(());
     };
-    let source =
-        fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
-    let config: Config =
-        toml::from_str(&source).map_err(|error| format!("{}: {error}", path.display()))?;
-    let error = |name: &str, value: &str| format!("{}: unknown {name}: {value}", path.display());
-    if !options.explicit.dialect {
-        if let Some(value) = &config.dialect {
-            options.dialect = parse_dialect(value).map_err(|_| error("dialect", value))?;
-        }
-    }
-    if !options.explicit.format {
-        if let Some(value) = &config.format {
-            options.format = parse_format(value).map_err(|_| error("format", value))?;
-        }
-    }
-    if !options.explicit.recursive {
-        if let Some(value) = config.recursive {
-            options.recursive = value;
-        }
-    }
-    if !options.explicit.key_order {
-        if let Some(value) = config.key_order {
-            options.lint = options.lint.with_key_order(value);
-        }
-    }
-    if !options.explicit.key_case {
-        if let Some(value) = &config.key_case {
-            options.lint = options
-                .lint
-                .with_key_case(parse_key_case(value).map_err(|_| error("key case", value))?);
-        }
-    }
-    if !options.explicit.quote_style {
-        if let Some(value) = &config.quote_style {
-            options.lint = options.lint.with_quote_style(
-                parse_quote_style(value).map_err(|_| error("quote style", value))?,
-            );
-        }
-    }
-    if !options.explicit.equals_spacing {
-        if let Some(value) = &config.equals_spacing {
-            options.lint = options.lint.with_equals_spacing(
-                parse_spacing(value).map_err(|_| error("equals spacing", value))?,
-            );
-        }
-    }
-    if !options.explicit.trim_trailing_whitespace {
-        if let Some(value) = config.trim_trailing_whitespace {
-            options.lint = options.lint.with_trim_trailing_whitespace(value);
-        }
-    }
-    if !options.explicit.exclude {
-        if let Some(ignore) = config.ignore {
-            options.exclude = ignore;
-        }
-    }
-    if let Some(rules) = config.rules {
-        apply_rule_config(options, &rules, &path)?;
-    }
-    Ok(())
-}
-
-fn find_config() -> Option<PathBuf> {
-    let mut directory = env::current_dir().ok()?;
-    loop {
-        let candidate = directory.join(".adotenv-lint.toml");
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-        if !directory.pop() {
-            return None;
-        }
-    }
-}
-
-fn apply_rule_config(
-    options: &mut Options,
-    rules: &BTreeMap<String, String>,
-    path: &Path,
-) -> Result<(), String> {
-    for (name, value) in rules {
-        let rule = match name.as_str() {
-            "duplicate-key" => Rule::DuplicateKey,
-            "key-order" => Rule::KeyOrder,
-            "key-case" => Rule::KeyCase,
-            "quote-style" => Rule::QuoteStyle,
-            "whitespace" => Rule::Whitespace,
-            other => {
-                return Err(format!("{}: unknown rule: {other}", path.display()));
-            }
-        };
-        let severity = match value.as_str() {
-            "off" => None,
-            "warning" => Some(Severity::Warning),
-            "error" => Some(Severity::Error),
-            other => {
-                return Err(format!(
-                    "{}: unknown severity for {name}: {other}",
-                    path.display()
-                ));
-            }
-        };
-        let enabled = severity.is_some();
-        match rule {
-            Rule::DuplicateKey => {
-                options.lint = options.lint.with_duplicate_keys(enabled);
-            }
-            Rule::KeyOrder if !options.explicit.key_order => {
-                options.lint = options.lint.with_key_order(enabled);
-            }
-            Rule::KeyCase if !options.explicit.key_case && !enabled => {
-                options.lint = options.lint.with_key_case(KeyCase::Off);
-            }
-            Rule::QuoteStyle if !options.explicit.quote_style && !enabled => {
-                options.lint = options.lint.with_quote_style(QuoteStyle::Preserve);
-            }
-            Rule::Whitespace if !options.explicit.equals_spacing && !enabled => {
-                options.lint = options
-                    .lint
-                    .with_equals_spacing(EqualsSpacing::Preserve)
-                    .with_trim_trailing_whitespace(false);
-            }
-            _ => {}
-        }
-        if let Some(severity) = severity {
-            options.lint = options.lint.with_severity(rule, severity);
-        }
-    }
+    let explicit = ConfigExplicit {
+        dialect: options.explicit.dialect,
+        format: options.explicit.format,
+        recursive: options.explicit.recursive,
+        key_order: options.explicit.key_order,
+        key_case: options.explicit.key_case,
+        quote_style: options.explicit.quote_style,
+        equals_spacing: options.explicit.equals_spacing,
+        trim_trailing_whitespace: options.explicit.trim_trailing_whitespace,
+        ignore: options.explicit.exclude,
+    };
+    let mut policy = LintPolicy {
+        dialect: options.dialect,
+        format: options.format,
+        recursive: options.recursive,
+        lint: options.lint,
+        ignore: options.exclude.clone(),
+    };
+    config.apply(&mut policy, explicit);
+    options.dialect = policy.dialect;
+    options.format = policy.format;
+    options.recursive = policy.recursive;
+    options.lint = policy.lint;
+    options.exclude = policy.ignore;
     Ok(())
 }
 
@@ -626,53 +503,6 @@ fn value<'a>(args: &'a [String], index: usize, option: &str) -> Result<&'a str, 
     args.get(index)
         .map(String::as_str)
         .ok_or_else(|| format!("{option} requires a value"))
-}
-
-fn parse_dialect(value: &str) -> Result<Dialect, String> {
-    match value {
-        "portable" => Ok(Dialect::PORTABLE),
-        "node" => Ok(Dialect::NODE_DOTENV),
-        "python" => Ok(Dialect::PYTHON_DOTENV),
-        "compose" => Ok(Dialect::COMPOSE),
-        "docker" | "docker-raw" => Ok(Dialect::DOCKER_RAW),
-        other => Err(format!("unknown dialect: {other}")),
-    }
-}
-
-fn parse_format(value: &str) -> Result<Format, String> {
-    match value {
-        "human" => Ok(Format::Human),
-        "json" => Ok(Format::Json),
-        "github" => Ok(Format::Github),
-        other => Err(format!("unknown format: {other}")),
-    }
-}
-
-fn parse_key_case(value: &str) -> Result<KeyCase, String> {
-    match value {
-        "lower" => Ok(KeyCase::Lower),
-        "upper" => Ok(KeyCase::Upper),
-        other => Err(format!("unknown key case: {other}")),
-    }
-}
-
-fn parse_quote_style(value: &str) -> Result<QuoteStyle, String> {
-    match value {
-        "preserve" => Ok(QuoteStyle::Preserve),
-        "double" => Ok(QuoteStyle::Double),
-        "single" => Ok(QuoteStyle::Single),
-        "unquoted" => Ok(QuoteStyle::Unquoted),
-        other => Err(format!("unknown quote style: {other}")),
-    }
-}
-
-fn parse_spacing(value: &str) -> Result<EqualsSpacing, String> {
-    match value {
-        "preserve" => Ok(EqualsSpacing::Preserve),
-        "none" => Ok(EqualsSpacing::None),
-        "spaces" => Ok(EqualsSpacing::Spaces),
-        other => Err(format!("unknown equals spacing: {other}")),
-    }
 }
 
 fn collect_paths(
@@ -867,7 +697,8 @@ fn json_string(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adotenv_lint::Rule;
+    use adotenv::{EqualsSpacing, QuoteStyle};
+    use adotenv_lint::{KeyCase, Rule};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_owned()).collect()
