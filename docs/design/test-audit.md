@@ -139,6 +139,34 @@ release-time campaign rather than a per-change gate. The focused run targets
 the new security, masking, command-limit, diagnostic and Windows validation
 code; the pre-1.0 full run remains the historical broad baseline.
 
+## Mutation testing at 1.4.1
+
+The focused campaign was rerun on the current parser/edit/format verification
+surface:
+
+```console
+cargo mutants --file src/parser.rs --file src/edit.rs --file src/format.rs \
+  --re 'in (merge_lone_cr|valid_key_in|verify_entry_region|same_meaning)' \
+  --timeout 90 --jobs 4 --baseline skip
+```
+
+The result was **72 mutants: 60 caught, 12 equivalent survivors, 0 unviable and
+0 timeouts**. The survivors are classified as follows:
+
+- All 11 survivors in `verify_entry_region` are in its defensive suffix loop.
+  Every current caller builds the region so its end equals the parsed item's
+  end; the loop and its comparisons therefore cannot be reached through the
+  public edit API. They remain as protection for future Compose quote forms.
+- The remaining survivor is the `carriage_returns.len() < limit` boundary in
+  `merge_lone_cr`. An extra carriage return admitted by the `<=` variant is
+  omitted again by the later output-budget pass, so the externally observable
+  diagnostics and counts are unchanged.
+
+The campaign added direct budget/omitted-error tests for `merge_lone_cr` and a
+Compose comment-suffix edit regression. The new tests make the previously
+surviving budget/severity mutations fail; the equivalent survivors are recorded
+here rather than hidden by changing the verification logic.
+
 ## Known gaps
 
 1. CLI branches for rare rename, permission and temporary-file failures. These

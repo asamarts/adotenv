@@ -108,8 +108,10 @@ release.
 
 Mutation testing runs weekly and on demand in four shards. It targets parser
 diagnostics, key validation, edit verification and formatting equivalence,
-with a 90-second timeout and two jobs per shard. Survivors are input for
-targeted regression tests, not an automatic release blocker.
+with a 90-second timeout and two jobs per shard. The 1.4.1 focused campaign
+tested 72 mutants: 60 caught and 12 equivalent survivors, with the exact
+classification recorded in the [test audit](test-audit.md). Survivors are input
+for targeted regression tests, not an automatic release blocker.
 
 ```console
 cargo mutants --file src/parser.rs --file src/edit.rs --file src/format.rs \
