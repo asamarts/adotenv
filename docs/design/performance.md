@@ -200,7 +200,7 @@ The comparable matrix on `kbench` (five sizes, `plain`/`long-line`/`empty`,
 values and load) is recorded in
 [`docs/benchmarks/speed.md`](../benchmarks/speed.md) and
 [`docs/benchmarks/memory.md`](../benchmarks/memory.md). The speed and memory
-snapshots share the final release-candidate SHA `0649096`. Against the best
+snapshots share the final 1.4.1 baseline SHA `0649096`. Against the best
 competitor in each cell:
 
 - speed: **25/25 strict wins**;

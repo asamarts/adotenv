@@ -4,7 +4,7 @@ This directory contains the comparable benchmark methodology, reproducible
 commands, fixture catalogue, result schema and raw per-release evidence for
 `adotenv`.
 
-The current release-candidate evidence is the
+The current release evidence is the
 [1.4.1 result page](RESULTS-1.4.1.md). It records a strict win in all 25
 comparable speed cells, all 30 peak-heap cells and all 30 allocation-count
 cells. Retained heap is a tie in all 30 cells and a loss in none; that is the
