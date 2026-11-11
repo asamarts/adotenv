@@ -71,5 +71,5 @@ The LSP companion requires Rust 1.85 because its `lsp-server` transport uses the
 2024 edition. The core crate remains Rust 1.81 compatible, `no_std` compatible
 and dependency-free.
 
-The companion is a prototype. It does not yet offer workspace symbols, code
-actions or completion resolution.
+The companion is a prototype. It does not yet offer code actions or completion
+resolution.

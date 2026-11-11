@@ -19,7 +19,9 @@ The current release provides:
 ## Current status
 
 `adotenv`, `adotenv-process` and `adotenv-cli` are at 1.4.0;
-`adotenv-config` is at 0.12.0 and `adotenv-figment` at 0.12.1. A pre-release
+`adotenv-config` is at 0.12.0 and `adotenv-figment` at 0.12.1. The next
+release candidate is 1.4.1 for the lockstep crates, `adotenv-lint` 0.2.0 and
+`adotenv-lsp` 0.4.0. A pre-release
 audit of 0.10.4 found defects in behavior that 1.0 would freeze. They were
 fixed in 0.11.0, apart from the rename collision rule, which shipped in 1.0.0.
 The fixes are listed in
@@ -44,7 +46,8 @@ The audit, release evidence and remaining companion work are recorded there.
    2026-11-06, followed by 0.1.1 through crates.io Trusted Publishing. The
    `adotenv-lsp` 0.1.0 was published on 2026-11-07, followed by 0.2.0,
    0.2.1 and 0.3.0 on 2026-11-08. The 0.3 line adds workspace symbols for open
-   documents. See
+   documents; the 1.4.1 plan prepares lint 0.2.0 and LSP 0.4.0 with shared
+   configuration policy. See
    [#14](https://github.com/asamarts/adotenv/issues/14).
 5. Expand conformance cases only when a real upstream behavior is pinned and
    reproducible.

@@ -409,10 +409,24 @@ impl IgnoredPaths {
     /// basename.
     #[must_use]
     pub fn is_ignored(&self, path: &Path) -> bool {
-        self.globs.is_match(path)
+        if self.globs.is_match(path)
             || path
                 .file_name()
                 .is_some_and(|name| self.globs.is_match(Path::new(name)))
+        {
+            return true;
+        }
+        // LSP document URIs are absolute and there is no workspace root to
+        // strip. Match relative-looking patterns such as `target/**` against
+        // every path suffix as well.
+        let components: Vec<_> = path.components().collect();
+        for start in 1..components.len() {
+            let suffix: PathBuf = components[start..].iter().collect();
+            if self.globs.is_match(&suffix) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Returns whether `path` matches by full path, path relative to `root`,

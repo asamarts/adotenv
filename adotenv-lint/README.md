@@ -70,7 +70,9 @@ typos are visible. `rules` values are `off`, `warning` or `error`; `off`
 disables the rule. `warning`/`error` set severity but do not choose a policy:
 `key-case`, `quote-style` and `whitespace` still need their top-level
 configuration values. CLI options override the corresponding configuration
-values, and `--exclude` replaces configured `ignore` patterns.
+values, and `--exclude` replaces configured `ignore` patterns. Ignore globs
+match a full path, a basename, or a relative path suffix, so patterns such as
+`target/**` also apply to absolute LSP document URIs.
 
 Configuration is searched from the working directory upward until a
 `.adotenv-lint.toml` is found. `--config <path>` selects an explicit file.
@@ -119,4 +121,6 @@ policy. Parse diagnostics remain available from `adotenv::parse`.
 This crate requires Rust 1.81 and does not change the core crate's `no_std` or
 dependency-free guarantees.
 
-Version 0.1.0 is the first published release of the companion crate.
+Version 0.1.0 was the first published release of the companion crate. Version
+0.2.0 adds the shared configuration loader and ignored-path API used by the CLI
+and language server.
