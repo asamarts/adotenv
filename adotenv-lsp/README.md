@@ -1,8 +1,9 @@
 # adotenv-lsp
 
 An optional Language Server Protocol companion for `adotenv` documents.
-Version 0.3.0 is published on crates.io as an unstable prototype; breaking
-changes may occur within the 0.x line.
+Version 0.3.0 is published on crates.io as an unstable prototype; the next
+0.4.0 release adds explicit lint configuration. Breaking changes may occur
+within the 0.x line.
 
 It supports:
 
@@ -26,10 +27,18 @@ environment or resolve references. Hover values can be masked explicitly with
 ```console
 adotenv-lsp
 adotenv-lsp --mask-values
+adotenv-lsp --config .adotenv-lint.toml
+adotenv-lsp --discover-lint-config
 ```
 
 The binary speaks LSP over standard input and standard output. It accepts
 incremental text changes and full-document replacements.
+
+Parser diagnostics are the default. Linter policy is loaded only when
+`--config <path>` names a file or `--discover-lint-config` explicitly opts into
+ancestor discovery from the launch directory. There is no implicit discovery.
+Invalid configuration fails visibly before the server starts. Configured
+ignore globs suppress published diagnostics for matching document URIs.
 
 ## Library
 

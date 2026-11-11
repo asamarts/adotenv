@@ -34,8 +34,14 @@ only the declaration.
 Parser diagnostics are always enabled. Linter findings are an explicit policy:
 `LspOptions::with_lint_options` accepts the linter's own `LintOptions` rule and
 severity policy. The default `LspOptions` does not run the linter, so
-diagnostics do not silently depend on a policy configuration. The stdio binary
-does not expose linter flags yet; embedding clients opt in.
+diagnostics do not silently depend on a policy configuration.
+
+The stdio server loads policy only from `--config <path>` or from
+`--discover-lint-config`, which explicitly searches ancestors of the launch
+directory. It never discovers a config implicitly. Invalid configuration is a
+startup error rather than a silent fallback. Configured ignore globs suppress
+published diagnostics for matching document paths. Embedding clients can still
+construct `LspOptions` and supply `LintOptions` directly.
 
 `LintOptions::new()` includes duplicate-key findings, which overlap the parser
 diagnostics. Callers publishing both should disable the linter duplicate rule.

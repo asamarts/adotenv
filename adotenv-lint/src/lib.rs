@@ -26,8 +26,8 @@ pub mod config;
 
 pub use config::{
     discover_config, load_effective_config, parse_dialect, parse_equals_spacing, parse_key_case,
-    parse_output_format, parse_quote_style, ConfigError, ConfigExplicit, LintConfig, LintPolicy,
-    OutputFormat, RuleSeverity,
+    parse_output_format, parse_quote_style, ConfigError, ConfigExplicit, IgnoredPaths, LintConfig,
+    LintPolicy, OutputFormat, RuleSeverity,
 };
 
 use std::collections::BTreeMap;
