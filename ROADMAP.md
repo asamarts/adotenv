@@ -18,13 +18,11 @@ The current release provides:
 
 ## Current status
 
-`adotenv`, `adotenv-process` and `adotenv-cli` 1.4.1 were published on
-2026-11-11, together with `adotenv-lint` 0.2.0. `adotenv-config` is at 0.12.0;
-`adotenv-figment` is at 0.12.1. The remaining companion release candidate is
-`adotenv-lsp` 0.4.0. A pre-release audit of 0.10.4 found defects in behavior
-that 1.0 would freeze. They were fixed in 0.11.0, apart from the rename
-collision rule, which shipped in 1.0.0.
-The fixes are listed in
+`adotenv`, `adotenv-process` and `adotenv-cli` 1.4.1, `adotenv-lint` 0.2.0
+and `adotenv-lsp` 0.4.0 were published on 2026-11-11. `adotenv-config` is at
+0.12.0 and `adotenv-figment` at 0.12.1. A pre-release audit of 0.10.4 found
+defects in behavior that 1.0 would freeze. They were fixed in 0.11.0, apart
+from the rename collision rule, which shipped in 1.0.0. The fixes are listed in
 [1.0-fix-round.md](docs/design/1.0-fix-round.md), and the 1.0 evidence was
 collected again on the fixed code
 ([1.0-readiness.md](docs/design/1.0-readiness.md)). The 1.1 audit and its
@@ -48,9 +46,9 @@ there.
    2026-11-06, followed by 0.1.1 through crates.io Trusted Publishing. The
    `adotenv-lsp` 0.1.0 was published on 2026-11-07, followed by 0.2.0,
    0.2.1 and 0.3.0 on 2026-11-08. The 0.3 line adds workspace symbols for open
-   documents; linter 0.2.0 was published on 2026-11-11 with shared
-   configuration policy, and LSP 0.4.0 remains ready for its release dispatch.
-   See [#14](https://github.com/asamarts/adotenv/issues/14).
+   documents; linter 0.2.0 and LSP 0.4.0 were published on 2026-11-11 with
+   shared configuration policy. See
+   [#14](https://github.com/asamarts/adotenv/issues/14).
 5. Expand conformance cases only when a real upstream behavior is pinned and
    reproducible.
 6. Keep the core dependency-free. New I/O, process or third-party behavior
@@ -61,8 +59,7 @@ there.
    stays dependency-free and keeps its own types; shared code, if any, is only for companion
    crates.
 8. Complete the [1.4.1 / linter 0.2.0 / LSP 0.4.0 plan](docs/design/1.4.1-plan.md):
-   the core and linter releases are published; dispatch LSP 0.4.0 and verify
-   its release evidence.
+   all three releases are published; retain the verified release evidence.
 
 ## 1.0 criteria
 
