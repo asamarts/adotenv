@@ -1,8 +1,7 @@
 # 1.4.1 benchmark results
 
-Status: final release-candidate baseline, recorded on `kbench` at source SHA
-`0649096`. Re-run this complete matrix if the benchmark code or baseline
-changes before publishing 1.4.1.
+Status: final 1.4.1 baseline, recorded on `kbench` at source SHA `0649096`.
+Re-run this complete matrix if the benchmark code or baseline changes.
 
 This page uses the [methodology](METHODOLOGY.md), [scenario catalogue](SCENARIOS.md)
 and [result schema](SCHEMA.md). Raw evidence:

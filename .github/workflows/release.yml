@@ -479,7 +479,6 @@ jobs:
         with:
           name: release-crates
           path: release-assets
-          if-no-files-found: ignore
       - name: create the release from the changelog
         env:
           GH_TOKEN: ${{ github.token }}
