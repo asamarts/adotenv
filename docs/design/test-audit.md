@@ -94,8 +94,8 @@ target, with a 10-second maximum and the same memory and timeout bounds as CI:
 | format | 3,654 | clean |
 
 These are development checks, not release evidence. The release rule remains
-four successful workflow runs covering all five targets after the release
-commit is merged.
+four successful workflow runs covering all targets in the current matrix
+after the release commit is merged.
 
 The first encoding campaign found a harness assertion false positive: it
 demanded a standalone encoding for a token whose custom `QuotedTail::Append`
