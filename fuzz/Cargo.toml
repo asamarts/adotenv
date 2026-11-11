@@ -14,6 +14,7 @@ resolver = "2"
 [dependencies]
 libfuzzer-sys = "0.4"
 adotenv = { path = ".." }
+adotenv-bench = { path = "../adotenv-bench" }
 
 [[bin]]
 name = "parser"
@@ -53,6 +54,13 @@ bench = false
 [[bin]]
 name = "limits"
 path = "fuzz_targets/limits.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "differential"
+path = "fuzz_targets/differential.rs"
 test = false
 doc = false
 bench = false

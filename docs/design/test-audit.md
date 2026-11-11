@@ -106,8 +106,12 @@ panic or editing failure was involved.
 
 ## Release fuzz evidence
 
-Four workflow fuzz runs passed on release commit `bf4b393`, each covering all
-five targets: 41941036521, 41941908663, 41942723663 and 41943612879.
+Four workflow fuzz runs passed on release commit `bf4b393`, each covering the
+then-current five targets: 41941036521, 41941908663, 41942723663 and
+41943612879. The current matrix has seven targets, including `limits` and the
+`differential` target. A bounded local smoke of the differential target ran
+5,000 executions clean after its Portable key/value oracle was narrowed for
+the pinned competitors' `export`-prefix behavior.
 
 ## Mutation testing at 1.2.0
 

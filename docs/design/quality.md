@@ -68,8 +68,12 @@ not build diagnostic lists they do not use.
 
 ## Fuzzing
 
-The repository has six bounded fuzz targets with public seed corpora:
-`parser`, `edits`, `encoding`, `resolve`, `format` and `limits`. The
+The repository has seven bounded fuzz targets with public seed corpora:
+`parser`, `edits`, `encoding`, `resolve`, `format`, `limits` and
+`differential`. The differential target compares Portable value parsing with
+the pinned in-memory competitors on the conservative `KEY=value` grammar, and
+runs malformed/recovery inputs through parser invariants without asserting
+upstream equivalence where semantics differ. The
 [fuzz workflow](https://github.com/asamarts/adotenv/blob/main/.github/workflows/fuzz.yml)
 runs each target for five minutes, weekly and on demand, with bounded time per
 input, memory and input length.
