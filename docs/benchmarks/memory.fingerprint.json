@@ -1,1 +1,1 @@
-{"arch":"x86_64","cpu":"Intel(R) Core(TM) i7-6700HQ CPU @ 2.60GHz","cpu_count":8,"git_sha":"e3eca69dc62357e10f22bbc0b551e85ce919940a","hostname":"unknown","hyperfine":"hyperfine 2.0.0","kernel":"Linux 7.1.3-arch1-2","load1":"0.04","os":"linux","rustc":"rustc 1.97.1 (8bab26f4f 2026-07-14)"}
+{"arch":"x86_64","cpu":"Intel(R) Core(TM) i7-6700HQ CPU @ 2.60GHz","cpu_count":8,"git_sha":"2a751c0ebd7bdbc410dbc93b2aaf026003085c5e","hostname":"unknown","hyperfine":"hyperfine 2.0.0","kernel":"Linux 7.1.3-arch1-2","load1":"0.98","os":"linux","rustc":"rustc 1.97.1 (8bab26f4f 2026-07-14)"}
