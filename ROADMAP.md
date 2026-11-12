@@ -61,9 +61,9 @@ The audit, release evidence and remaining companion work are recorded there.
    crates.
 8. Complete the [1.4.1 / linter 0.2.0 / LSP 0.4.0 plan](docs/design/1.4.1-plan.md):
    all three releases are published; retain the verified release evidence.
-9. Maintain the compact values API and decide whether to add a compact speed
-   claim and deterministic compact benchmarks. The 1.4.1 map-based claim
-   remains historical release evidence.
+9. Maintain the compact values API. Compact parsing/loading now has
+   deterministic gates; decide separately whether to add a compact speed
+   claim. The 1.4.1 map-based claim remains historical release evidence.
 
 ## 1.0 criteria
 
