@@ -18,11 +18,11 @@ The current release provides:
 
 ## Current status
 
-`adotenv`, `adotenv-process` and `adotenv-cli` 1.4.1, `adotenv-lint` 0.2.0
-and `adotenv-lsp` 0.4.0 were published on 2026-11-11. The 1.5.0 release
-candidate adds the compact values API. `adotenv-config` is at 0.12.0 and
-`adotenv-figment` at 0.12.1. A pre-release audit of 0.10.4 found defects in
-behavior that 1.0 would freeze. They were fixed in 0.11.0, apart
+`adotenv`, `adotenv-process` and `adotenv-cli` 1.5.0 were published on
+2026-11-12 with the compact values API. `adotenv-lint` 0.2.0 and
+`adotenv-lsp` 0.4.0 were published on 2026-11-11. `adotenv-config` is at
+0.12.0 and `adotenv-figment` at 0.12.1. A pre-release audit of 0.10.4 found
+defects in behavior that 1.0 would freeze. They were fixed in 0.11.0, apart
 from the rename collision rule, which shipped in 1.0.0. The fixes are listed in
 [1.0-fix-round.md](docs/design/1.0-fix-round.md), and the 1.0 evidence was
 collected again on the fixed code
@@ -31,8 +31,8 @@ fixes are in [1.1-audit.md](docs/design/1.1-audit.md). Version 1.2.0 was
 released on 2026-11-05; version 1.3.0 was released on 2026-11-06. Version 1.4.0
 was released on 2026-11-07 and adds the verified reference-rename primitive.
 Version 1.4.1 was released on 2026-11-11 with the benchmark and hardening
-cycle. The audit, release evidence and remaining companion work are recorded
-there.
+cycle. Version 1.5.0 was released on 2026-11-12 with the compact values API.
+The audit, release evidence and remaining companion work are recorded there.
 
 ## Near-term work
 
@@ -61,9 +61,9 @@ there.
    crates.
 8. Complete the [1.4.1 / linter 0.2.0 / LSP 0.4.0 plan](docs/design/1.4.1-plan.md):
    all three releases are published; retain the verified release evidence.
-9. Ship the compact values API in 1.5.0. Its publication-grade evaluation is
-   recorded; the 1.4.1 map-based claim remains the released claim until 1.5.0
-   is published.
+9. Maintain the compact values API and decide whether to add a compact speed
+   claim and deterministic compact benchmarks. The 1.4.1 map-based claim
+   remains historical release evidence.
 
 ## 1.0 criteria
 

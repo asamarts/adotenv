@@ -213,11 +213,11 @@ The retained result cannot become a strict win without changing the public
 sizes, and larger cells are already at the compact-tree floor. For 1.4.1 this is
 accepted as a no-loss result, not treated as a strict win. The compact values
 API (`CompactValues`, `parse_values_compact` and the compact load variants) has
-a publication-grade `kbench` evaluation at release-candidate SHA `0a9fc92`: it wins retained heap
-in all 20 non-empty values/load cells, ties at zero bytes in the 10 empty cells,
-and wins peak heap and allocation count in all 30 cells. See
-[the 1.5.0 compact results](../benchmarks/RESULTS-1.5.0.md). The map-based 1.4.1
-claim remains the release claim until a later minor release.
+a publication-grade `kbench` evaluation at SHA `0a9fc92` for the 1.5.0 release:
+it wins retained heap in all 20 non-empty values/load cells, ties at zero bytes
+in the 10 empty cells, and wins peak heap and allocation count in all 30 cells.
+See [the 1.5.0 compact results](../benchmarks/RESULTS-1.5.0.md). The map-based
+1.4.1 claim remains historical release evidence.
 
 ## Earlier measurements
 
