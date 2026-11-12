@@ -25,8 +25,8 @@ cells. Retained heap is a tie in all 30 map-based cells and a loss in none.
 
 The rendered tables are also available directly:
 
-- [Memory results](memory.md) and [raw JSONL](memory.jsonl)
-- [Compact memory results](compact-memory.md) and
+- [1.4.1 map memory results](memory.md) and [raw JSONL](memory.jsonl)
+- [1.5.0 compact memory results](compact-memory.md) and
   [raw JSONL](compact-memory.jsonl)
 - [Speed results](speed.md) and [raw bencher output](speed.txt)
 - [Memory fingerprint](memory.fingerprint.json) and
