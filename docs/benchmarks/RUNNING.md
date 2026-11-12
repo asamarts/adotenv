@@ -122,9 +122,9 @@ bash scripts/det-perf-gate.sh
 ```
 
 The script installs/checks `valgrind` and the exact `gungraun-runner` version,
-builds the merge base and head with isolated target directories, runs the four
-`det_parse` benches, and lets gungraun's +2% Ir / +5% cycle soft limits fail the
-job. A deliberate duplicated parse is a useful manual check when changing the
+builds the merge base and head with isolated target directories, runs the
+`det_parse` map/compact parsing and compact-loading benches, and lets
+gungraun's +2% Ir / +5% cycle soft limits fail the job. A deliberate duplicated parse is a useful manual check when changing the
 gate.
 
 ## Publication checklist

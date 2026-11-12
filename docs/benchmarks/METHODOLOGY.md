@@ -114,8 +114,9 @@ fresh fingerprint. Do not update it merely to make a failing gate pass.
 
 ## Deterministic internal gate
 
-`adotenv-bench/benches/det_parse.rs` runs four Portable parsing cells under
-Valgrind Callgrind through gungraun. The gate compares a freshly built merge
+`adotenv-bench/benches/det_parse.rs` runs four map-parsing cells, four compact
+parsing cells and two compact-loading cells under Valgrind Callgrind through
+gungraun. The gate compares a freshly built merge
 base with the PR in the same run and fails on `Ir` above +2% or estimated
 cycles above +5%. Branch counters are diagnostic only. This is the load-immune
 CI gate; Criterion is not used for PR pass/fail.

@@ -176,8 +176,9 @@ adotenv holds.
 CI separates deterministic internal gates from publication wall-time evidence:
 
 - `scripts/det-perf-gate.sh` builds the merge base and the PR in one session and
-  runs `adotenv-bench/benches/det_parse.rs` under Valgrind Callgrind. The
-  gungraun soft limits are `Ir` +2% and `EstimatedCycles` +5%; branch counters
+  runs the map and compact `adotenv-bench/benches/det_parse.rs` cases under
+  Valgrind Callgrind. The gungraun soft limits are `Ir` +2% and
+  `EstimatedCycles` +5%; branch counters
   are diagnostic only. The comparison uses only instruction simulation, so
   hosted-runner load cannot fail it. The gate skips its first PR when the base
   predates `det_parse`, then gates subsequent changes.

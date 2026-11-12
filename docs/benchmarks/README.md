@@ -4,17 +4,15 @@ This directory contains the comparable benchmark methodology, reproducible
 commands, fixture catalogue, result schema and raw per-release evidence for
 `adotenv`.
 
-The current release evidence is the
-[1.4.1 result page](RESULTS-1.4.1.md). It records a strict win in all 25
-comparable speed cells, all 30 peak-heap cells and all 30 allocation-count
-cells. Retained heap is a tie in all 30 cells and a loss in none; that is the
-accepted 1.4.1 claim, not a strict retained-memory win.
-
-A publication-grade evaluation of the compact values API is in the
-[1.5.0 results](RESULTS-1.5.0.md). It records strict non-empty retained-heap
+The current release memory evidence is the
+[1.5.0 result page](RESULTS-1.5.0.md). It records strict non-empty retained-heap
 wins, with zero-byte ties on empty inputs, and strict peak and allocation wins
-in all values/load cells. It is release evidence for 1.5.0, not a replacement
-for the historical 1.4.1 claim.
+in all values/load cells.
+
+The [1.4.1 result page](RESULTS-1.4.1.md) remains historical evidence for the
+map-based API and for the speed claim. It records a strict win in all 25
+comparable speed cells, all 30 peak-heap cells and all 30 allocation-count
+cells. Retained heap is a tie in all 30 map-based cells and a loss in none.
 
 ## Documents
 
@@ -22,8 +20,8 @@ for the historical 1.4.1 claim.
 - [Running benchmarks](RUNNING.md) -- reproduce a cell locally or on `kbench`.
 - [Scenario catalogue](SCENARIOS.md) -- fixtures, exact hashes and modes.
 - [Result schema](SCHEMA.md) -- JSONL and bencher formats.
-- [1.4.1 results](RESULTS-1.4.1.md) -- current release evidence.
-- [1.5.0 compact results](RESULTS-1.5.0.md) -- compact values release evidence.
+- [1.4.1 results](RESULTS-1.4.1.md) -- historical speed and map-based evidence.
+- [1.5.0 results](RESULTS-1.5.0.md) -- current compact memory evidence.
 
 The rendered tables are also available directly:
 
