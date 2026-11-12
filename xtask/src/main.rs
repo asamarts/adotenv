@@ -185,11 +185,13 @@ fn command_speed(args: &[String]) -> Result<()> {
 fn write_speed_markdown(path: &Path) -> Result<()> {
     let text = fs::read_to_string(path).map_err(|error| error.to_string())?;
     let mut report = String::from("# Speed benchmark results\n\n");
+    report
+        .push_str("Click a column header to sort. Use the filter to narrow large result sets.\n\n");
     let sidecar = path.with_extension("fingerprint.json");
     if let Ok(fingerprint) = fs::read_to_string(&sidecar) {
-        report.push_str("## Fingerprint\n\n```json\n");
+        report.push_str("<details>\n<summary>Provenance fingerprint</summary>\n\n```json\n");
         report.push_str(fingerprint.trim());
-        report.push_str("\n```\n\n");
+        report.push_str("\n```\n\n</details>\n\n");
     }
     report.push_str("| benchmark | time |\n|---|---:|\n");
     for line in text.lines() {
@@ -263,11 +265,13 @@ fn command_report(args: &[String]) -> Result<()> {
         rows.push(value);
     }
     let mut report = String::from("# Memory benchmark results\n\n");
+    report
+        .push_str("Click a column header to sort. Use the filter to narrow large result sets.\n\n");
     let sidecar = Path::new(input).with_extension("fingerprint.json");
     if let Ok(fingerprint) = fs::read_to_string(&sidecar) {
-        report.push_str("## Fingerprint\n\n```json\n");
+        report.push_str("<details>\n<summary>Provenance fingerprint</summary>\n\n```json\n");
         report.push_str(fingerprint.trim());
-        report.push_str("\n```\n\n");
+        report.push_str("\n```\n\n</details>\n\n");
     }
     report.push_str(
         "| size | shape | mode | implementation | entries | source bytes | peak heap | retained heap | after drop | allocations | RSS before | RSS peak | RSS after |\n\

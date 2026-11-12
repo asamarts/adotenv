@@ -4,6 +4,13 @@ This directory contains the comparable benchmark methodology, reproducible
 commands, fixture catalogue, result schema and raw per-release evidence for
 `adotenv`.
 
+<div class="bench-callouts">
+<a class="bench-callout" href="RESULTS-1.5.0.html"><strong>1.5.0 results</strong><span>Compact memory and speed evidence, with charts and sortable tables.</span></a>
+<a class="bench-callout" href="compact-memory.html"><strong>Memory chart</strong><span>Compare compact, map and best-competitor peaks, retained heap and allocations.</span></a>
+<a class="bench-callout" href="speed-1.5.0.html"><strong>Speed chart</strong><span>Compare values and load timings across every size and shape.</span></a>
+<a class="bench-callout" href="METHODOLOGY.html"><strong>Methodology</strong><span>How the comparable matrix, gates and publication runs work.</span></a>
+</div>
+
 The current release evidence is the [1.5.0 result page](RESULTS-1.5.0.md). It
 records strict non-empty retained-heap wins, with zero-byte ties on empty
 inputs, strict peak and allocation wins in all values/load cells, and 25/25
