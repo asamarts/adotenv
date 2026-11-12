@@ -11,7 +11,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use adotenv::{load::LoadedValues, parse_strict, Document, ExpandOptions, ResolvedDocument};
+use adotenv::{
+    load::LoadedValues, parse_strict, CompactValues, Document, ExpandOptions, ResolvedDocument,
+};
 
 use crate::competitors::{load_values, parse_values, Competitor};
 use crate::{fixture, Shape, Size};
@@ -144,8 +146,10 @@ impl Mode {
 /// The implementation being measured.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Implementation {
-    /// The adotenv implementation.
+    /// The adotenv map-returning implementation.
     Adotenv,
+    /// The adotenv compact values implementation.
+    AdotenvCompact,
     /// A pinned competitor.
     Competitor(Competitor),
 }
@@ -156,6 +160,9 @@ impl Implementation {
     pub fn from_label(label: &str) -> Option<Self> {
         if label == "adotenv" {
             return Some(Self::Adotenv);
+        }
+        if label == "adotenv-compact" {
+            return Some(Self::AdotenvCompact);
         }
         Competitor::ALL
             .into_iter()
@@ -168,6 +175,7 @@ impl Implementation {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Adotenv => "adotenv",
+            Self::AdotenvCompact => "adotenv-compact",
             Self::Competitor(competitor) => competitor.label(),
         }
     }
@@ -176,10 +184,12 @@ impl Implementation {
     #[must_use]
     pub const fn supports(self, mode: Mode) -> bool {
         match (self, mode) {
-            (Self::Adotenv, _) => true,
+            (Self::Adotenv, _) | (Self::AdotenvCompact, Mode::Values | Mode::Load) => true,
             (Self::Competitor(competitor), Mode::Values) => competitor.supports_values(),
             (Self::Competitor(competitor), Mode::Load) => competitor.supports_load(),
-            (Self::Competitor(_), Mode::Document | Mode::Resolve) => false,
+            (Self::AdotenvCompact, _) | (Self::Competitor(_), Mode::Document | Mode::Resolve) => {
+                false
+            }
         }
     }
 }
@@ -353,6 +363,7 @@ pub fn run(
 #[allow(dead_code)]
 enum Holding<'a> {
     Values(BTreeMap<String, String>),
+    Compact(CompactValues),
     Document(Document<'a>),
     Load(LoadedValues),
     Resolve(ResolvedDocument),
@@ -368,6 +379,9 @@ fn execute<'a>(
         (Mode::Values, Implementation::Adotenv) => Ok(Holding::Values(
             adotenv::parse_values(fixture.source()).map_err(|error| error.to_string())?,
         )),
+        (Mode::Values, Implementation::AdotenvCompact) => Ok(Holding::Compact(
+            adotenv::parse_values_compact(fixture.source()).map_err(|error| error.to_string())?,
+        )),
         (Mode::Values, Implementation::Competitor(competitor)) => {
             Ok(Holding::Values(parse_values(competitor, fixture.source())?))
         }
@@ -378,6 +392,13 @@ fn execute<'a>(
             let path = path.ok_or("load case has no path")?;
             Ok(Holding::Load(
                 adotenv::load::load_values([path], adotenv::Dialect::PORTABLE)
+                    .map_err(|error| error.to_string())?,
+            ))
+        }
+        (Mode::Load, Implementation::AdotenvCompact) => {
+            let path = path.ok_or("load case has no path")?;
+            Ok(Holding::Compact(
+                adotenv::load::load_values_compact([path], adotenv::Dialect::PORTABLE)
                     .map_err(|error| error.to_string())?,
             ))
         }
@@ -460,6 +481,10 @@ mod tests {
         assert_eq!(
             Implementation::from_label("adotenv"),
             Some(Implementation::Adotenv)
+        );
+        assert_eq!(
+            Implementation::from_label("adotenv-compact"),
+            Some(Implementation::AdotenvCompact)
         );
     }
 

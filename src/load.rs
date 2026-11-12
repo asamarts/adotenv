@@ -82,7 +82,10 @@
 //! | [`load_files_with_options`] | File list, chosen [`LoadOptions`] | [`LoadedEnvironment`] |
 //! | [`load_cascade_values`] | Cascade, Portable dialect | [`LoadedValues`] |
 //! | [`load_cascade_values_with`] | Cascade, chosen dialect | [`LoadedValues`] |
+//! | [`load_cascade_values_compact`] | Cascade, Portable dialect | [`CompactValues`] |
+//! | [`load_cascade_values_compact_with`] | Cascade, chosen dialect | [`CompactValues`] |
 //! | [`load_values`] | File list, chosen dialect | [`LoadedValues`] |
+//! | [`load_values_compact`] | File list, chosen dialect | [`CompactValues`] |
 //!
 //! A [`LoadedEnvironment`] holds the final values sorted by key and, by
 //! default, the [`LoadOrigin`] of each one: its file, the byte span of its
@@ -183,9 +186,9 @@ use std::{
 };
 
 use crate::{
-    encode_value, parse_strict_with, parse_values_with_options, parse_with_options, Diagnostic,
-    Dialect, ExpandOptions, ExpandScope, KeySyntax, LimitExceeded, LineBreaks, ParseOptions,
-    ResolveError, Severity,
+    encode_value, parse_strict_with, parse_values_compact_with_options, parse_values_with_options,
+    parse_with_options, CompactValues, Diagnostic, Dialect, ExpandOptions, ExpandScope, KeySyntax,
+    LimitExceeded, LineBreaks, ParseOptions, ResolveError, Severity,
 };
 
 /// Where a loaded declaration is: its file, byte span and one-based line.
@@ -1980,6 +1983,108 @@ where
     load_value_paths(paths, options, false)
 }
 
+/// Loads the `.env` cascade from `directory` with the Portable dialect into
+/// compact values.
+///
+/// This is [`load_cascade_values`] with a [`CompactValues`] result. It reads
+/// the same files with the same rules and errors, but retains one contiguous
+/// buffer and one fixed-size entry per key instead of a map node and two
+/// strings per key.
+///
+/// # Errors
+///
+/// Returns the same errors as [`load_cascade_values`].
+///
+/// # Examples
+///
+/// ```no_run
+/// # let dir = std::path::Path::new(".");
+/// let values = adotenv::load::load_cascade_values_compact(dir, "production")?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn load_cascade_values_compact<P: AsRef<Path>>(
+    directory: P,
+    mode: &str,
+) -> Result<CompactValues, LoadError> {
+    load_cascade_values_compact_with(directory, mode, Dialect::PORTABLE)
+}
+
+/// Loads the `.env` cascade with the given dialect into compact values.
+///
+/// This is [`load_cascade_values_with`] with a [`CompactValues`] result.
+///
+/// # Errors
+///
+/// Returns the same errors as [`load_cascade_values_with`].
+pub fn load_cascade_values_compact_with<P: AsRef<Path>>(
+    directory: P,
+    mode: &str,
+    dialect: Dialect,
+) -> Result<CompactValues, LoadError> {
+    if !valid_mode(mode) {
+        return Err(LoadError::InvalidMode);
+    }
+    load_value_paths_compact(
+        cascade_paths(directory.as_ref(), mode),
+        LoadOptions::new(dialect),
+        true,
+    )
+}
+
+/// Loads the `.env` cascade with options into compact values.
+///
+/// Report-retention settings do not apply to the values-only result; the
+/// dialect and limits do.
+///
+/// # Errors
+///
+/// Returns the same errors as [`load_cascade_values_with_options`].
+pub fn load_cascade_values_compact_with_options<P: AsRef<Path>>(
+    directory: P,
+    mode: &str,
+    options: LoadOptions,
+) -> Result<CompactValues, LoadError> {
+    if !valid_mode(mode) {
+        return Err(LoadError::InvalidMode);
+    }
+    load_value_paths_compact(cascade_paths(directory.as_ref(), mode), options, true)
+}
+
+/// Loads listed files in order into compact values.
+///
+/// This is [`load_values`] with a [`CompactValues`] result. Later files win on
+/// equal keys. Every listed file must exist.
+///
+/// # Errors
+///
+/// Returns the same errors as [`load_values`].
+pub fn load_values_compact<I, P>(paths: I, dialect: Dialect) -> Result<CompactValues, LoadError>
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    load_values_compact_with_options(paths, LoadOptions::new(dialect))
+}
+
+/// Loads listed files with options into compact values.
+///
+/// Report-retention settings do not apply to the values-only result; the
+/// dialect and limits do.
+///
+/// # Errors
+///
+/// Returns the same errors as [`load_values_with_options`].
+pub fn load_values_compact_with_options<I, P>(
+    paths: I,
+    options: LoadOptions,
+) -> Result<CompactValues, LoadError>
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    load_value_paths_compact(paths, options, false)
+}
+
 #[allow(clippy::too_many_lines)]
 fn read_load_path(
     path: &Path,
@@ -2137,6 +2242,43 @@ where
     Ok(LoadedValues {
         values: values.unwrap_or_default(),
     })
+}
+
+fn load_value_paths_compact<I, P>(
+    paths: I,
+    options: LoadOptions,
+    skip_missing: bool,
+) -> Result<CompactValues, LoadError>
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    let mut values: Option<CompactValues> = None;
+    for path in paths {
+        let path = path.as_ref();
+        let Some(bytes) = read_load_path(path, skip_missing, options.limits.max_input_bytes)?
+        else {
+            continue;
+        };
+        let text = String::from_utf8(bytes).map_err(|_| LoadError::InvalidUtf8 {
+            path: path.to_path_buf(),
+        })?;
+        if text.is_empty() {
+            continue;
+        }
+        let projected =
+            match parse_values_compact_with_options(&text, options.dialect, options.limits) {
+                Ok(values) => values,
+                Err(diagnostic) => {
+                    return Err(load_parse_error(path, diagnostic));
+                }
+            };
+        values = Some(match values {
+            Some(values) => values.merge(&projected),
+            None => projected,
+        });
+    }
+    Ok(values.unwrap_or_default())
 }
 
 fn load_parse_error(path: &Path, diagnostic: Diagnostic) -> LoadError {

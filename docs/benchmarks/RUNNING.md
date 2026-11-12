@@ -34,6 +34,17 @@ cargo run --release -p adotenv-xtask -- memory \
 `document` and `resolve` are internal adotenv cases; competitor load/values
 cells are selected automatically by supported API.
 
+The memory binary also has an evaluation-only `adotenv-compact` implementation
+for `values` and `load` cells:
+
+```console
+cargo run --release -p adotenv-bench --bin memory -- \
+  --mode values --implementation adotenv-compact --size 128 --shape plain
+```
+
+It is not part of the published matrix until a later result cycle records it on
+`kbench`.
+
 ## Reproduce one speed cell
 
 ```console

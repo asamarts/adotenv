@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `CompactValues` and `parse_values_compact`/`parse_values_compact_with`/
+  `parse_values_compact_with_options`, a values-only representation using one
+  contiguous buffer and one fixed-size entry per key.
+- `load_cascade_values_compact` and `load_values_compact` variants for
+  compact values-only file loading.
+- A masked `Debug` form for compact values.
+
 ## [1.4.1] - 2026-11-11
 
 ### Added

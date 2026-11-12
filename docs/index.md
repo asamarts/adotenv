@@ -50,6 +50,10 @@ document model:
 ```rust
 let values = adotenv::parse_values("A=1\nA=2\nB=3\n").unwrap();
 assert_eq!(values.get("A").map(String::as_str), Some("2"));
+
+// Compact storage avoids one map node and two strings per key.
+let compact = adotenv::parse_values_compact("A=1\nA=2\nB=3\n").unwrap();
+assert_eq!(compact.get("A"), Some("2"));
 ```
 
 ## Crates

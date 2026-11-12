@@ -7,9 +7,10 @@ use std::{
 
 use crate::{
     load::{
-        load_cascade, load_cascade_values, load_cascade_values_with, load_cascade_with,
-        load_cascade_with_options, load_files, load_files_with_options, load_values, LoadError,
-        LoadOptions, SkipReason,
+        load_cascade, load_cascade_values, load_cascade_values_compact,
+        load_cascade_values_compact_with, load_cascade_values_with, load_cascade_with,
+        load_cascade_with_options, load_files, load_files_with_options, load_values,
+        load_values_compact, LoadError, LoadOptions, SkipReason,
     },
     BareKeys, Dialect, ExpandOptions, ExpandScope, Unresolved,
 };
@@ -1156,4 +1157,38 @@ fn windows_local_mode_deduplicates_case_insensitively() {
     assert_eq!(loaded.get("A"), Some("local"));
     assert_eq!(loaded.entries().count(), 2);
     assert_eq!(loaded.overrides().count(), 1);
+}
+
+#[test]
+fn compact_loading_matches_map_loading_and_preserves_overrides() {
+    let dir = TempDir::new();
+    dir.write(".env", "A=base\nB=base\nEMPTY=\n");
+    dir.write(".env.production", "B=mode\nC=mode\n");
+
+    let map = load_cascade_values(dir.path(), "production").unwrap();
+    let compact = load_cascade_values_compact(dir.path(), "production").unwrap();
+    assert_eq!(
+        compact.iter().collect::<Vec<_>>(),
+        map.values()
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str()))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(compact.get("B"), Some("mode"));
+    assert_eq!(compact.get("EMPTY"), Some(""));
+
+    let files = [dir.path().join(".env"), dir.path().join(".env.production")];
+    let map = load_values(files.clone(), Dialect::PORTABLE).unwrap();
+    let compact = load_values_compact(files, Dialect::PORTABLE).unwrap();
+    assert_eq!(
+        compact.iter().collect::<Vec<_>>(),
+        map.values()
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str()))
+            .collect::<Vec<_>>()
+    );
+
+    let compact =
+        load_cascade_values_compact_with(dir.path(), "production", Dialect::PORTABLE).unwrap();
+    assert_eq!(compact.get("C"), Some("mode"));
 }

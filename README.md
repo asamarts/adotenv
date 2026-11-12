@@ -95,6 +95,13 @@ assert_eq!(values.get("C").map(String::as_str), Some("3"));
 assert_eq!(values.len(), 2);
 ```
 
+For lower retained memory, `parse_values_compact` returns a `CompactValues`:
+
+```rust
+let values = adotenv::parse_values_compact("A=1\nB=2\n").unwrap();
+assert_eq!(values.get("B"), Some("2"));
+```
+
 ## Dialects
 
 The default is `Dialect::PORTABLE`. Other presets are `NODE_DOTENV`,

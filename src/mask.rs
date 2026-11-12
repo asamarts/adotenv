@@ -24,11 +24,11 @@ use crate::load::{
     LoadedEntry, LoadedEnvironment, LoadedResolveError, LoadedValues, ResolvedEnvironment,
 };
 use crate::{
-    CommandCall, CommandError, CommandOutcome, ComparedValue, Comparison, ComparisonEntry,
-    Document, EffectiveEntry, Entry, FormatResult, Group, Groups, Item, LineIndex, LookupIndex,
-    PortabilityDeclaration, PortabilityDifference, PortabilityPart, PortabilityReading,
-    PortabilityReport, ResolveError, ResolveFailure, ResolvedDocument, ResolvedEntry,
-    ResolvedSegment, TextEdit, VerifiedEdits,
+    CommandCall, CommandError, CommandOutcome, CompactValues, ComparedValue, Comparison,
+    ComparisonEntry, Document, EffectiveEntry, Entry, FormatResult, Group, Groups, Item, LineIndex,
+    LookupIndex, PortabilityDeclaration, PortabilityDifference, PortabilityPart,
+    PortabilityReading, PortabilityReport, ResolveError, ResolveFailure, ResolvedDocument,
+    ResolvedEntry, ResolvedSegment, TextEdit, VerifiedEdits,
 };
 
 /// The replacement text used for a masked value.
@@ -184,6 +184,16 @@ impl Mask for EffectiveEntry<'_> {
             .field("key", &self.key())
             .field("value", &REDACTED)
             .field("line", &self.line())
+            .finish()
+    }
+}
+
+impl Mask for CompactValues {
+    fn fmt_masked(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CompactValues")
+            .field("len", &self.len())
+            .field("values", &REDACTED)
             .finish()
     }
 }
