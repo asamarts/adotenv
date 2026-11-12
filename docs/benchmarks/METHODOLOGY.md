@@ -21,7 +21,8 @@ The retained-heap result for 1.4.1 is a documented **no-loss** result, not a
 strict win. `parse_values` returns `BTreeMap<String, String>`. At small sizes the
 maps are byte-identical to the competitors; at larger sizes the map is already
 at the compact-tree floor. A strict retained result requires a different public
-values representation and is deferred to a later minor release.
+values representation. The compact API now provides that representation for a
+future minor release.
 
 The compact evaluation uses `parse_values_compact` and `load_values_compact`
 with the same fixtures and competitors. At source SHA `ed90ae8` it records
