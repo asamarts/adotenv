@@ -348,7 +348,8 @@ fn limited_document(source: &str, dialect: Dialect, diagnostic: Diagnostic) -> D
 /// [`Document::get`] when that declaration matters. No
 /// items, spans or diagnostics are kept, so it uses much less memory than a
 /// [`Document`]. Warnings are dropped. The map is sorted by key, not by source
-/// order.
+/// order. For an opt-in representation with lower retained memory, use
+/// [`parse_values_compact`].
 ///
 /// See [`parse_values_with`] to choose the dialect.
 ///

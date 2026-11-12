@@ -494,6 +494,12 @@ proptest! {
 }
 
 #[test]
+fn values_only_default_api_remains_map_backed() {
+    let values: BTreeMap<String, String> = parse_values("A=1\n").unwrap();
+    assert_eq!(values.get("A").map(String::as_str), Some("1"));
+}
+
+#[test]
 fn values_only_parse_matches_effective_entries() {
     let values = parse_values("A=1\nA=2\nBARE\nC=3\n").unwrap();
     assert_eq!(

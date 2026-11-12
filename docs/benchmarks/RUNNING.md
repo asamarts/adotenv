@@ -97,6 +97,27 @@ cargo run --release -p adotenv-xtask -- gate \
   --implementation adotenv-compact
 ```
 
+## Baseline maintenance
+
+The committed memory baselines are `memory.jsonl` for the map API and
+`compact-memory.jsonl` for `adotenv-compact`. Normal PRs do not update either
+baseline. When an intentional allocation change lands, regenerate both matrices
+from the same commit, update their rendered Markdown and fingerprints, and run:
+
+```console
+cargo run --release -p adotenv-xtask -- gate \
+  --baseline docs/benchmarks/memory.jsonl \
+  --current ~/.tmp/adotenv-bench/memory.jsonl
+
+cargo run --release -p adotenv-xtask -- gate \
+  --baseline docs/benchmarks/compact-memory.jsonl \
+  --current ~/.tmp/adotenv-bench/compact-memory.jsonl \
+  --implementation adotenv-compact
+```
+
+Publication speed files, including `speed.txt` and `speed-1.5.0.txt`, are
+evidence and are not PR gates.
+
 ## Publication run on kbench
 
 Build and queue both matrices from a clean commit. The remote root must be

@@ -193,10 +193,10 @@ CI separates deterministic internal gates from publication wall-time evidence:
   runs in `det-perf`.
 - Competitor criterion and kbench wall-time results are advisory at PR time.
   Only the deterministic gates block a change.
-- Update the memory baseline only with an intentional, reviewed code change and
-  a fresh fingerprint. Do not update it to make a failing gate pass. The
-  gungraun gate has no committed output; it always compares against the live
-  merge base.
+- Update the map and compact memory baselines only with an intentional,
+  reviewed code change and fresh fingerprints. Do not update them to make a
+  failing gate pass. The gungraun gate has no committed output; it always
+  compares against the live merge base.
 
 ### 1.4.1 comparable baseline
 
