@@ -1,12 +1,12 @@
 # 1.5.0 compact values benchmark results
 
-Status: publication-grade release-candidate compact-values evaluation. It does
-not replace the published 1.4.1 map-based release claim.
+Status: publication-grade 1.5.0 compact-values release evidence. It does not
+replace the historical 1.4.1 map-based release claim.
 
-The compact representation was measured on `kbench` at the 1.5.0
-release-candidate SHA using the same fixtures, competitors and comparable
-values/load modes as the [1.4.1 results](RESULTS-1.4.1.md). The SHA is recorded
-in the fingerprint below. Raw evidence:
+The compact representation was measured on `kbench` from SHA `0a9fc92` using
+the same fixtures, competitors and comparable values/load modes as the
+[1.4.1 results](RESULTS-1.4.1.md). Version 1.5.0 was tagged at `70f9762`; the
+benchmark source is its ancestor. Raw evidence:
 
 - [Compact memory JSONL](compact-memory.jsonl) -- 165 cases
 - [Compact memory table](compact-memory.md)

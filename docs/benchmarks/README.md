@@ -13,8 +13,8 @@ accepted 1.4.1 claim, not a strict retained-memory win.
 A publication-grade evaluation of the compact values API is in the
 [1.5.0 results](RESULTS-1.5.0.md). It records strict non-empty retained-heap
 wins, with zero-byte ties on empty inputs, and strict peak and allocation wins
-in all values/load cells. It is release-candidate evidence for 1.5.0, not a
-replacement for the 1.4.1 claim.
+in all values/load cells. It is release evidence for 1.5.0, not a replacement
+for the historical 1.4.1 claim.
 
 ## Documents
 
@@ -23,8 +23,7 @@ replacement for the 1.4.1 claim.
 - [Scenario catalogue](SCENARIOS.md) -- fixtures, exact hashes and modes.
 - [Result schema](SCHEMA.md) -- JSONL and bencher formats.
 - [1.4.1 results](RESULTS-1.4.1.md) -- current release evidence.
-- [1.5.0 compact results](RESULTS-1.5.0.md) -- compact values release-candidate
-  evidence.
+- [1.5.0 compact results](RESULTS-1.5.0.md) -- compact values release evidence.
 
 The rendered tables are also available directly:
 

@@ -25,7 +25,7 @@ values representation. The compact API now provides that representation for a
 future minor release.
 
 The compact evaluation uses `parse_values_compact` and `load_values_compact`
-with the same fixtures and competitors. The 1.5.0 release-candidate run
+with the same fixtures and competitors. The 1.5.0 release run
 records strict non-empty retained-heap wins, zero-byte ties on empty inputs,
 and strict peak/allocation wins in all values/load cells. See
 [RESULTS-1.5.0.md](RESULTS-1.5.0.md). It does not replace the 1.4.1 map-based
