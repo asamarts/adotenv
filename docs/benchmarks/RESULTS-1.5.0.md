@@ -1,11 +1,12 @@
-# Compact values benchmark evaluation
+# 1.5.0 compact values benchmark results
 
-Status: publication-grade compact-values evaluation for a future minor release.
-It does not replace the published 1.4.1 map-based release claim.
+Status: publication-grade release-candidate compact-values evaluation. It does
+not replace the published 1.4.1 map-based release claim.
 
-The compact representation was measured on `kbench` at source SHA `ed90ae8`
-using the same fixtures, competitors and comparable values/load modes as the
-[1.4.1 results](RESULTS-1.4.1.md). Raw evidence:
+The compact representation was measured on `kbench` at the 1.5.0
+release-candidate SHA using the same fixtures, competitors and comparable
+values/load modes as the [1.4.1 results](RESULTS-1.4.1.md). The SHA is recorded
+in the fingerprint below. Raw evidence:
 
 - [Compact memory JSONL](compact-memory.jsonl) -- 165 cases
 - [Compact memory table](compact-memory.md)
@@ -52,9 +53,8 @@ speed claim. The published 1.4.1 comparison remains the map-based result:
 - 30/30 allocation wins
 - 30/30 retained-heap ties, 0 losses
 
-The compact API is intended to turn the non-empty retained cells into strict
-wins in a later minor release. It is additive: `parse_values` and
-`load_values` keep their existing map-based APIs.
+The compact API is the 1.5.0 minor-release addition. It is opt-in:
+`parse_values` and `load_values` keep their existing map-based APIs.
 
 ## Reproduce
 

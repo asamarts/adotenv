@@ -11,10 +11,10 @@ cells. Retained heap is a tie in all 30 cells and a loss in none; that is the
 accepted 1.4.1 claim, not a strict retained-memory win.
 
 A publication-grade evaluation of the compact values API is in the
-[compact values results](RESULTS-compact.md). It records strict non-empty
-retained-heap wins, with zero-byte ties on empty inputs, and strict peak and
-allocation wins in all values/load cells. It is evaluation evidence for a
-future minor release, not a replacement for the 1.4.1 claim.
+[1.5.0 results](RESULTS-1.5.0.md). It records strict non-empty retained-heap
+wins, with zero-byte ties on empty inputs, and strict peak and allocation wins
+in all values/load cells. It is release-candidate evidence for 1.5.0, not a
+replacement for the 1.4.1 claim.
 
 ## Documents
 
@@ -23,8 +23,8 @@ future minor release, not a replacement for the 1.4.1 claim.
 - [Scenario catalogue](SCENARIOS.md) -- fixtures, exact hashes and modes.
 - [Result schema](SCHEMA.md) -- JSONL and bencher formats.
 - [1.4.1 results](RESULTS-1.4.1.md) -- current release evidence.
-- [Compact values results](RESULTS-compact.md) -- evaluation evidence for the
-  compact values API.
+- [1.5.0 compact results](RESULTS-1.5.0.md) -- compact values release-candidate
+  evidence.
 
 The rendered tables are also available directly:
 
