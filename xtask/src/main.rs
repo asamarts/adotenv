@@ -49,7 +49,7 @@ const USAGE: &str =
     "adotenv-xtask <fixtures|memory|micro|speed|cli|report|compare|fingerprint|queue|queue-speed> [options]
 
 fixtures
-memory  --out <path> [--sizes 8,128] [--shapes plain,...] [--modes values,...]
+memory  --out <path> [--sizes 8,128] [--shapes plain,...] [--modes values,...] [--compact]
 micro   [--bench fixtures|competitors] [--quick]
 speed   [--out <path>] [--bench competitors] [--filter <text>] [--quick]
 cli     [--out <path>] [--size <label>] [--shape <label>]
@@ -59,7 +59,7 @@ gate    --baseline <path> --current <path> [--max-heap-percent 5]
         [--max-heap-bytes 64] [--max-allocation-delta 0]
 fingerprint
 queue   --remote-root <path> [--out <path>] [--remote-out <path>]
-        [--sizes ...] [--shapes ...] [--modes ...] [--sync] [--dry-run]
+        [--sizes ...] [--shapes ...] [--modes ...] [--compact] [--sync] [--dry-run]
 queue-speed --remote-root <path> [--out <path>] [--remote-out <path>]
         [--bench competitors] [--filter <text>] [--quick] [--sample-size N]
         [--warm-up-time SECS] [--measurement-time SECS] [--sync] [--dry-run]";
@@ -79,7 +79,12 @@ fn command_fixtures(_args: &[String]) -> Result<()> {
 }
 
 fn command_memory(args: &[String]) -> Result<()> {
-    let out = option(args, "--out").unwrap_or("docs/benchmarks/memory.jsonl");
+    let compact = has_flag(args, "--compact");
+    let out = option(args, "--out").unwrap_or(if compact {
+        "docs/benchmarks/compact-memory.jsonl"
+    } else {
+        "docs/benchmarks/memory.jsonl"
+    });
     let sizes = option(args, "--sizes").unwrap_or("8,128");
     let shapes = option(args, "--shapes").unwrap_or("plain");
     let modes = option(args, "--modes").unwrap_or("values,load,document,resolve");
@@ -93,7 +98,7 @@ fn command_memory(args: &[String]) -> Result<()> {
     for size in sizes {
         for shape in &shapes {
             for mode in &modes {
-                for implementation in implementations() {
+                for implementation in implementations(compact) {
                     if !implementation.supports(*mode) {
                         continue;
                     }
@@ -557,8 +562,17 @@ fn command_output(program: &str, arguments: &[&str]) -> String {
 fn command_queue(args: &[String]) -> Result<()> {
     let remote_root = option(args, "--remote-root").ok_or("missing --remote-root")?;
     validate_remote_root(remote_root)?;
-    let local_out = option(args, "--out").unwrap_or("docs/benchmarks/memory.jsonl");
-    let remote_out = option(args, "--remote-out").unwrap_or("bench-memory.jsonl");
+    let compact = has_flag(args, "--compact");
+    let local_out = option(args, "--out").unwrap_or(if compact {
+        "docs/benchmarks/compact-memory.jsonl"
+    } else {
+        "docs/benchmarks/memory.jsonl"
+    });
+    let remote_out = option(args, "--remote-out").unwrap_or(if compact {
+        "bench-compact-memory.jsonl"
+    } else {
+        "bench-memory.jsonl"
+    });
     let sizes = option(args, "--sizes").unwrap_or("8,128");
     let shapes = option(args, "--shapes").unwrap_or("plain");
     let modes = option(args, "--modes").unwrap_or("values,load,document,resolve");
@@ -572,7 +586,7 @@ fn command_queue(args: &[String]) -> Result<()> {
     for size in parse_sizes(sizes)? {
         for shape in parse_shapes(shapes)? {
             for mode in parse_modes(modes)? {
-                for implementation in implementations() {
+                for implementation in implementations(compact) {
                     if !implementation.supports(mode) {
                         continue;
                     }
@@ -971,8 +985,11 @@ fn build_memory_binary() -> Result<PathBuf> {
     Ok(root.join("target").join("release").join(name))
 }
 
-fn implementations() -> Vec<Implementation> {
+fn implementations(compact: bool) -> Vec<Implementation> {
     let mut implementations = vec![Implementation::Adotenv];
+    if compact {
+        implementations.push(Implementation::AdotenvCompact);
+    }
     implementations.extend(Competitor::ALL.into_iter().map(Implementation::Competitor));
     implementations
 }
