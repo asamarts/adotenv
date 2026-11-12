@@ -69,6 +69,10 @@ cargo run --release -p adotenv-xtask -- speed \
   --out ~/.tmp/adotenv-bench/speed.txt --bench competitors
 ```
 
+For the 1.5.0 compact speed evidence, use
+`--out docs/benchmarks/speed-1.5.0.txt --remote-out bench-speed-1.5.0.txt` with
+`queue-speed` and `--bench competitors`.
+
 ## Render and compare
 
 ```console

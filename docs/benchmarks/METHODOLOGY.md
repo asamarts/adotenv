@@ -78,8 +78,9 @@ test competitor_values/adotenv/plain/128 ... bench:  ... ns/iter (+/- ...)
 
 A median/estimate and its reported spread are the unit of comparison. The
 release summary compares the adotenv line with the best competitor line for the
-same mode, shape and size. Criterion wall time is publication evidence; it is
-not a PR gate.
+same mode, shape and size. The 1.5.0 compact run adds an `adotenv-compact` line
+to the same values/load cells and compares it with the same best competitor.
+Criterion wall time is publication evidence; it is not a PR gate.
 
 ## Memory
 

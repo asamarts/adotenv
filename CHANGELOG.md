@@ -12,6 +12,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instruction/cycle gate.
 - Compact memory regression gate using `compact-memory.jsonl` and the
   `adotenv-compact` implementation filter.
+- Publication-grade compact speed evidence: 25/25 strict wins against the best
+  pinned competitor in values/load cells.
 
 ## [1.5.0] - 2026-11-12
 
