@@ -94,9 +94,10 @@ impl Drop for TempFixture {
 
 fn temp_fixture(name: &str, shape: Shape, size: Size) -> TempFixture {
     let path = std::env::temp_dir().join(format!(
-        "adotenv-det-{}-{}-{}.env",
+        "adotenv-det-{}-{}-{}-{}.env",
         std::process::id(),
         name,
+        shape.label(),
         size.label()
     ));
     fs::write(&path, fixture(size, shape).source()).expect("fixture file can be written");
