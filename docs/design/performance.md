@@ -216,7 +216,7 @@ API (`CompactValues`, `parse_values_compact` and the compact load variants) has
 a publication-grade `kbench` evaluation at SHA `ed90ae8`: it wins retained heap
 in all 20 non-empty values/load cells, ties at zero bytes in the 10 empty cells,
 and wins peak heap and allocation count in all 30 cells. See
-[the compact results](../benchmarks/RESULTS-compact.md). The map-based 1.4.1
+[the 1.5.0 compact results](../benchmarks/RESULTS-1.5.0.md). The map-based 1.4.1
 claim remains the release claim until a later minor release.
 
 ## Earlier measurements
