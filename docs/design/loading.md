@@ -45,6 +45,11 @@ the dialect, the retained data or an explicit file list:
 | `load_cascade_values_with_options(directory, mode, options)` | Cascade | `LoadedValues` |
 | `load_values(paths, dialect)` | Ordered file list | `LoadedValues` |
 | `load_values_with_options(paths, options)` | Ordered file list | `LoadedValues` |
+| `load_cascade_values_compact(directory, mode)` | Cascade, Portable | `CompactValues` |
+| `load_cascade_values_compact_with(directory, mode, dialect)` | Cascade | `CompactValues` |
+| `load_cascade_values_compact_with_options(directory, mode, options)` | Cascade | `CompactValues` |
+| `load_values_compact(paths, dialect)` | Ordered file list | `CompactValues` |
+| `load_values_compact_with_options(paths, options)` | Ordered file list | `CompactValues` |
 
 The functions that take a file list read the files in the order given, and
 later files override earlier ones as in a cascade. Every listed file must
@@ -211,7 +216,8 @@ same files with the same rules and errors, but keep only the final strings.
 They parse each file like `parse_values_with`, without building a `Document`,
 and keep no origins, raw source text or reports. `LoadedValues` has
 `get(key)`, `values()` (a `BTreeMap`), `len()`, `is_empty()` and
-`into_values()`.
+`into_values()`. The `*_compact` variants return `CompactValues` instead,
+using a single value buffer and one fixed-size entry per key.
 
 ```rust,no_run
 use adotenv::load::load_cascade_values;

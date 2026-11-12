@@ -2,7 +2,7 @@ use alloc::format;
 #[cfg(feature = "serde")]
 use alloc::string::ToString;
 
-use crate::{mask, parse_strict, Comparison, ExpandOptions, FormatOptions};
+use crate::{mask, parse_strict, parse_values_compact, Comparison, ExpandOptions, FormatOptions};
 
 #[test]
 fn document_entry_item_and_edits_mask_values() {
@@ -274,4 +274,12 @@ fn loaded_entries_mask_values() {
     assert!(debug.contains("LoadedEntry"), "{debug}");
     assert!(!debug.contains("secret"), "{debug}");
     std::fs::remove_dir_all(&directory).unwrap();
+}
+
+#[test]
+fn compact_values_mask_values() {
+    let values = parse_values_compact("TOKEN=secret\nHOST=localhost\n").unwrap();
+    let debug = format!("{:?}", mask(&values));
+    assert!(debug.contains("CompactValues"), "{debug}");
+    assert!(!debug.contains("secret"), "{debug}");
 }

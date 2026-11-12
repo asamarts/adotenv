@@ -211,8 +211,10 @@ competitor in each cell:
 The retained result cannot become a strict win without changing the public
 `BTreeMap<String, String>` result type: both APIs return the same map at small
 sizes, and larger cells are already at the compact-tree floor. For 1.4.1 this is
-accepted as a no-loss result, not treated as a strict win; a compact values API
-is a candidate for a later minor release.
+accepted as a no-loss result, not treated as a strict win. A compact values API
+is now implemented as `CompactValues` and `parse_values_compact`; it still
+needs a publication-grade `kbench` matrix before it can replace the map-based
+claim.
 
 ## Earlier measurements
 
@@ -274,7 +276,9 @@ Clean release builds:
 ## Known gaps
 
 - Building a map from mixed and real-world input pays for the ordered map and
-  the retained lossless document. `parse_values` avoids both.
+  the retained lossless document. `parse_values` avoids both; `CompactValues`
+  avoids the ordered-map nodes where retained memory matters.
 - The parse-only binary is larger than a values-only parser would need.
 
-Both remain candidates for later optimization.
+The binary size and the map-backed compatibility API remain candidates for
+later optimization.

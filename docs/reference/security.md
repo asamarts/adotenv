@@ -71,9 +71,10 @@ Values may be secrets. These outputs include them:
 
 - `Debug` output of documents, items, entries, edit and format results,
   comparisons, loaded environments and entries, resolved values, lookup
-  indexes, effective entries, line indexes, groups, portability reports and
-  the adapter types. The core document, edit, comparison, load, resolution,
-  line-index, group and portability types support a value-redacting `Debug`
+  indexes, effective entries, compact values, line indexes, groups, portability
+  reports and the adapter types. The core document, edit, comparison, load,
+  resolution, compact-values, line-index, group and portability types support a
+  value-redacting `Debug`
   form through `adotenv::Masked` and `adotenv::mask`; use
   `DeserializeError::masked()` for serde errors. Adapter types still include
   values. Do not log normal `Debug` output when values are secret.

@@ -8,6 +8,7 @@ use alloc::{
 };
 use core::{cell::Cell, ops::Range};
 
+use crate::compact::{CompactBuilder, CompactValues};
 use crate::dialect::{
     BareKeys, BomPolicy, ColonSeparator, Dialect, Duplicates, InlineComments, KeySyntax,
     LineBreaks, MalformedLines, QuotedTail, SingleEscapes, Syntax, Whitespace,
@@ -463,6 +464,142 @@ pub fn parse_values_with_options(
     }
 }
 
+/// Parses `.env` text with the Portable dialect into compact effective values.
+///
+/// This is [`parse_values`] with a more compact result. It keeps the same
+/// keys, values and duplicate-key rules, but [`CompactValues`] stores the
+/// text in one contiguous buffer and one fixed-size entry per key instead of
+/// a map node and two strings per key. Use it when retained memory matters
+/// more than returning a [`BTreeMap`].
+///
+/// Empty keys are left out, as in [`parse_values`]. Warnings are dropped and
+/// the first error is returned.
+///
+/// # Errors
+///
+/// Returns the first error-severity [`Diagnostic`] in source order, the same
+/// one [`parse_values`] returns.
+///
+/// # Examples
+///
+/// ```
+/// let values = adotenv::parse_values_compact("PORT=8080\nHOST=localhost\n")?;
+/// assert_eq!(values.get("PORT"), Some("8080"));
+/// assert_eq!(values.len(), 2);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn parse_values_compact(source: &str) -> Result<CompactValues, Diagnostic> {
+    parse_values_compact_with_options(source, Dialect::PORTABLE, ParseOptions::default())
+}
+
+/// Parses `.env` text with the given dialect into compact effective values.
+///
+/// This is [`parse_values_with`] with a [`CompactValues`] result. Empty keys
+/// are left out and duplicate/bare-key handling follows the dialect.
+///
+/// # Errors
+///
+/// Returns the first error-severity [`Diagnostic`] in source order.
+pub fn parse_values_compact_with(
+    source: &str,
+    dialect: Dialect,
+) -> Result<CompactValues, Diagnostic> {
+    parse_values_compact_with_options(source, dialect, ParseOptions::default())
+}
+
+/// Parses `.env` text into compact effective values with opt-in limits.
+///
+/// This is [`parse_values_with_options`] with a [`CompactValues`] result.
+///
+/// # Errors
+///
+/// Returns the first error-severity diagnostic, including a limit failure.
+///
+/// # Panics
+///
+/// Panics only if an internal invariant is broken, which cannot happen
+/// through this API.
+pub fn parse_values_compact_with_options(
+    source: &str,
+    dialect: Dialect,
+    options: ParseOptions,
+) -> Result<CompactValues, Diagnostic> {
+    if let Some(limit) = options.max_input_bytes {
+        if source.len() > limit {
+            return Err(limit_diagnostic(
+                LimitKind::InputBytes,
+                limit,
+                source.len(),
+                0..source.len(),
+                1,
+            ));
+        }
+    }
+    if source.is_empty() {
+        return Ok(CompactValues::default());
+    }
+    if dialect == Dialect::PORTABLE && options.max_items.is_none() {
+        if let Some(values) = parse_simple_portable_values_compact(source) {
+            return Ok(values);
+        }
+    }
+    let mut parser = Parser::<false>::new(
+        source,
+        dialect,
+        Some(Projection::new_compact(dialect, source.len())),
+        options,
+    );
+    parser.run();
+    let projection = parser
+        .projection
+        .expect("projected parser has projection state");
+    match projection.error {
+        Some(error) => Err(error),
+        None => Ok(projection.finish_compact()),
+    }
+}
+
+/// Fast path for the common Portable `KEY=value` line shape, building compact
+/// values.
+fn parse_simple_portable_values_compact(source: &str) -> Option<CompactValues> {
+    let mut values = CompactBuilder::with_capacity(source.len());
+    if source.len() <= 512 {
+        for line in source.split('\n') {
+            if line.is_empty() {
+                continue;
+            }
+            let (key, value) = simple_portable_parts(line)?;
+            values.push(key, Some(value));
+        }
+        return Some(values.finish(Duplicates::Last, false));
+    }
+
+    let mut previous_key: Option<&str> = None;
+    for line in source.split('\n') {
+        if line.is_empty() {
+            continue;
+        }
+        let (key, value) = simple_portable_parts(line)?;
+        if previous_key.is_some_and(|previous| key <= previous) {
+            return None;
+        }
+        previous_key = Some(key);
+        values.push(key, Some(value));
+    }
+    Some(values.finish(Duplicates::Last, false))
+}
+
+fn simple_portable_parts(line: &str) -> Option<(&str, &str)> {
+    let (key, value) = line.split_once('=')?;
+    if key.is_empty() || !simple_portable_key(key) {
+        return None;
+    }
+    if value.bytes().any(simple_value_forbidden) {
+        return None;
+    }
+    Some((key, value))
+}
+
 /// Fast path for the common Portable `KEY=value` line shape.
 ///
 /// The regular scanner handles quoting, escapes, comments, whitespace,
@@ -883,6 +1020,8 @@ struct Projection {
     values: BTreeMap<String, String>,
     seen: Option<BTreeSet<String>>,
     error: Option<Diagnostic>,
+    compact: Option<CompactBuilder>,
+    duplicates: Duplicates,
 }
 
 impl Projection {
@@ -891,10 +1030,26 @@ impl Projection {
             values: BTreeMap::new(),
             seen: (dialect.duplicates == Duplicates::First).then(BTreeSet::new),
             error: None,
+            compact: None,
+            duplicates: dialect.duplicates,
+        }
+    }
+
+    fn new_compact(dialect: Dialect, capacity: usize) -> Self {
+        Self {
+            values: BTreeMap::new(),
+            seen: None,
+            error: None,
+            compact: Some(CompactBuilder::with_capacity(capacity)),
+            duplicates: dialect.duplicates,
         }
     }
 
     fn record(&mut self, key: &str, value: Option<String>) {
+        if let Some(compact) = &mut self.compact {
+            compact.push(key, value.as_deref());
+            return;
+        }
         if let Some(seen) = &mut self.seen {
             if seen.insert(key.to_string()) {
                 if let Some(value) = value {
@@ -906,6 +1061,12 @@ impl Projection {
         } else {
             self.values.remove(key);
         }
+    }
+
+    fn finish_compact(self) -> CompactValues {
+        self.compact
+            .expect("compact projection has a builder")
+            .finish(self.duplicates, true)
     }
 }
 

@@ -5,8 +5,9 @@ use proptest::prelude::*;
 
 use crate::{
     encode_value, parse, parse_owned, parse_strict, parse_strict_with, parse_values,
-    parse_values_with, parse_with, AssignmentState, BareKeys, DiagnosticCode as Code, Dialect,
-    Duplicates, EffectiveEntry, ItemKind, LookupIndex, PositionError, Quote, Severity,
+    parse_values_compact_with, parse_values_with, parse_with, AssignmentState, BareKeys,
+    DiagnosticCode as Code, Dialect, Duplicates, EffectiveEntry, ItemKind, LookupIndex,
+    PositionError, Quote, Severity,
 };
 
 #[test]
@@ -474,10 +475,19 @@ proptest! {
         match parse_values_with(&text, dialect) {
             Ok(values) => {
                 prop_assert_eq!(first_error, None);
-                prop_assert_eq!(values, expected);
+                prop_assert_eq!(&values, &expected);
+                let compact = parse_values_compact_with(&text, dialect).unwrap();
+                let compact_pairs: Vec<(&str, &str)> = compact.iter().collect();
+                let expected_pairs: Vec<(&str, &str)> = expected
+                    .iter()
+                    .map(|(key, value)| (key.as_str(), value.as_str()))
+                    .collect();
+                prop_assert_eq!(compact_pairs, expected_pairs);
             }
             Err(error) => {
                 prop_assert_eq!(Some(error.code()), first_error);
+                let compact_error = parse_values_compact_with(&text, dialect).unwrap_err();
+                prop_assert_eq!(compact_error.code(), error.code());
             }
         }
     }

@@ -48,7 +48,7 @@
 //!
 //! | Task | Start with |
 //! |---|---|
-//! | Parse text | [`parse`], [`parse_strict`], [`parse_owned`], [`parse_values`], and their `_with` variants that take a [`Dialect`] |
+//! | Parse text | [`parse`], [`parse_strict`], [`parse_owned`], [`parse_values`], [`parse_values_compact`], and their `_with` variants that take a [`Dialect`] |
 //! | Look up values | [`Document::get`], [`Document::get_entry`], [`Document::get_all`], [`Document::effective_entries`], [`Document::lookup_index`] |
 //! | Walk the source | [`Document::items`], [`Document::entries`], [`Item`], [`Entry`], [`EntryTokens`] |
 //! | Report problems | [`Diagnostic`], [`DiagnosticCode`], [`Severity`] |
@@ -137,8 +137,8 @@
 //!
 //! Values may be secrets. `Debug` output of documents, items, entries, edit and format results,
 //! comparisons, loaded environments and entries, resolved values, lookup indexes, effective
-//! entries, line indexes, groups and portability reports include them, and so do the messages
-//! of serde conversion errors. The core document, edit, comparison, load, resolution,
+//! entries, compact values, line indexes, groups and portability reports include them, and so
+//! do the messages of serde conversion errors. The core document, edit, comparison, load, resolution,
 //! line-index, group and portability types support a structure-preserving `Debug` form
 //! that replaces values with `<redacted>` through [`Masked`] and [`mask`]; use
 //! [`DeserializeError::masked`] for serde errors. Adapter types still include values. Do not
@@ -173,6 +173,7 @@
 
 extern crate alloc;
 
+mod compact;
 mod compare;
 mod diagnostic;
 mod dialect;
@@ -197,6 +198,7 @@ mod serde_support;
 mod sort;
 mod structure;
 
+pub use compact::CompactValues;
 pub use compare::{ComparedValue, Comparison, ComparisonEntry, DifferenceKind};
 pub use diagnostic::{Diagnostic, DiagnosticCode, Severity};
 pub use dialect::{
@@ -217,7 +219,8 @@ pub use model::{
 };
 pub use parser::{
     parse, parse_owned, parse_owned_with, parse_owned_with_options, parse_strict,
-    parse_strict_with, parse_strict_with_options, parse_values, parse_values_with,
+    parse_strict_with, parse_strict_with_options, parse_values, parse_values_compact,
+    parse_values_compact_with, parse_values_compact_with_options, parse_values_with,
     parse_values_with_options, parse_with, parse_with_options, ParseOptions,
 };
 pub use portability::{
@@ -235,6 +238,8 @@ pub use resolve::{
 pub use serde_support::{DeserializeError, MaskedDeserializeError};
 pub use structure::{Group, Groups};
 
+#[cfg(test)]
+mod compact_tests;
 #[cfg(test)]
 mod compare_tests;
 #[cfg(test)]

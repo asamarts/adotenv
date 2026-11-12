@@ -56,7 +56,8 @@ file and still edit the parts that are valid.
 
 `parse_strict` runs the same grammar and returns the first error instead of
 the document. `parse_values` runs the grammar without building items, spans or
-diagnostic lists and keeps only the effective values.
+diagnostic lists and keeps only the effective values. `parse_values_compact`
+keeps those values in a contiguous buffer instead of a map.
 
 Diagnostics have a stable code, a severity, a one-based line, a primary span
 and an optional secondary span. Codes and spans are the contract; message text

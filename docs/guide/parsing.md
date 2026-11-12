@@ -11,9 +11,11 @@ It never changes the source: printing a document returns the original bytes.
 | `parse_strict(source)` | `Result<Document, Diagnostic>` | Returns the first error |
 | `parse_owned(String)` | `(Document<'static>, Vec<Diagnostic>)` | Like `parse`, but the document owns the source |
 | `parse_values(source)` | `Result<BTreeMap<String, String>, Diagnostic>` | Returns the first error |
+| `parse_values_compact(source)` | `Result<CompactValues, Diagnostic>` | Returns the first error; lower retained memory |
 
 Each has a `_with` variant that takes a [`Dialect`](../design/dialects.md):
-`parse_with`, `parse_strict_with`, `parse_owned_with` and `parse_values_with`.
+`parse_with`, `parse_strict_with`, `parse_owned_with`, `parse_values_with` and
+`parse_values_compact_with`.
 Without one, the Portable dialect is used.
 
 `parse` never fails. It recovers at the smallest safe boundary, so one broken
@@ -39,6 +41,11 @@ do not fail it, and it does not return them. The codes are listed in
 items or spans, applies the dialect's duplicate and bare-key rules, and returns
 the first error. The map, sorted by key, holds the same keys and values as
 `effective_entries` below. It uses much less memory than a document.
+
+`parse_values_compact` returns `CompactValues` instead of a map. It stores keys
+and values in one buffer and one fixed-size entry per key, so retained memory
+is lower while lookup stays `O(log n)` and iteration stays sorted. Use it when
+a map is not required.
 
 `parse_owned` moves the source into the document. `Document::into_owned`
 copies the source only when the document still borrows it. `Document::reparse`
