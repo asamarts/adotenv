@@ -4,10 +4,10 @@ This directory contains the comparable benchmark methodology, reproducible
 commands, fixture catalogue, result schema and raw per-release evidence for
 `adotenv`.
 
-The current release memory evidence is the
-[1.5.0 result page](RESULTS-1.5.0.md). It records strict non-empty retained-heap
-wins, with zero-byte ties on empty inputs, and strict peak and allocation wins
-in all values/load cells.
+The current release evidence is the [1.5.0 result page](RESULTS-1.5.0.md). It
+records strict non-empty retained-heap wins, with zero-byte ties on empty
+inputs, strict peak and allocation wins in all values/load cells, and 25/25
+speed wins against the best pinned competitor.
 
 The [1.4.1 result page](RESULTS-1.4.1.md) remains historical evidence for the
 map-based API and for the speed claim. It records a strict win in all 25
@@ -21,14 +21,16 @@ cells. Retained heap is a tie in all 30 map-based cells and a loss in none.
 - [Scenario catalogue](SCENARIOS.md) -- fixtures, exact hashes and modes.
 - [Result schema](SCHEMA.md) -- JSONL and bencher formats.
 - [1.4.1 results](RESULTS-1.4.1.md) -- historical speed and map-based evidence.
-- [1.5.0 results](RESULTS-1.5.0.md) -- current compact memory evidence.
+- [1.5.0 results](RESULTS-1.5.0.md) -- current compact memory and speed evidence.
 
 The rendered tables are also available directly:
 
 - [1.4.1 map memory results](memory.md) and [raw JSONL](memory.jsonl)
 - [1.5.0 compact memory results](compact-memory.md) and
   [raw JSONL](compact-memory.jsonl)
-- [Speed results](speed.md) and [raw bencher output](speed.txt)
+- [1.4.1 speed results](speed.md) and [raw bencher output](speed.txt)
+- [1.5.0 compact speed results](speed-1.5.0.md) and
+  [raw bencher output](speed-1.5.0.txt)
 - [Memory fingerprint](memory.fingerprint.json) and
   [speed fingerprint](speed.fingerprint.json)
 

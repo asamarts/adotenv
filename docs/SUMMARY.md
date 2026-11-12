@@ -41,6 +41,7 @@
 - [1.4.1 benchmark results](benchmarks/RESULTS-1.4.1.md)
 - [1.5.0 benchmark results](benchmarks/RESULTS-1.5.0.md)
 - [Compact memory results](benchmarks/compact-memory.md)
+- [Compact speed results](benchmarks/speed-1.5.0.md)
 - [Memory benchmark results](benchmarks/memory.md)
 - [Speed benchmark results](benchmarks/speed.md)
 - [1.4.1 plan](design/1.4.1-plan.md)
