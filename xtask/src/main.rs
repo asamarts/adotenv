@@ -55,8 +55,8 @@ speed   [--out <path>] [--bench competitors] [--filter <text>] [--quick]
 cli     [--out <path>] [--size <label>] [--shape <label>]
 report  --input <path> [--out <path>]
 compare --baseline <path> --current <path> [--out <path>]
-gate    --baseline <path> --current <path> [--max-heap-percent 5]
-        [--max-heap-bytes 64] [--max-allocation-delta 0]
+gate    --baseline <path> --current <path> [--implementation <label>]
+        [--max-heap-percent 5] [--max-heap-bytes 64] [--max-allocation-delta 0]
 fingerprint
 queue   --remote-root <path> [--out <path>] [--remote-out <path>]
         [--sizes ...] [--shapes ...] [--modes ...] [--compact] [--sync] [--dry-run]
@@ -363,6 +363,7 @@ fn command_compare(args: &[String]) -> Result<()> {
 fn command_gate(args: &[String]) -> Result<()> {
     let baseline = option(args, "--baseline").ok_or("missing --baseline")?;
     let current = option(args, "--current").ok_or("missing --current")?;
+    let implementation = option(args, "--implementation").unwrap_or("adotenv");
     let max_heap_percent = option(args, "--max-heap-percent")
         .unwrap_or("5")
         .parse::<u64>()
@@ -380,16 +381,22 @@ fn command_gate(args: &[String]) -> Result<()> {
     let violations = check_memory_gate(
         &baseline,
         &current,
+        implementation,
         max_heap_percent,
         max_heap_bytes,
         max_allocation_delta,
     );
+    let checked = baseline
+        .values()
+        .filter(|row| field(row, "implementation") == implementation)
+        .count();
+    if checked == 0 {
+        return Err(format!(
+            "memory gate found no baseline cases for implementation {implementation}"
+        ));
+    }
     if violations.is_empty() {
-        let checked = baseline
-            .values()
-            .filter(|row| field(row, "implementation") == "adotenv")
-            .count();
-        println!("memory gate: {checked} adotenv cases passed");
+        println!("memory gate: {checked} {implementation} cases passed");
         Ok(())
     } else {
         for violation in &violations {
@@ -405,13 +412,14 @@ fn command_gate(args: &[String]) -> Result<()> {
 fn check_memory_gate(
     baseline: &BTreeMap<String, serde_json::Value>,
     current: &BTreeMap<String, serde_json::Value>,
+    implementation: &str,
     max_heap_percent: u64,
     max_heap_bytes: u64,
     max_allocation_delta: u64,
 ) -> Vec<String> {
     let mut violations = Vec::new();
     for (key, base) in baseline {
-        if field(base, "implementation") != "adotenv" {
+        if field(base, "implementation") != implementation {
             continue;
         }
         let Some(cur) = current.get(key) else {
@@ -1106,6 +1114,9 @@ mod tests {
         baseline.insert(key.to_owned(), base);
         let mut current = BTreeMap::new();
         current.insert(key.to_owned(), regressed);
-        assert_eq!(check_memory_gate(&baseline, &current, 5, 0, 0).len(), 1);
+        assert_eq!(
+            check_memory_gate(&baseline, &current, "adotenv", 5, 0, 0).len(),
+            1
+        );
     }
 }

@@ -86,6 +86,11 @@ cargo run --release -p adotenv-xtask -- compare \
 cargo run --release -p adotenv-xtask -- gate \
   --baseline docs/benchmarks/memory.jsonl \
   --current ~/.tmp/adotenv-bench/memory.jsonl
+
+cargo run --release -p adotenv-xtask -- gate \
+  --baseline docs/benchmarks/compact-memory.jsonl \
+  --current ~/.tmp/adotenv-bench/compact-memory.jsonl \
+  --implementation adotenv-compact
 ```
 
 ## Publication run on kbench

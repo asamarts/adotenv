@@ -183,8 +183,10 @@ CI separates deterministic internal gates from publication wall-time evidence:
   hosted-runner load cannot fail it. The gate skips its first PR when the base
   predates `det_parse`, then gates subsequent changes.
 - `adotenv-xtask gate` compares a fresh release memory JSONL against
-  `docs/benchmarks/memory.jsonl` for every adotenv case. Allocation counts must
-  match exactly; peak and retained heap may grow by at most 5% or 64 bytes.
+  `docs/benchmarks/memory.jsonl` for every map-based adotenv case, and against
+  `docs/benchmarks/compact-memory.jsonl` for every `adotenv-compact` case.
+  Allocation counts must match exactly; peak and retained heap may grow by at
+  most 5% or 64 bytes.
 - `bench-smoke` compiles and exercises the deterministic harness and runs the
   memory gate on every PR. The harness smoke is non-gating; the memory gate is
   gating. The deterministic `Ir`/cycle gate runs in `det-perf`.

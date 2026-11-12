@@ -322,6 +322,15 @@ jobs:
             --modes values,load,document,resolve
           cargo run --release --locked -p adotenv-xtask -- gate \
             --baseline docs/benchmarks/memory.jsonl --current target/memory-current.jsonl
+      - name: compact memory baseline gate
+        run: |
+          cargo run --release --locked -p adotenv-xtask -- memory --compact \
+            --out target/compact-memory-current.jsonl \
+            --sizes 8,128,1k,10k,100k --shapes plain,long-line,empty \
+            --modes values,load
+          cargo run --release --locked -p adotenv-xtask -- gate \
+            --baseline docs/benchmarks/compact-memory.jsonl \
+            --current target/compact-memory-current.jsonl --implementation adotenv-compact
 
   det-perf:
     name: deterministic perf

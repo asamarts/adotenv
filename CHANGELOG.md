@@ -10,6 +10,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Deterministic compact parsing and compact loading benchmarks in the CI
   instruction/cycle gate.
+- Compact memory regression gate using `compact-memory.jsonl` and the
+  `adotenv-compact` implementation filter.
 
 ## [1.5.0] - 2026-11-12
 
