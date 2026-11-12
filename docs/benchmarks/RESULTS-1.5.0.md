@@ -3,6 +3,18 @@
 Status: publication-grade 1.5.0 compact-values release evidence. It does not
 replace the historical 1.4.1 map-based release claim.
 
+<div class="bench-highlights">
+<div class="bench-highlight"><strong>25/25</strong><span>speed wins</span></div>
+<div class="bench-highlight"><strong>20/20</strong><span>non-empty retained-heap wins</span></div>
+<div class="bench-highlight"><strong>30/30</strong><span>peak-heap wins</span></div>
+<div class="bench-highlight"><strong>30/30</strong><span>allocation wins</span></div>
+</div>
+
+<p class="bench-callouts">
+<a class="bench-callout" href="compact-memory.html"><strong>Memory chart</strong><span>Explore retained heap, peak heap and allocations by size, shape and mode.</span></a>
+<a class="bench-callout" href="speed-1.5.0.html"><strong>Speed chart</strong><span>Explore values and load timings by size, shape and mode.</span></a>
+</p>
+
 The compact representation was measured on `kbench` for memory from SHA
 `0a9fc92` and for speed from SHA `79937cc`, using the same fixtures and
 comparable values/load modes as the [1.4.1 results](RESULTS-1.4.1.md). Version

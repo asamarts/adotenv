@@ -1,10 +1,15 @@
 # Memory benchmark results
 
-## Fingerprint
+Click a column header to sort. Use the filter to narrow large result sets.
+
+<details>
+<summary>Provenance fingerprint</summary>
 
 ```json
 {"arch":"x86_64","cpu":"Intel(R) Core(TM) i7-6700HQ CPU @ 2.60GHz","cpu_count":8,"git_sha":"0a9fc92023d3de077dea652ac21bfaf23d4cb816","hostname":"unknown","hyperfine":"hyperfine 2.0.0","kernel":"Linux 7.1.3-arch1-2","load1":"0.09","os":"linux","rustc":"rustc 1.97.1 (8bab26f4f 2026-07-14)"}
 ```
+
+</details>
 
 | size | shape | mode | implementation | entries | source bytes | peak heap | retained heap | after drop | allocations | RSS before | RSS peak | RSS after |
 |---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|

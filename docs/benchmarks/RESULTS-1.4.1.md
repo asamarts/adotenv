@@ -3,6 +3,18 @@
 Status: final 1.4.1 baseline, recorded on `kbench` at source SHA `0649096`.
 Re-run this complete matrix if the benchmark code or baseline changes.
 
+<div class="bench-highlights">
+<div class="bench-highlight"><strong>25/25</strong><span>speed wins</span></div>
+<div class="bench-highlight"><strong>30/30</strong><span>peak-heap wins</span></div>
+<div class="bench-highlight"><strong>30/30</strong><span>allocation wins</span></div>
+<div class="bench-highlight"><strong>30/30</strong><span>retained-heap ties</span></div>
+</div>
+
+<p class="bench-callouts">
+<a class="bench-callout" href="memory.html"><strong>Memory chart</strong><span>Explore map-based peak, retained heap and allocations.</span></a>
+<a class="bench-callout" href="speed.html"><strong>Speed chart</strong><span>Explore map-based values and load timings.</span></a>
+</p>
+
 This page uses the [methodology](METHODOLOGY.md), [scenario catalogue](SCENARIOS.md)
 and [result schema](SCHEMA.md). Raw evidence:
 
