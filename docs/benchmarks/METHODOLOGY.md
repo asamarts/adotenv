@@ -110,7 +110,10 @@ The source-level deterministic memory gate compares a fresh run with
 - a changed fixture SHA-256 fails the gate.
 
 The baseline is updated only for an intentional, reviewed code change with a
-fresh fingerprint. Do not update it merely to make a failing gate pass.
+fresh fingerprint. Do not update it merely to make a failing gate pass. CI runs
+the same gate against `compact-memory.jsonl` with
+`--implementation adotenv-compact`; empty compact cells are zero-byte ties and
+allocation counts must still match exactly.
 
 ## Deterministic internal gate
 
