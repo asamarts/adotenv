@@ -1814,7 +1814,9 @@ where
 /// Reads the same files with the same rules and errors as [`load_cascade`]
 /// and returns the same values, but keeps no origins, reports or raw source
 /// text, and builds no [`Document`](crate::Document) for any file. This uses
-/// less memory, so prefer it when an application needs only the values.
+/// less memory, so prefer it when an application needs only the values. The
+/// `*_compact` variants return [`CompactValues`] for
+/// lower retained memory.
 ///
 /// # Errors
 ///

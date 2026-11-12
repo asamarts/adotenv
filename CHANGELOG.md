@@ -14,6 +14,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `adotenv-compact` implementation filter.
 - Publication-grade compact speed evidence: 25/25 strict wins against the best
   pinned competitor in values/load cells.
+- Regression tests and maintenance guidance for keeping the map APIs as the
+  default and updating both memory baselines intentionally.
 
 ## [1.5.0] - 2026-11-12
 

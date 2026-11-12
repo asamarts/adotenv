@@ -1160,6 +1160,13 @@ fn windows_local_mode_deduplicates_case_insensitively() {
 }
 
 #[test]
+fn values_only_loading_default_api_remains_map_backed() {
+    let values: crate::load::LoadedValues =
+        load_values(std::iter::empty::<PathBuf>(), Dialect::PORTABLE).unwrap();
+    assert!(values.is_empty());
+}
+
+#[test]
 fn compact_loading_matches_map_loading_and_preserves_overrides() {
     let dir = TempDir::new();
     dir.write(".env", "A=base\nB=base\nEMPTY=\n");
