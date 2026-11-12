@@ -187,9 +187,10 @@ CI separates deterministic internal gates from publication wall-time evidence:
   `docs/benchmarks/compact-memory.jsonl` for every `adotenv-compact` case.
   Allocation counts must match exactly; peak and retained heap may grow by at
   most 5% or 64 bytes.
-- `bench-smoke` compiles and exercises the deterministic harness and runs the
-  memory gate on every PR. The harness smoke is non-gating; the memory gate is
-  gating. The deterministic `Ir`/cycle gate runs in `det-perf`.
+- `bench-smoke` compiles and exercises the deterministic harness and runs both
+  the map and compact memory gates on every PR. The harness smoke is
+  non-gating; the memory gates are gating. The deterministic `Ir`/cycle gate
+  runs in `det-perf`.
 - Competitor criterion and kbench wall-time results are advisory at PR time.
   Only the deterministic gates block a change.
 - Update the memory baseline only with an intentional, reviewed code change and

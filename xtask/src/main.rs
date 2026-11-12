@@ -1119,4 +1119,36 @@ mod tests {
             1
         );
     }
+
+    #[test]
+    fn memory_gate_filters_the_requested_implementation() {
+        let map_key = "8|plain|values|adotenv";
+        let compact_key = "8|plain|values|adotenv-compact";
+        let map = serde_json::json!({
+            "size": "8", "shape": "plain", "mode": "values",
+            "implementation": "adotenv", "peak_heap_bytes": 1000,
+            "retained_heap_bytes": 800, "allocations": 10
+        });
+        let compact = serde_json::json!({
+            "size": "8", "shape": "plain", "mode": "values",
+            "implementation": "adotenv-compact", "peak_heap_bytes": 500,
+            "retained_heap_bytes": 400, "allocations": 5
+        });
+        let mut baseline = BTreeMap::new();
+        baseline.insert(map_key.to_owned(), map.clone());
+        baseline.insert(compact_key.to_owned(), compact.clone());
+        let mut current = BTreeMap::new();
+        current.insert(map_key.to_owned(), map);
+        let mut regressed_compact = compact;
+        regressed_compact["allocations"] = serde_json::json!(6);
+        current.insert(compact_key.to_owned(), regressed_compact);
+        assert_eq!(
+            check_memory_gate(&baseline, &current, "adotenv", 5, 0, 0).len(),
+            0
+        );
+        assert_eq!(
+            check_memory_gate(&baseline, &current, "adotenv-compact", 5, 0, 0).len(),
+            1
+        );
+    }
 }
