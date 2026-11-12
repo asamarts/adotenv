@@ -19,7 +19,7 @@ adotenv = { path = "..", version = "1.4.1" }
 serde = { version = "1", features = ["derive"] }
 globset = "=0.4.16"
 toml = "=0.8.14"
-toml_edit = "=0.22.14"
+toml_edit = "=0.23.5"
 
 [lints.rust]
 unsafe_code = "forbid"
