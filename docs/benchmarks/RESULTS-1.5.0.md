@@ -16,12 +16,12 @@ in the fingerprint below. Raw evidence:
 
 | Item | Value |
 |---|---|
-| Source SHA | `ed90ae8` |
+| Source SHA | `0a9fc92` |
 | Reference host | `kbench` |
 | CPU | Intel Core i7-6700HQ, 8 logical CPUs |
 | OS / kernel | Linux / 7.1.3-arch1-2 |
 | Rust | 1.97.1 (8bab26f4f 2026-07-14) |
-| Fingerprint | `load1=0.17` |
+| Fingerprint | `load1=0.09` |
 | Queue | benchq/pueue, group `bench`, one slot |
 
 ## Claim
