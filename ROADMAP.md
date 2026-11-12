@@ -60,8 +60,9 @@ there.
    crates.
 8. Complete the [1.4.1 / linter 0.2.0 / LSP 0.4.0 plan](docs/design/1.4.1-plan.md):
    all three releases are published; retain the verified release evidence.
-9. Validate the compact values API in the next publication benchmark cycle
-   before deciding whether to ship it in a minor release.
+9. Decide whether to ship the compact values API in a minor release. Its
+   publication-grade evaluation is recorded; the 1.4.1 map-based claim remains
+   the released claim until then.
 
 ## 1.0 criteria
 

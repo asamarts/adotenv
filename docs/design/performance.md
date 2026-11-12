@@ -211,10 +211,13 @@ competitor in each cell:
 The retained result cannot become a strict win without changing the public
 `BTreeMap<String, String>` result type: both APIs return the same map at small
 sizes, and larger cells are already at the compact-tree floor. For 1.4.1 this is
-accepted as a no-loss result, not treated as a strict win. A compact values API
-is now implemented as `CompactValues` and `parse_values_compact`; it still
-needs a publication-grade `kbench` matrix before it can replace the map-based
-claim.
+accepted as a no-loss result, not treated as a strict win. The compact values
+API (`CompactValues`, `parse_values_compact` and the compact load variants) has
+a publication-grade `kbench` evaluation at SHA `ed90ae8`: it wins retained heap
+in all 20 non-empty values/load cells, ties at zero bytes in the 10 empty cells,
+and wins peak heap and allocation count in all 30 cells. See
+[the compact results](../benchmarks/RESULTS-compact.md). The map-based 1.4.1
+claim remains the release claim until a later minor release.
 
 ## Earlier measurements
 

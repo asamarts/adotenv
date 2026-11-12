@@ -34,16 +34,21 @@ cargo run --release -p adotenv-xtask -- memory \
 `document` and `resolve` are internal adotenv cases; competitor load/values
 cells are selected automatically by supported API.
 
-The memory binary also has an evaluation-only `adotenv-compact` implementation
-for `values` and `load` cells:
+`adotenv-compact` is an additional `values` and `load` implementation for the
+compact-values evaluation. Run the separate compact matrix with `--compact`:
 
 ```console
-cargo run --release -p adotenv-bench --bin memory -- \
-  --mode values --implementation adotenv-compact --size 128 --shape plain
+cargo run --release -p adotenv-xtask -- queue \
+  --remote-root /var/lib/benchq/adotenv-bench \
+  --out docs/benchmarks/compact-memory.jsonl \
+  --remote-out bench-compact-memory.jsonl \
+  --sizes 8,128,1k,10k,100k --shapes plain,long-line,empty \
+  --modes values,load --compact --sync
 ```
 
-It is not part of the published matrix until a later result cycle records it on
-`kbench`.
+The local equivalent accepts the same flag and defaults to
+`docs/benchmarks/compact-memory.jsonl`. The result is evaluation evidence for
+a future minor release; the 1.4.1 matrix remains unchanged.
 
 ## Reproduce one speed cell
 

@@ -23,6 +23,13 @@ maps are byte-identical to the competitors; at larger sizes the map is already
 at the compact-tree floor. A strict retained result requires a different public
 values representation and is deferred to a later minor release.
 
+The compact evaluation uses `parse_values_compact` and `load_values_compact`
+with the same fixtures and competitors. At source SHA `ed90ae8` it records
+strict non-empty retained-heap wins, zero-byte ties on empty inputs, and strict
+peak/allocation wins in all values/load cells. See
+[RESULTS-compact.md](RESULTS-compact.md). It is evaluation evidence for a
+future minor release and does not replace the 1.4.1 map-based claim.
+
 ## Competitors
 
 Pinned versions:

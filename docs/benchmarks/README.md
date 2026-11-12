@@ -10,17 +10,27 @@ comparable speed cells, all 30 peak-heap cells and all 30 allocation-count
 cells. Retained heap is a tie in all 30 cells and a loss in none; that is the
 accepted 1.4.1 claim, not a strict retained-memory win.
 
+A publication-grade evaluation of the compact values API is in the
+[compact values results](RESULTS-compact.md). It records strict non-empty
+retained-heap wins, with zero-byte ties on empty inputs, and strict peak and
+allocation wins in all values/load cells. It is evaluation evidence for a
+future minor release, not a replacement for the 1.4.1 claim.
+
 ## Documents
 
 - [Methodology](METHODOLOGY.md) -- what is measured, how, and what is excluded.
 - [Running benchmarks](RUNNING.md) -- reproduce a cell locally or on `kbench`.
 - [Scenario catalogue](SCENARIOS.md) -- fixtures, exact hashes and modes.
 - [Result schema](SCHEMA.md) -- JSONL and bencher formats.
-- [1.4.1 results](RESULTS-1.4.1.md) -- current raw evidence and summary.
+- [1.4.1 results](RESULTS-1.4.1.md) -- current release evidence.
+- [Compact values results](RESULTS-compact.md) -- evaluation evidence for the
+  compact values API.
 
 The rendered tables are also available directly:
 
 - [Memory results](memory.md) and [raw JSONL](memory.jsonl)
+- [Compact memory results](compact-memory.md) and
+  [raw JSONL](compact-memory.jsonl)
 - [Speed results](speed.md) and [raw bencher output](speed.txt)
 - [Memory fingerprint](memory.fingerprint.json) and
   [speed fingerprint](speed.fingerprint.json)
