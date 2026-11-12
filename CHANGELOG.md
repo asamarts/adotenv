@@ -15,6 +15,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   compact values-only file loading.
 - A masked `Debug` form for compact values.
 
+### Benchmarks
+
+- Added the `--compact` matrix option and a publication-grade compact-values
+  memory evaluation. Non-empty values/load cells win retained heap, peak heap
+  and allocations against the best pinned competitor; empty retained cells tie
+  at zero bytes.
+
 ## [1.4.1] - 2026-11-11
 
 ### Added
