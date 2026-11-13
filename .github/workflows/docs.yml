@@ -8,6 +8,7 @@ on:
       - "book.toml"
       - "theme/**"
       - "scripts/check_docs.py"
+      - "scripts/docs-smoke/**"
       - ".github/workflows/docs.yml"
   pull_request:
     paths:
@@ -15,6 +16,7 @@ on:
       - "book.toml"
       - "theme/**"
       - "scripts/check_docs.py"
+      - "scripts/docs-smoke/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -39,6 +41,22 @@ jobs:
       - run: cargo install mdbook --version 0.5.4 --locked
       - run: python3 scripts/check_docs.py
       - run: mdbook build
+      - name: install docs smoke dependencies
+        run: npm ci --prefix scripts/docs-smoke
+      - name: verify Chrome
+        run: google-chrome --version
+      - name: docs browser smoke
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+        run: node scripts/docs-smoke/smoke.mjs
+      - name: upload docs smoke failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docs-smoke-failure
+          path: target/docs-smoke/
+          if-no-files-found: ignore
+          retention-days: 14
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         if: github.event_name != 'pull_request'
         with:

@@ -60,6 +60,10 @@ The workflow also:
 - checks that every package includes its license files;
 - runs the benchmarks once as a smoke test.
 
+The docs workflow also builds the mdBook site and runs a headless-browser smoke
+test for nested navigation, charts, sortable/filterable tables and selector
+help popovers.
+
 All warnings are errors in CI.
 
 ## Diagnostics
