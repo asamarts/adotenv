@@ -1491,3 +1491,66 @@ html:not(.adotenv-nav) .content .nav-wrapper .mobile-nav-chapters .fa-svg {
         min-width: 520px;
     }
 }
+/* Benchmark selector help */
+
+.bench-control {
+    position: relative;
+}
+
+.bench-control-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.bench-info-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 17px;
+    height: 17px;
+    padding: 0;
+    border: 1px solid var(--border-strong);
+    border-radius: 50%;
+    background: var(--bg);
+    color: var(--muted);
+    font: 600 11px/1 var(--sans-font);
+    text-transform: none;
+    letter-spacing: 0;
+    cursor: pointer;
+}
+
+.bench-info-toggle:hover,
+.bench-info-toggle:focus-visible,
+.bench-info-toggle[aria-expanded="true"] {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    outline: none;
+}
+
+.bench-info-toggle:focus-visible {
+    box-shadow: 0 0 0 2px var(--accent-border);
+}
+
+.bench-info-popover {
+    position: fixed;
+    box-sizing: border-box;
+    z-index: 50;
+    display: block;
+    padding: 11px 13px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-small);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow);
+    color: var(--fg);
+    font-size: 1.35rem;
+    font-weight: 400;
+    letter-spacing: normal;
+    line-height: 1.5;
+    text-transform: none;
+}
+
+.bench-info-popover[hidden] {
+    display: none;
+}

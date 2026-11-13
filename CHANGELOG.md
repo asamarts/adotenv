@@ -26,6 +26,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   overview cards, and a release-history index.
 - Pretty-printed every JSON code block and added a docs check that rejects
   compact or invalid JSON examples.
+- Added accessible benchmark selector help popovers, including an explanation
+  of the log-scale default and when to use linear scale.
 
 ## [1.5.0] - 2026-11-12
 

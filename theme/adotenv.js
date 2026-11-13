@@ -317,12 +317,55 @@
         return { plot: plot, note: note };
     }
 
-    function makeSelect(label, values, initial) {
-        const wrapper = document.createElement("label");
+    let infoCounter = 0;
+    let openInfo = null;
+
+    function closeInfo() {
+        if (!openInfo) {
+            return;
+        }
+        openInfo.popover.hidden = true;
+        openInfo.button.setAttribute("aria-expanded", "false");
+        openInfo = null;
+    }
+
+    function placeInfo(button, popover) {
+        const rect = button.getBoundingClientRect();
+        const width = Math.min(300, window.innerWidth - 24);
+        let left = Math.min(Math.max(12, rect.left), window.innerWidth - width - 12);
+        popover.style.width = width + "px";
+        popover.style.left = left + "px";
+        popover.style.top = "0px";
+        popover.hidden = false;
+        const height = popover.offsetHeight;
+        let top = rect.bottom + 8;
+        if (top + height > window.innerHeight - 12) {
+            top = Math.max(12, rect.top - height - 8);
+        }
+        popover.style.top = top + "px";
+    }
+
+    function toggleInfo(button, popover) {
+        if (openInfo && openInfo.popover === popover) {
+            closeInfo();
+            return;
+        }
+        closeInfo();
+        placeInfo(button, popover);
+        button.setAttribute("aria-expanded", "true");
+        openInfo = { button: button, popover: popover };
+    }
+
+    function makeSelect(label, values, initial, help) {
+        const wrapper = document.createElement("div");
         wrapper.className = "bench-control";
+        const labelRow = document.createElement("span");
+        labelRow.className = "bench-control-label";
         const span = document.createElement("span");
         span.textContent = label;
+        labelRow.append(span);
         const select = document.createElement("select");
+        select.setAttribute("aria-label", label);
         values.forEach(function (value) {
             const option = document.createElement("option");
             option.value = value;
@@ -332,7 +375,29 @@
             }
             select.append(option);
         });
-        wrapper.append(span, select);
+        wrapper.append(labelRow, select);
+        if (help) {
+            const id = "bench-info-" + (++infoCounter);
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "bench-info-toggle";
+            button.setAttribute("aria-label", "About " + label);
+            button.setAttribute("aria-expanded", "false");
+            button.setAttribute("aria-controls", id);
+            button.textContent = "i";
+            const popover = document.createElement("span");
+            popover.id = id;
+            popover.className = "bench-info-popover";
+            popover.setAttribute("role", "note");
+            popover.textContent = help;
+            popover.hidden = true;
+            button.addEventListener("click", function (event) {
+                event.stopPropagation();
+                toggleInfo(button, popover);
+            });
+            labelRow.append(button);
+            wrapper.append(popover);
+        }
         return { wrapper: wrapper, select: select };
     }
 
@@ -383,10 +448,16 @@
             });
         }
         sizes.sort(function (a, b) { return (sizeRank(a) || 0) - (sizeRank(b) || 0); });
-        const metric = kind === "memory" ? makeSelect("Metric", ["retained", "peak", "allocations"], "retained") : null;
-        const mode = makeSelect("Mode", modes, modes.includes("values") ? "values" : modes[0]);
-        const shape = makeSelect("Shape", shapes, shapes.includes("plain") ? "plain" : shapes[0]);
-        const scale = makeSelect("Scale", ["log", "linear"], "log");
+        const metric = kind === "memory"
+            ? makeSelect("Metric", ["retained", "peak", "allocations"], "retained",
+                "Retained is heap still held by the returned values; peak is the maximum during the operation; allocations counts allocator calls. Lower is better.")
+            : null;
+        const mode = makeSelect("Mode", modes, modes.includes("values") ? "values" : modes[0],
+            "Values parses text already in memory. Load reads a file and parses it, so it includes file I/O and the loader result.");
+        const shape = makeSelect("Shape", shapes, shapes.includes("plain") ? "plain" : shapes[0],
+            "Plain uses simple KEY=value lines; long-line uses 64-byte values; empty has no entries and is a zero-byte retained-memory tie.");
+        const scale = makeSelect("Scale", ["log", "linear"], "log",
+            "Log compresses orders of magnitude so every size stays visible. Linear shows absolute proportions. Log is the default because the fixtures span 8 to 100,000 entries; switch to linear for direct height comparison.");
         const controls = [];
         if (metric) controls.push(metric.wrapper);
         controls.push(mode.wrapper, shape.wrapper, scale.wrapper);
@@ -522,8 +593,10 @@
                 legend.append(span);
             });
             shell.plot.append(legend);
-            shell.note.textContent = (useLog ? "Logarithmic " : "") + "scale. Select " +
-                (kind === "memory" ? "a metric, mode and shape" : "a mode and shape") +
+            shell.note.textContent = (useLog
+                ? "Log scale keeps all fixture sizes visible; switch to Linear for absolute proportions. "
+                : "Linear scale shows absolute proportions; switch to Log when values span many orders of magnitude. ") +
+                "Select " + (kind === "memory" ? "a metric, mode and shape" : "a mode and shape") +
                 "; use the table below for exact values.";
         }
 
@@ -565,6 +638,19 @@
             createTableChart(speed, "speed");
         }
     }
+
+    document.addEventListener("click", function (event) {
+        if (!event.target.closest(".bench-info-toggle") && !event.target.closest(".bench-info-popover")) {
+            closeInfo();
+        }
+    });
+    document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") {
+            closeInfo();
+        }
+    });
+    window.addEventListener("resize", closeInfo);
+    window.addEventListener("scroll", closeInfo, { passive: true });
 
     tidyThemeMenu();
     addBrand();
