@@ -7,3 +7,4 @@ __pycache__/
 
 # Mutation testing output
 /mutants.out
+node_modules/

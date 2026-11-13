@@ -1,0 +1,11 @@
+{
+  "name": "adotenv-docs-smoke",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node smoke.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "1.58.2"
+  }
+}

@@ -32,6 +32,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   all-libraries chart view covering every pinned competitor.
 - Widened the docs content area for tables, charts and code while keeping prose
   at a readable measure; removed the broken edit-page menu icon.
+- Added a headless-browser smoke test for the docs site: nested navigation,
+  charts, table filtering/sorting and selector help popovers.
 
 ## [1.5.0] - 2026-11-12
 
