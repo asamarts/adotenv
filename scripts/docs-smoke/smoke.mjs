@@ -49,8 +49,8 @@ function chromePath() {
     return found;
 }
 
-async function newPage(browser, viewport) {
-    const current = await browser.newPage({ viewport });
+async function newPage(browserInstance, viewport) {
+    const current = await browserInstance.newPage({ viewport });
     current.on("pageerror", (error) => failures.push(`page error: ${error.message}`));
     current.on("console", (message) => {
         if (message.type() === "error") {
@@ -68,12 +68,127 @@ async function shot(name) {
     await page.screenshot({ path: resolve(screenshotDir, name + ".png") });
 }
 
+let base = "";
+
 async function open(path) {
     await page.goto(base + path, { waitUntil: "networkidle" });
     await page.waitForSelector("#mdbook-content");
 }
 
-let base = "";
+async function chartTable(kind) {
+    return page.evaluate((kind) => {
+        const tables = Array.from(document.querySelectorAll("#mdbook-content table"));
+        const table = tables.find((candidate) => {
+            const head = candidate.tHead && candidate.tHead.rows[0];
+            if (!head) {
+                return false;
+            }
+            const headers = Array.from(head.cells).map((cell) =>
+                cell.textContent.replace(/[↕↑↓]/g, "").trim().toLowerCase(),
+            );
+            return kind === "memory"
+                ? headers.includes("implementation") && headers.includes("peak heap") && headers.includes("retained heap")
+                : headers.length > 1 && headers[0] === "benchmark" && headers[1] === "time";
+        });
+        if (!table) {
+            return null;
+        }
+        return {
+            headers: Array.from(table.tHead.rows[0].cells).map((cell) =>
+                cell.textContent.replace(/[↕↑↓]/g, "").trim().toLowerCase(),
+            ),
+            rows: Array.from(table.tBodies[0].rows).map((row) =>
+                Array.from(row.cells).map((cell) => cell.textContent.trim()),
+            ),
+        };
+    }, kind);
+}
+
+function memoryRecords(table) {
+    const at = (row, name) => row[table.headers.indexOf(name)];
+    return table.rows.map((row) => ({
+        size: at(row, "size"),
+        shape: at(row, "shape"),
+        mode: at(row, "mode"),
+        implementation: at(row, "implementation"),
+    }));
+}
+
+function speedRecords(table) {
+    return table.rows
+        .map((row) => row[0].split("/"))
+        .filter((parts) => parts.length === 4 && parts[0].startsWith("competitor_"))
+        .map((parts) => ({
+            mode: parts[0].slice("competitor_".length),
+            implementation: parts[1],
+            shape: parts[2],
+            size: parts[3],
+        }));
+}
+
+async function chartPage(path, kind) {
+    await open(path);
+    check(await page.locator("#mdbook-content .bench-explorer").count() === 1, `${path}: chart is missing`);
+    check(await page.locator("#mdbook-menu-bar a[rel=edit]").count() === 0, `${path}: edit-page icon is still present`);
+
+    const table = await chartTable(kind);
+    check(table !== null, `${path}: chart data table is missing`);
+    if (table === null) {
+        return;
+    }
+    const records = kind === "memory" ? memoryRecords(table) : speedRecords(table);
+    const selectedMode = await page.locator(".bench-control").filter({ hasText: "Mode" }).locator("select").inputValue();
+    const selectedShape = await page.locator(".bench-control").filter({ hasText: "Shape" }).locator("select").inputValue();
+    const selected = records.filter((record) => record.mode === selectedMode && record.shape === selectedShape);
+    const sizes = new Set(selected.map((record) => record.size));
+    const implementations = new Set(selected.map((record) => record.implementation));
+    const hasCompact = implementations.has("adotenv-compact") && implementations.has("adotenv");
+
+    const controls = page.locator(".bench-control select");
+    check(await page.locator(".bench-info-toggle").count() === await controls.count(), `${path}: selector help is incomplete`);
+    const libraries = page.locator(".bench-control").filter({ hasText: "Libraries" }).locator("select");
+    const viewOptions = await libraries.locator("option").allTextContents();
+    check(viewOptions.includes("All libraries"), `${path}: all-libraries view is missing`);
+    check(viewOptions.includes("Best competitor"), `${path}: best-competitor view is missing`);
+    check(viewOptions.includes("Compact vs map") === hasCompact, `${path}: compact-vs-map option does not match the data`);
+
+    const expectedAll = implementations.size * sizes.size;
+    check(await page.locator(".bench-bar").count() === expectedAll, `${path}: all-libraries bar count is stale`);
+    check(await page.locator(".bench-legend-item").count() === implementations.size, `${path}: all-libraries legend is stale`);
+
+    if (hasCompact) {
+        await libraries.selectOption({ label: "Compact vs map" });
+        check(await page.locator(".bench-bar").count() === sizes.size * 2, `${path}: compact-vs-map bar count is stale`);
+    }
+
+    const bestSeries = hasCompact ? 3 : 2;
+    await libraries.selectOption({ label: "Best competitor" });
+    check(await page.locator(".bench-bar").count() === sizes.size * bestSeries, `${path}: best-competitor bar count is stale`);
+    check(await page.locator(".bench-legend-item").count() === bestSeries, `${path}: best-competitor legend is stale`);
+
+    await libraries.selectOption({ label: "All libraries" });
+    const librariesControl = page.locator(".bench-control").filter({ hasText: "Libraries" });
+    await librariesControl.locator(".bench-info-toggle").click();
+    const popover = page.locator(".bench-info-popover:not([hidden])");
+    check(await popover.count() === 1, `${path}: selector help did not open`);
+    check((await popover.textContent()).includes("All libraries"), `${path}: selector help text is incomplete`);
+    await page.keyboard.press("Escape");
+    check(await page.locator(".bench-info-popover:not([hidden])").count() === 0, `${path}: Escape did not close selector help`);
+
+    const tools = page.locator(".table-tools");
+    check(await tools.count() === 1, `${path}: table tools are missing`);
+    if (await tools.count() === 1) {
+        const firstHeader = page.locator("#mdbook-content .sortable-header").first();
+        await firstHeader.click();
+        check((await firstHeader.getAttribute("aria-sort")) === "ascending", `${path}: table sorting did not activate`);
+        const filter = page.locator(".table-filter");
+        const totalRows = await page.locator("#mdbook-content tbody tr").count();
+        await filter.fill("adotenv");
+        const visibleRows = await page.locator("#mdbook-content tbody tr:visible").count();
+        check(visibleRows > 0 && visibleRows < totalRows, `${path}: table filtering did not narrow the rows`);
+    }
+}
+
 const server = createServer(async (request, response) => {
     try {
         const pathname = decodeURIComponent(new URL(request.url, "http://localhost").pathname);
@@ -106,53 +221,20 @@ try {
     page = await newPage(browser, { width: 1440, height: 1000 });
 
     await open("benchmarks/compact-memory.html");
-    check(await page.locator("#mdbook-content .bench-explorer").count() === 1, "memory chart is missing");
-    check(await page.locator("#mdbook-content .table-tools").count() === 1, "memory table filter is missing");
-    check(await page.locator(".bench-info-toggle").count() === 5, "memory selector help is incomplete");
-    check(await page.locator("#mdbook-menu-bar a[rel=edit]").count() === 0, "edit-page icon is still present");
     check(await page.locator("#mdbook-sidebar .chapter ol.section").count() > 0, "nested sidebar is missing");
+    check(await page.locator("#mdbook-menu-bar a[rel=edit]").count() === 0, "edit-page icon is still present");
 
-    const memoryBars = await page.locator(".bench-bar").count();
-    check(memoryBars === 25, `expected 25 default memory bars, found ${memoryBars}`);
-    const memoryLegend = await page.locator(".bench-legend-item").count();
-    check(memoryLegend === 5, `expected 5 default memory series, found ${memoryLegend}`);
+    await chartPage("benchmarks/compact-memory.html", "memory");
+    await chartPage("benchmarks/memory.html", "memory");
+    await chartPage("benchmarks/speed-1.5.0.html", "speed");
+    await chartPage("benchmarks/speed.html", "speed");
 
-    const libraries = page.locator(".bench-control").filter({ hasText: "Libraries" }).locator("select");
-    await libraries.selectOption({ label: "Compact vs map" });
-    check(await page.locator(".bench-bar").count() === 10, "compact-vs-map view did not redraw");
-    await libraries.selectOption({ label: "Best competitor" });
-    check(await page.locator(".bench-bar").count() === 15, "best-competitor view did not redraw");
-    await libraries.selectOption({ label: "All libraries" });
-    check(await page.locator(".bench-bar").count() === 25, "all-libraries view did not redraw");
-
-    await page.locator(".bench-info-toggle").nth(1).click();
-    const openPopover = page.locator(".bench-info-popover:not([hidden])");
-    check(await openPopover.count() === 1, "selector help did not open");
-    check((await openPopover.textContent()).includes("All libraries"), "libraries help text is missing");
-    await page.keyboard.press("Escape");
-    check(await page.locator(".bench-info-popover:not([hidden])").count() === 0, "Escape did not close selector help");
-
-    const firstHeader = page.locator("#mdbook-content .sortable-header").first();
-    await firstHeader.click();
-    check((await firstHeader.getAttribute("aria-sort")) === "ascending", "table sorting did not activate");
-    const filter = page.locator(".table-filter");
-    await filter.fill("adotenv-compact");
-    const visibleRows = await page.locator("#mdbook-content tbody tr:visible").count();
-    check(visibleRows > 0 && visibleRows < 165, "table filtering did not narrow the rows");
-
-    await open("benchmarks/speed-1.5.0.html");
-    check(await page.locator("#mdbook-content .bench-explorer").count() === 1, "speed chart is missing");
-    check(await page.locator(".bench-info-toggle").count() === 4, "speed selector help is incomplete");
-    const speedBars = await page.locator(".bench-bar").count();
-    check(speedBars >= 25, `expected the all-libraries speed view, found ${speedBars} bars`);
-    await page.locator(".bench-control").filter({ hasText: "Mode" }).locator("select").selectOption("load");
-    check(await page.locator(".bench-bar").count() === 30, "load chart did not include every loader");
-    check((await page.locator(".bench-legend-item").allTextContents()).includes("dotenv-flow"), "loader legend is incomplete");
-
-    await open("benchmarks/RESULTS-1.5.0.html");
-    check(await page.locator(".bench-callout").count() === 2, "result chart links are missing");
-    check(await page.locator("#mdbook-content .bench-explorer").count() === 0, "result page gained a chart");
-    check(await page.locator("#mdbook-menu-bar a[rel=edit]").count() === 0, "edit-page icon is still present on results");
+    for (const path of ["benchmarks/RESULTS-1.5.0.html", "benchmarks/RESULTS-1.4.1.html"]) {
+        await open(path);
+        check(await page.locator(".bench-callout").count() === 2, `${path}: result chart links are missing`);
+        check(await page.locator("#mdbook-content .bench-explorer").count() === 0, `${path}: result page gained a chart`);
+        check(await page.locator("#mdbook-menu-bar a[rel=edit]").count() === 0, `${path}: edit-page icon is still present`);
+    }
 
     await page.setViewportSize({ width: 390, height: 844 });
     await open("benchmarks/compact-memory.html");
@@ -161,7 +243,7 @@ try {
         viewport: window.innerWidth,
     }));
     check(pageWidth.document <= pageWidth.viewport + 1, "mobile page overflows horizontally");
-    await page.locator(".bench-info-toggle").nth(4).click();
+    await page.locator(".bench-info-toggle").last().click();
     const mobilePopover = await page.locator(".bench-info-popover:not([hidden])").boundingBox();
     check(
         mobilePopover !== null &&
