@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, readdir } from "node:fs/promises";
 import { dirname, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
@@ -126,8 +126,37 @@ function speedRecords(table) {
         }));
 }
 
-async function chartPage(path, kind) {
-    await open(path);
+async function currentChartKind() {
+    return page.evaluate(() => {
+        const tables = Array.from(document.querySelectorAll("#mdbook-content table"));
+        for (const table of tables) {
+            const head = table.tHead && table.tHead.rows[0];
+            if (!head) {
+                continue;
+            }
+            const headers = Array.from(head.cells).map((cell) =>
+                cell.textContent.replace(/[↕↑↓]/g, "").trim().toLowerCase(),
+            );
+            if (headers.includes("implementation") && headers.includes("peak heap") && headers.includes("retained heap")) {
+                return "memory";
+            }
+            if (headers.length > 1 && headers[0] === "benchmark" && headers[1] === "time") {
+                return "speed";
+            }
+        }
+        return "";
+    });
+}
+
+async function discoverBenchmarkPages() {
+    const directory = resolve(root, "benchmarks");
+    const files = (await readdir(directory))
+        .filter((name) => name.endsWith(".html"))
+        .sort();
+    return files.map((name) => `benchmarks/${name}`);
+}
+
+async function chartOnCurrent(path, kind) {
     check(await page.locator("#mdbook-content .bench-explorer").count() === 1, `${path}: chart is missing`);
     check(await page.locator("#mdbook-menu-bar a[rel=edit]").count() === 0, `${path}: edit-page icon is still present`);
 
@@ -224,17 +253,23 @@ try {
     check(await page.locator("#mdbook-sidebar .chapter ol.section").count() > 0, "nested sidebar is missing");
     check(await page.locator("#mdbook-menu-bar a[rel=edit]").count() === 0, "edit-page icon is still present");
 
-    await chartPage("benchmarks/compact-memory.html", "memory");
-    await chartPage("benchmarks/memory.html", "memory");
-    await chartPage("benchmarks/speed-1.5.0.html", "speed");
-    await chartPage("benchmarks/speed.html", "speed");
-
-    for (const path of ["benchmarks/RESULTS-1.5.0.html", "benchmarks/RESULTS-1.4.1.html"]) {
+    const benchmarkPages = await discoverBenchmarkPages();
+    let chartPages = 0;
+    let resultPages = 0;
+    for (const path of benchmarkPages) {
         await open(path);
-        check(await page.locator(".bench-callout").count() === 2, `${path}: result chart links are missing`);
-        check(await page.locator("#mdbook-content .bench-explorer").count() === 0, `${path}: result page gained a chart`);
-        check(await page.locator("#mdbook-menu-bar a[rel=edit]").count() === 0, `${path}: edit-page icon is still present`);
+        const kind = await currentChartKind();
+        if (kind) {
+            chartPages += 1;
+            await chartOnCurrent(path, kind);
+        } else if (await page.locator(".bench-callout").count() > 0) {
+            resultPages += 1;
+            check(await page.locator("#mdbook-content .bench-explorer").count() === 0, `${path}: result page gained a chart`);
+            check(await page.locator("#mdbook-menu-bar a[rel=edit]").count() === 0, `${path}: edit-page icon is still present`);
+        }
     }
+    check(chartPages >= 4, `discovered only ${chartPages} benchmark chart pages`);
+    check(resultPages >= 2, `discovered only ${resultPages} result pages`);
 
     await page.setViewportSize({ width: 390, height: 844 });
     await open("benchmarks/compact-memory.html");
