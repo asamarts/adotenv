@@ -8,7 +8,6 @@ src = "docs"
 [output.html]
 site-url = "/adotenv/"
 git-repository-url = "https://github.com/asamarts/adotenv"
-edit-url-template = "https://github.com/asamarts/adotenv/edit/main/docs/{path}"
 default-theme = "light"
 preferred-dark-theme = "navy"
 additional-css = ["theme/adotenv.css"]
