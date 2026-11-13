@@ -448,6 +448,7 @@
             });
         }
         sizes.sort(function (a, b) { return (sizeRank(a) || 0) - (sizeRank(b) || 0); });
+        const hasCompact = rows.some(function (row) { return row.implementation === "adotenv-compact"; });
         const metric = kind === "memory"
             ? makeSelect("Metric", ["retained", "peak", "allocations"], "retained",
                 "Retained is heap still held by the returned values; peak is the maximum during the operation; allocations counts allocator calls. Lower is better.")
@@ -458,15 +459,26 @@
             "Plain uses simple KEY=value lines; long-line uses 64-byte values; empty has no entries and is a zero-byte retained-memory tie.");
         const scale = makeSelect("Scale", ["log", "linear"], "log",
             "Log compresses orders of magnitude so every size stays visible. Linear shows absolute proportions. Log is the default because the fixtures span 8 to 100,000 entries; switch to linear for direct height comparison.");
+        const viewOptions = ["All libraries"];
+        if (hasCompact) {
+            viewOptions.push("Compact vs map");
+        }
+        viewOptions.push("Best competitor");
+        const view = makeSelect("Libraries", viewOptions, "All libraries",
+            "All libraries shows compact, map and every available pinned competitor. Compact vs map isolates the two adotenv APIs. Best competitor shows only the strongest competitor in each cell.");
         const controls = [];
         if (metric) controls.push(metric.wrapper);
-        controls.push(mode.wrapper, shape.wrapper, scale.wrapper);
+        controls.push(view.wrapper, mode.wrapper, shape.wrapper, scale.wrapper);
         const shell = chartShell(
             table.closest(".table-wrapper") || table,
             kind === "memory" ? "Memory comparison" : "Speed comparison",
             kind === "memory"
-                ? "Compare the compact API with the map API and the best pinned competitor. Lower is better."
-                : "Compare compact parsing and loading with the map API and the best pinned competitor. Lower is better.",
+                ? (hasCompact
+                    ? "Compact is the opt-in CompactValues API; Map is the standard BTreeMap API. Compare both with every available pinned library. Lower is better."
+                    : "Map is the standard BTreeMap API. Compare it with every available pinned library. Lower is better.")
+                : (hasCompact
+                    ? "Compact is the opt-in compact loader; Map is the standard map-backed loader. Compare both with every available pinned library. Lower is better."
+                    : "Map is the standard map-backed loader. Compare it with every available pinned library. Lower is better."),
             controls
         );
 
@@ -477,24 +489,54 @@
             const selectedRows = rows.filter(function (row) {
                 return row.mode === selectedMode && row.shape === selectedShape;
             });
+            const competitorOrder = ["dotenv", "dotenv-flow", "dotenv-parser", "dotenvs", "dotenvy"];
             const chartRows = sizes.map(function (size) {
                 const cell = selectedRows.filter(function (row) { return row.size === size; });
-                const compactRow = cell.find(function (row) { return row.implementation === "adotenv-compact"; });
-                const mapRow = cell.find(function (row) { return row.implementation === "adotenv"; });
-                const competitors = cell.filter(function (row) {
-                    return row.implementation !== "adotenv" && row.implementation !== "adotenv-compact";
-                }).map(function (row) { return row[selectedMetric]; }).filter(function (value) { return value !== null; });
+                const byImplementation = {};
+                cell.forEach(function (row) {
+                    byImplementation[row.implementation] = row[selectedMetric];
+                });
+                const competitors = competitorOrder
+                    .map(function (implementation) { return byImplementation[implementation]; })
+                    .filter(function (value) { return value !== null && value !== undefined; });
                 return {
                     size: size,
-                    compact: compactRow ? compactRow[selectedMetric] : null,
-                    map: mapRow ? mapRow[selectedMetric] : null,
+                    values: byImplementation,
                     best: competitors.length ? Math.min.apply(null, competitors) : null
                 };
             });
+            const available = new Set(selectedRows.map(function (row) { return row.implementation; }));
+            const candidates = [
+                { key: "compact", implementation: "adotenv-compact", label: "Compact API", className: "bench-bar-compact" },
+                { key: "map", implementation: "adotenv", label: "Map API", className: "bench-bar-map" }
+            ].concat(competitorOrder.map(function (implementation, index) {
+                return {
+                    key: "competitor-" + index,
+                    implementation: implementation,
+                    label: implementation,
+                    className: "bench-bar-impl-" + index
+                };
+            }));
+            const selectedView = view.select.value;
+            let series;
+            if (selectedView === "Best competitor") {
+                series = candidates.slice(0, 2).filter(function (item) { return available.has(item.implementation); });
+                series.push({ key: "best", label: "Best competitor", className: "bench-bar-best", best: true });
+            } else if (selectedView === "Compact vs map") {
+                series = candidates.slice(0, 2).filter(function (item) { return available.has(item.implementation); });
+            } else {
+                series = candidates.filter(function (item) { return available.has(item.implementation); });
+            }
+            series.forEach(function (item) {
+                item.value = function (row) { return item.best ? row.best : row.values[item.implementation]; };
+            });
             const values = [];
             chartRows.forEach(function (row) {
-                [row.compact, row.map, row.best].forEach(function (value) {
-                    if (value !== null && !Number.isNaN(value)) values.push(value);
+                series.forEach(function (item) {
+                    const value = item.value(row);
+                    if (value !== null && value !== undefined && !Number.isNaN(value)) {
+                        values.push(value);
+                    }
                 });
             });
             const max = values.length ? Math.max.apply(null, values) : 0;
@@ -512,13 +554,6 @@
             const plotWidth = width - left - right;
             const plotHeight = height - top - bottom;
             const groupWidth = plotWidth / sizes.length;
-            const series = [
-                { key: "compact", label: "Compact", color: "var(--accent)" },
-                { key: "map", label: "Map", color: "var(--subtle)" },
-                { key: "best", label: "Best competitor", color: "var(--chart-best)" }
-            ].filter(function (item) {
-                return chartRows.some(function (row) { return row[item.key] !== null; });
-            });
             const barGap = 3;
             const barWidth = Math.max(4, (groupWidth * 0.78 - barGap * (series.length - 1)) / series.length);
             const useLog = scale.select.value === "log";
@@ -543,8 +578,8 @@
             chartRows.forEach(function (row, groupIndex) {
                 const groupStart = left + groupIndex * groupWidth + groupWidth * 0.11;
                 series.forEach(function (item, seriesIndex) {
-                    const value = row[item.key];
-                    if (value === null) {
+                    const value = item.value(row);
+                    if (value === null || value === undefined) {
                         return;
                     }
                     const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
@@ -554,7 +589,7 @@
                     bar.setAttribute("width", String(barWidth));
                     bar.setAttribute("height", String(Math.max(1, barHeight)));
                     bar.setAttribute("rx", "2");
-                    bar.setAttribute("class", "bench-bar bench-bar-" + item.key);
+                    bar.setAttribute("class", "bench-bar " + item.className);
                     const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
                     title.textContent = item.label + ": " + (kind === "memory"
                         ? (selectedMetric === "allocations" ? formatCount(value) + " allocations" : formatBytes(value))
@@ -586,7 +621,7 @@
                 const span = document.createElement("span");
                 span.className = "bench-legend-item";
                 const swatch = document.createElement("i");
-                swatch.className = "bench-swatch bench-bar-" + item.key;
+                swatch.className = "bench-swatch " + item.className;
                 const label = document.createElement("span");
                 label.textContent = item.label;
                 span.append(swatch, label);
@@ -596,7 +631,7 @@
             shell.note.textContent = (useLog
                 ? "Log scale keeps all fixture sizes visible; switch to Linear for absolute proportions. "
                 : "Linear scale shows absolute proportions; switch to Log when values span many orders of magnitude. ") +
-                "Select " + (kind === "memory" ? "a metric, mode and shape" : "a mode and shape") +
+                "Select " + (kind === "memory" ? "a metric, libraries, mode and shape" : "libraries, mode and shape") +
                 "; use the table below for exact values.";
         }
 
@@ -605,7 +640,7 @@
                 render();
             });
         }
-        [mode, shape, scale].filter(Boolean).forEach(function (control) {
+        [mode, shape, scale, view].filter(Boolean).forEach(function (control) {
             control.select.addEventListener("change", render);
         });
         render();

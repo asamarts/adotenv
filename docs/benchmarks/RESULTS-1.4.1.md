@@ -3,6 +3,8 @@
 Status: final 1.4.1 baseline, recorded on `kbench` at source SHA `0649096`.
 Re-run this complete matrix if the benchmark code or baseline changes.
 
+**Map** is the standard `parse_values`/`load_values` API returning `BTreeMap<String, String>`. The 1.4.1 release did not include the compact API; charts show the map API and every pinned library.
+
 <div class="bench-highlights">
 <div class="bench-highlight"><strong>25/25</strong><span>speed wins</span></div>
 <div class="bench-highlight"><strong>30/30</strong><span>peak-heap wins</span></div>

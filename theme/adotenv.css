@@ -100,6 +100,11 @@ html:not(.js) {
     --hl-meta: #116329;
     --hl-attr: #0550ae;
     --chart-best: #b7791f;
+    --competitor-1: #0969da;
+    --competitor-2: #8250df;
+    --competitor-3: #bf8700;
+    --competitor-4: #cf222e;
+    --competitor-5: #1a7f37;
 }
 
 .navy,
@@ -176,6 +181,11 @@ html:not(.js) {
     --hl-meta: #7ee787;
     --hl-attr: #79c0ff;
     --chart-best: #d29922;
+    --competitor-1: #58a6ff;
+    --competitor-2: #bc8cff;
+    --competitor-3: #d29922;
+    --competitor-4: #f85149;
+    --competitor-5: #3fb950;
 }
 
 /* Base typography */
@@ -1387,6 +1397,11 @@ html:not(.adotenv-nav) .content .nav-wrapper .mobile-nav-chapters .fa-svg {
 .bench-bar-compact { fill: var(--accent); }
 .bench-bar-map { fill: var(--subtle); }
 .bench-bar-best { fill: var(--chart-best); }
+.bench-bar-impl-0 { fill: var(--competitor-1); }
+.bench-bar-impl-1 { fill: var(--competitor-2); }
+.bench-bar-impl-2 { fill: var(--competitor-3); }
+.bench-bar-impl-3 { fill: var(--competitor-4); }
+.bench-bar-impl-4 { fill: var(--competitor-5); }
 
 .bench-legend {
     display: flex;
@@ -1413,6 +1428,11 @@ html:not(.adotenv-nav) .content .nav-wrapper .mobile-nav-chapters .fa-svg {
 .bench-swatch.bench-bar-compact { background: var(--accent); }
 .bench-swatch.bench-bar-map { background: var(--subtle); }
 .bench-swatch.bench-bar-best { background: var(--chart-best); }
+.bench-swatch.bench-bar-impl-0 { background: var(--competitor-1); }
+.bench-swatch.bench-bar-impl-1 { background: var(--competitor-2); }
+.bench-swatch.bench-bar-impl-2 { background: var(--competitor-3); }
+.bench-swatch.bench-bar-impl-3 { background: var(--competitor-4); }
+.bench-swatch.bench-bar-impl-4 { background: var(--competitor-5); }
 
 .bench-note {
     margin: 10px 0 0;
