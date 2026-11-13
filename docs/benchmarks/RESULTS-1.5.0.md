@@ -3,6 +3,8 @@
 Status: publication-grade 1.5.0 compact-values release evidence. It does not
 replace the historical 1.4.1 map-based release claim.
 
+**Compact** is the opt-in `CompactValues` API with one value buffer and one fixed-size entry per key. **Map** is the standard `parse_values`/`load_values` API that returns a `BTreeMap<String, String>`. Both expose the same effective keys and values. The charts default to all available pinned libraries and can also isolate compact vs map or show the best competitor.
+
 <div class="bench-highlights">
 <div class="bench-highlight"><strong>25/25</strong><span>speed wins</span></div>
 <div class="bench-highlight"><strong>20/20</strong><span>non-empty retained-heap wins</span></div>

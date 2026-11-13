@@ -6,7 +6,7 @@ commands, fixture catalogue, result schema and raw per-release evidence for
 
 <div class="bench-callouts">
 <a class="bench-callout" href="RESULTS-1.5.0.html"><strong>1.5.0 results</strong><span>Compact memory and speed evidence, with charts and sortable tables.</span></a>
-<a class="bench-callout" href="compact-memory.html"><strong>Memory chart</strong><span>Compare compact, map and best-competitor peaks, retained heap and allocations.</span></a>
+<a class="bench-callout" href="compact-memory.html"><strong>Memory chart</strong><span>Compare all available libraries, compact vs map, or the best-competitor view.</span></a>
 <a class="bench-callout" href="speed-1.5.0.html"><strong>Speed chart</strong><span>Compare values and load timings across every size and shape.</span></a>
 <a class="bench-callout" href="METHODOLOGY.html"><strong>Methodology</strong><span>How the comparable matrix, gates and publication runs work.</span></a>
 </div>
@@ -15,6 +15,10 @@ The current release evidence is the [1.5.0 result page](RESULTS-1.5.0.md). It
 records strict non-empty retained-heap wins, with zero-byte ties on empty
 inputs, strict peak and allocation wins in all values/load cells, and 25/25
 speed wins against the best pinned competitor.
+
+Charts can show **all available pinned libraries**, isolate **compact vs map**, or show
+only the **best competitor** per cell. Compact is the opt-in `CompactValues`
+API; map is the standard `BTreeMap`-returning API.
 
 The [1.4.1 result page](RESULTS-1.4.1.md) remains historical evidence for the
 map-based API and for the speed claim. It records a strict win in all 25

@@ -28,6 +28,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   compact or invalid JSON examples.
 - Added accessible benchmark selector help popovers, including an explanation
   of the log-scale default and when to use linear scale.
+- Explained the compact and map APIs on benchmark result pages, and added an
+  all-libraries chart view covering every pinned competitor.
 
 ## [1.5.0] - 2026-11-12
 
