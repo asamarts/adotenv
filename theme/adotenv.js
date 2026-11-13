@@ -489,7 +489,14 @@
             const selectedRows = rows.filter(function (row) {
                 return row.mode === selectedMode && row.shape === selectedShape;
             });
-            const competitorOrder = ["dotenv", "dotenv-flow", "dotenv-parser", "dotenvs", "dotenvy"];
+            const knownCompetitors = ["dotenv", "dotenv-flow", "dotenv-parser", "dotenvs", "dotenvy"];
+            const competitorOrder = knownCompetitors.filter(function (implementation) {
+                return rows.some(function (row) { return row.implementation === implementation; });
+            }).concat(Array.from(new Set(rows.map(function (row) { return row.implementation; })))
+                .filter(function (implementation) {
+                    return implementation !== "adotenv" && implementation !== "adotenv-compact" && !knownCompetitors.includes(implementation);
+                })
+                .sort());
             const chartRows = sizes.map(function (size) {
                 const cell = selectedRows.filter(function (row) { return row.size === size; });
                 const byImplementation = {};
@@ -514,7 +521,7 @@
                     key: "competitor-" + index,
                     implementation: implementation,
                     label: implementation,
-                    className: "bench-bar-impl-" + index
+                    className: "bench-bar-impl-" + (index % 5)
                 };
             }));
             const selectedView = view.select.value;
