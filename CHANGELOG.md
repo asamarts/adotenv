@@ -17,6 +17,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Regression tests and maintenance guidance for keeping the map APIs as the
   default and updating both memory baselines intentionally.
 
+### Documentation
+
+- Reorganized the site navigation around getting started, guide, performance
+  and benchmarks, reference, and project history, with nested benchmark
+  results.
+- Added interactive benchmark charts, sortable/filterable tables, benchmark
+  overview cards, and a release-history index.
+- Pretty-printed every JSON code block and added a docs check that rejects
+  compact or invalid JSON examples.
+
 ## [1.5.0] - 2026-11-12
 
 ### Added

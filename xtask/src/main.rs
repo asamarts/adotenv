@@ -182,6 +182,13 @@ fn command_speed(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+fn pretty_json(text: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(text)
+        .ok()
+        .and_then(|value| serde_json::to_string_pretty(&value).ok())
+        .unwrap_or_else(|| text.to_owned())
+}
+
 fn write_speed_markdown(path: &Path) -> Result<()> {
     let text = fs::read_to_string(path).map_err(|error| error.to_string())?;
     let mut report = String::from("# Speed benchmark results\n\n");
@@ -190,7 +197,7 @@ fn write_speed_markdown(path: &Path) -> Result<()> {
     let sidecar = path.with_extension("fingerprint.json");
     if let Ok(fingerprint) = fs::read_to_string(&sidecar) {
         report.push_str("<details>\n<summary>Provenance fingerprint</summary>\n\n```json\n");
-        report.push_str(fingerprint.trim());
+        report.push_str(&pretty_json(fingerprint.trim()));
         report.push_str("\n```\n\n</details>\n\n");
     }
     report.push_str("| benchmark | time |\n|---|---:|\n");
@@ -270,7 +277,7 @@ fn command_report(args: &[String]) -> Result<()> {
     let sidecar = Path::new(input).with_extension("fingerprint.json");
     if let Ok(fingerprint) = fs::read_to_string(&sidecar) {
         report.push_str("<details>\n<summary>Provenance fingerprint</summary>\n\n```json\n");
-        report.push_str(fingerprint.trim());
+        report.push_str(&pretty_json(fingerprint.trim()));
         report.push_str("\n```\n\n</details>\n\n");
     }
     report.push_str(

@@ -102,10 +102,32 @@ contract; use JSON or GitHub output in scripts. The codes are listed in
 
 ### `check --format json`
 
-The report is one line of JSON:
+The report is JSON. The CLI emits one line; this example is formatted for
+readability:
 
 ```json
-{"version":1,"files":[{"path":"app.env","ok":false,"diagnostics":[{"line":1,"severity":"error","code":"dotenv.invalid-key","message":"key does not match the selected dialect","span":{"start":0,"end":7},"secondary_span":null}]}]}
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "app.env",
+      "ok": false,
+      "diagnostics": [
+        {
+          "line": 1,
+          "severity": "error",
+          "code": "dotenv.invalid-key",
+          "message": "key does not match the selected dialect",
+          "span": {
+            "start": 0,
+            "end": 7
+          },
+          "secondary_span": null
+        }
+      ]
+    }
+  ]
+}
 ```
 
 Every field is listed below, in output order. The fields, codes, severities and
@@ -181,10 +203,36 @@ declarations. Neither human output nor the matrix is a machine contract.
 
 ### `diff --format json`
 
-The report is one line of JSON:
+The report is JSON. The CLI emits one line; this example is formatted for
+readability:
 
 ```json
-{"version":1,"baseline":"base.env","files":[{"path":"app.env","ok":true,"differences":[{"key":"A","kind":"value","left":{"state":"value","value":"1","exported":false},"right":{"state":"value","value":"2","exported":false}}]}]}
+{
+  "version": 1,
+  "baseline": "base.env",
+  "files": [
+    {
+      "path": "app.env",
+      "ok": true,
+      "differences": [
+        {
+          "key": "A",
+          "kind": "value",
+          "left": {
+            "state": "value",
+            "value": "1",
+            "exported": false
+          },
+          "right": {
+            "state": "value",
+            "value": "2",
+            "exported": false
+          }
+        }
+      ]
+    }
+  ]
+}
 ```
 
 Every field is listed below, in output order. The schema is stable.

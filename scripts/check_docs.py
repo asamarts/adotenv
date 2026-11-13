@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -35,6 +36,17 @@ for file in FILES:
             errors.append(f"{file}: contains smart punctuation {token!r}")
     for match in BANNED.finditer(text):
         errors.append(f"{file}: contains banned phrase {match.group(0)!r}")
+
+    for match in re.finditer(r"```json\n(.*?)\n```", text, re.DOTALL):
+        block = match.group(1)
+        try:
+            value = json.loads(block)
+        except json.JSONDecodeError as error:
+            errors.append(f"{file}: invalid JSON code block: {error}")
+            continue
+        expected = json.dumps(value, indent=2, ensure_ascii=False)
+        if block.strip() != expected.strip():
+            errors.append(f"{file}: JSON code block is not pretty-printed")
 
     targets = [match.group(1) for match in re.finditer(r"\[[^\]]*\]\(([^)]+)\)", text)]
     if DOCS in file.parents:
