@@ -25,12 +25,22 @@ consumers must ignore unknown fields added in a later release.
 Example:
 
 ```json
-{"size":"8","shape":"plain","mode":"values","implementation":"adotenv",
- "entries":8,"source_bytes":104,
- "fixture_sha256":"6ee242e0e29423ccf125f7433fe4f3da4bcb73bd9a338e01c07ae55c2391a0cf",
- "peak_heap_bytes":632,"retained_heap_bytes":632,"heap_after_drop_bytes":0,
- "allocations":17,"rss_before_bytes":2613248,"rss_peak_bytes":2613248,
- "rss_after_bytes":2613248}
+{
+  "size": "8",
+  "shape": "plain",
+  "mode": "values",
+  "implementation": "adotenv",
+  "entries": 8,
+  "source_bytes": 104,
+  "fixture_sha256": "6ee242e0e29423ccf125f7433fe4f3da4bcb73bd9a338e01c07ae55c2391a0cf",
+  "peak_heap_bytes": 632,
+  "retained_heap_bytes": 632,
+  "heap_after_drop_bytes": 0,
+  "allocations": 17,
+  "rss_before_bytes": 2613248,
+  "rss_peak_bytes": 2613248,
+  "rss_after_bytes": 2613248
+}
 ```
 
 The rendered `memory.md` is a presentation of these rows. The JSONL is the
@@ -57,9 +67,18 @@ from some quick bencher lines.
 Each raw result has a sibling `*.fingerprint.json`:
 
 ```json
-{"arch":"x86_64","os":"linux","cpu":"...","cpu_count":8,"kernel":"...",
- "rustc":"rustc ...","hyperfine":"hyperfine ...","git_sha":"...",
- "hostname":"...","load1":"..."}
+{
+  "arch": "x86_64",
+  "os": "linux",
+  "cpu": "...",
+  "cpu_count": 8,
+  "kernel": "...",
+  "rustc": "rustc ...",
+  "hyperfine": "hyperfine ...",
+  "git_sha": "...",
+  "hostname": "...",
+  "load1": "..."
+}
 ```
 
 `git_sha` is the source commit used to build the benchmark binary. The remote
