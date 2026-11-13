@@ -30,6 +30,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of the log-scale default and when to use linear scale.
 - Explained the compact and map APIs on benchmark result pages, and added an
   all-libraries chart view covering every pinned competitor.
+- Widened the docs content area for tables, charts and code while keeping prose
+  at a readable measure; removed the broken edit-page menu icon.
 
 ## [1.5.0] - 2026-11-12
 

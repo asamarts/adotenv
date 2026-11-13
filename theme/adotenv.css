@@ -16,7 +16,8 @@
         "JetBrains Mono", "Adwaita Mono", "DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono",
         monospace;
     --code-font-size: 0.875em;
-    --content-max-width: 760px;
+    --content-max-width: 1200px;
+    --reading-width: 800px;
     --sidebar-target-width: 280px;
     --menu-bar-height: 56px;
     --page-padding: 24px;
@@ -213,6 +214,20 @@ body {
 
 .content main {
     padding-block-start: 8px;
+}
+
+/* Use the full width for charts, matrices and code, while keeping running
+   prose at a comfortable reading measure. */
+.content main > p,
+.content main > ul,
+.content main > ol,
+.content main > blockquote {
+    max-width: var(--reading-width);
+}
+
+.content main > .bench-callouts,
+.content main > .bench-highlights {
+    max-width: none;
 }
 
 .content p,
@@ -540,7 +555,7 @@ pre > .buttons :hover {
 .content table th {
     color: var(--fg-strong);
     font-weight: 600;
-    white-space: nowrap;
+    white-space: normal;
 }
 
 .content table tbody tr:last-child td {
