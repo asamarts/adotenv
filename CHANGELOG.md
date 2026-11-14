@@ -6,14 +6,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `adotenv-lsp` now applies the configured dialect to diagnostics, completion,
+  definition, hover, references, symbols and rename, and decodes percent-escaped
+  URI paths before matching ignore globs.
+- `adotenv-lint` no longer overmatches ancestor paths for rooted excludes,
+  preserves explicit whitespace CLI options when a rule is disabled, reports
+  configured severity in human and GitHub output, and reports unsortable
+  key-order groups without a fix instead of missing them.
+- `adotenv-cli` accepts a global `--dialect` after other command options,
+  honors `--` for leading-dash paths in `get`, `example`, `load` and `set`, and
+  treats a symlinked file root as an explicit file argument. Published CLI
+  packages no longer contain integration tests that reference workspace files.
+- Default-feature `adotenv-config` documentation no longer has a broken intra-
+  doc link.
+- Corrected benchmark evidence and release-history wording, including the 1.5.0
+  peak/allocation ratios, post-release speed provenance and historical 1.4.1
+  load narrative.
+
 ### Added
 
 - Deterministic compact parsing and compact loading benchmarks in the CI
   instruction/cycle gate.
 - Compact memory regression gate using `compact-memory.jsonl` and the
   `adotenv-compact` implementation filter.
-- Publication-grade compact speed evidence: 25/25 strict wins against the best
-  pinned competitor in values/load cells.
 - Regression tests and maintenance guidance for keeping the map APIs as the
   default and updating both memory baselines intentionally.
 
@@ -57,6 +74,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   memory evaluation. Non-empty values/load cells win retained heap, peak heap
   and allocations against the best pinned competitor; empty retained cells tie
   at zero bytes.
+- Post-release compact speed evidence: 25/25 strict wins against the best
+  pinned competitor in values/load cells, recorded at `79937cc` after the
+  1.5.0 tag. The released `70f9762` tree does not contain the speed benchmark
+  cases; the library source is unchanged between the two commits.
 
 ## [1.4.1] - 2026-11-11
 

@@ -10,7 +10,7 @@ consumers must ignore unknown fields added in a later release.
 | `size` | string | Size label (`8`, `128`, `1k`, `10k`, `100k`) |
 | `shape` | string | Fixture shape label |
 | `mode` | string | `values`, `document`, `load` or `resolve` |
-| `implementation` | string | `adotenv` or a pinned competitor label |
+| `implementation` | string | `adotenv`, `adotenv-compact`, or a pinned competitor label |
 | `entries` | integer | Parsed declaration count |
 | `source_bytes` | integer | Generated fixture byte length |
 | `fixture_sha256` | string | SHA-256 of the exact fixture source |
@@ -87,10 +87,11 @@ benchmark run is traceable even when the host is reached over SSH.
 
 ## Baseline and gate files
 
-- `memory.jsonl` is the committed memory baseline used by
-  `adotenv-xtask gate`.
-- `memory.fingerprint.json` and `speed.fingerprint.json` are provenance, not
-  inputs to the correctness gate.
+- `memory.jsonl` is the committed map-API memory baseline used by
+  `adotenv-xtask gate`; `compact-memory.jsonl` is the compact-values baseline
+  used with `--implementation adotenv-compact`.
+- The memory and speed fingerprint files are provenance, not inputs to the
+  correctness gate.
 - The deterministic gungraun gate has no committed baseline; it always compares
   the merge base with the PR in one run.
 - A baseline update requires a reviewed code change and a fresh fingerprint.

@@ -84,11 +84,13 @@ For each later `adotenv-lsp` version:
 
 6. Publish benchmark evidence from a clean release-candidate commit. Run both
    matrices through `kbench`/benchq, record fingerprints and load, render the
-   tables, and update the per-version page in `docs/benchmarks/` (for 1.4.1,
-   [RESULTS-1.4.1.md](docs/benchmarks/RESULTS-1.4.1.md)). Every claim must link
+   tables, and update the per-version page in `docs/benchmarks/` (for example,
+   [RESULTS-1.5.0.md](docs/benchmarks/RESULTS-1.5.0.md)). Every claim must link
    to the exact raw file, fixture hashes, competitor versions and host
    provenance. Do not tag when a publication run mixed source SHAs, hosts, or
-   queue sessions, or when the comparable claim regressed.
+   queue sessions, or when the comparable claim regressed. If a benchmark is
+   recorded after the tag, label it post-release evidence and record the source
+   SHA.
 
 ## Publish
 

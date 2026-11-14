@@ -47,8 +47,8 @@ cargo run --release -p adotenv-xtask -- queue \
 ```
 
 The local equivalent accepts the same flag and defaults to
-`docs/benchmarks/compact-memory.jsonl`. The result is evaluation evidence for
-a future minor release; the 1.4.1 matrix remains unchanged.
+`docs/benchmarks/compact-memory.jsonl`. The compact matrix is the 1.5.0
+memory evidence; the 1.4.1 map matrix remains unchanged.
 
 ## Reproduce one speed cell
 

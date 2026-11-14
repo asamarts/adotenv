@@ -16,7 +16,7 @@
 |---|---|---|
 | `plain` | `KEY=value` assignments | values, load |
 | `long-line` | Long literal values | values, load |
-| `empty` | Empty source | load (values has no cell) |
+| `empty` | Empty source | load; values memory only (values speed has no cell) |
 | `quoted-escaped` | Quotes, escapes, Unicode | not compared |
 | `comments-export-bare` | Comments, `export`, bare keys | not compared |
 | `duplicate` | Repeated keys | not compared |

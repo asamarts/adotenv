@@ -41,9 +41,9 @@ and [result schema](SCHEMA.md). Raw evidence:
 | Queue | benchq/pueue, group `bench`, one slot |
 
 The two runs share the same source SHA. The memory fingerprint records a
-higher one-minute load because the deterministic allocator metrics do not
-depend on wall-clock scheduling; the load is retained for audit rather than
-used to hide the run.
+lower one-minute load than the Criterion run (`0.25` versus `0.46`). The
+deterministic allocator metrics do not depend on wall-clock scheduling, so the
+load is retained for audit rather than used to filter the run.
 
 ## Claim
 

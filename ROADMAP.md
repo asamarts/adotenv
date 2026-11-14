@@ -28,7 +28,7 @@ from the rename collision rule, which shipped in 1.0.0. The fixes are listed in
 collected again on the fixed code
 ([1.0-readiness.md](docs/design/1.0-readiness.md)). The 1.1 audit and its
 fixes are in [1.1-audit.md](docs/design/1.1-audit.md). Version 1.2.0 was
-released on 2026-11-05; version 1.3.0 was released on 2026-11-06. Version 1.4.0
+released on 2026-11-04; version 1.3.0 was released on 2026-11-06. Version 1.4.0
 was released on 2026-11-07 and adds the verified reference-rename primitive.
 Version 1.4.1 was released on 2026-11-11 with the benchmark and hardening
 cycle. Version 1.5.0 was released on 2026-11-12 with the compact values API.
@@ -38,10 +38,9 @@ The audit, release evidence and remaining companion work are recorded there.
 
 1. Keep the public API stable. Additive changes use non-exhaustive types and
    builders.
-2. Work through the 1.1 audit in
-   [1.1-audit.md](docs/design/1.1-audit.md). The 1.1.1 correctness fixes come
-   first.
-3. Work through the "After 1.0" list in
+2. Keep the completed [1.1 audit](docs/design/1.1-audit.md) fixes and their
+   regression coverage intact.
+3. Track the remaining "After 1.0" items in
    [1.0-fix-round.md](docs/design/1.0-fix-round.md).
 4. The optional `adotenv-lint` 0.1.0 policy companion was published on
    2026-11-06, followed by 0.1.1 through crates.io Trusted Publishing. The
@@ -59,8 +58,8 @@ The audit, release evidence and remaining companion work are recorded there.
    adopting. The shared vectors and check-report schema live in `tests/vectors/`. The core
    stays dependency-free and keeps its own types; shared code, if any, is only for companion
    crates.
-8. Complete the [1.4.1 / linter 0.2.0 / LSP 0.4.0 plan](docs/design/1.4.1-plan.md):
-   all three releases are published; retain the verified release evidence.
+8. The [1.4.1 / linter 0.2.0 / LSP 0.4.0 plan](docs/design/1.4.1-plan.md) is
+   complete; retain its verified release evidence as history.
 9. Maintain the compact values API. Compact parsing/loading and compact memory
    now have deterministic gates, and compact speed evidence is published. The
    1.4.1 map-based claim remains historical release evidence.
