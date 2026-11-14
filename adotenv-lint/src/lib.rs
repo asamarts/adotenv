@@ -30,7 +30,7 @@ pub use config::{
     LintPolicy, OutputFormat, RuleSeverity,
 };
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::ops::Range;
 
@@ -97,7 +97,11 @@ pub enum KeyCase {
 pub struct LintOptions {
     /// Report later declarations of a repeated key.
     pub duplicate_keys: bool,
-    /// Require each group to sort its declarations.
+    /// Require each group's declarations to be in key order.
+    ///
+    /// A group that `Document::sort` cannot reorder, such as one with a
+    /// self-reference or a reference cycle, is still reported, with no fix
+    /// attached.
     pub key_order: bool,
     /// Require a key case.
     pub key_case: KeyCase,
@@ -565,19 +569,7 @@ pub fn lint(document: &Document<'_>, options: LintOptions) -> Vec<Finding> {
     }
 
     if options.key_order {
-        if let Ok(sorted) = document.sort() {
-            if let Some(first) = sorted.edits().first() {
-                findings.push(Finding::new(
-                    Rule::KeyOrder,
-                    "declarations are not sorted",
-                    options.severity_for_rule(Rule::KeyOrder),
-                    first.range.clone(),
-                    line_of(&line_index, first.range.start),
-                    None,
-                    Some(Fix::Sort),
-                ));
-            }
-        }
+        key_order_findings(document, options, &line_index, &mut findings);
     }
 
     for entry in document.entries() {
@@ -660,6 +652,66 @@ fn whitespace_differs(
     options.trim_trailing_whitespace && !tokens.trailing_space.is_empty()
 }
 
+fn key_order_findings(
+    document: &Document<'_>,
+    options: LintOptions,
+    line_index: &LineIndex<'_>,
+    findings: &mut Vec<Finding>,
+) {
+    // A group that `Document::sort` refuses to reorder, for example one with a
+    // self-reference or a cycle, still has an observable key order. Report it,
+    // but only attach the sorting fix when a sort edit exists.
+    let sortable = document
+        .sort()
+        .map(|sorted| {
+            sorted
+                .edits()
+                .iter()
+                .map(|edit| edit.range.clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    for group in document.groups() {
+        let entries: Vec<_> = group.entries().collect();
+        if entries.len() < 2 {
+            continue;
+        }
+        let keys: Vec<&str> = entries.iter().map(|entry| entry.key()).collect();
+        if keys.windows(2).all(|pair| pair[0] <= pair[1]) {
+            continue;
+        }
+        if keys.iter().any(|key| key.is_empty()) || duplicate_keys(&keys) {
+            // Duplicate and empty keys belong to the duplicate-key rule, and
+            // `Document::sort` never reorders them.
+            continue;
+        }
+        if group.items().any(|item| {
+            !matches!(
+                item.kind(),
+                adotenv::ItemKind::Entry | adotenv::ItemKind::Comment
+            )
+        }) {
+            continue;
+        }
+        let span = group.span();
+        let fix = sortable.contains(&span).then_some(Fix::Sort);
+        findings.push(Finding::new(
+            Rule::KeyOrder,
+            "declarations are not sorted",
+            options.severity_for_rule(Rule::KeyOrder),
+            span.clone(),
+            line_of(line_index, span.start),
+            None,
+            fix,
+        ));
+    }
+}
+
+fn duplicate_keys(keys: &[&str]) -> bool {
+    let mut seen = BTreeSet::new();
+    !keys.iter().all(|key| seen.insert(*key))
+}
+
 fn line_of(index: &LineIndex<'_>, offset: usize) -> usize {
     index
         .to_position(offset, ColumnEncoding::Utf8)
@@ -689,6 +741,17 @@ mod tests {
         assert_eq!(findings[0].rule(), Rule::KeyOrder);
         let fixed = apply_fix(&doc, findings[0].fix().unwrap()).unwrap();
         assert_eq!(fixed.as_str(), "A=1\nB=2\n");
+    }
+
+    #[test]
+    fn key_order_reports_unsortable_groups_without_a_fix() {
+        for source in ["B=$B\nA=1\n", "B='$A'\nA=1\n", "B=$A\nA=$B\n"] {
+            let doc = parse_strict(source).unwrap();
+            let findings = lint(&doc, LintOptions::new().with_key_order(true));
+            assert_eq!(findings.len(), 1, "{source:?}");
+            assert_eq!(findings[0].rule(), Rule::KeyOrder, "{source:?}");
+            assert!(findings[0].fix().is_none(), "{source:?}");
+        }
     }
 
     #[test]

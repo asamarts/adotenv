@@ -7,8 +7,9 @@
 //! The operations are conservative. Definition follows keys and literal
 //! `$VAR`/`${VAR}` references; rename uses `Document::rename_with_references`
 //! so the declaration and its literal references change together. Hover values
-//! can be masked with [`LspOptions::with_mask_values`] and linter findings can
-//! be enabled with [`LspOptions::with_lint_options`].
+//! can be masked with [`LspOptions::with_mask_values`], the parser dialect can
+//! be selected with [`LspOptions::with_dialect`], and linter findings can be
+//! enabled with [`LspOptions::with_lint_options`].
 
 use std::{
     collections::{BTreeSet, HashMap},
@@ -16,10 +17,10 @@ use std::{
 };
 
 use adotenv::{
-    parse, parse_strict, ColumnEncoding, Document, EditError, Entry, LineIndex,
+    parse_strict_with, parse_with, ColumnEncoding, Document, EditError, Entry, LineIndex,
     Position as ParserPosition, Reference,
 };
-pub use adotenv::{EqualsSpacing, QuoteStyle, Severity};
+pub use adotenv::{Dialect, EqualsSpacing, QuoteStyle, Severity};
 use adotenv_lint::lint;
 pub use adotenv_lint::{KeyCase, LintOptions, Rule};
 use lsp_types::{
@@ -30,21 +31,31 @@ use lsp_types::{
 };
 
 /// Options for LSP operations.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct LspOptions {
     /// Replace hover values with `<redacted>`.
     pub mask_values: bool,
+    /// The dialect used to parse every document. Defaults to
+    /// [`Dialect::PORTABLE`].
+    pub dialect: Dialect,
     /// Optional linter policy. Parser diagnostics remain enabled.
     pub lint: Option<LintOptions>,
 }
 
+impl Default for LspOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LspOptions {
-    /// Returns options that leave hover values visible.
+    /// Returns Portable parsing, visible hover values and no linter.
     #[must_use]
     pub const fn new() -> Self {
         Self {
             mask_values: false,
+            dialect: Dialect::PORTABLE,
             lint: None,
         }
     }
@@ -53,6 +64,13 @@ impl LspOptions {
     #[must_use]
     pub const fn with_mask_values(mut self, mask: bool) -> Self {
         self.mask_values = mask;
+        self
+    }
+
+    /// Sets the dialect used to parse documents for every operation.
+    #[must_use]
+    pub const fn with_dialect(mut self, dialect: Dialect) -> Self {
+        self.dialect = dialect;
         self
     }
 
@@ -104,7 +122,7 @@ impl From<EditError> for RenameError {
 /// `options.lint` contains an explicit policy.
 #[must_use]
 pub fn diagnostics(text: &str, uri: &Uri, options: &LspOptions) -> Vec<LspDiagnostic> {
-    let (document, diagnostics) = parse(text);
+    let (document, diagnostics) = parse_with(text, options.dialect);
     let mapped = Mapped::new(text);
     let mut output = diagnostics
         .into_iter()
@@ -162,6 +180,18 @@ fn severity(severity: Severity) -> DiagnosticSeverity {
 /// can filter it using their normal completion prefix.
 #[must_use]
 pub fn completion(text: &str, position: Position) -> CompletionResponse {
+    completion_with_options(text, position, &LspOptions::new())
+}
+
+/// Returns completion items for declared keys using `options`.
+///
+/// This is [`completion`] with an explicit dialect and policy.
+#[must_use]
+pub fn completion_with_options(
+    text: &str,
+    position: Position,
+    options: &LspOptions,
+) -> CompletionResponse {
     let Some(offset) = Mapped::new(text).offset(position) else {
         return CompletionResponse::Array(Vec::new());
     };
@@ -170,7 +200,14 @@ pub fn completion(text: &str, position: Position) -> CompletionResponse {
         .map_or(0, |index| index + 1);
     let prefix = &text[line_start..offset];
     let trimmed = prefix.trim_start();
-    if trimmed.starts_with('#') {
+    if trimmed.starts_with('#') || prefix.contains('#') {
+        return CompletionResponse::Array(Vec::new());
+    }
+    if prefix
+        .split_once('=')
+        .is_some_and(|(_, value)| value.matches('\'').count() % 2 == 1)
+    {
+        // A `$` in a single-quoted value is literal text, not a reference.
         return CompletionResponse::Array(Vec::new());
     }
     let key_prefix = trimmed.strip_prefix("export ").unwrap_or(trimmed);
@@ -187,7 +224,7 @@ pub fn completion(text: &str, position: Position) -> CompletionResponse {
         return CompletionResponse::Array(Vec::new());
     }
 
-    let (document, _) = parse(text);
+    let (document, _) = parse_with(text, options.dialect);
     let mut keys = BTreeSet::new();
     for entry in document.entries() {
         keys.insert(entry.key().to_owned());
@@ -213,7 +250,16 @@ pub fn completion(text: &str, position: Position) -> CompletionResponse {
 #[must_use]
 #[allow(deprecated)]
 pub fn document_symbols(text: &str) -> DocumentSymbolResponse {
-    let (document, _) = parse(text);
+    document_symbols_with_options(text, &LspOptions::new())
+}
+
+/// Returns an outline of the document's declared keys using `options`.
+///
+/// This is [`document_symbols`] with an explicit dialect.
+#[must_use]
+#[allow(deprecated)]
+pub fn document_symbols_with_options(text: &str, options: &LspOptions) -> DocumentSymbolResponse {
+    let (document, _) = parse_with(text, options.dialect);
     let mapped = Mapped::new(text);
     DocumentSymbolResponse::Nested(
         document
@@ -240,7 +286,21 @@ pub fn document_symbols(text: &str) -> DocumentSymbolResponse {
 #[must_use]
 #[allow(deprecated)]
 pub fn workspace_symbols(text: &str, uri: &Uri, query: &str) -> Vec<SymbolInformation> {
-    let (document, _) = parse(text);
+    workspace_symbols_with_options(text, uri, query, &LspOptions::new())
+}
+
+/// Returns workspace symbols for declared keys using `options`.
+///
+/// This is [`workspace_symbols`] with an explicit dialect.
+#[must_use]
+#[allow(deprecated)]
+pub fn workspace_symbols_with_options(
+    text: &str,
+    uri: &Uri,
+    query: &str,
+    options: &LspOptions,
+) -> Vec<SymbolInformation> {
+    let (document, _) = parse_with(text, options.dialect);
     let mapped = Mapped::new(text);
     let query = query.to_lowercase();
     document
@@ -284,7 +344,20 @@ pub fn apply_change(text: &str, range: Option<Range>, replacement: &str) -> Opti
 /// Finds the declaration of the key or reference at `position`.
 #[must_use]
 pub fn definition(text: &str, uri: &Uri, position: Position) -> Option<GotoDefinitionResponse> {
-    let (document, _) = parse(text);
+    definition_with_options(text, uri, position, &LspOptions::new())
+}
+
+/// Finds the declaration of the key or reference at `position` using `options`.
+///
+/// This is [`definition`] with an explicit dialect.
+#[must_use]
+pub fn definition_with_options(
+    text: &str,
+    uri: &Uri,
+    position: Position,
+    options: &LspOptions,
+) -> Option<GotoDefinitionResponse> {
+    let (document, _) = parse_with(text, options.dialect);
     let offset = Mapped::new(text).offset(position)?;
     let name = name_at(&document, offset)?;
     let entry = document.get_entry(name)?;
@@ -297,7 +370,7 @@ pub fn definition(text: &str, uri: &Uri, position: Position) -> Option<GotoDefin
 /// Returns hover information for a key or reference.
 #[must_use]
 pub fn hover(text: &str, position: Position, options: &LspOptions) -> Option<Hover> {
-    let (document, _) = parse(text);
+    let (document, _) = parse_with(text, options.dialect);
     let mapped = Mapped::new(text);
     let offset = mapped.offset(position)?;
     if let Some(reference) = reference_at(&document, offset) {
@@ -315,6 +388,14 @@ pub fn hover(text: &str, position: Position, options: &LspOptions) -> Option<Hov
         });
     }
     let entry = entry_at(&document, offset)?;
+    if entry
+        .tokens()
+        .inline_comment
+        .as_ref()
+        .is_some_and(|comment| comment.contains(&offset))
+    {
+        return None;
+    }
     let value = match entry.value() {
         Some(_) if options.mask_values => "`<redacted>`".to_owned(),
         Some(value) => format!("`{value}`"),
@@ -342,7 +423,22 @@ pub fn references(
     position: Position,
     include_declaration: bool,
 ) -> Vec<Location> {
-    let (document, _) = parse(text);
+    references_with_options(text, uri, position, include_declaration, &LspOptions::new())
+}
+
+/// Finds declarations and value references for the symbol at `position` using
+/// `options`.
+///
+/// This is [`references`] with an explicit dialect.
+#[must_use]
+pub fn references_with_options(
+    text: &str,
+    uri: &Uri,
+    position: Position,
+    include_declaration: bool,
+    options: &LspOptions,
+) -> Vec<Location> {
+    let (document, _) = parse_with(text, options.dialect);
     let Some(offset) = Mapped::new(text).offset(position) else {
         return Vec::new();
     };
@@ -385,7 +481,27 @@ pub fn rename(
     position: Position,
     new_name: &str,
 ) -> Result<WorkspaceEdit, RenameError> {
-    let document = parse_strict(text).map_err(|_| RenameError::NoSymbol)?;
+    rename_with_options(text, uri, position, new_name, &LspOptions::new())
+}
+
+/// Renames a key declaration and its literal references using `options`.
+///
+/// This is [`rename`] with an explicit dialect.
+///
+/// # Errors
+///
+/// Returns [`RenameError::NoSymbol`] when the document cannot be parsed or
+/// `position` is not on a key or reference, and [`RenameError::Edit`] when the
+/// rename is invalid or, with matching references present, a new key cannot be
+/// written as a variable reference.
+pub fn rename_with_options(
+    text: &str,
+    uri: &Uri,
+    position: Position,
+    new_name: &str,
+    options: &LspOptions,
+) -> Result<WorkspaceEdit, RenameError> {
+    let document = parse_strict_with(text, options.dialect).map_err(|_| RenameError::NoSymbol)?;
     let mapped = Mapped::new(text);
     let offset = mapped.offset(position).ok_or(RenameError::NoSymbol)?;
     let old_name = name_at(&document, offset)
@@ -411,7 +527,10 @@ fn name_at<'a>(document: &'a Document<'_>, offset: usize) -> Option<&'a str> {
         return reference_name(document, &reference);
     }
     let entry = entry_at(document, offset)?;
-    entry.key_span().contains(&offset).then_some(entry.key())
+    let key = entry.key_span();
+    (key.start..=key.end)
+        .contains(&offset)
+        .then_some(entry.key())
 }
 
 fn entry_at<'a>(document: &'a Document<'_>, offset: usize) -> Option<Entry<'a>> {
@@ -467,6 +586,20 @@ impl<'a> Mapped<'a> {
     }
 
     fn range(&self, span: std::ops::Range<usize>) -> Range {
+        if self.bom && span.start == 0 && span.end == 3 {
+            // The byte-order mark has no visible width. Anchor its diagnostic
+            // to the first visible character instead of a zero-width range.
+            return Range::new(
+                Position {
+                    line: 0,
+                    character: 0,
+                },
+                Position {
+                    line: 0,
+                    character: 1,
+                },
+            );
+        }
         Range::new(self.position(span.start), self.position(span.end))
     }
 

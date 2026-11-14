@@ -62,7 +62,6 @@ dependencies = [
  "globset",
  "serde",
  "toml",
- "toml_edit",
 ]
 
 [[package]]

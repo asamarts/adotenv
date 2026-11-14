@@ -133,10 +133,10 @@ fn run(args: &[String]) -> u8 {
 }
 
 fn extract_dialect(args: &mut Vec<String>) -> Result<Dialect, ()> {
-    // Global dialect options may appear before the command, or immediately
-    // after it before the command's first positional argument. Stopping at
-    // the first positional keeps `set file KEY --dialect=node` and similar
-    // values intact.
+    // Global dialect options may appear before the command, or anywhere after
+    // it before a `--` terminator. `set` is the exception: once its file
+    // argument has been seen, a later `--dialect=...` is a key or value, not a
+    // global option.
     let mut selected = None;
     let mut index = 0;
     while index < args.len() {
@@ -152,17 +152,25 @@ fn extract_dialect(args: &mut Vec<String>) -> Result<Dialect, ()> {
     }
     let command = index;
     if command < args.len() {
+        let stop_at_first_positional = args[command] == "set";
+        let mut positional_seen = false;
         index = command + 1;
         while index < args.len() {
+            if args[index] == "--" || stop_at_first_positional && positional_seen {
+                break;
+            }
             if let Some((end, value)) = dialect_option(args, index)? {
                 if selected.replace((index, end, value)).is_some() {
                     errln!("--dialect may be specified only once");
                     return Err(());
                 }
                 index = end;
-            } else {
-                break;
+                continue;
             }
+            if stop_at_first_positional && !args[index].starts_with('-') {
+                positional_seen = true;
+            }
+            index += 1;
         }
     }
     if let Some((start, end, dialect)) = selected {
@@ -203,9 +211,9 @@ const USAGE: &str = r#"adotenv-cli [--dialect <portable|node|python|compose|dock
 Commands:
   get <file> <key>             Print an effective literal value
   check [--format human|json|github] [--json] [--source]
-        [--recursive] [--exclude <path>] <file-or-dir>...
+        [-r|--recursive] [--exclude <path>] <file-or-dir>...
                                 Report parse diagnostics
-  fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <file-or-dir>...
+  fmt [--write|--check] [--sort] [-r|--recursive] [--exclude <path>] <file-or-dir>...
                                 Format documents (optionally sorted)
   diff [--format human|matrix|json] [--json] [--mask] <baseline> <file>...
                                 Compare effective keys, optionally masking values
@@ -231,15 +239,17 @@ fn usage() {
 }
 
 fn get(args: &[String], dialect: Dialect) -> u8 {
-    let args = args.strip_prefix(&[String::from("--")]).unwrap_or(args);
+    let (args, options_ended) = strip_options_terminator(args);
     if args.len() != 2 {
         errln!("usage: adotenv-cli get <file> <key>");
         return FAILURE;
     }
     let path = &args[0];
-    if let Err(error) = reject_unknown_option(path) {
-        errln!("{error}");
-        return FAILURE;
+    if !options_ended {
+        if let Err(error) = reject_unknown_option(path) {
+            errln!("{error}");
+            return FAILURE;
+        }
     }
     let source = match read_text(path) {
         Ok(source) => source,
@@ -403,10 +413,30 @@ fn expand_paths(paths: &[String], recursive: bool, excludes: &[PathBuf]) -> Disc
             }
         };
         if metadata.file_type().is_symlink() {
-            discovery.errors.push(DiscoveryError {
-                path: root_path,
-                message: "refusing to follow symbolic links".to_string(),
-            });
+            let target = match fs::metadata(&root_path) {
+                Ok(target) => target,
+                Err(error) => {
+                    discovery.errors.push(DiscoveryError {
+                        path: root_path,
+                        message: error.to_string(),
+                    });
+                    continue;
+                }
+            };
+            if target.is_file() {
+                let base = root_path.parent().unwrap_or_else(|| Path::new("."));
+                if !is_excluded(base, &root_path, excludes) {
+                    discovery.paths.push(root_path);
+                }
+            } else {
+                // A directory symlink is refused; a file symlink is an
+                // explicit file argument and is followed once.
+                discovery.errors.push(DiscoveryError {
+                    path: root_path,
+                    message: "refusing to follow symbolic links that do not name regular files"
+                        .to_string(),
+                });
+            }
             continue;
         }
         if metadata.is_file() {
@@ -1484,14 +1514,16 @@ fn difference_kind_name(kind: DifferenceKind) -> &'static str {
 }
 
 fn example(args: &[String], dialect: Dialect) -> u8 {
-    let args = args.strip_prefix(&[String::from("--")]).unwrap_or(args);
+    let (args, options_ended) = strip_options_terminator(args);
     if args.len() != 1 {
         errln!("usage: adotenv-cli example <file>");
         return FAILURE;
     }
-    if let Err(error) = reject_unknown_option(&args[0]) {
-        errln!("{error}");
-        return FAILURE;
+    if !options_ended {
+        if let Err(error) = reject_unknown_option(&args[0]) {
+            errln!("{error}");
+            return FAILURE;
+        }
     }
     let source = match read_text(&args[0]) {
         Ok(source) => source,
@@ -1506,23 +1538,27 @@ fn example(args: &[String], dialect: Dialect) -> u8 {
 }
 
 fn load(args: &[String], dialect: Dialect) -> u8 {
-    let args = args.strip_prefix(&[String::from("--")]).unwrap_or(args);
+    let (args, options_ended) = strip_options_terminator(args);
     if args.is_empty() || args.len() > 2 {
         errln!("usage: adotenv-cli load <directory> [mode]");
         return FAILURE;
     }
-    if let Err(error) = reject_unknown_option(&args[0]) {
-        errln!("{error}");
-        return FAILURE;
+    if !options_ended {
+        if let Err(error) = reject_unknown_option(&args[0]) {
+            errln!("{error}");
+            return FAILURE;
+        }
     }
     if is_stdin(&args[0]) {
         errln!("load does not read standard input");
         return FAILURE;
     }
     let mode = args.get(1).map_or("", String::as_str);
-    if let Err(error) = reject_unknown_option(mode) {
-        errln!("{error}");
-        return FAILURE;
+    if !options_ended {
+        if let Err(error) = reject_unknown_option(mode) {
+            errln!("{error}");
+            return FAILURE;
+        }
     }
     let loaded = match load_cascade_with(&args[0], mode, dialect) {
         Ok(loaded) => loaded,
@@ -1565,10 +1601,16 @@ fn render_portable(loaded: &LoadedEnvironment) -> Result<String, String> {
 }
 
 fn set(args: &[String], dialect: Dialect) -> u8 {
-    let args = args.strip_prefix(&[String::from("--")]).unwrap_or(args);
+    let (args, options_ended) = strip_options_terminator(args);
     if args.len() != 3 {
         errln!("usage: adotenv-cli set <file> <key> <value>");
         return FAILURE;
+    }
+    if !options_ended {
+        if let Err(error) = reject_unknown_option(&args[0]) {
+            errln!("{error}");
+            return FAILURE;
+        }
     }
     if is_stdin(&args[0]) {
         errln!("set cannot write standard input");
@@ -2115,6 +2157,13 @@ fn remove_backup(path: &Path) -> io::Result<()> {
     fs::remove_file(path)
 }
 
+fn strip_options_terminator(args: &[String]) -> (&[String], bool) {
+    match args.split_first() {
+        Some((first, rest)) if first == "--" => (rest, true),
+        _ => (args, false),
+    }
+}
+
 fn reject_unknown_option(argument: &str) -> Result<(), String> {
     if argument.starts_with('-') && argument != "-" && !is_stdin(argument) {
         Err(format!("unknown option: {argument}"))
@@ -2164,7 +2213,7 @@ mod tests {
     };
     #[cfg(unix)]
     use super::{read_text, resolve_write, write_atomic_checked};
-    use std::sync::atomic::Ordering;
+    use std::{fs, path::Path, sync::atomic::Ordering};
 
     #[cfg(not(unix))]
     #[test]
@@ -2232,8 +2281,13 @@ mod tests {
 
     #[test]
     fn github_escaping_vectors_match() {
-        let vectors: serde_json::Value =
-            serde_json::from_str(include_str!("../../tests/vectors/github-escaping.json")).unwrap();
+        // The published package does not include workspace-level vectors.
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/vectors/github-escaping.json");
+        let Ok(text) = fs::read_to_string(path) else {
+            return;
+        };
+        let vectors: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(
             vectors["version"].as_u64(),
             Some(1),

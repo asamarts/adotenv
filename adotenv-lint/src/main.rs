@@ -33,7 +33,7 @@ Lint .env files using adotenv's literal document model.
 Options:
   --dialect <portable|node|python|compose|docker>
   --format <human|json|github>
-  --recursive                 Search directories for .env and .env.* files
+  -r, --recursive             Search directories for .env and .env.* files
   --key-order                 Require sorted declarations
   --key-case <lower|upper>    Require key case
   --quote-style <double|single|unquoted|preserve>
@@ -47,8 +47,9 @@ Options:
 Exit codes: 0 no findings (or all findings fixed), 1 remaining findings,
 2 usage/read/parse/write failure.
 
-The default rule reports duplicate keys. Fixes are verified through the
-library before they are written.";
+With no path, searches the current directory recursively. The default rule
+reports duplicate keys. Fixes are verified through the library before they
+are written.";
 
 type Format = OutputFormat;
 
@@ -91,15 +92,24 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<u8, String> {
-    let mut args = env::args().skip(1).collect::<Vec<_>>();
-    if args
+    let mut args = env::args_os()
+        .skip(1)
+        .map(|argument| {
+            argument
+                .into_string()
+                .map_err(|_| "arguments must be valid UTF-8".to_owned())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let option_end = args.iter().position(|argument| argument == "--");
+    let options = option_end.map_or(args.as_slice(), |end| &args[..end]);
+    if options
         .iter()
         .any(|argument| argument == "-h" || argument == "--help")
     {
         println!("{USAGE}");
         return Ok(SUCCESS);
     }
-    if args.iter().any(|argument| argument == "--version") {
+    if options.iter().any(|argument| argument == "--version") {
         println!("adotenv-lint {}", env!("CARGO_PKG_VERSION"));
         return Ok(SUCCESS);
     }
@@ -315,10 +325,31 @@ fn replace_file(temporary: &Path, target: &Path) -> Result<(), String> {
     match fs::rename(temporary, target) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            // Windows cannot replace an existing target with rename. This
-            // fallback is best-effort and not crash-atomic.
-            fs::remove_file(target).map_err(|error| error.to_string())?;
-            fs::rename(temporary, target).map_err(|error| error.to_string())
+            // Windows cannot replace an existing target with rename. Move the
+            // old file aside and restore it if installing the new one fails.
+            // This fallback is best-effort and not crash-atomic.
+            let backup = target.with_file_name(format!(
+                ".adotenv-backup-{}-{}",
+                std::process::id(),
+                NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::rename(target, &backup).map_err(|error| error.to_string())?;
+            match fs::rename(temporary, target) {
+                Ok(()) => {
+                    let _ = fs::remove_file(&backup);
+                    Ok(())
+                }
+                Err(replace_error) => {
+                    let restore = fs::rename(&backup, target);
+                    match restore {
+                        Ok(()) => Err(replace_error.to_string()),
+                        Err(restore_error) => Err(format!(
+                            "replacement failed: {replace_error}; restoring the original failed: {restore_error}; backup left at {}",
+                            backup.display()
+                        )),
+                    }
+                }
+            }
         }
         Err(error) => Err(error.to_string()),
     }
@@ -591,9 +622,10 @@ fn print_human(path: &Path, findings: &[Finding]) {
             .key()
             .map_or_else(String::new, |key| format!(" [{key}]"));
         println!(
-            "{}:{}: {}: {}{key}",
+            "{}:{}: {}[{}]: {}{key}",
             path.display(),
             finding.line(),
+            severity_name(finding.severity()),
             finding.rule().as_str(),
             finding.message()
         );
@@ -603,12 +635,21 @@ fn print_human(path: &Path, findings: &[Finding]) {
 fn print_github(path: &Path, findings: &[Finding]) {
     for finding in findings {
         println!(
-            "::warning file={},line={},title={}::{}",
+            "::{} file={},line={},title={}::{}",
+            github_level(finding.severity()),
             github_property(&path.display().to_string()),
             finding.line(),
             github_property(finding.rule().as_str()),
             github_message(finding.message())
         );
+    }
+}
+
+fn github_level(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Error => "error",
+        Severity::Warning => "warning",
+        _ => "notice",
     }
 }
 

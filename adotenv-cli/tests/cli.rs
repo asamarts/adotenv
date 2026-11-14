@@ -495,6 +495,31 @@ fn dialect_selection_applies_to_commands() {
     let unknown = run(&["get", "--dialect", "nope", file.to_str().unwrap(), "A"]);
     assert_eq!(unknown.status.code(), Some(2));
     assert!(stderr(&unknown).contains("unknown dialect"));
+
+    let after_positional = run(&["get", file.to_str().unwrap(), "--dialect", "node", "A"]);
+    assert_eq!(stdout(&after_positional), "a\n");
+}
+
+#[test]
+fn dialect_can_follow_another_command_option() {
+    let dir = TempDir::new();
+    let file = dir.file("python.env", "'A B'=1\n");
+    let output = run(&[
+        "check",
+        "--format",
+        "json",
+        "--dialect",
+        "python",
+        file.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(
+        stdout(&output),
+        format!(
+            "{{\"version\":1,\"files\":[{{\"path\":\"{}\",\"ok\":true,\"diagnostics\":[]}}]}}\n",
+            file.to_str().unwrap()
+        )
+    );
 }
 
 #[test]
@@ -2042,6 +2067,20 @@ fn recursive_roots_refuse_symlinks() {
     assert!(stderr(&output).contains("refusing to follow symbolic links"));
 }
 
+#[cfg(unix)]
+#[test]
+fn recursive_file_symlinks_are_explicit_file_arguments() {
+    use std::os::unix::fs::symlink;
+
+    let dir = TempDir::new();
+    let target = dir.file("target.env", "A=1\n");
+    let link = dir.path().join("linked.env");
+    symlink(&target, &link).unwrap();
+    let output = run(&["check", "--json", "--recursive", link.to_str().unwrap()]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("\"ok\":true"));
+}
+
 #[test]
 fn recursive_stdin_and_file_roots_are_supported() {
     let output = run_with_stdin(&["check", "--json", "--recursive", "-"], "A=1\n");
@@ -2663,4 +2702,27 @@ fn double_dash_ends_option_parsing() {
         std::fs::read_to_string(&file).unwrap(),
         "A=--dialect=node\n"
     );
+
+    let relative = dir.file("-dash.env", "A=1\n");
+    let rejected = run_in(dir.path(), &["set", "-dash.env", "A", "2"]);
+    assert_eq!(rejected.status.code(), Some(2), "{}", stderr(&rejected));
+    assert!(stderr(&rejected).contains("unknown option"));
+
+    let get = run_in(dir.path(), &["get", "--", "-dash.env", "A"]);
+    assert_eq!(get.status.code(), Some(0), "{}", stderr(&get));
+    assert_eq!(stdout(&get), "1\n");
+
+    let example = run_in(dir.path(), &["example", "--", "-dash.env"]);
+    assert_eq!(example.status.code(), Some(0), "{}", stderr(&example));
+
+    let set = run_in(dir.path(), &["set", "--", "-dash.env", "A", "2"]);
+    assert_eq!(set.status.code(), Some(0), "{}", stderr(&set));
+    assert_eq!(fs::read_to_string(&relative).unwrap(), "A=2\n");
+
+    let load_dir = dir.path().join("-dash-dir");
+    fs::create_dir(&load_dir).unwrap();
+    fs::write(load_dir.join(".env"), "A=1\n").unwrap();
+    let load = run_in(dir.path(), &["load", "--", "-dash-dir"]);
+    assert_eq!(load.status.code(), Some(0), "{}", stderr(&load));
+    assert_eq!(stdout(&load), "A=1\n");
 }

@@ -10,6 +10,9 @@ documentation = "https://docs.rs/adotenv-cli"
 readme = "README.md"
 keywords = ["dotenv", "cli", "formatter", "linter", "env"]
 categories = ["command-line-utilities", "development-tools", "config"]
+# Keep the published package self-contained. Integration tests depend on
+# workspace-level fixtures and documentation and are not shipped.
+include = ["/src/**", "/README.md", "/LICENSE-APACHE", "/LICENSE-MIT"]
 
 [dependencies]
 adotenv = { path = "..", version = "1.5.0", features = ["load"] }
