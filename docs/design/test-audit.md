@@ -4,10 +4,12 @@ This page records test coverage at the last release and the known gaps.
 Coverage is a guide, not a release gate. How the tests are organized is
 described in [Quality](quality.md).
 
-## Coverage at 1.2.0
+## Coverage at 1.2.0 (historical)
 
-From a local `cargo llvm-cov --workspace --all-features` run on 2026-11-04
-from branch `prep-1.2.0` during the audit. The workspace total is 94.4 percent of
+The current release is 1.5.0; the figures below are the last published
+coverage audit and are retained as a historical baseline. From a local
+`cargo llvm-cov --workspace --all-features` run on 2026-11-04 from branch
+`prep-1.2.0` during the audit. The workspace total is 94.4 percent of
 regions and 94.8 percent of lines. The core crate is 94.2 percent of regions
 and 94.7 percent of lines.
 

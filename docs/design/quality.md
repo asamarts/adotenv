@@ -64,7 +64,8 @@ The docs workflow also builds the mdBook site and runs a headless-browser smoke
 test for nested navigation, charts, sortable/filterable tables and selector
 help popovers.
 
-All warnings are errors in CI.
+All warnings are errors in CI, except the minimal-versions job, where dependency
+minimums can fail warning-clean builds.
 
 ## Diagnostics
 
@@ -74,9 +75,10 @@ not build diagnostic lists they do not use.
 
 ## Fuzzing
 
-The repository has seven bounded fuzz targets with public seed corpora:
-`parser`, `edits`, `encoding`, `resolve`, `format`, `limits` and
-`differential`. The differential target compares Portable value parsing with
+The repository has seven bounded fuzz targets. Six have public seed corpora:
+`parser`, `edits`, `encoding`, `resolve`, `format` and `differential`; the
+`limits` target starts from generated inputs. The differential target compares
+Portable value parsing with
 the pinned in-memory competitors on the conservative `KEY=value` grammar, and
 runs malformed/recovery inputs through parser invariants without asserting
 upstream equivalence where semantics differ. The
@@ -139,9 +141,10 @@ in a minor release.
 The public API follows semantic versioning. Enums and structs that may grow
 are non-exhaustive, and options are set through builders. CI runs
 `cargo semver-checks` for the five published library crates against their
-latest published versions. The LSP prototype does not have a published baseline
-yet. Breaking releases list their changes and a migration guide in the
-changelog; see [Upgrading to 1.0](../reference/upgrading.md).
+latest published versions. The LSP prototype is published but remains outside
+the semver gate while its API is unstable. Breaking releases list their changes
+and a migration guide in the changelog; see
+[Upgrading to 1.0](../reference/upgrading.md).
 
 ## Supply chain
 

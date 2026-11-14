@@ -38,10 +38,12 @@ assert_eq!(inserted.as_str(), "# app\nA=1\nB=2\nC=3\n");
 ```
 
 Values are literal. `set("URL", "${HOST}/api")` writes text that reads back as
-`${HOST}/api` in the same dialect, quoting or escaping it when needed. The
-reference is written as typed and not escaped against expansion, so
-`Document::resolve` can still expand it. A value that the dialect cannot
-spell, such as a line break in Docker, fails with `EditError::Unencodable`.
+`${HOST}/api` in the same dialect, quoting or escaping it when needed. The `$`
+is not escaped against later expansion. The declaration keeps its quote style
+when possible, and quoting decides eligibility: a single-quoted value stays
+literal under Portable rules until its quote style changes. A value that the
+dialect cannot spell, such as a line break in Docker, fails with
+`EditError::Unencodable`.
 
 `rename_with_references` is the reference-aware form of `rename`. It changes
 the declaration and every variable candidate whose name is the old key in one
