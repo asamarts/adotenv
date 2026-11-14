@@ -34,6 +34,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   at a readable measure; removed the broken edit-page menu icon.
 - Added a headless-browser smoke test for the docs site: nested navigation,
   charts, table filtering/sorting and selector help popovers.
+- Moved chart legends outside the horizontal chart scroller, added a mobile
+  scroll hint, and improved competitor-series colors.
 - Made the docs smoke test discover benchmark pages automatically and derive
   chart expectations from the published tables, so new competitors and result
   pages remain covered without count rewrites.

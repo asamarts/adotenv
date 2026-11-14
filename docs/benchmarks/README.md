@@ -1,4 +1,4 @@
-# Benchmarks
+# Benchmark overview
 
 This directory contains the comparable benchmark methodology, reproducible
 commands, fixture catalogue, result schema and raw per-release evidence for
