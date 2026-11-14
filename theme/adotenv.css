@@ -105,7 +105,7 @@ html:not(.js) {
     --competitor-2: #8250df;
     --competitor-3: #bf8700;
     --competitor-4: #cf222e;
-    --competitor-5: #1a7f37;
+    --competitor-5: #bf3989;
 }
 
 .navy,
@@ -186,7 +186,7 @@ html:not(.js) {
     --competitor-2: #bc8cff;
     --competitor-3: #d29922;
     --competitor-4: #f85149;
-    --competitor-5: #3fb950;
+    --competitor-5: #f778ba;
 }
 
 /* Base typography */
@@ -1453,6 +1453,16 @@ html:not(.adotenv-nav) .content .nav-wrapper .mobile-nav-chapters .fa-svg {
     margin: 10px 0 0;
     color: var(--muted);
     font-size: 1.3rem;
+}
+
+.bench-scroll-hint {
+    margin: 8px 0 0;
+    color: var(--muted);
+    font-size: 1.3rem;
+}
+
+.bench-scroll-hint[hidden] {
+    display: none;
 }
 
 .bench-callouts {

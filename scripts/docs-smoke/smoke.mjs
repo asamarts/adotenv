@@ -278,6 +278,7 @@ try {
         viewport: window.innerWidth,
     }));
     check(pageWidth.document <= pageWidth.viewport + 1, "mobile page overflows horizontally");
+    check(await page.locator(".bench-scroll-hint").isVisible(), "mobile chart scroll hint is missing");
     await page.locator(".bench-info-toggle").last().click();
     const mobilePopover = await page.locator(".bench-info-popover:not([hidden])").boundingBox();
     check(

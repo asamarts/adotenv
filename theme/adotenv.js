@@ -310,11 +310,17 @@
         controls.forEach(function (control) { toolbar.append(control); });
         const plot = document.createElement("div");
         plot.className = "bench-plot";
+        const hint = document.createElement("p");
+        hint.className = "bench-scroll-hint";
+        hint.hidden = true;
+        hint.textContent = "Scroll the chart horizontally to see every size.";
+        const legend = document.createElement("div");
+        legend.className = "bench-legend";
         const note = document.createElement("p");
         note.className = "bench-note";
-        section.append(heading, toolbar, plot, note);
+        section.append(heading, toolbar, plot, hint, legend, note);
         parent.parentNode.insertBefore(section, parent);
-        return { plot: plot, note: note };
+        return { plot: plot, legend: legend, hint: hint, note: note };
     }
 
     let infoCounter = 0;
@@ -549,6 +555,8 @@
             const max = values.length ? Math.max.apply(null, values) : 0;
             if (!max) {
                 shell.plot.textContent = "No non-zero data for this selection.";
+                shell.legend.replaceChildren();
+                shell.hint.hidden = true;
                 shell.note.textContent = "The table below has the exact zero-byte values.";
                 return;
             }
@@ -622,8 +630,7 @@
                 : formatNanoseconds(max);
             svg.append(maxLabel);
             shell.plot.replaceChildren(svg);
-            const legend = document.createElement("div");
-            legend.className = "bench-legend";
+            const legend = [];
             series.forEach(function (item) {
                 const span = document.createElement("span");
                 span.className = "bench-legend-item";
@@ -632,9 +639,14 @@
                 const label = document.createElement("span");
                 label.textContent = item.label;
                 span.append(swatch, label);
-                legend.append(span);
+                legend.push(span);
             });
-            shell.plot.append(legend);
+            shell.legend.replaceChildren.apply(shell.legend, legend);
+            const updateHint = function () {
+                shell.hint.hidden = shell.plot.scrollWidth <= shell.plot.clientWidth + 1;
+            };
+            updateHint();
+            window.addEventListener("resize", updateHint);
             shell.note.textContent = (useLog
                 ? "Log scale keeps all fixture sizes visible; switch to Linear for absolute proportions. "
                 : "Linear scale shows absolute proportions; switch to Log when values span many orders of magnitude. ") +
