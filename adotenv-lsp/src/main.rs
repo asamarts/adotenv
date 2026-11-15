@@ -29,7 +29,7 @@ fn main() -> ExitCode {
     }
 }
 
-const USAGE: &str = "adotenv-lsp [--mask-values] \
+const USAGE: &str = "adotenv-lsp [-h|--help] [--version] [--mask-values] \
                      [--config <path> | --discover-lint-config]\n";
 
 fn run() -> Result<()> {

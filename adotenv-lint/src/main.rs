@@ -43,6 +43,8 @@ Options:
   --exclude <pattern>         Ignore paths matching a glob
   --fix                       Apply verified fixes and write changed files
   --                          End option parsing
+  -h, --help                  Print this usage
+  --version                   Print the version
 
 Exit codes: 0 no findings (or all findings fixed), 1 remaining findings,
 2 usage/read/parse/write failure.
