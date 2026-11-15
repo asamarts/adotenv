@@ -67,7 +67,7 @@ dependencies = [
 
 [[package]]
 name = "adotenv-lsp"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "adotenv",
  "adotenv-lint",

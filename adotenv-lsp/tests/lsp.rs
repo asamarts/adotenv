@@ -210,6 +210,58 @@ fn completion_lists_declared_keys() {
     };
     assert_eq!(items.len(), 2);
 
+    let tight_hash = completion("HOST=localhost\nURL=a#b $H\n", position(1, 10));
+    let CompletionResponse::Array(items) = tight_hash else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items.len(), 2);
+
+    let tight_hash_node = completion_with_options(
+        "HOST=localhost\nURL=a#b $H\n",
+        position(1, 10),
+        &LspOptions::new().with_dialect(Dialect::NODE_DOTENV),
+    );
+    let CompletionResponse::Array(items) = tight_hash_node else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items.len(), 0);
+
+    let tight_hash_docker = completion_with_options(
+        "HOST=localhost\nURL=a#b $H\n",
+        position(1, 10),
+        &LspOptions::new().with_dialect(Dialect::DOCKER_RAW),
+    );
+    let CompletionResponse::Array(items) = tight_hash_docker else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items.len(), 2);
+
+    let tight_hash_python = completion_with_options(
+        "HOST=localhost\nURL=a#b $H\n",
+        position(1, 10),
+        &LspOptions::new().with_dialect(Dialect::PYTHON_DOTENV),
+    );
+    let CompletionResponse::Array(items) = tight_hash_python else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items.len(), 2);
+
+    let tab_hash_portable = completion("HOST=localhost\nURL=a\t#b $H\n", position(1, 11));
+    let CompletionResponse::Array(items) = tab_hash_portable else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items.len(), 0);
+
+    let tab_hash_compose = completion_with_options(
+        "HOST=localhost\nURL=a\t#b $H\n",
+        position(1, 11),
+        &LspOptions::new().with_dialect(Dialect::COMPOSE),
+    );
+    let CompletionResponse::Array(items) = tab_hash_compose else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items.len(), 2);
+
     let exported_key = completion("export   HOST=localhost\n", position(0, 13));
     let CompletionResponse::Array(items) = exported_key else {
         panic!("expected array completion");
