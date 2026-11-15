@@ -47,15 +47,18 @@ disables the linter duplicate-key rule unless `[rules]` explicitly enables it.
 
 ## Library
 
-Linter findings are opt-in through `LspOptions::with_lint_options`. Parser
-diagnostics remain enabled independently. The crate re-exports `LintOptions`,
-`KeyCase`, `QuoteStyle`, `EqualsSpacing`, `Rule` and `Severity` so callers can
-configure a policy without a separate direct dependency.
+Linter findings are opt-in through `LspOptions::with_lint_options`, and
+`LspOptions::with_dialect` selects the parser rules used by every operation.
+Parser diagnostics remain enabled independently. The crate re-exports
+`Dialect`, `LintOptions`, `KeyCase`, `QuoteStyle`, `EqualsSpacing`, `Rule` and
+`Severity` so callers can configure a policy without a separate direct
+dependency.
 
 `LintOptions::new()` includes duplicate-key findings, which overlap parser
 diagnostics. Disable `duplicate_keys` when publishing both. The stdio binary
-exposes policy through `--config` and `--discover-lint-config`, but not the
-individual rule flags; embedding clients enable linter policy explicitly.
+exposes policy and the configured `dialect` through `--config` and
+`--discover-lint-config`, but not the individual rule flags; embedding clients
+enable linter policy explicitly.
 
 The operations are also available as functions over a source string and an
 `lsp_types::Uri`:

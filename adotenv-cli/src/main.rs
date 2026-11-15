@@ -224,10 +224,12 @@ Commands:
                                 Run a child with the environment plus loaded values
 
 File-reading commands accept '-' or '--stdin' for standard input. Recursive
-commands skip .git, target and node_modules and do not follow symlinks.
---source may reveal secret values and is only valid for human output. get,
-load and diff print values. run passes the parent environment and the loaded
-values, which take precedence, and never changes the parent environment.
+commands skip .git, target and node_modules. A symlink found during the search
+is skipped and a symlinked directory argument is refused; an explicit file
+symlink is followed once. --source may reveal secret values and is only valid
+for human output. get, load and diff print values. run passes the parent
+environment and the loaded values, which take precedence, and never changes the
+parent environment.
 Command substitution from files is not enabled.
 
 Exit codes: 0 success, 1 findings, 2 usage errors, read or write failures and
@@ -631,7 +633,7 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
     };
     if raw_paths.is_empty() && !recursive {
         errln!(
-            "usage: adotenv-cli check [--format human|json|github] [--json] [--source] [--recursive] [--exclude <path>] <file-or-dir>..."
+            "usage: adotenv-cli check [--format human|json|github] [--json] [--source] [-r|--recursive] [--exclude <path>] <file-or-dir>..."
         );
         return FAILURE;
     }
@@ -994,7 +996,7 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
     }
     if raw_paths.is_empty() && !recursive {
         errln!(
-            "usage: adotenv-cli fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <file-or-dir>..."
+            "usage: adotenv-cli fmt [--write|--check] [--sort] [-r|--recursive] [--exclude <path>] <file-or-dir>..."
         );
         return FAILURE;
     }
