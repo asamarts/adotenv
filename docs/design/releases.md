@@ -2,6 +2,7 @@
 
 | Version | Date | Focus |
 |---|---|---|
+| 1.5.2 | 2026-11-15 | CLI help-text corrections; no library behavior change |
 | 1.5.1 | 2026-11-15 | CLI, companion-tooling and release-evidence fixes |
 | adotenv-lint 0.2.1 | 2026-11-15 | Ignore, severity, whitespace and key-order fixes |
 | adotenv-lsp 0.4.2 | 2026-11-15 | Dialect-aware completion context fixes |
