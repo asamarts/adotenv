@@ -513,13 +513,11 @@ fn dialect_can_follow_another_command_option() {
         file.to_str().unwrap(),
     ]);
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
-    assert_eq!(
-        stdout(&output),
-        format!(
-            "{{\"version\":1,\"files\":[{{\"path\":\"{}\",\"ok\":true,\"diagnostics\":[]}}]}}\n",
-            file.to_str().unwrap()
-        )
-    );
+    let report: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+    assert_eq!(report["version"], 1);
+    assert_eq!(report["files"][0]["path"], file.to_str().unwrap());
+    assert_eq!(report["files"][0]["ok"], true);
+    assert_eq!(report["files"][0]["diagnostics"], serde_json::json!([]));
 }
 
 #[test]

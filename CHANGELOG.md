@@ -4,26 +4,14 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.5.1] - 2026-11-15
 
 ### Fixed
 
-- `adotenv-lsp` now applies the configured dialect to diagnostics, completion,
-  definition, hover, references, symbols and rename, and decodes percent-escaped
-  URI paths before matching ignore globs.
-- `adotenv-lint` no longer overmatches ancestor paths for rooted excludes,
-  preserves explicit whitespace CLI options when a rule is disabled, reports
-  configured severity in human and GitHub output, and reports unsortable
-  key-order groups without a fix instead of missing them.
 - `adotenv-cli` accepts a global `--dialect` after other command options,
   honors `--` for leading-dash paths in `get`, `example`, `load` and `set`, and
   treats a symlinked file root as an explicit file argument. Published CLI
   packages no longer contain integration tests that reference workspace files.
-- Default-feature `adotenv-config` documentation no longer has a broken intra-
-  doc link.
-- Corrected benchmark evidence and release-history wording, including the 1.5.0
-  peak/allocation ratios, post-release speed provenance and historical 1.4.1
-  load narrative.
 
 ### Added
 
@@ -36,6 +24,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Documentation
 
+- Clarified that `Edit::Set` preserves a declaration's quote style and that
+  single-quoted references remain literal until the quote style changes.
 - Reorganized the site navigation around getting started, guide, performance
   and benchmarks, reference, and project history, with nested benchmark
   results.
@@ -56,6 +46,52 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Made the docs smoke test discover benchmark pages automatically and derive
   chart expectations from the published tables, so new competitors and result
   pages remain covered without count rewrites.
+- Corrected benchmark evidence and release-history wording, including the 1.5.0
+  peak/allocation ratios, post-release speed provenance and historical 1.4.1
+  load narrative.
+- Corrected the default-feature `adotenv-config` documentation link and the
+  published unsafe-API scope in the `adotenv-process` README.
+
+## [adotenv-lint 0.2.1] - 2026-11-15
+
+### Fixed
+
+- Rooted ignore patterns no longer match arbitrary ancestor path components,
+  so `--exclude='src/**'` cannot skip a whole project because a parent
+  directory is named `src`.
+- An explicit `--trim-trailing-whitespace` or `--equals-spacing` option is
+  preserved when `[rules] whitespace = "off"` is configured.
+- Human output includes the configured severity, and GitHub annotations use
+  the matching error, warning or notice level.
+- Key-order findings now include groups that `Document::sort` refuses to
+  reorder, such as self-references and cycles, without attaching an
+  unverified fix.
+- Directly constructed `LintConfig` values with an unknown rule no longer
+  panic in `apply`; the unknown rule is skipped, as documented.
+- The non-Unix write fallback restores the original file if installing the
+  replacement fails, instead of removing the target first.
+- Help/version flags before `--` are handled consistently, non-UTF-8 argv is
+  rejected without a panic, and no-path recursive discovery is documented.
+
+## [adotenv-lsp 0.4.1] - 2026-11-15
+
+### Added
+
+- `LspOptions::with_dialect` and `LspOptions::dialect`, plus
+  `*_with_options` variants for completion, definition, references, symbols
+  and rename.
+- `--help` and `--version` for the stdio binary.
+
+### Fixed
+
+- Every operation now applies the configured dialect, including diagnostics,
+  completion, definition, hover, references, symbols and rename.
+- Percent-escaped URI paths are decoded before configured ignore globs are
+  matched.
+- BOM diagnostics have a visible range; definition accepts a cursor at the end
+  of a key; hover ignores inline comments; completion no longer fires inside
+  comments or single-quoted literal values.
+- The stdio parser rejects non-UTF-8 arguments without panicking.
 
 ## [1.5.0] - 2026-11-12
 

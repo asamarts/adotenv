@@ -72,8 +72,8 @@ fn options_dialect_controls_every_operation() {
     let source = "'A B'=1\nUSE=${A B}\n";
     let options = LspOptions::new().with_dialect(Dialect::PYTHON_DOTENV);
 
-    assert!(diagnostics(source, &uri(), &options).is_empty());
-    assert!(!diagnostics(source, &uri(), &LspOptions::new()).is_empty());
+    assert_eq!(diagnostics(source, &uri(), &options).len(), 0);
+    assert_ne!(diagnostics(source, &uri(), &LspOptions::new()).len(), 0);
 
     let DocumentSymbolResponse::Nested(symbols) = document_symbols_with_options(source, &options)
     else {
