@@ -129,5 +129,7 @@ This crate requires Rust 1.81 and does not change the core crate's `no_std` or
 dependency-free guarantees.
 
 Version 0.1.0 was the first published release of the companion crate. Version
-0.2.0 adds the shared configuration loader and ignored-path API used by the CLI
-and language server.
+0.2.0 added the shared configuration loader and ignored-path API used by the
+CLI and language server. Version 0.2.1 fixes rooted ignore matching, severity
+output and explicit whitespace-option precedence, and reports unsortable
+key-order groups without a fix.
