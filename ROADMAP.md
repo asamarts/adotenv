@@ -20,7 +20,7 @@ The current release provides:
 
 `adotenv`, `adotenv-process` and `adotenv-cli` 1.5.1 were published on
 2026-11-15 with companion-tooling and release-evidence fixes. `adotenv-lint`
-0.2.1 and `adotenv-lsp` 0.4.1 were published on 2026-11-15. The previous
+0.2.1 and `adotenv-lsp` 0.4.2 were published on 2026-11-15. The previous
 lockstep release was 1.5.0 on 2026-11-12 with the compact values API, and
 `adotenv-lint` 0.2.0 / `adotenv-lsp` 0.4.0 were published on 2026-11-11.
 `adotenv-config` is at 0.12.0 and `adotenv-figment` at 0.12.1. A pre-release audit of 0.10.4 found
@@ -51,7 +51,8 @@ release evidence and remaining companion work are recorded there.
    0.2.1 and 0.3.0 on 2026-11-08. The 0.3 line adds workspace symbols for open
    documents; linter 0.2.0 and LSP 0.4.0 were published on 2026-11-11 with
    shared configuration policy, followed by linter 0.2.1 and LSP 0.4.1 on
-   2026-11-15. See [#14](https://github.com/asamarts/adotenv/issues/14).
+   2026-11-15, then LSP 0.4.2 the same day. See
+   [#14](https://github.com/asamarts/adotenv/issues/14).
 5. Expand conformance cases only when a real upstream behavior is pinned and
    reproducible.
 6. Keep the core dependency-free. New I/O, process or third-party behavior

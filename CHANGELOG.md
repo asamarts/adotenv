@@ -6,11 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Documentation
+
+- CLI usage and help text now consistently document `-r`, explicit file
+  symlinks and the `--` terminator.
+
+## [adotenv-lsp 0.4.2] - 2026-11-15
+
 ### Fixed
 
-- `adotenv-lsp` completion no longer treats an apostrophe or `#` inside a
-  double-quoted value as a single-quote boundary or inline comment, and it
-  recognizes `export` followed by multiple spaces.
+- `adotenv-lsp` completion now follows the configured dialect's inline-comment
+  rules, treats apostrophes and `#` inside double-quoted values as literal
+  text, keeps a tight `#` as part of a Portable/Docker value, and recognizes
+  `export` followed by multiple spaces.
 
 ## [1.5.1] - 2026-11-15
 
