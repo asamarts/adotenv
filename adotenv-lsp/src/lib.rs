@@ -17,8 +17,8 @@ use std::{
 };
 
 use adotenv::{
-    parse_strict_with, parse_with, ColumnEncoding, Document, EditError, Entry, LineIndex,
-    Position as ParserPosition, Reference,
+    parse_strict_with, parse_with, ColumnEncoding, Document, EditError, Entry, InlineComments,
+    LineIndex, Position as ParserPosition, Reference,
 };
 pub use adotenv::{Dialect, EqualsSpacing, QuoteStyle, Severity};
 use adotenv_lint::lint;
@@ -199,13 +199,16 @@ pub fn completion_with_options(
         .rfind(['\n', '\r'])
         .map_or(0, |index| index + 1);
     let prefix = &text[line_start..offset];
-    let context = CompletionContext::of(prefix);
-    if context.comment || context.in_single_quote {
-        // A `#` outside quotes starts a comment, and a `$` in a
-        // single-quoted value is literal text, not a reference.
+    let trimmed = prefix.trim_start();
+    if trimmed.starts_with('#') {
         return CompletionResponse::Array(Vec::new());
     }
-    let trimmed = prefix.trim_start();
+    let context = CompletionContext::of(prefix, options.dialect);
+    if context.comment || context.in_single_quote {
+        // A `#` outside quotes can start a comment depending on the dialect,
+        // and a `$` in a single-quoted value is literal text, not a reference.
+        return CompletionResponse::Array(Vec::new());
+    }
     let key_prefix = trimmed
         .strip_prefix("export")
         .map_or(trimmed, |rest| rest.trim_start_matches([' ', '\t']));
@@ -248,9 +251,9 @@ struct CompletionContext {
 
 impl CompletionContext {
     /// Scans the prefix of the current line without parsing the whole value.
-    /// Double-quoted text can contain `#` and apostrophes literally, so a
-    /// byte-wise search for either character is not enough.
-    fn of(prefix: &str) -> Self {
+    /// Double-quoted text can contain `#` and apostrophes literally, and the
+    /// dialect decides whether a `#` starts an inline comment.
+    fn of(prefix: &str, dialect: Dialect) -> Self {
         #[derive(Clone, Copy, PartialEq, Eq)]
         enum Quote {
             None,
@@ -261,7 +264,7 @@ impl CompletionContext {
         let mut quote = Quote::None;
         let mut escaped = false;
         let mut saw_equals = false;
-        for character in prefix.chars() {
+        for (index, character) in prefix.char_indices() {
             match quote {
                 Quote::Single => {
                     if character == '\'' {
@@ -281,7 +284,7 @@ impl CompletionContext {
                     '\'' => quote = Quote::Single,
                     '"' => quote = Quote::Double,
                     '=' => saw_equals = true,
-                    '#' => {
+                    '#' if inline_comment_starts(prefix, index, dialect) => {
                         return Self {
                             comment: true,
                             in_single_quote: false,
@@ -295,6 +298,24 @@ impl CompletionContext {
             comment: false,
             in_single_quote: saw_equals && quote == Quote::Single,
         }
+    }
+}
+
+fn inline_comment_starts(prefix: &str, index: usize, dialect: Dialect) -> bool {
+    match dialect.inline_comments {
+        InlineComments::None => false,
+        InlineComments::Space => index.checked_sub(1).is_some_and(|before| {
+            prefix
+                .as_bytes()
+                .get(before)
+                .is_some_and(|byte| *byte == b' ')
+        }),
+        InlineComments::Whitespace | InlineComments::Python => prefix[..index]
+            .chars()
+            .next_back()
+            .is_some_and(char::is_whitespace),
+        // `AnyHash` and future variants start a comment at any `#`.
+        _ => true,
     }
 }
 
