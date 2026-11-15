@@ -20,8 +20,8 @@ version.
 adotenv-cli [--dialect <portable|node|python|compose|docker>] [--dialect=<value>] <command> [options]
 
 get <file> <key>
-check [--format human|json|github] [--json] [--source] [--recursive] [--exclude <path>] <path>...
-fmt [--write|--check] [--sort] [--recursive] [--exclude <path>] <path>...
+check [--format human|json|github] [--json] [--source] [-r|--recursive] [--exclude <path>] <path>...
+fmt [--write|--check] [--sort] [-r|--recursive] [--exclude <path>] <path>...
 diff [--format human|matrix|json] [--json] [--mask] <baseline> <file>...
 example <file>
 load <directory> [mode]
@@ -347,8 +347,10 @@ below an absolute directory argument.
 File-reading commands accept `-` or `--stdin` for standard input, at most once
 per command. `set` and `fmt --write` need a file and refuse standard input.
 `load` and `run` also refuse standard input because they take a directory.
-`--` ends option parsing for `get`, `example`, `load` and `set`, so a
-leading-dash path can be named explicitly; use it before the file argument.
+`--` ends option parsing for `check`, `fmt`, `diff`, `get`, `example`, `load`
+and `set`, so a leading-dash path can be named explicitly; use it before the
+first path argument. For `run`, `--` separates the directory and optional mode
+from the program and its arguments.
 
 When the result is unchanged, `fmt --write` and `set` do not replace the
 file. Its inode, hard links, modification time, permissions and extended

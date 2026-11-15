@@ -50,8 +50,8 @@ release evidence and remaining companion work are recorded there.
    `adotenv-lsp` 0.1.0 was published on 2026-11-07, followed by 0.2.0,
    0.2.1 and 0.3.0 on 2026-11-08. The 0.3 line adds workspace symbols for open
    documents; linter 0.2.0 and LSP 0.4.0 were published on 2026-11-11 with
-   shared configuration policy. See
-   [#14](https://github.com/asamarts/adotenv/issues/14).
+   shared configuration policy, followed by linter 0.2.1 and LSP 0.4.1 on
+   2026-11-15. See [#14](https://github.com/asamarts/adotenv/issues/14).
 5. Expand conformance cases only when a real upstream behavior is pinned and
    reproducible.
 6. Keep the core dependency-free. New I/O, process or third-party behavior

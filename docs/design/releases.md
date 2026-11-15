@@ -2,9 +2,9 @@
 
 | Version | Date | Focus |
 |---|---|---|
-| 1.5.1 | 2026-11-15 | Companion-tooling fixes and release-evidence corrections |
-| adotenv-lint 0.2.1 | 2026-11-15 | Exclude, severity and key-order fixes |
-| adotenv-lsp 0.4.1 | 2026-11-15 | Configured dialect and editor behavior fixes |
+| 1.5.1 | 2026-11-15 | CLI, companion-tooling and release-evidence fixes |
+| adotenv-lint 0.2.1 | 2026-11-15 | Ignore, severity, whitespace and key-order fixes |
+| adotenv-lsp 0.4.1 | 2026-11-15 | Dialect, URI-ignore and editor behavior fixes |
 | 1.5.0 | 2026-11-12 | Compact values API, compact memory and post-release speed evidence |
 | 1.4.1 | 2026-11-11 | Competitive benchmarks, hardening and release provenance |
 | 1.4.0 | 2026-11-07 | Verified reference-aware rename |

@@ -195,6 +195,26 @@ fn completion_lists_declared_keys() {
         panic!("expected array completion");
     };
     assert_eq!(items.len(), 0);
+
+    // An apostrophe or `#` inside a double-quoted value is literal text and
+    // must not suppress reference completion.
+    let double_quoted_apostrophe = completion("HOST=localhost\nURL=\"it's $H\"\n", position(1, 12));
+    let CompletionResponse::Array(items) = double_quoted_apostrophe else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items.len(), 2);
+
+    let hash_in_double_quotes = completion("HOST=localhost\nURL=\"a#b $H\"\n", position(1, 11));
+    let CompletionResponse::Array(items) = hash_in_double_quotes else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items.len(), 2);
+
+    let exported_key = completion("export   HOST=localhost\n", position(0, 13));
+    let CompletionResponse::Array(items) = exported_key else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items[0].label, "HOST");
 }
 
 #[test]
