@@ -199,18 +199,16 @@ pub fn completion_with_options(
         .rfind(['\n', '\r'])
         .map_or(0, |index| index + 1);
     let prefix = &text[line_start..offset];
+    let context = CompletionContext::of(prefix);
+    if context.comment || context.in_single_quote {
+        // A `#` outside quotes starts a comment, and a `$` in a
+        // single-quoted value is literal text, not a reference.
+        return CompletionResponse::Array(Vec::new());
+    }
     let trimmed = prefix.trim_start();
-    if trimmed.starts_with('#') || prefix.contains('#') {
-        return CompletionResponse::Array(Vec::new());
-    }
-    if prefix
-        .split_once('=')
-        .is_some_and(|(_, value)| value.matches('\'').count() % 2 == 1)
-    {
-        // A `$` in a single-quoted value is literal text, not a reference.
-        return CompletionResponse::Array(Vec::new());
-    }
-    let key_prefix = trimmed.strip_prefix("export ").unwrap_or(trimmed);
+    let key_prefix = trimmed
+        .strip_prefix("export")
+        .map_or(trimmed, |rest| rest.trim_start_matches([' ', '\t']));
     let at_key_start = !key_prefix.contains('=')
         && !key_prefix.contains('#')
         && !key_prefix.chars().any(char::is_whitespace);
@@ -240,6 +238,64 @@ pub fn completion_with_options(
             })
             .collect(),
     )
+}
+
+#[derive(Debug, Default)]
+struct CompletionContext {
+    comment: bool,
+    in_single_quote: bool,
+}
+
+impl CompletionContext {
+    /// Scans the prefix of the current line without parsing the whole value.
+    /// Double-quoted text can contain `#` and apostrophes literally, so a
+    /// byte-wise search for either character is not enough.
+    fn of(prefix: &str) -> Self {
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum Quote {
+            None,
+            Single,
+            Double,
+        }
+
+        let mut quote = Quote::None;
+        let mut escaped = false;
+        let mut saw_equals = false;
+        for character in prefix.chars() {
+            match quote {
+                Quote::Single => {
+                    if character == '\'' {
+                        quote = Quote::None;
+                    }
+                }
+                Quote::Double => {
+                    if escaped {
+                        escaped = false;
+                    } else if character == '\\' {
+                        escaped = true;
+                    } else if character == '"' {
+                        quote = Quote::None;
+                    }
+                }
+                Quote::None => match character {
+                    '\'' => quote = Quote::Single,
+                    '"' => quote = Quote::Double,
+                    '=' => saw_equals = true,
+                    '#' => {
+                        return Self {
+                            comment: true,
+                            in_single_quote: false,
+                        };
+                    }
+                    _ => {}
+                },
+            }
+        }
+        Self {
+            comment: false,
+            in_single_quote: saw_equals && quote == Quote::Single,
+        }
+    }
 }
 
 /// Returns an outline of the document's declared keys.
