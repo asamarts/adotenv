@@ -241,6 +241,16 @@ fn rule_severity_and_ignore_patterns_are_honored() {
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains("\"severity\":\"error\""), "{text}");
 
+    let output = run_in(dir.path(), &["--format=github", ".env"]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.starts_with("::error "), "{text}");
+
+    let output = run_in(dir.path(), &[".env"]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("error[duplicate-key]"), "{text}");
+
     let output = run_in(dir.path(), &["--recursive", "."]);
     assert_eq!(output.status.code(), Some(1));
     let text = String::from_utf8(output.stdout).unwrap();

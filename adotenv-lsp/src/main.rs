@@ -1,17 +1,12 @@
 //! Stdio language server for adotenv documents.
 
-use std::{
-    collections::HashMap,
-    env,
-    error::Error,
-    path::{Path, PathBuf},
-    process::ExitCode,
-};
+use std::{collections::HashMap, env, error::Error, path::PathBuf, process::ExitCode};
 
 use adotenv_lint::{load_effective_config, ConfigExplicit, IgnoredPaths, LintConfig, LintPolicy};
 use adotenv_lsp::{
-    apply_change, completion, definition, diagnostics, document_symbols, hover, references, rename,
-    workspace_symbols, LspOptions,
+    apply_change, completion_with_options, definition_with_options, diagnostics,
+    document_symbols_with_options, hover, references_with_options, rename_with_options,
+    workspace_symbols_with_options, LspOptions,
 };
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
@@ -34,8 +29,19 @@ fn main() -> ExitCode {
     }
 }
 
+const USAGE: &str = "adotenv-lsp [-h|--help] [--version] [--mask-values] \
+                     [--config <path> | --discover-lint-config]\n";
+
 fn run() -> Result<()> {
     let cli = parse_args()?;
+    if cli.help {
+        print!("{USAGE}");
+        return Ok(());
+    }
+    if cli.version {
+        println!("adotenv-lsp {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     let (options, ignore) = load_policy(&cli)?;
     let (connection, io_threads) = Connection::stdio();
     let capabilities = ServerCapabilities {
@@ -92,14 +98,25 @@ fn run() -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::struct_excessive_bools)]
 struct Cli {
     mask_values: bool,
     config: Option<PathBuf>,
     discover_lint_config: bool,
+    help: bool,
+    version: bool,
 }
 
 fn parse_args() -> Result<Cli> {
-    parse_args_from(env::args().skip(1))
+    let arguments = env::args_os()
+        .skip(1)
+        .map(|argument| {
+            argument
+                .into_string()
+                .map_err(|_| "arguments must be valid UTF-8".to_owned())
+        })
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    parse_args_from(arguments)
 }
 
 fn parse_args_from(arguments: impl IntoIterator<Item = String>) -> Result<Cli> {
@@ -107,10 +124,14 @@ fn parse_args_from(arguments: impl IntoIterator<Item = String>) -> Result<Cli> {
         mask_values: false,
         config: None,
         discover_lint_config: false,
+        help: false,
+        version: false,
     };
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
+            "-h" | "--help" => cli.help = true,
+            "--version" => cli.version = true,
             "--mask-values" => cli.mask_values = true,
             "--discover-lint-config" => cli.discover_lint_config = true,
             "--config" => {
@@ -152,7 +173,9 @@ fn load_policy(cli: &Cli) -> Result<(LspOptions, Option<IgnoredPaths>)> {
     let mut policy = LintPolicy::default();
     policy.lint = policy.lint.with_duplicate_keys(false);
     config.apply(&mut policy, ConfigExplicit::default());
-    options = options.with_lint_options(policy.lint);
+    options = options
+        .with_dialect(policy.dialect)
+        .with_lint_options(policy.lint);
     let ignore = policy
         .ignored_paths()
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
@@ -215,7 +238,44 @@ fn publish_diagnostics(
 }
 
 fn ignored_uri(uri: &Uri, ignore: Option<&IgnoredPaths>) -> bool {
-    ignore.is_some_and(|ignore| ignore.is_ignored(Path::new(uri.path().as_str())))
+    let Some(ignore) = ignore else {
+        return false;
+    };
+    ignore.is_ignored(&decoded_uri_path(uri.path().as_str()))
+}
+
+/// Decodes the percent-escaped path component of a file URI for glob matching.
+///
+/// `uri.path()` keeps escapes such as `%20`, while ignore patterns are written
+/// with the real path spelling. Invalid escapes or invalid UTF-8 fall back to
+/// the original path rather than suppressing diagnostics unexpectedly.
+fn decoded_uri_path(raw: &str) -> PathBuf {
+    let bytes = raw.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let (Some(high), Some(low)) =
+                (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
+            {
+                decoded.push(high << 4 | low);
+                index += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8(decoded).map_or_else(|_| PathBuf::from(raw), PathBuf::from)
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn publish_empty_diagnostics(connection: &Connection, uri: &Uri) -> Result<()> {
@@ -238,6 +298,7 @@ fn send_diagnostics(
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 fn handle_request(
     connection: &Connection,
     request: &Request,
@@ -254,7 +315,7 @@ fn handle_request(
             send_ok(
                 connection,
                 request.id.clone(),
-                &completion(text, params.text_document_position.position),
+                &completion_with_options(text, params.text_document_position.position, &options),
             )
         }
         "workspace/symbol" => {
@@ -262,7 +323,7 @@ fn handle_request(
             send_ok(
                 connection,
                 request.id.clone(),
-                &workspace_symbol_response(documents, &params.query),
+                &workspace_symbol_response(documents, &params.query, &options),
             )
         }
         "textDocument/documentSymbol" => {
@@ -271,7 +332,11 @@ fn handle_request(
             let text = documents
                 .get(uri.as_str())
                 .ok_or("document symbols requested for an unopened document")?;
-            send_ok(connection, request.id.clone(), &document_symbols(text))
+            send_ok(
+                connection,
+                request.id.clone(),
+                &document_symbols_with_options(text, &options),
+            )
         }
         "textDocument/definition" => {
             let params: GotoDefinitionParams = serde_json::from_value(request.params.clone())?;
@@ -282,7 +347,12 @@ fn handle_request(
             send_ok(
                 connection,
                 request.id.clone(),
-                &definition(text, uri, params.text_document_position_params.position),
+                &definition_with_options(
+                    text,
+                    uri,
+                    params.text_document_position_params.position,
+                    &options,
+                ),
             )
         }
         "textDocument/hover" => {
@@ -311,11 +381,12 @@ fn handle_request(
             send_ok(
                 connection,
                 request.id.clone(),
-                &references(
+                &references_with_options(
                     text,
                     uri,
                     position.position,
                     params.context.include_declaration,
+                    &options,
                 ),
             )
         }
@@ -326,7 +397,7 @@ fn handle_request(
             let text = documents
                 .get(uri.as_str())
                 .ok_or("rename requested for an unopened document")?;
-            match rename(text, uri, position.position, &params.new_name) {
+            match rename_with_options(text, uri, position.position, &params.new_name, &options) {
                 Ok(edit) => send_ok(connection, request.id.clone(), &edit),
                 Err(error) => send_error(
                     connection,
@@ -348,11 +419,12 @@ fn handle_request(
 fn workspace_symbol_response(
     documents: &HashMap<String, String>,
     query: &str,
+    options: &LspOptions,
 ) -> Vec<SymbolInformation> {
     let mut symbols = Vec::new();
     for (uri_text, text) in documents {
         if let Ok(uri) = uri_text.parse::<Uri>() {
-            symbols.extend(workspace_symbols(text, &uri, query));
+            symbols.extend(workspace_symbols_with_options(text, &uri, query, options));
         }
     }
     symbols.sort_by(|left, right| {
@@ -398,6 +470,8 @@ fn send_error(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adotenv_lsp::Dialect;
+    use std::path::Path;
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_owned()).collect()
@@ -409,6 +483,23 @@ mod tests {
         assert!(!cli.mask_values);
         assert!(cli.config.is_none());
         assert!(!cli.discover_lint_config);
+    }
+
+    #[test]
+    fn config_dialect_is_applied_to_lsp_options() {
+        let path =
+            std::env::temp_dir().join(format!("adotenv-lsp-dialect-{}.toml", std::process::id()));
+        std::fs::write(&path, "dialect = \"python\"\n").unwrap();
+        let cli = Cli {
+            mask_values: false,
+            config: Some(path.clone()),
+            discover_lint_config: false,
+            help: false,
+            version: false,
+        };
+        let (options, _) = load_policy(&cli).unwrap();
+        let _ = std::fs::remove_file(path);
+        assert_eq!(options.dialect, Dialect::PYTHON_DOTENV);
     }
 
     #[test]
@@ -426,6 +517,14 @@ mod tests {
     }
 
     #[test]
+    fn parses_help_and_version_flags() {
+        let cli = parse_args_from(args(&["--help"])).unwrap();
+        assert!(cli.help);
+        let cli = parse_args_from(args(&["--version"])).unwrap();
+        assert!(cli.version);
+    }
+
+    #[test]
     fn rejects_unknown_or_incomplete_arguments() {
         assert!(parse_args_from(args(&["--config"])).is_err());
         assert!(parse_args_from(args(&["--unknown"])).is_err());
@@ -438,6 +537,8 @@ mod tests {
             mask_values: false,
             config: None,
             discover_lint_config: false,
+            help: false,
+            version: false,
         };
         let (options, ignore) = load_policy(&cli).unwrap();
         assert!(options.lint.is_none());
@@ -457,6 +558,8 @@ mod tests {
             mask_values: false,
             config: Some(path.clone()),
             discover_lint_config: false,
+            help: false,
+            version: false,
         };
         let (options, ignore) = load_policy(&cli).unwrap();
         let lint = options.lint.expect("lint policy");
@@ -478,6 +581,8 @@ mod tests {
             mask_values: false,
             config: Some(path.clone()),
             discover_lint_config: false,
+            help: false,
+            version: false,
         };
         let (options, _) = load_policy(&cli).unwrap();
         let uri: lsp_types::Uri = "file:///tmp/.env".parse().unwrap();
@@ -509,6 +614,21 @@ mod tests {
     }
 
     #[test]
+    fn ignored_uri_decodes_percent_escaped_paths() {
+        let ignore = IgnoredPaths::new(&["my dir/**".to_owned()]).unwrap();
+        let uri: lsp_types::Uri = "file:///tmp/my%20dir/.env".parse().unwrap();
+        assert!(ignored_uri(&uri, Some(&ignore)));
+        assert_eq!(
+            decoded_uri_path("/tmp/my%20dir/.env"),
+            PathBuf::from("/tmp/my dir/.env")
+        );
+        assert_eq!(
+            decoded_uri_path("/tmp/bad%ZZpath"),
+            PathBuf::from("/tmp/bad%ZZpath")
+        );
+    }
+
+    #[test]
     fn invalid_explicit_config_is_an_error() {
         let path =
             std::env::temp_dir().join(format!("adotenv-lsp-invalid-{}.toml", std::process::id()));
@@ -517,6 +637,8 @@ mod tests {
             mask_values: false,
             config: Some(path.clone()),
             discover_lint_config: false,
+            help: false,
+            version: false,
         };
         assert!(load_policy(&cli).is_err());
         let _ = std::fs::remove_file(path);

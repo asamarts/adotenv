@@ -223,7 +223,9 @@ impl LintConfig {
     ///
     /// Command-line values represented as `true` in `explicit` are not
     /// overwritten by the file. Rules apply after the corresponding top-level
-    /// options, matching the historical CLI behavior.
+    /// options, matching the historical CLI behavior. Rule names in a directly
+    /// constructed `LintConfig` are skipped if they are not recognized;
+    /// [`LintConfig::from_toml`] and [`LintConfig::load`] reject them earlier.
     pub fn apply(&self, policy: &mut LintPolicy, explicit: ConfigExplicit) {
         if !explicit.dialect {
             if let Some(value) = self.dialect {
@@ -352,7 +354,12 @@ fn apply_rules(
     explicit: ConfigExplicit,
 ) {
     for (name, severity) in rules {
-        let rule = parse_rule(name).expect("validated rule name");
+        let Some(rule) = parse_rule(name) else {
+            // `LintConfig::from_toml` rejects unknown names. The fields are
+            // public, so skip rather than panic when a caller builds an
+            // unvalidated configuration directly.
+            continue;
+        };
         let enabled = severity.severity().is_some();
         match rule {
             Rule::DuplicateKey => {
@@ -367,11 +374,13 @@ fn apply_rules(
             Rule::QuoteStyle if !explicit.quote_style && !enabled => {
                 policy.lint = policy.lint.with_quote_style(QuoteStyle::Preserve);
             }
-            Rule::Whitespace if !explicit.equals_spacing && !enabled => {
-                policy.lint = policy
-                    .lint
-                    .with_equals_spacing(EqualsSpacing::Preserve)
-                    .with_trim_trailing_whitespace(false);
+            Rule::Whitespace if !enabled => {
+                if !explicit.equals_spacing {
+                    policy.lint = policy.lint.with_equals_spacing(EqualsSpacing::Preserve);
+                }
+                if !explicit.trim_trailing_whitespace {
+                    policy.lint = policy.lint.with_trim_trailing_whitespace(false);
+                }
             }
             _ => {}
         }
@@ -405,20 +414,18 @@ impl IgnoredPaths {
         Ok(Self { globs })
     }
 
-    /// Returns whether `path` matches a configured pattern by full path or
-    /// basename.
+    /// Returns whether `path` matches a configured pattern by full path,
+    /// basename, or a path suffix.
+    ///
+    /// The suffix match is intended for LSP document URIs, which are absolute
+    /// and have no workspace root. Use [`is_ignored_with_root`](Self::is_ignored_with_root)
+    /// for filesystem discovery, where matching every ancestor suffix would
+    /// also match an unrelated directory named like a pattern.
     #[must_use]
     pub fn is_ignored(&self, path: &Path) -> bool {
-        if self.globs.is_match(path)
-            || path
-                .file_name()
-                .is_some_and(|name| self.globs.is_match(Path::new(name)))
-        {
+        if self.matches_path(path) {
             return true;
         }
-        // LSP document URIs are absolute and there is no workspace root to
-        // strip. Match relative-looking patterns such as `target/**` against
-        // every path suffix as well.
         let components: Vec<_> = path.components().collect();
         for start in 1..components.len() {
             let suffix: PathBuf = components[start..].iter().collect();
@@ -429,14 +436,27 @@ impl IgnoredPaths {
         false
     }
 
-    /// Returns whether `path` matches by full path, path relative to `root`,
-    /// or basename.
+    /// Returns whether `path` matches by full path, basename, or path relative
+    /// to `root`.
+    ///
+    /// Unlike [`is_ignored`](Self::is_ignored), this does not test arbitrary
+    /// ancestor suffixes. A pattern such as `src/**` therefore only matches a
+    /// `src` below the discovery root, not any ancestor directory that happens
+    /// to be named `src`.
     #[must_use]
     pub fn is_ignored_with_root(&self, path: &Path, root: &Path) -> bool {
-        self.is_ignored(path)
+        if self.matches_path(path) {
+            return true;
+        }
+        path.strip_prefix(root)
+            .is_ok_and(|relative| !relative.as_os_str().is_empty() && self.globs.is_match(relative))
+    }
+
+    fn matches_path(&self, path: &Path) -> bool {
+        self.globs.is_match(path)
             || path
-                .strip_prefix(root)
-                .is_ok_and(|relative| self.globs.is_match(relative))
+                .file_name()
+                .is_some_and(|name| self.globs.is_match(Path::new(name)))
     }
 }
 
@@ -705,6 +725,59 @@ mod tests {
         assert!(LintConfig::from_toml("[rules]\nunknown = \"warning\"\n", path).is_err());
         assert!(LintConfig::from_toml("[rules]\nkey-order = \"nope\"\n", path).is_err());
         assert!(LintConfig::from_toml("ignore = [\"[\"]\n", path).is_err());
+    }
+
+    #[test]
+    fn unvalidated_public_rule_maps_do_not_panic() {
+        let config = LintConfig {
+            dialect: None,
+            format: None,
+            recursive: None,
+            key_order: None,
+            key_case: None,
+            quote_style: None,
+            equals_spacing: None,
+            trim_trailing_whitespace: None,
+            ignore: None,
+            rules: Some(BTreeMap::from([(
+                "not-a-rule".to_owned(),
+                RuleSeverity::Error,
+            )])),
+        };
+        let mut policy = LintPolicy::default();
+        config.apply(&mut policy, ConfigExplicit::default());
+    }
+
+    #[test]
+    fn disabled_whitespace_rule_keeps_explicit_cli_options() {
+        let config =
+            LintConfig::from_toml("[rules]\nwhitespace = \"off\"\n", Path::new("test.toml"))
+                .unwrap();
+        let mut policy = LintPolicy {
+            lint: LintOptions::default().with_trim_trailing_whitespace(true),
+            ..LintPolicy::default()
+        };
+        config.apply(
+            &mut policy,
+            ConfigExplicit {
+                trim_trailing_whitespace: true,
+                ..ConfigExplicit::default()
+            },
+        );
+        assert!(policy.lint.trim_trailing_whitespace);
+    }
+
+    #[test]
+    fn rooted_ignores_do_not_match_ancestor_components() {
+        let ignores = IgnoredPaths::new(&["src/**".to_owned()]).unwrap();
+        let absolute = Path::new("/work/src/project/.env");
+        assert!(!ignores.is_ignored_with_root(absolute, Path::new("/work/src/project")));
+        assert!(ignores.is_ignored_with_root(
+            Path::new("/work/src/project/src/.env"),
+            Path::new("/work/src/project")
+        ));
+        // LSP has no root, so its suffix match stays intentionally broad.
+        assert!(ignores.is_ignored(absolute));
     }
 
     #[test]

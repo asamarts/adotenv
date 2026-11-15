@@ -14,9 +14,8 @@ Pinned adapters: `dotenvy` 0.15.7, `dotenv` 0.15.0, `dotenvs` 0.2.2,
 its loader/CLI surface can be compared without semantic ambiguity.
 
 Only validated cells are timed. The comparable values and load shapes are
-currently `plain`, `long-line` and `empty`; quoted/escaped, duplicate,
-malformed, multiline, CRLF/BOM, reference and realistic mixed fixtures are
-reported as unsupported because the libraries disagree on their semantics.
+currently `plain`, `long-line` and `empty`; the values speed target skips the
+zero-byte `empty` fixture, while memory still records empty values. Quoted/escaped, duplicate, malformed, multiline, CRLF/BOM, reference and realistic mixed fixtures are reported as unsupported because the libraries disagree on their semantics.
 Reference resolution is not compared because the competitors interpolate with
 different policies; `unsupported_cells()` records every excluded cell and
 reason.

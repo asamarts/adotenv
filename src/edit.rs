@@ -218,10 +218,12 @@ pub enum Edit<'a> {
     ///
     /// The value is written so that it reads back as exactly `value` in the
     /// document's dialect, quoted or escaped as needed. A reference such as
-    /// `${HOST}` is written as typed, not expanded, and it is not escaped
-    /// against later expansion, so [`Document::resolve`] can still expand it.
-    /// The declaration keeps its quote style when that style can spell the
-    /// value. A bare declaration gets `=` and the value. The batch fails with
+    /// `${HOST}` is written as typed, not expanded, and the `$` is not escaped
+    /// against later expansion. The declaration keeps its quote style when
+    /// that style can spell the value; quoting still decides whether
+    /// [`Document::resolve`] can expand a candidate, so a single-quoted
+    /// declaration stays literal until its quote style is changed. A bare
+    /// declaration gets `=` and the value. The batch fails with
     /// [`EditError::Unencodable`] when the dialect cannot spell the value in
     /// this position.
     Set {

@@ -36,17 +36,21 @@ adotenv-lint --recursive --exclude='target/**' .
 
 Without `--fix` the CLI is report-only. With `--fix` it applies compatible
 verified fixes in batches and rewrites changed files through a temporary file
-in the same directory. It discovers `.env` and `.env.*` files with `--recursive`, skips
+in the same directory. With no path it searches the current directory
+recursively, even when the configuration sets `recursive = false`. It
+discovers `.env` and `.env.*` files with `--recursive`, skips
 `.git`, `target` and `node_modules`, and exits with `0` for no findings (or all
 findings fixed), `1` for remaining findings and `2` for usage, read, parse or
-write errors. The Windows replace fallback is best-effort and not
-crash-atomic, matching the CLI write contract.
+write errors. Human output reports the configured severity as
+`severity[rule]`; JSON includes `severity`, and GitHub annotations use the
+matching `error`, `warning` or `notice` level. The Windows replace fallback is
+best-effort and not crash-atomic, matching the CLI write contract.
 
 ### Configuration
 
-By default the command reads `.adotenv-lint.toml` from the current directory.
-Use `--config <path>` to select another file. Command-line options override
-configuration values.
+By default the command discovers `.adotenv-lint.toml` from the current
+directory upward. Use `--config <path>` to select another file. Command-line
+options override configuration values.
 
 ```toml
 dialect = "portable"
@@ -67,12 +71,13 @@ key-case = "off"
 
 All fields are optional. Unknown fields and unknown rules are rejected so
 typos are visible. `rules` values are `off`, `warning` or `error`; `off`
-disables the rule. `warning`/`error` set severity but do not choose a policy:
-`key-case`, `quote-style` and `whitespace` still need their top-level
-configuration values. CLI options override the corresponding configuration
-values, and `--exclude` replaces configured `ignore` patterns. Ignore globs
-match a full path, a basename, or a relative path suffix, so patterns such as
-`target/**` also apply to absolute LSP document URIs.
+disables the rule. `key-order` is enabled by its rule severity. `warning` and
+`error` for `key-case`, `quote-style` and `whitespace` only set the reported
+severity; those rules still need their top-level policy values. CLI options
+override the corresponding configuration values, and `--exclude` replaces
+configured `ignore` patterns. Ignore globs match a full path, a basename, a
+path relative to the discovery root, or a path suffix for LSP document URIs,
+so patterns such as `target/**` also apply to absolute editor URIs.
 
 Configuration is searched from the working directory upward until a
 `.adotenv-lint.toml` is found. `--config <path>` selects an explicit file.
@@ -114,7 +119,9 @@ explicitly:
 | `whitespace` | preserve | Whitespace policy is project-specific; formatting is opt-in. |
 
 Findings include the rule, configured severity, one-based line, source span,
-key and an optional verified fix. `apply_fix` applies one fix; `apply_batch` applies
+key and an optional verified fix. Key-order findings cover a whole group and
+have no key; groups that `Document::sort` refuses to reorder are still reported
+without a fix. `apply_fix` applies one fix; `apply_batch` applies
 independent renames together and can follow them with sorting and one format
 policy. Parse diagnostics remain available from `adotenv::parse`.
 
@@ -122,5 +129,7 @@ This crate requires Rust 1.81 and does not change the core crate's `no_std` or
 dependency-free guarantees.
 
 Version 0.1.0 was the first published release of the companion crate. Version
-0.2.0 adds the shared configuration loader and ignored-path API used by the CLI
-and language server.
+0.2.0 added the shared configuration loader and ignored-path API used by the
+CLI and language server. Version 0.2.1 fixes rooted ignore matching, severity
+output and explicit whitespace-option precedence, and reports unsortable
+key-order groups without a fix.

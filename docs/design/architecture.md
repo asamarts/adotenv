@@ -98,6 +98,8 @@ lookup closure and limits as arguments. See
 | `adotenv-cli` | 1.x | The command-line tool |
 | `adotenv-config` | 0.x | A `config` source |
 | `adotenv-figment` | 0.x | A Figment provider |
+| `adotenv-lint` | 0.x | Opt-in lint policy and verified fixes |
+| `adotenv-lsp` | 0.x | Language-server prototype |
 
 `adotenv`, `adotenv-process` and `adotenv-cli` release together with the same
 version. The adapters follow their own 0.x line, so a new major version of

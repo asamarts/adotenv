@@ -18,30 +18,32 @@ The current release provides:
 
 ## Current status
 
-`adotenv`, `adotenv-process` and `adotenv-cli` 1.5.0 were published on
-2026-11-12 with the compact values API. `adotenv-lint` 0.2.0 and
-`adotenv-lsp` 0.4.0 were published on 2026-11-11. `adotenv-config` is at
-0.12.0 and `adotenv-figment` at 0.12.1. A pre-release audit of 0.10.4 found
+`adotenv`, `adotenv-process` and `adotenv-cli` 1.5.1 were published on
+2026-11-15 with companion-tooling and release-evidence fixes. `adotenv-lint`
+0.2.1 and `adotenv-lsp` 0.4.1 were published on 2026-11-15. The previous
+lockstep release was 1.5.0 on 2026-11-12 with the compact values API, and
+`adotenv-lint` 0.2.0 / `adotenv-lsp` 0.4.0 were published on 2026-11-11.
+`adotenv-config` is at 0.12.0 and `adotenv-figment` at 0.12.1. A pre-release audit of 0.10.4 found
 defects in behavior that 1.0 would freeze. They were fixed in 0.11.0, apart
 from the rename collision rule, which shipped in 1.0.0. The fixes are listed in
 [1.0-fix-round.md](docs/design/1.0-fix-round.md), and the 1.0 evidence was
 collected again on the fixed code
 ([1.0-readiness.md](docs/design/1.0-readiness.md)). The 1.1 audit and its
 fixes are in [1.1-audit.md](docs/design/1.1-audit.md). Version 1.2.0 was
-released on 2026-11-05; version 1.3.0 was released on 2026-11-06. Version 1.4.0
+released on 2026-11-04; version 1.3.0 was released on 2026-11-06. Version 1.4.0
 was released on 2026-11-07 and adds the verified reference-rename primitive.
 Version 1.4.1 was released on 2026-11-11 with the benchmark and hardening
-cycle. Version 1.5.0 was released on 2026-11-12 with the compact values API.
-The audit, release evidence and remaining companion work are recorded there.
+cycle. Version 1.5.0 was released on 2026-11-12 with the compact values API;
+version 1.5.1 followed on 2026-11-15 with companion-tooling fixes. The audit,
+release evidence and remaining companion work are recorded there.
 
 ## Near-term work
 
 1. Keep the public API stable. Additive changes use non-exhaustive types and
    builders.
-2. Work through the 1.1 audit in
-   [1.1-audit.md](docs/design/1.1-audit.md). The 1.1.1 correctness fixes come
-   first.
-3. Work through the "After 1.0" list in
+2. Keep the completed [1.1 audit](docs/design/1.1-audit.md) fixes and their
+   regression coverage intact.
+3. Track the remaining "After 1.0" items in
    [1.0-fix-round.md](docs/design/1.0-fix-round.md).
 4. The optional `adotenv-lint` 0.1.0 policy companion was published on
    2026-11-06, followed by 0.1.1 through crates.io Trusted Publishing. The
@@ -59,8 +61,8 @@ The audit, release evidence and remaining companion work are recorded there.
    adopting. The shared vectors and check-report schema live in `tests/vectors/`. The core
    stays dependency-free and keeps its own types; shared code, if any, is only for companion
    crates.
-8. Complete the [1.4.1 / linter 0.2.0 / LSP 0.4.0 plan](docs/design/1.4.1-plan.md):
-   all three releases are published; retain the verified release evidence.
+8. The [1.4.1 / linter 0.2.0 / LSP 0.4.0 plan](docs/design/1.4.1-plan.md) is
+   complete; retain its verified release evidence as history.
 9. Maintain the compact values API. Compact parsing/loading and compact memory
    now have deterministic gates, and compact speed evidence is published. The
    1.4.1 map-based claim remains historical release evidence.

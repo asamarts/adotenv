@@ -3,7 +3,7 @@
 //!
 //! The source exposes only effective literal `String` values. Duplicate policy
 //! and lookup participation follow the document or environment being wrapped.
-//! With the `load` feature it also accepts a [`LoadedEnvironment`].
+//! With the `load` feature it also accepts a `LoadedEnvironment`.
 //!
 //! Key names are handed to `config` unchanged. `config` 0.15 keeps key case,
 //! treats `.` as a nested path separator and treats `[`/`]` as array-path

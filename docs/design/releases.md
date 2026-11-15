@@ -2,12 +2,18 @@
 
 | Version | Date | Focus |
 |---|---|---|
-| 1.5.0 | 2026-11-12 | Compact values API, compact memory and speed evidence |
+| 1.5.1 | 2026-11-15 | Companion-tooling fixes and release-evidence corrections |
+| adotenv-lint 0.2.1 | 2026-11-15 | Exclude, severity and key-order fixes |
+| adotenv-lsp 0.4.1 | 2026-11-15 | Configured dialect and editor behavior fixes |
+| 1.5.0 | 2026-11-12 | Compact values API, compact memory and post-release speed evidence |
 | 1.4.1 | 2026-11-11 | Competitive benchmarks, hardening and release provenance |
 | 1.4.0 | 2026-11-07 | Verified reference-aware rename |
 | 1.3.0 | 2026-11-06 | Linter and LSP additions |
 | 1.2.0 | 2026-11-04 | Loading and adapter work |
+| 1.1.2 | 2026-11-02 | Patch fixes |
+| 1.1.1 | 2026-11-02 | Audit follow-up fixes |
 | 1.1.0 | 2026-11-01 | Audit fixes |
+| 1.0.1 | 2026-11-01 | First stable patch |
 | 1.0.0 | 2026-10-31 | Stable API |
 
 Current release evidence is on the [benchmark overview](../benchmarks/README.md).

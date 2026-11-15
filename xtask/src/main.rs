@@ -46,7 +46,7 @@ fn run() -> Result<()> {
 }
 
 const USAGE: &str =
-    "adotenv-xtask <fixtures|memory|micro|speed|cli|report|compare|fingerprint|queue|queue-speed> [options]
+    "adotenv-xtask <fixtures|memory|micro|speed|cli|report|compare|gate|fingerprint|queue|queue-speed|help> [options]
 
 fixtures
 memory  --out <path> [--sizes 8,128] [--shapes plain,...] [--modes values,...] [--compact]

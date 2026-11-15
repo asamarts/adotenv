@@ -24,14 +24,18 @@ The prototype offers:
   a declaration or a reference, through `Document::rename_with_references` and
   its `VerifiedEdits`.
 
-Rename follows matching `$VAR`/`${VAR}` names. When references exist, keys
-that cannot be written as variable-reference names, such as keys containing
-`-`, fail with the core `EditError::InvalidReferenceKey` instead of changing
-only the declaration.
+Rename follows matching `$VAR`/`${VAR}` names. Definition, references and
+rename use the parser's candidate list, including escaped and single-quoted
+candidates that `Reference::is_eligible` would reject under Portable rules.
+When references exist, keys that cannot be written as variable-reference
+names, such as keys containing `-`, fail with the core
+`EditError::InvalidReferenceKey` instead of changing only the declaration.
 
 ## Diagnostics, masking and environment
 
-Parser diagnostics are always enabled. Linter findings are an explicit policy:
+Parser diagnostics are always enabled. `LspOptions::with_dialect` selects the
+parser dialect for every operation; the stdio server takes it from the loaded
+lint configuration. Linter findings are an explicit policy:
 `LspOptions::with_lint_options` accepts the linter's own `LintOptions` rule and
 severity policy. The default `LspOptions` does not run the linter, so
 diagnostics do not silently depend on a policy configuration.
@@ -40,7 +44,8 @@ The stdio server loads policy only from `--config <path>` or from
 `--discover-lint-config`, which explicitly searches ancestors of the launch
 directory. It never discovers a config implicitly. Invalid configuration is a
 startup error rather than a silent fallback. Configured ignore globs suppress
-published diagnostics for matching document paths. Parser diagnostics already
+published diagnostics for matching document paths; URI percent escapes are
+decoded before matching. Parser diagnostics already
 report duplicate keys, so config-driven policy disables the linter duplicate
 rule unless `[rules]` explicitly enables it. Embedding clients can still
 construct `LspOptions` and supply `LintOptions` directly.
@@ -62,8 +67,10 @@ uses UTF-16 incremental document synchronization, accepts full-document
 replacements, publishes diagnostics after `didOpen` and `didChange`, and clears
 them on `didClose`.
 
-The library functions are transport-free and accept an `lsp_types::Uri` plus
-source text, so tests and other clients can use the operations directly.
+The library functions are transport-free and take source text; operations
+that produce locations also take an `lsp_types::Uri`, so tests and other
+clients can use the operations directly. `LspOptions::with_dialect` selects the
+parser dialect for every operation.
 
 ## Compatibility
 

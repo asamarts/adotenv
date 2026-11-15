@@ -1,6 +1,6 @@
 [package]
 name = "adotenv-lint"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.81"
 description = "Opt-in lint rules and verified fixes for adotenv documents."
@@ -19,6 +19,9 @@ adotenv = { path = "..", version = "1.4.1" }
 serde = { version = "1", features = ["derive"] }
 globset = "=0.4.16"
 toml = "=0.8.14"
+# Pins the toml_edit version toml 0.8.14 requires; newer 0.22.x releases are
+# not source-compatible when cargo-semver-checks builds the crate without the
+# workspace lock file.
 toml_edit = "=0.22.14"
 
 [lints.rust]

@@ -21,7 +21,7 @@ benchmarks once as a smoke test.
   repository. It uses a simple fixture of 65,536 declarations and records the
   fixture hashes, load average and compiler version with every run.
 
-Wall time varies between runs by up to about 10% for 65,536 entries, even on
+Wall time varies between runs by up to roughly 15% for 65,536 entries, even on
 an idle host. Instruction counts are the stable CPU measure.
 
 ## Core workloads
@@ -107,9 +107,7 @@ taskset -c 3 cargo bench -p adotenv --bench core --locked -- \
 The host was not isolated for this check; load average was around 1.9. The
 values are useful for detecting regressions in the changed paths, but the
 reference-host record above remains the last comparable release measurement.
-
-CI runs the same benchmark once as a smoke test. The reference-host record
-above remains the last comparable release measurement.
+CI runs the same benchmark once as a smoke test.
 
 ## Memory and instructions
 
@@ -186,7 +184,7 @@ CI separates deterministic internal gates from publication wall-time evidence:
   `docs/benchmarks/memory.jsonl` for every map-based adotenv case, and against
   `docs/benchmarks/compact-memory.jsonl` for every `adotenv-compact` case.
   Allocation counts must match exactly; peak and retained heap may grow by at
-  most 5% or 64 bytes.
+  most the larger of 5% or 64 bytes.
 - `bench-smoke` compiles and exercises the deterministic harness and runs both
   the map and compact memory gates on every PR. The harness smoke is
   non-gating; the memory gates are gating. The deterministic `Ir`/cycle gate

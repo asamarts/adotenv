@@ -52,9 +52,11 @@ error, as is `--source` with JSON or GitHub output, and `--write` with
 ### Dialects
 
 `--dialect` selects the reading rules for every file in the command. It can
-appear before or after the command name, but before `--`. The
+appear before the command, or anywhere after the command name before `--`. For
+`set`, a `--dialect` token after the file argument is a key or value rather
+than a global option; put the global option earlier or use `--`. The
 `--dialect=<value>` form is equivalent and may be specified only once. Unknown
-options are usage errors rather than paths.
+options are usage errors rather than paths, unless they follow `--`.
 
 | Value | Library preset |
 |---|---|
@@ -85,7 +87,8 @@ commands print values or text that can contain them:
 severity, code and message. A leading byte-order mark is hidden on line 1, so
 it does not count in the human or GitHub column. JSON spans still count its
 bytes. A summary line follows when any file has a diagnostic or could not be
-read; a clean run prints nothing.
+read; a read failure counts as one error and one affected file. A clean run
+prints nothing.
 
 ```text
 $ adotenv-cli check bad.env
@@ -95,9 +98,11 @@ bad.env:3:1: warning[dotenv.duplicate-key]: duplicate key; lookup follows the se
 ```
 
 `--source` adds the source line and a caret under the span. A leading
-byte-order mark is omitted from the source line. Diagnostics go to standard
-output and read errors to standard error. Human output is not a machine
-contract; use JSON or GitHub output in scripts. The codes are listed in
+byte-order mark is omitted from the source line. Human diagnostics go to
+standard output and read errors to standard error. JSON reports a read error as
+a `files` entry on standard output, and GitHub output emits an annotation
+there. Human output is not a machine contract; use JSON or GitHub output in
+scripts. The codes are listed in
 [Diagnostic codes](../reference/diagnostics.md).
 
 ### `check --format json`
@@ -180,8 +185,9 @@ could not be read or a path that could not be searched. In `<path>` and
 with a `baseline -> file` header, followed by one line per difference: `-` for
 a key that takes part in lookup only in the baseline, `+` for one that takes
 part only in the candidate and `~` for a changed value, state or export prefix.
-A candidate with no differences prints `(no differences)`. This applies when
-there is exactly one candidate as well.
+A value that contains a line break or lone CR can make that difference span
+more than one physical output line. A candidate with no differences prints
+`(no differences)`. This applies when there is exactly one candidate as well.
 
 ```text
 $ adotenv-cli diff base.env app.env
@@ -316,7 +322,8 @@ Without `--recursive`, every path argument must be a file. A directory is a
 read failure, and `check` or `fmt` with no path is a usage error.
 
 The search skips `.git`, `target`, `node_modules` and symbolic links. A
-directory argument that is a symbolic link is refused.
+directory argument that is a symbolic link is refused; a symbolic link that
+names a file is an explicit file argument and is followed once.
 
 A path that cannot be searched, such as a missing root, a refused symbolic
 link or an unreadable directory, is reported. Human output writes it to
@@ -339,15 +346,18 @@ below an absolute directory argument.
 
 File-reading commands accept `-` or `--stdin` for standard input, at most once
 per command. `set` and `fmt --write` need a file and refuse standard input.
+`load` and `run` also refuse standard input because they take a directory.
+`--` ends option parsing for `get`, `example`, `load` and `set`, so a
+leading-dash path can be named explicitly; use it before the file argument.
 
 When the result is unchanged, `fmt --write` and `set` do not replace the
 file. Its inode, hard links, modification time, permissions and extended
 attributes stay as they are.
 
 `fmt --write` and `set` resolve the write target once before reading and do
-not resolve it again while replacing it. On Unix they check its device and
-inode before the temporary file and immediately before the replace, and fail
-if it changed after the read. They replace a changed file through a temporary
+not resolve it again while replacing it. On Unix they check its device, inode,
+size and modification time before the temporary file and immediately before
+the replace, and fail if it changed after the read. They replace a changed file through a temporary
 file in the same directory:
 
 - When the path is a symbolic link, the file it finally points to is replaced in

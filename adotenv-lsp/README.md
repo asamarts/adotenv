@@ -1,8 +1,9 @@
 # adotenv-lsp
 
 An optional Language Server Protocol companion for `adotenv` documents.
-Version 0.4.0 is published on crates.io as an unstable prototype with explicit
-lint configuration. Breaking changes may occur within the 0.x line.
+Version 0.4.1 is published on crates.io as an unstable prototype with explicit
+lint configuration and configurable parser dialect. Breaking changes may occur
+within the 0.x line.
 
 It supports:
 
@@ -25,6 +26,8 @@ environment or resolve references. Hover values can be masked explicitly with
 
 ```console
 adotenv-lsp
+adotenv-lsp --help
+adotenv-lsp --version
 adotenv-lsp --mask-values
 adotenv-lsp --config .adotenv-lint.toml
 adotenv-lsp --discover-lint-config
@@ -35,7 +38,8 @@ incremental text changes and full-document replacements.
 
 Parser diagnostics are the default. Linter policy is loaded only when
 `--config <path>` names a file or `--discover-lint-config` explicitly opts into
-ancestor discovery from the launch directory. There is no implicit discovery.
+ancestor discovery from the launch directory; the two cannot be combined. There
+is no implicit discovery.
 Invalid configuration fails visibly before the server starts. Configured
 ignore globs suppress published diagnostics for matching document URIs. Because
 parser diagnostics already report duplicate keys, config-driven lint policy
@@ -50,8 +54,8 @@ configure a policy without a separate direct dependency.
 
 `LintOptions::new()` includes duplicate-key findings, which overlap parser
 diagnostics. Disable `duplicate_keys` when publishing both. The stdio binary
-does not currently expose linter flags; embedding clients enable linter policy
-explicitly.
+exposes policy through `--config` and `--discover-lint-config`, but not the
+individual rule flags; embedding clients enable linter policy explicitly.
 
 The operations are also available as functions over a source string and an
 `lsp_types::Uri`:
@@ -70,9 +74,11 @@ let diagnostics = diagnostics("A=1\nBAD KEY=2\n", &uri, &options);
 ```
 
 Rename uses `Document::rename_with_references`, so the declaration and every
-matching `$VAR`/`${VAR}` name change together. When references exist, keys that
-cannot be written as variable references are rejected through
-`EditError::InvalidReferenceKey`.
+matching `$VAR`/`${VAR}` name change together. Definition, references and
+rename follow every reference candidate the parser reports, including escaped
+and single-quoted candidates that Portable resolution would not expand. When
+references exist, keys that cannot be written as variable references are
+rejected through `EditError::InvalidReferenceKey`.
 
 This crate requires Rust 1.85 because its LSP transport dependency uses the
 2024 edition. The core `adotenv` crate remains `no_std`, dependency-free and

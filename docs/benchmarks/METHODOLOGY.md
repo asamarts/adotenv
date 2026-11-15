@@ -21,13 +21,14 @@ The retained-heap result for 1.4.1 is a documented **no-loss** result, not a
 strict win. `parse_values` returns `BTreeMap<String, String>`. At small sizes the
 maps are byte-identical to the competitors; at larger sizes the map is already
 at the compact-tree floor. A strict retained result requires a different public
-values representation. The compact API now provides that representation for a
-future minor release.
+values representation. The compact API provides that representation as of
+1.5.0.
 
 The compact evaluation uses `parse_values_compact` and `load_values_compact`
-with the same fixtures and competitors. The 1.5.0 release run
-records strict non-empty retained-heap wins, zero-byte ties on empty inputs,
-and strict peak/allocation wins in all values/load cells. See
+with the same fixtures and competitors. The 1.5.0 memory run (release candidate
+`0a9fc92`) records strict non-empty retained-heap wins, zero-byte ties on empty
+inputs, and strict peak/allocation wins in all values/load cells; the speed run
+is post-release evidence from `79937cc`. See
 [RESULTS-1.5.0.md](RESULTS-1.5.0.md). It does not replace the 1.4.1 map-based
 claim.
 
@@ -107,7 +108,7 @@ The source-level deterministic memory gate compares a fresh run with
 `docs/benchmarks/memory.jsonl`:
 
 - allocations must match exactly;
-- peak and retained heap may grow by at most 5% or 64 bytes;
+- peak and retained heap may grow by at most the larger of 5% or 64 bytes;
 - a changed fixture SHA-256 fails the gate.
 
 Both baselines are updated only for an intentional, reviewed code change with
@@ -143,7 +144,8 @@ Every result directory includes a fingerprint sidecar with:
 - CPU model and CPU count;
 - kernel;
 - Rust compiler version;
-- Criterion/hyperfine version where relevant;
+- hyperfine version; Criterion and dependency versions are pinned in
+  `Cargo.lock`;
 - the `adotenv` git SHA used for the benchmark binary;
 - one-minute load average at the run.
 

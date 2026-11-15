@@ -1,7 +1,8 @@
 # 1.5.0 compact values benchmark results
 
-Status: publication-grade 1.5.0 compact-values release evidence. It does not
-replace the historical 1.4.1 map-based release claim.
+Status: publication-grade 1.5.0 compact-values evidence. The memory run is
+from the release candidate and the speed run is post-release, benchmark-only
+evidence; neither replaces the historical 1.4.1 map-based claim.
 
 **Compact** is the opt-in `CompactValues` API with one value buffer and one fixed-size entry per key. **Map** is the standard `parse_values`/`load_values` API that returns a `BTreeMap<String, String>`. Both expose the same effective keys and values. The charts default to all available pinned libraries and can also isolate compact vs map or show the best competitor.
 
@@ -57,8 +58,8 @@ empty peak/allocation wins come from the competitors' parsers allocating a
 container while the compact and map-based APIs allocate nothing.
 
 For the non-empty memory cells, compact retained heap is 0.57-0.87 times the
-best competitor (median 0.76), peak heap is 0.70-0.98 times (median 0.85) and
-allocation count is 0.00016-0.33 times (median 0.0097). Speed is 0.16-0.78
+best competitor (median 0.76), peak heap is 0.08-0.82 times (median 0.49) and
+allocation count is 0.000086-0.14 times (median 0.0071). Speed is 0.16-0.78
 times the best competitor (median 0.22).
 
 ## Scope

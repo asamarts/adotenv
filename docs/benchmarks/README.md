@@ -5,16 +5,18 @@ commands, fixture catalogue, result schema and raw per-release evidence for
 `adotenv`.
 
 <div class="bench-callouts">
-<a class="bench-callout" href="RESULTS-1.5.0.html"><strong>1.5.0 results</strong><span>Compact memory and speed evidence, with charts and sortable tables.</span></a>
+<a class="bench-callout" href="RESULTS-1.5.0.html"><strong>1.5.0 results</strong><span>Compact memory and speed evidence, with links to charts and sortable tables.</span></a>
 <a class="bench-callout" href="compact-memory.html"><strong>Memory chart</strong><span>Compare all available libraries, compact vs map, or the best-competitor view.</span></a>
 <a class="bench-callout" href="speed-1.5.0.html"><strong>Speed chart</strong><span>Compare values and load timings across every size and shape.</span></a>
 <a class="bench-callout" href="METHODOLOGY.html"><strong>Methodology</strong><span>How the comparable matrix, gates and publication runs work.</span></a>
 </div>
 
-The current release evidence is the [1.5.0 result page](RESULTS-1.5.0.md). It
-records strict non-empty retained-heap wins, with zero-byte ties on empty
+The current published evidence is the [1.5.0 result page](RESULTS-1.5.0.md).
+It records strict non-empty retained-heap wins, with zero-byte ties on empty
 inputs, strict peak and allocation wins in all values/load cells, and 25/25
-speed wins against the best pinned competitor.
+speed wins against the best pinned competitor. The speed matrix was recorded at
+`79937cc` after the 1.5.0 tag as post-release evidence; the page and changelog
+record that provenance.
 
 Charts can show **all available pinned libraries**, isolate **compact vs map**, or show
 only the **best competitor** per cell. Compact is the opt-in `CompactValues`
@@ -42,8 +44,10 @@ The rendered tables are also available directly:
 - [1.4.1 speed results](speed.md) and [raw bencher output](speed.txt)
 - [1.5.0 compact speed results](speed-1.5.0.md) and
   [raw bencher output](speed-1.5.0.txt)
-- [Memory fingerprint](memory.fingerprint.json) and
-  [speed fingerprint](speed.fingerprint.json)
+- [Memory fingerprint](memory.fingerprint.json),
+  [speed fingerprint](speed.fingerprint.json),
+  [compact memory fingerprint](compact-memory.fingerprint.json) and
+  [compact speed fingerprint](speed-1.5.0.fingerprint.json)
 
 ## Reproduce one cell
 

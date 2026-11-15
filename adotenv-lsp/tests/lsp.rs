@@ -2,9 +2,10 @@
 
 use adotenv::EditError;
 use adotenv_lsp::{
-    apply_change, completion, definition, diagnostics, document_symbols, hover, references, rename,
-    workspace_symbols, EqualsSpacing, KeyCase, LintOptions, LspOptions, QuoteStyle, RenameError,
-    Rule, Severity,
+    apply_change, completion, completion_with_options, definition, definition_with_options,
+    diagnostics, document_symbols, document_symbols_with_options, hover, references, rename,
+    workspace_symbols, Dialect, EqualsSpacing, KeyCase, LintOptions, LspOptions, QuoteStyle,
+    RenameError, Rule, Severity,
 };
 use lsp_types::{
     CompletionResponse, DiagnosticSeverity, DocumentSymbolResponse, GotoDefinitionResponse,
@@ -67,6 +68,33 @@ fn diagnostics_map_codes_ranges_and_related_locations() {
 }
 
 #[test]
+fn options_dialect_controls_every_operation() {
+    let source = "'A B'=1\nUSE=${A B}\n";
+    let options = LspOptions::new().with_dialect(Dialect::PYTHON_DOTENV);
+
+    assert_eq!(diagnostics(source, &uri(), &options).len(), 0);
+    assert_ne!(diagnostics(source, &uri(), &LspOptions::new()).len(), 0);
+
+    let DocumentSymbolResponse::Nested(symbols) = document_symbols_with_options(source, &options)
+    else {
+        panic!("expected nested document symbols");
+    };
+    assert_eq!(symbols[0].name, "A B");
+
+    let target = definition_with_options(source, &uri(), position(1, 7), &options).unwrap();
+    let GotoDefinitionResponse::Scalar(location) = target else {
+        panic!("expected one definition location");
+    };
+    assert_eq!(location.range.start, position(0, 1));
+
+    let completion = completion_with_options(source, position(0, 1), &options);
+    let CompletionResponse::Array(items) = completion else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items[0].label, "A B");
+}
+
+#[test]
 fn optional_linter_findings_are_published() {
     let options = LspOptions::default().with_lint_options(
         LintOptions::default()
@@ -94,6 +122,19 @@ fn linter_policy_types_are_reexported_and_keep_severity() {
         .find(|diagnostic| code(diagnostic) == Some("adotenv-lint.key-case"))
         .expect("key-case finding");
     assert_eq!(finding.severity, Some(DiagnosticSeverity::ERROR));
+}
+
+#[test]
+fn bom_diagnostic_has_a_visible_range() {
+    let diagnostics = diagnostics("\u{feff}A=1\n", &uri(), &LspOptions::new());
+    let bom = diagnostics
+        .iter()
+        .find(|diagnostic| code(diagnostic) == Some("dotenv.bom"))
+        .expect("bom diagnostic");
+    assert_eq!(
+        bom.range,
+        lsp_types::Range::new(position(0, 0), position(0, 1))
+    );
 }
 
 #[test]
@@ -139,6 +180,18 @@ fn completion_lists_declared_keys() {
 
     let comment = completion("HOST=localhost\n# $HOST\n", position(1, 3));
     let CompletionResponse::Array(items) = comment else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items.len(), 0);
+
+    let inline_comment = completion("HOST=localhost # $H\n", position(0, 17));
+    let CompletionResponse::Array(items) = inline_comment else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items.len(), 0);
+
+    let single_quoted = completion("HOST=localhost\nURL='$H'\n", position(1, 7));
+    let CompletionResponse::Array(items) = single_quoted else {
         panic!("expected array completion");
     };
     assert_eq!(items.len(), 0);
@@ -225,6 +278,16 @@ fn definition_follows_a_reference() {
 }
 
 #[test]
+fn definition_accepts_a_cursor_at_the_end_of_a_key() {
+    let source = "HOST=localhost\n";
+    let target = definition(source, &uri(), position(0, 4)).unwrap();
+    let GotoDefinitionResponse::Scalar(location) = target else {
+        panic!("expected one definition location");
+    };
+    assert_eq!(location.range.start, position(0, 0));
+}
+
+#[test]
 fn hover_shows_the_key_and_can_mask_the_value() {
     let source = "HOST=localhost\n";
     let visible = hover(source, position(0, 0), &LspOptions::default()).unwrap();
@@ -244,6 +307,12 @@ fn hover_shows_the_key_and_can_mask_the_value() {
     };
     assert!(markup.value.contains("<redacted>"));
     assert!(!markup.value.contains("localhost"));
+}
+
+#[test]
+fn hover_does_not_claim_an_inline_comment() {
+    let source = "HOST=localhost # note\n";
+    assert!(hover(source, position(0, 17), &LspOptions::new()).is_none());
 }
 
 #[test]
