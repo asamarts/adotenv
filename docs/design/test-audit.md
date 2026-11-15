@@ -111,9 +111,27 @@ panic or editing failure was involved.
 Four workflow fuzz runs passed on release commit `bf4b393`, each covering the
 then-current five targets: 41941036521, 41941908663, 41942723663 and
 41943612879. The current matrix has seven targets, including `limits` and the
-`differential` target. A bounded local smoke of the differential target ran
-5,000 executions clean after its Portable key/value oracle was narrowed for
-the pinned competitors' `export`-prefix behavior.
+`differential` target.
+
+On 2026-11-15, a local campaign ran all seven targets for five minutes each
+against release commit `41b7e3d` (`v1.5.2`). All targets exited clean, with no
+crash or timeout artifacts:
+
+| Target | Executions |
+|---|---:|
+| `parser` | 91,939 |
+| `edits` | 249,288 |
+| `encoding` | 284,724 |
+| `resolve` | 69,887 |
+| `format` | 41,088 |
+| `limits` | 6,605,509 |
+| `differential` | 2,245,169 |
+| **Total** | **9,587,604** |
+
+The differential target compares Portable value parsing with the pinned
+in-memory competitors on the conservative `KEY=value` grammar and runs
+malformed/recovery inputs through parser invariants where upstream semantics
+differ.
 
 ## Mutation testing at 1.2.0
 
