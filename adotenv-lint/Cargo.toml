@@ -17,7 +17,7 @@ all-features = true
 [dependencies]
 adotenv = { path = "..", version = "1.4.1" }
 serde = { version = "1", features = ["derive"] }
-globset = "=0.4.16"
+globset = "=0.4.21"
 toml = "=0.8.14"
 # Pins the toml_edit version toml 0.8.14 requires; newer 0.22.x releases are
 # not source-compatible when cargo-semver-checks builds the crate without the
