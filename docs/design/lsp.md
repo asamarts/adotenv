@@ -27,6 +27,10 @@ The prototype offers:
 Rename follows matching `$VAR`/`${VAR}` names. Definition, references and
 rename use the parser's candidate list, including escaped and single-quoted
 candidates that `Reference::is_eligible` would reject under Portable rules.
+This is deliberate: editor operations work on the document text, and a
+candidate can become active after a quote-style or dialect change. Filtering
+would make rename miss occurrences that may later resolve. Clients that need
+expansion semantics can apply `Reference::is_eligible` themselves.
 When references exist, keys that cannot be written as variable-reference
 names, such as keys containing `-`, fail with the core
 `EditError::InvalidReferenceKey` instead of changing only the declaration.

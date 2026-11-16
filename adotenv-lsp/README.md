@@ -79,9 +79,11 @@ let diagnostics = diagnostics("A=1\nBAD KEY=2\n", &uri, &options);
 Rename uses `Document::rename_with_references`, so the declaration and every
 matching `$VAR`/`${VAR}` name change together. Definition, references and
 rename follow every reference candidate the parser reports, including escaped
-and single-quoted candidates that Portable resolution would not expand. When
-references exist, keys that cannot be written as variable references are
-rejected through `EditError::InvalidReferenceKey`.
+and single-quoted candidates that Portable resolution would not expand. This
+keeps rename complete when a quote-style or dialect change later makes a
+candidate active; clients that need expansion semantics can apply
+`Reference::is_eligible`. When references exist, keys that cannot be written as
+variable references are rejected through `EditError::InvalidReferenceKey`.
 
 This crate requires Rust 1.85 because its LSP transport dependency uses the
 2024 edition. The core `adotenv` crate remains `no_std`, dependency-free and

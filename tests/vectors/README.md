@@ -10,6 +10,7 @@ vendoring them into another parser, and update `manifest.json` whenever a vector
   start at the same offset.
 - `github-escaping.json` covers GitHub Actions property and data escaping.
 - `schema/check-report.v1.json` is the JSON Schema for `adotenv-cli check --format json`.
+- `schema/diff-report.v1.json` is the JSON Schema for `adotenv-cli diff --format json`.
 
 `manifest.json` records the SHA-256 of each file. The vector test fails if a file changes
 without a matching manifest update.

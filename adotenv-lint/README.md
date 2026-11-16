@@ -121,7 +121,8 @@ explicitly:
 Findings include the rule, configured severity, one-based line, source span,
 key and an optional verified fix. Key-order findings cover a whole group and
 have no key; groups that `Document::sort` refuses to reorder are still reported
-without a fix. `apply_fix` applies one fix; `apply_batch` applies
+without a fix because no verified sort edit exists. `apply_fix` applies one
+fix; `apply_batch` applies
 independent renames together and can follow them with sorting and one format
 policy. Parse diagnostics remain available from `adotenv::parse`.
 
