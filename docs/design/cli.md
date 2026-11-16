@@ -259,6 +259,8 @@ Every field is listed below, in output order. The schema is stable.
 | value | `value` | string or null | The decoded literal value: `""` for `empty`, `null` for `bare`, or `"***"` for a non-empty value under `--mask`. |
 | value | `exported` | boolean | Whether the declaration has an `export` prefix. |
 
+The shared JSON Schema is `tests/vectors/schema/diff-report.v1.json`.
+
 ## Formatting
 
 `fmt` applies `FormatOptions::normalize_groups()`:

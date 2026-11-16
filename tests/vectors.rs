@@ -12,6 +12,7 @@ const POSITIONS: &str = include_str!("vectors/positions.json");
 const EDIT_ORDER: &str = include_str!("vectors/edit-order.json");
 const GITHUB_ESCAPING: &str = include_str!("vectors/github-escaping.json");
 const CHECK_REPORT_SCHEMA: &str = include_str!("vectors/schema/check-report.v1.json");
+const DIFF_REPORT_SCHEMA: &str = include_str!("vectors/schema/diff-report.v1.json");
 const MANIFEST: &str = include_str!("vectors/manifest.json");
 
 fn parse(text: &str) -> Value {
@@ -80,6 +81,7 @@ fn vector_manifest_matches_the_files() {
         ("edit-order.json", EDIT_ORDER),
         ("github-escaping.json", GITHUB_ESCAPING),
         ("schema/check-report.v1.json", CHECK_REPORT_SCHEMA),
+        ("schema/diff-report.v1.json", DIFF_REPORT_SCHEMA),
     ] {
         let expected = files
             .get(name)
@@ -88,7 +90,7 @@ fn vector_manifest_matches_the_files() {
         let actual = hex(Sha256::digest(text.as_bytes()).as_slice());
         assert_eq!(actual, expected, "manifest hash for {name}");
     }
-    assert_eq!(files.len(), 4, "manifest covers every vector");
+    assert_eq!(files.len(), 5, "manifest covers every vector");
 }
 
 #[test]

@@ -2658,6 +2658,25 @@ fn check_json_matches_the_shared_schema() {
 }
 
 #[test]
+fn diff_json_matches_the_shared_schema() {
+    let schema_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/vectors/schema/diff-report.v1.json");
+    // The published crate includes this test but not workspace-level vectors.
+    let Ok(schema_text) = fs::read_to_string(schema_path) else {
+        return;
+    };
+    let schema: serde_json::Value = serde_json::from_str(&schema_text).unwrap();
+    let dir = TempDir::new();
+    dir.file_at("base.env", "A\nB=\nC=1\nexport D=1\nE=1\nG=1\n");
+    dir.file_at("candidate.env", "A=1\nB\nC=2\nD=1\nexport E=1\nF=1\n");
+
+    let output = run_in(dir.path(), &["diff", "--json", "base.env", "candidate.env"]);
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    let report: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+    validate_schema(&report, &schema, "$");
+}
+
+#[test]
 fn load_and_run_reject_standard_input_as_a_directory() {
     let load = run(&["load", "-"]);
     assert_eq!(load.status.code(), Some(2));

@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added `tests/vectors/schema/diff-report.v1.json` for the versioned
+  `adotenv-cli diff --format json` report, with CLI and vector-manifest tests.
+
+### Documentation
+
+- Documented why LSP definition, references and rename follow all parser
+  candidates, and why unsortable key-order groups remain report-only.
+
 ## [1.5.3] - 2026-11-16
 
 ### Changed

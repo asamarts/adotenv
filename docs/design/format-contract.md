@@ -91,8 +91,8 @@ live under `tests/vectors/` and run in the test suite.
 
 - Exit `0` for success, `1` for findings, `2` when the command could not complete. `3` may
   report an internal error.
-- JSON output follows the shared `tests/vectors/schema/check-report.v1.json` schema. A format
-  may add optional fields.
+- JSON output follows the shared `tests/vectors/schema/check-report.v1.json` and
+  `tests/vectors/schema/diff-report.v1.json` schemas. A format may add optional fields.
 - GitHub annotation escaping and columns follow [Command-line tool](cli.md), including the
   BOM rule above.
 - Values reach output only where documented.
@@ -115,3 +115,4 @@ vendors with a recorded hash in `manifest.json`:
 - `edit-order.json`: source, edits and expected output, including equal starts.
 - `github-escaping.json`: input and escaped output.
 - `schema/check-report.v1.json`: the JSON Schema of the check report.
+- `schema/diff-report.v1.json`: the JSON Schema of the diff report.
