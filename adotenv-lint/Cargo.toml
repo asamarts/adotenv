@@ -22,7 +22,7 @@ toml = "=0.8.14"
 # Pins the toml_edit version toml 0.8.14 requires; newer 0.22.x releases are
 # not source-compatible when cargo-semver-checks builds the crate without the
 # workspace lock file.
-toml_edit = "=0.22.14"
+toml_edit = "=0.23.5"
 
 [lints.rust]
 unsafe_code = "forbid"
