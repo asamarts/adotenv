@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Published `adotenv` packages now include their integration tests and vectors,
+  and `adotenv-cli` includes its CLI integration test. The package-only test
+  run skips workspace-level docs/schema checks when those files are absent.
+
 ## [1.5.2] - 2026-11-15
 
 ### Changed

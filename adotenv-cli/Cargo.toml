@@ -12,7 +12,7 @@ keywords = ["dotenv", "cli", "formatter", "linter", "env"]
 categories = ["command-line-utilities", "development-tools", "config"]
 # Keep the published package self-contained. Integration tests depend on
 # workspace-level fixtures and documentation and are not shipped.
-include = ["/src/**", "/README.md", "/LICENSE-APACHE", "/LICENSE-MIT"]
+include = ["/src/**", "/tests/cli.rs", "/README.md", "/LICENSE-APACHE", "/LICENSE-MIT"]
 
 [dependencies]
 adotenv = { path = "..", version = "1.5.2", features = ["load"] }
