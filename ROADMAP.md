@@ -18,13 +18,13 @@ The current release provides:
 
 ## Current status
 
-`adotenv`, `adotenv-process` and `adotenv-cli` 1.5.3 were published on
-2026-11-16 with package-safe integration tests. `adotenv-lint` 0.2.1 and
-`adotenv-lsp` 0.4.2 were published on 2026-11-15. The previous lockstep
-releases were 1.5.2 on 2026-11-15 with CLI help-text corrections and 1.5.1 on
-2026-11-15 with companion-tooling fixes; 1.5.0 on 2026-11-12 added the compact
-values API, and `adotenv-lint` 0.2.0 / `adotenv-lsp` 0.4.0 were published on
-2026-11-11.
+`adotenv`, `adotenv-process` and `adotenv-cli` 1.5.4 were published on
+2026-11-16 with the diff-report schema and published schema URLs. `adotenv-lint`
+0.2.1 and `adotenv-lsp` 0.4.2 were published on 2026-11-15. The previous
+lockstep releases were 1.5.3 on 2026-11-16 with package-safe integration tests,
+1.5.2 on 2026-11-15 with CLI help-text corrections, and 1.5.1 on 2026-11-15
+with companion-tooling fixes; 1.5.0 on 2026-11-12 added the compact values API,
+and `adotenv-lint` 0.2.0 / `adotenv-lsp` 0.4.0 were published on 2026-11-11.
 `adotenv-config` is at 0.12.0 and `adotenv-figment` at 0.12.1. A pre-release audit of 0.10.4 found
 defects in behavior that 1.0 would freeze. They were fixed in 0.11.0, apart
 from the rename collision rule, which shipped in 1.0.0. The fixes are listed in
@@ -37,9 +37,10 @@ was released on 2026-11-07 and adds the verified reference-rename primitive.
 Version 1.4.1 was released on 2026-11-11 with the benchmark and hardening
 cycle. Version 1.5.0 was released on 2026-11-12 with the compact values API;
 version 1.5.1 followed on 2026-11-15 with companion-tooling fixes, 1.5.2
-followed the same day with CLI help-text corrections, and 1.5.3 on 2026-11-16
-made the published integration tests package-safe. The audit, release evidence
-and remaining companion work are recorded there.
+followed the same day with CLI help-text corrections, 1.5.3 on 2026-11-16 made
+the published integration tests package-safe, and 1.5.4 added the diff-report
+schema and published schema URLs. The audit, release evidence and remaining
+companion work are recorded there.
 
 ## Near-term work
 
