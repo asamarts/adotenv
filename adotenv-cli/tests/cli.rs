@@ -2534,7 +2534,10 @@ fn documented_fields(text: &str) -> std::collections::BTreeMap<String, Vec<Strin
 #[test]
 fn json_fields_match_the_documented_schema() {
     let docs = Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/design/cli.md");
-    let docs = fs::read_to_string(docs).expect("docs/design/cli.md must be available");
+    // The published crate includes this test but not workspace-level docs.
+    let Ok(docs) = fs::read_to_string(docs) else {
+        return;
+    };
     let documented = documented_fields(&docs);
 
     let dir = TempDir::new();
@@ -2610,10 +2613,13 @@ fn json_fields_match_the_documented_schema() {
 
 #[test]
 fn check_json_matches_the_shared_schema() {
-    let schema: serde_json::Value = serde_json::from_str(include_str!(
-        "../../tests/vectors/schema/check-report.v1.json"
-    ))
-    .unwrap();
+    let schema_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/vectors/schema/check-report.v1.json");
+    // The published crate includes this test but not workspace-level vectors.
+    let Ok(schema_text) = fs::read_to_string(schema_path) else {
+        return;
+    };
+    let schema: serde_json::Value = serde_json::from_str(&schema_text).unwrap();
     let dir = TempDir::new();
     dir.file_at("good.env", "A=1\n");
     dir.file_at("findings.env", "A=1\nA=2\nBAD KEY=value\n");
