@@ -2,6 +2,7 @@
 
 | Version | Date | Focus |
 |---|---|---|
+| 1.5.4 | 2026-11-16 | Diff-report schema and published schema URLs; no library behavior change |
 | 1.5.3 | 2026-11-16 | Package-safe integration tests; no library behavior change |
 | 1.5.2 | 2026-11-15 | CLI help-text corrections; no library behavior change |
 | 1.5.1 | 2026-11-15 | CLI, companion-tooling and release-evidence fixes |
