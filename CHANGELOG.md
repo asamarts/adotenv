@@ -13,6 +13,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Documentation
 
+- Published the check and diff JSON Schemas at their stable `$id` URLs and
+  added a docs-smoke check for both schema URLs.
 - Documented why LSP definition, references and rename follow all parser
   candidates, and why unsortable key-order groups remain report-only.
 

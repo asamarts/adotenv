@@ -242,6 +242,11 @@ try {
     const port = server.address().port;
     base = `http://127.0.0.1:${port}/`;
 
+    for (const schema of ["check-report.v1.json", "diff-report.v1.json"]) {
+        const response = await fetch(`${base}schema/${schema}`);
+        check(response.ok, `schema/${schema}: schema is not published`);
+    }
+
     browser = await chromium.launch({
         headless: true,
         executablePath: chromePath(),

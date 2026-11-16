@@ -156,7 +156,8 @@ spans are stable.
 | span | `end` | number | Byte offset just past the range. |
 
 A file with no diagnostics produces an empty `diagnostics` array. The shared
-JSON Schema is `tests/vectors/schema/check-report.v1.json`.
+JSON Schema is `tests/vectors/schema/check-report.v1.json` and is published at
+<https://asamarts.github.io/adotenv/schema/check-report.v1.json>.
 
 ### `check --format github`
 
@@ -259,7 +260,8 @@ Every field is listed below, in output order. The schema is stable.
 | value | `value` | string or null | The decoded literal value: `""` for `empty`, `null` for `bare`, or `"***"` for a non-empty value under `--mask`. |
 | value | `exported` | boolean | Whether the declaration has an `export` prefix. |
 
-The shared JSON Schema is `tests/vectors/schema/diff-report.v1.json`.
+The shared JSON Schema is `tests/vectors/schema/diff-report.v1.json` and is
+published at <https://asamarts.github.io/adotenv/schema/diff-report.v1.json>.
 
 ## Formatting
 
