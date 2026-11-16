@@ -191,6 +191,14 @@ Compose comment-suffix edit regression. The new tests make the previously
 surviving budget/severity mutations fail; the equivalent survivors are recorded
 here rather than hidden by changing the verification logic.
 
+## Docs site smoke
+
+On 2026-11-15, `mdbook` 0.5.4 built the site from commit `c6ae7b6`, and the
+headless-Chromium docs smoke passed. It covered nested navigation, every
+discovered benchmark chart and result page, chart controls and compact-vs-map
+views, table sorting and filtering, selector help popovers, and mobile
+overflow and popover bounds.
+
 ## Known gaps
 
 1. CLI branches for rare rename, permission and temporary-file failures. These
