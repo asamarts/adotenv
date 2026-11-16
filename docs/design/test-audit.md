@@ -6,7 +6,7 @@ described in [Quality](quality.md).
 
 ## Coverage at 1.2.0 (historical)
 
-The current release is 1.5.2; the figures below are the last published
+The current release is 1.5.3; the figures below are the last published
 coverage audit and are retained as a historical baseline. From a local
 `cargo llvm-cov --workspace --all-features` run on 2026-11-04 from branch
 `prep-1.2.0` during the audit. The workspace total is 94.4 percent of
