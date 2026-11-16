@@ -1,6 +1,6 @@
 [package]
 name = "adotenv-cli"
-version = "1.5.2"
+version = "1.5.3"
 edition = "2021"
 rust-version = "1.81"
 description = "Command-line tools for reading, checking, formatting and comparing dotenv files."
@@ -10,12 +10,13 @@ documentation = "https://docs.rs/adotenv-cli"
 readme = "README.md"
 keywords = ["dotenv", "cli", "formatter", "linter", "env"]
 categories = ["command-line-utilities", "development-tools", "config"]
-# Keep the published package self-contained. Integration tests depend on
-# workspace-level fixtures and documentation and are not shipped.
+# Keep the published package self-contained. The integration test is shipped
+# but skips workspace-level fixture and documentation checks when they are
+# absent.
 include = ["/src/**", "/tests/cli.rs", "/README.md", "/LICENSE-APACHE", "/LICENSE-MIT"]
 
 [dependencies]
-adotenv = { path = "..", version = "1.5.2", features = ["load"] }
+adotenv = { path = "..", version = "1.5.3", features = ["load"] }
 
 [dev-dependencies]
 serde_json = "=1.0.154"
