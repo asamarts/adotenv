@@ -12,5 +12,8 @@ vendoring them into another parser, and update `manifest.json` whenever a vector
 - `schema/check-report.v1.json` is the JSON Schema for `adotenv-cli check --format json`.
 - `schema/diff-report.v1.json` is the JSON Schema for `adotenv-cli diff --format json`.
 
+The schemas are published under `https://asamarts.github.io/adotenv/schema/` by the docs
+workflow.
+
 `manifest.json` records the SHA-256 of each file. The vector test fails if a file changes
 without a matching manifest update.

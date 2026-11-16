@@ -41,6 +41,10 @@ jobs:
       - run: cargo install mdbook --version 0.5.4 --locked
       - run: python3 scripts/check_docs.py
       - run: mdbook build
+      - name: publish JSON schemas
+        run: |
+          mkdir -p target/book/schema
+          cp tests/vectors/schema/*.json target/book/schema/
       - name: install docs smoke dependencies
         run: npm ci --prefix scripts/docs-smoke
       - name: verify Chrome
