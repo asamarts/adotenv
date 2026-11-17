@@ -58,6 +58,15 @@ fn empty_and_absent_are_distinct() {
 }
 
 #[test]
+fn comparison_state_helpers_report_nonempty_results() {
+    let left = parse_strict("A=1\nB=2\n").unwrap();
+    let right = parse_strict("C=3\n").unwrap();
+    let comparison = left.compare(&right);
+    assert!(!comparison.is_empty());
+    assert_eq!(comparison.len(), 3);
+}
+
+#[test]
 fn compose_empty_keys_are_compared_directly() {
     let (left, _) = parse_with("AA", Dialect::COMPOSE);
     let (right, _) = parse_with("", Dialect::COMPOSE);

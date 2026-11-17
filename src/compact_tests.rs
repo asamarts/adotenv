@@ -1,4 +1,6 @@
 use alloc::collections::BTreeMap;
+#[cfg(feature = "load")]
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -46,6 +48,35 @@ fn compact_values_match_values_only_parsing() {
     assert_eq!(
         compact.clone().into_btreemap(),
         parse_values("PORT=8080\nHOST=localhost\n").unwrap()
+    );
+}
+
+#[cfg(feature = "load")]
+#[test]
+fn compact_debug_keeps_keys_and_merge_prefers_later_values() {
+    let values = parse_values_compact("A=1\nC=3\n").unwrap();
+    assert!(format!("{values:?}").contains('A'));
+
+    let later = parse_values_compact("B=2\nC=4\n").unwrap();
+    let merged = values.clone().merge(&later);
+    assert_eq!(pairs(&merged), [("A", "1"), ("B", "2"), ("C", "4")]);
+
+    let empty = parse_values_compact("").unwrap();
+    assert_eq!(
+        pairs(&empty.clone().merge(&later)),
+        [("B", "2"), ("C", "4")]
+    );
+    assert_eq!(
+        pairs(&values.clone().merge(&empty)),
+        [("A", "1"), ("C", "3")]
+    );
+    assert_eq!(
+        pairs(
+            &values
+                .clone()
+                .merge(&parse_values_compact("C=9\n").unwrap())
+        ),
+        [("A", "1"), ("C", "9")]
     );
 }
 

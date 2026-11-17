@@ -21,6 +21,94 @@ const PRESETS: [Dialect; 5] = [
 ];
 
 #[test]
+fn presets_match_documented_rule_fields() {
+    let node = Dialect::NODE_DOTENV;
+    assert_eq!(node.syntax, Syntax::Node);
+    assert_eq!(node.whitespace, Whitespace::EcmaScript);
+    assert_eq!(node.inline_comments, InlineComments::AnyHash);
+    assert_eq!(node.double_escapes, DoubleEscapes::NODE);
+    assert_eq!(node.unknown_escapes, UnknownEscapes::Preserve);
+    assert!(node.backticks);
+    assert_eq!(node.colon, ColonSeparator::Whitespace);
+    assert_eq!(node.bare_keys, BareKeys::Ignore);
+    assert_eq!(node.quoted_tail, QuotedTail::LiteralFallback);
+    assert!(node.quoted_comments);
+    assert!(node.normalize_newlines);
+    assert_eq!(node.malformed_lines, MalformedLines::Ignore);
+    assert!(node.node_object_keys);
+
+    let python = Dialect::PYTHON_DOTENV;
+    assert_eq!(python.syntax, Syntax::Python);
+    assert_eq!(python.whitespace, Whitespace::Python);
+    assert_eq!(python.inline_comments, InlineComments::Python);
+    assert_eq!(python.double_escapes, DoubleEscapes::PYTHON);
+    assert_eq!(python.unknown_escapes, UnknownEscapes::Preserve);
+    assert_eq!(python.single_escapes, SingleEscapes::QuoteAndBackslash);
+    assert_eq!(python.keys, KeySyntax::Python);
+    assert!(python.quoted_keys);
+    assert!(python.quoted_comments);
+
+    let compose = Dialect::COMPOSE;
+    assert_eq!(compose.syntax, Syntax::Compose);
+    assert_eq!(compose.whitespace, Whitespace::Compose);
+    assert_eq!(compose.inline_comments, InlineComments::Space);
+    assert_eq!(compose.double_escapes, DoubleEscapes::COMPOSE);
+    assert_eq!(compose.unknown_escapes, UnknownEscapes::Preserve);
+    assert_eq!(compose.single_escapes, SingleEscapes::Quote);
+    assert_eq!(compose.colon, ColonSeparator::Any);
+    assert_eq!(compose.keys, KeySyntax::Compose);
+    assert_eq!(compose.bare_keys, BareKeys::Ignore);
+    assert_eq!(compose.line_breaks, LineBreaks::Lf);
+    assert_eq!(compose.quoted_tail, QuotedTail::NextStatement);
+    assert!(compose.quoted_comments);
+
+    let docker = Dialect::DOCKER_RAW;
+    assert_eq!(docker.syntax, Syntax::Docker);
+    assert_eq!(docker.whitespace, Whitespace::Unicode);
+    assert_eq!(docker.inline_comments, InlineComments::None);
+    assert_eq!(docker.double_escapes, DoubleEscapes::NONE);
+    assert_eq!(docker.unknown_escapes, UnknownEscapes::Preserve);
+    assert_eq!(docker.keys, KeySyntax::Docker);
+    assert_eq!(docker.bare_keys, BareKeys::Ignore);
+    assert!(docker.raw_values);
+    assert_eq!(docker.line_breaks, LineBreaks::Lf);
+    assert_eq!(docker.multiline, Multiline::NONE);
+    assert!(!docker.export);
+    assert_eq!(docker.line_byte_limit, Some(65_535));
+}
+
+#[test]
+fn double_escape_flags_are_distinct_nonzero_bits() {
+    let flags = [
+        DoubleEscapes::LF,
+        DoubleEscapes::CR,
+        DoubleEscapes::TAB,
+        DoubleEscapes::BACKSLASH,
+        DoubleEscapes::DOUBLE_QUOTE,
+        DoubleEscapes::DOLLAR,
+        DoubleEscapes::SINGLE_QUOTE,
+        DoubleEscapes::BELL,
+        DoubleEscapes::BACKSPACE,
+        DoubleEscapes::FORM_FEED,
+        DoubleEscapes::VERTICAL_TAB,
+        DoubleEscapes::OCTAL,
+    ];
+    for flag in flags {
+        assert!(!DoubleEscapes::NONE.contains(flag));
+    }
+    for (index, flag) in flags.iter().enumerate() {
+        for (other_index, other) in flags.iter().enumerate() {
+            if index != other_index {
+                assert!(!other.contains(*flag));
+            }
+        }
+    }
+    assert!(DoubleEscapes::PORTABLE
+        .union(DoubleEscapes::PORTABLE)
+        .contains(DoubleEscapes::PORTABLE));
+}
+
+#[test]
 fn reinterpretation_changes_grouping_without_losing_declarations_or_source() {
     let text = "A=`one\nINNER=inside\ntwo`\nBARE\nEMPTY=\nDUP=first\nDUP\n";
     let (portable, _) = parse_with(text, Dialect::PORTABLE);

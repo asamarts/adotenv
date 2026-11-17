@@ -253,6 +253,38 @@ fn legal_short_tokens_are_positive_inverse_witnesses() {
 }
 
 #[test]
+fn all_double_escape_spellings_are_used_and_round_trip() {
+    let escapes = DoubleEscapes::PORTABLE
+        .union(DoubleEscapes::BELL)
+        .union(DoubleEscapes::BACKSPACE)
+        .union(DoubleEscapes::FORM_FEED)
+        .union(DoubleEscapes::VERTICAL_TAB);
+    let dialect = Dialect::PORTABLE
+        .with_double_escapes(escapes)
+        .with_single_escapes(SingleEscapes::None)
+        .with_backticks(false)
+        .with_multiline(Multiline::NONE);
+    for (value, spelling) in [
+        (" \n ", "\\n"),
+        (" \r ", "\\r"),
+        (" \t ", "\\t"),
+        (" \\ ", "\\\\"),
+        (" \" ", "\\\""),
+        (" \u{7} ", "\\a"),
+        (" \u{8} ", "\\b"),
+        (" \u{c} ", "\\f"),
+        (" \u{b} ", "\\v"),
+    ] {
+        let token = encode_value_with(value, dialect).unwrap();
+        assert!(
+            token.contains(spelling),
+            "value={value:?} token={token:?} spelling={spelling:?}"
+        );
+        assert_decodes(&token, value, dialect);
+    }
+}
+
+#[test]
 fn literal_fallback_comment_padding_is_a_positive_inverse() {
     let dialect = Dialect {
         inline_comments: InlineComments::AnyHash,

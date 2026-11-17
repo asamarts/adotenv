@@ -38,6 +38,16 @@ fn replay(source: &str, result: &crate::VerifiedEdits) -> String {
 }
 
 #[test]
+fn verified_edits_into_edits_and_error_display_are_stable() {
+    let doc = parse("A=1\n").0;
+    let result = doc.set("A", "2").unwrap();
+    let expected = result.edits().to_vec();
+    assert_eq!(result.into_edits(), expected);
+    assert!(format!("{}", EditError::Missing).contains("requested key"));
+    assert!(format!("{}", EditError::Duplicate(2)).contains("2 declarations"));
+}
+
+#[test]
 fn native_value_edits_retain_tokens_and_quote_style() {
     let source = "\u{feff}  export A \t= 'old'  # note\r\nB=stay\r\n";
     let (doc, _) = parse(source);
