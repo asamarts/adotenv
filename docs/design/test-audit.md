@@ -128,6 +128,22 @@ crash or timeout artifacts:
 | `differential` | 2,245,169 |
 | **Total** | **9,587,604** |
 
+On 2026-11-16 and 2026-11-17, an extended local campaign ran all seven targets
+for ten minutes each against `98823a6` (`v1.5.4`). The differential target was
+rerun after an interrupted process; the completed run is counted below. All
+targets exited clean, with no crash or timeout artifacts:
+
+| Target | Executions |
+|---|---:|
+| `parser` | 8,706 |
+| `edits` | 416,031 |
+| `encoding` | 689,355 |
+| `resolve` | 13,651 |
+| `format` | 29,653 |
+| `limits` | 11,357,816 |
+| `differential` | 2,583,867 |
+| **Total** | **15,099,079** |
+
 The differential target compares Portable value parsing with the pinned
 in-memory competitors on the conservative `KEY=value` grammar and runs
 malformed/recovery inputs through parser invariants where upstream semantics
