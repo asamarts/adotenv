@@ -207,6 +207,29 @@ Compose comment-suffix edit regression. The new tests make the previously
 surviving budget/severity mutations fail; the equivalent survivors are recorded
 here rather than hidden by changing the verification logic.
 
+## Focused mutation testing at 1.5.4
+
+The recent LSP completion and CLI option/discovery code was mutation-tested on
+top of the extended fuzz campaign.
+
+```console
+cargo mutants --package adotenv-lsp --file adotenv-lsp/src/lib.rs \
+  --re 'in (completion_with_options|inline_comment_starts|CompletionContext|name_at|reference_at)' \
+  --jobs 4 --timeout 60 --baseline skip
+cargo mutants --package adotenv-cli --file adotenv-cli/src/main.rs \
+  --re 'in (extract_dialect|strip_options_terminator|parse_check_args|parse_fmt_args|expand_paths)' \
+  --jobs 4 --timeout 120 --baseline skip
+```
+
+The LSP campaign tested 45 mutants: 43 caught, 2 equivalent misses, 0
+timeouts. Both survivors are `index + 1` line-start variants whose newline is
+removed by `trim_start`, so completion behavior is unchanged. The CLI campaign
+tested 58 mutants: 50 caught, 1 equivalent miss, 7 timeouts. The equivalent
+miss is the `set` positional guard, which cannot change a valid invocation;
+the timeouts are index-increment mutants that fail to advance their loops.
+The test additions cover diagnostic fields, completion metadata, underscore
+references, escaped quotes, and CLI `set`/`fmt` argument boundaries.
+
 ## Docs site smoke
 
 On 2026-11-15, `mdbook` 0.5.4 built the site from commit `c6ae7b6`, and the
