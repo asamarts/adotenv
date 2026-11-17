@@ -230,6 +230,29 @@ the timeouts are index-increment mutants that fail to advance their loops.
 The test additions cover diagnostic fields, completion metadata, underscore
 references, escaped quotes, and CLI `set`/`fmt` argument boundaries.
 
+## Full mutation campaign at 1.5.4
+
+A single full-workspace process evaluated 883 of 5,502 mutants before the
+background runner stopped: 599 caught, 154 missed, 14 timeouts and 116
+unviable. The remaining work was split into file shards:
+
+- `src/dialect.rs`, `src/compare.rs`, `src/compact.rs`: 187 mutants; 145
+  caught, 8 missed, 31 unviable, 3 timeouts. Added preset-field, escape-flag,
+  comparison-state and compact debug/merge tests. The compact rerun then
+  tested 76 mutants with 67 caught, 5 missed, 1 unviable and 3 timeouts; the
+  survivors are equivalent or allocation-size-only variants.
+- `src/encode.rs`: 86 mutants; 45 caught, 41 missed. Added exact double-escape
+  spelling coverage. The remaining misses are in canonical encoding,
+  fallback and defensive verification paths; alternate valid spellings often
+  preserve behavior.
+- `src/edit.rs`: 74 mutants; 49 caught, 25 missed. The survivors are in
+  internal lookup, insertion planning and verification branches that valid
+  public edits do not reach.
+
+No product failure was demonstrated by the survivors, but the full campaign
+has not been rerun end-to-end; the remaining encode/edit survivors still need
+further tests or explicit equivalence classification.
+
 ## Docs site smoke
 
 On 2026-11-15, `mdbook` 0.5.4 built the site from commit `c6ae7b6`, and the
@@ -244,8 +267,8 @@ overflow and popover bounds.
    need platform error injection and are deferred.
 2. Coverage figures come from a local workspace run. CI uploads the lcov
    artifact and prints the workspace summary, but does not publish a threshold.
-3. Mutation testing is focused rather than exhaustive; the full 4,319-mutant
-   workspace campaign is deferred to release time. Windows-only validation
-   branches are exercised by the Windows CI job but not by mutation runs on
-   Linux.
+3. Mutation testing is focused rather than exhaustive; the current workspace
+   list is 5,502 mutants, and the partial full campaign plus file shards are
+   recorded above. Windows-only validation branches are exercised by the
+   Windows CI job but not by mutation runs on Linux.
 

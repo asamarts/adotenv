@@ -9,8 +9,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Tests
 
 - Added mutation-driven assertions for LSP diagnostic fields and completion
-  context, plus CLI `set`/`fmt` argument boundaries, and recorded the focused
-  mutation results.
+  context, CLI `set`/`fmt` argument boundaries, dialect presets and escape
+  flags, comparison state and compact merge/debug behavior, and recorded the
+  focused and sharded mutation triage.
 
 ## [1.5.4] - 2026-11-16
 
