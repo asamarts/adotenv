@@ -67,7 +67,7 @@ fn diagnostics_map_codes_ranges_and_related_locations() {
     );
     assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
     assert_eq!(diagnostics[0].source.as_deref(), Some("adotenv"));
-    assert!(!diagnostics[0].message.is_empty());
+    assert_ne!(diagnostics[0].message, "");
     assert!(diagnostics[0].related_information.is_some());
     assert_eq!(code(&diagnostics[1]), Some("dotenv.invalid-key"));
     assert_eq!(diagnostics[1].range.start, position(2, 0));
@@ -116,7 +116,7 @@ fn optional_linter_findings_are_published() {
     );
     assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
     assert_eq!(diagnostics[0].source.as_deref(), Some("adotenv-lint"));
-    assert!(!diagnostics[0].message.is_empty());
+    assert_ne!(diagnostics[0].message, "");
 }
 
 #[test]
