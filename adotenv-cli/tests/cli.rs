@@ -498,6 +498,15 @@ fn dialect_selection_applies_to_commands() {
 
     let after_positional = run(&["get", file.to_str().unwrap(), "--dialect", "node", "A"]);
     assert_eq!(stdout(&after_positional), "a\n");
+
+    let set_before_file = run(&["set", "--dialect", "node", file.to_str().unwrap(), "A", "b"]);
+    assert_eq!(
+        set_before_file.status.code(),
+        Some(0),
+        "{}",
+        stderr(&set_before_file)
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "A=b #b\n");
 }
 
 #[test]
@@ -2737,6 +2746,10 @@ fn double_dash_ends_option_parsing() {
 
     let example = run_in(dir.path(), &["example", "--", "-dash.env"]);
     assert_eq!(example.status.code(), Some(0), "{}", stderr(&example));
+
+    let fmt = run_in(dir.path(), &["fmt", "--", "-dash.env"]);
+    assert_eq!(fmt.status.code(), Some(0), "{}", stderr(&fmt));
+    assert!(stdout(&fmt).contains("A = 1"));
 
     let set = run_in(dir.path(), &["set", "--", "-dash.env", "A", "2"]);
     assert_eq!(set.status.code(), Some(0), "{}", stderr(&set));

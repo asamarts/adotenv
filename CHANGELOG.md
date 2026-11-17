@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Tests
+
+- Added mutation-driven assertions for LSP diagnostic fields and completion
+  context, plus CLI `set`/`fmt` argument boundaries, and recorded the focused
+  mutation results.
+
 ## [1.5.4] - 2026-11-16
 
 ### Added

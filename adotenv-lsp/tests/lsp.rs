@@ -8,8 +8,8 @@ use adotenv_lsp::{
     RenameError, Rule, Severity,
 };
 use lsp_types::{
-    CompletionResponse, DiagnosticSeverity, DocumentSymbolResponse, GotoDefinitionResponse,
-    HoverContents, NumberOrString, Position, SymbolKind, Uri,
+    CompletionItemKind, CompletionResponse, DiagnosticSeverity, DocumentSymbolResponse,
+    GotoDefinitionResponse, HoverContents, NumberOrString, Position, SymbolKind, Uri,
 };
 
 fn uri() -> Uri {
@@ -61,7 +61,13 @@ fn diagnostics_map_codes_ranges_and_related_locations() {
     let diagnostics = diagnostics("A=1\nA=2\nBAD KEY=3\n", &uri(), &LspOptions::default());
     assert_eq!(diagnostics.len(), 2);
     assert_eq!(code(&diagnostics[0]), Some("dotenv.duplicate-key"));
-    assert_eq!(diagnostics[0].range.start, position(1, 0));
+    assert_eq!(
+        diagnostics[0].range,
+        lsp_types::Range::new(position(1, 0), position(1, 1))
+    );
+    assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+    assert_eq!(diagnostics[0].source.as_deref(), Some("adotenv"));
+    assert!(!diagnostics[0].message.is_empty());
     assert!(diagnostics[0].related_information.is_some());
     assert_eq!(code(&diagnostics[1]), Some("dotenv.invalid-key"));
     assert_eq!(diagnostics[1].range.start, position(2, 0));
@@ -104,6 +110,13 @@ fn optional_linter_findings_are_published() {
     let diagnostics = diagnostics("B=2\nA=1\n", &uri(), &options);
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(code(&diagnostics[0]), Some("adotenv-lint.key-order"));
+    assert_eq!(
+        diagnostics[0].range,
+        lsp_types::Range::new(position(0, 0), position(2, 0))
+    );
+    assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+    assert_eq!(diagnostics[0].source.as_deref(), Some("adotenv-lint"));
+    assert!(!diagnostics[0].message.is_empty());
 }
 
 #[test]
@@ -152,13 +165,17 @@ fn lsp_positions_hide_a_leading_byte_order_mark() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn completion_lists_declared_keys() {
     let response = completion("HOST=localhost\nPORT=8080\n", position(0, 0));
     let CompletionResponse::Array(items) = response else {
         panic!("expected array completion");
     };
-    let labels: Vec<_> = items.into_iter().map(|item| item.label).collect();
+    let labels: Vec<_> = items.iter().map(|item| item.label.clone()).collect();
     assert_eq!(labels, ["HOST", "PORT"]);
+    assert_eq!(items[0].kind, Some(CompletionItemKind::VARIABLE));
+    assert_eq!(items[0].detail.as_deref(), Some("declared .env key"));
+    assert_eq!(items[0].insert_text.as_deref(), Some("HOST"));
 
     let partial_key = completion("HOST=localhost\nPORT=8080\n", position(0, 2));
     let CompletionResponse::Array(items) = partial_key else {
@@ -177,6 +194,25 @@ fn completion_lists_declared_keys() {
         panic!("expected array completion");
     };
     assert_eq!(items.len(), 2);
+
+    let underscore_reference = completion("HOST=localhost\nURL=$H_\n", position(1, 7));
+    let CompletionResponse::Array(items) = underscore_reference else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items.len(), 2);
+
+    let escaped_quote = completion("HOST=localhost\nURL=\"a\\\"b # $H\"\n", position(1, 14));
+    let CompletionResponse::Array(items) = escaped_quote else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items.len(), 2);
+
+    let escaped_quote_then_comment =
+        completion("HOST=localhost\nURL=\"a\\\"\" # $H\n", position(1, 14));
+    let CompletionResponse::Array(items) = escaped_quote_then_comment else {
+        panic!("expected array completion");
+    };
+    assert_eq!(items.len(), 0);
 
     let comment = completion("HOST=localhost\n# $HOST\n", position(1, 3));
     let CompletionResponse::Array(items) = comment else {
