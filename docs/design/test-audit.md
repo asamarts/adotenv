@@ -249,9 +249,23 @@ unviable. The remaining work was split into file shards:
   internal lookup, insertion planning and verification branches that valid
   public edits do not reach.
 
-No product failure was demonstrated by the survivors, but the full campaign
-has not been rerun end-to-end; the remaining encode/edit survivors still need
-further tests or explicit equivalence classification.
+The remaining survivors are classified as:
+
+- **Encode canonical/fallback alternatives:** another quoted, raw or
+  literal-fallback spelling round-trips to the same value; the verifier
+  rejects any spelling that changes meaning.
+- **Encode defensive predicates:** `exact_native`, `appended_body_end`,
+  `verify_with_cr_padding` and the `escape` arms for `$`/`'` guard malformed
+  internal states or spellings that the conventional encoder never emits.
+- **Edit lookup/planning/verification:** `KeyLookup`, `Desired`, `ItemPlan`,
+  `verify_entry_region`, `rewrite_span` and related branches protect the
+  verified-edit path. Public edit tests cover their observable outcomes; the
+  defensive `verify_entry_region` suffix loop was classified in the 1.4.1
+  campaign.
+
+No product failure was demonstrated by the survivors. The full campaign
+was not rerun end-to-end; the remaining work is to finish the sharded
+campaign and formalize any further equivalence exceptions.
 
 ## Docs site smoke
 
