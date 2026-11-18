@@ -82,21 +82,26 @@ memory limit. If a local test is unavoidable, use a temporary target directory,
 
 `kbench` currently has 8 CPUs, 15 GiB of RAM, no swap, a 442 GB disk, pueue
 4.0.4 and a serialized `bench` group with one slot. Its `benchq` daemon runs
-with `ProtectHome`, so it cannot use a toolchain under `/home`. As of
-2026-11-18 it also has no Rust toolchain installed.
+with `ProtectHome`, so it cannot use a toolchain under `/home`.
 
-Before the first test or mutation run, provision these once, as an
-administrator:
+The test environment was provisioned on 2026-11-18:
 
-1. A pinned Rust toolchain readable by `benchq`, for example under
-   `/var/lib/benchq/toolchain`, with `PATH`, `CARGO_HOME` and `RUSTUP_HOME`
-   pointed at the provisioned directories.
-2. A dedicated source checkout at `/var/lib/benchq/adotenv-src`, owned by
-   `benchq`, populated from tracked files only. Do not copy `target/`,
-   `conformance/rust/target/`, `mutants.out/` or other ignored scratch data.
+- `/var/lib/benchq/toolchain` is a copy of Rust 1.97.0, readable by `benchq`;
+- `/var/lib/benchq/bin/cargo-mutants` is `cargo-mutants` 27.1.0;
+- `/var/lib/benchq/cargo` is the `CARGO_HOME`; dependencies were fetched with
+  `cargo fetch --locked`;
+- `/var/lib/benchq/adotenv-src` is a tracked-only source tree.
 
-If those prerequisites are absent, use GitHub Actions. Do not fall back to a
-heavy local run.
+The first bounded shard used a 12 GiB address-space limit, two Cargo build
+jobs, one test thread and two mutation workers. It tested 102 mutants:
+**68 caught, 0 missed, 12 unviable and 22 timeouts**. The host reported 2.6 GiB
+in use immediately after the task. The timeouts are scanner and bit-mask
+mutants that do not terminate within 60 seconds; they are not product
+failures.
+
+If the prerequisites are ever removed, reprovision them before queueing.
+If kbench is unavailable, use GitHub Actions. Do not fall back to a heavy
+local run.
 
 To refresh the tracked source and queue a bounded workspace test:
 

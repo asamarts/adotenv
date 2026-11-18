@@ -273,8 +273,9 @@ unviable. The remaining work was split into file shards:
   found.
 - References shard (`references`): the 2026-11-18 local run was cancelled
   after 41 outcomes (24 missed, 17 timeouts) when the shared host ran out of
-  capacity. It must be rerun on kbench or CI before its survivors are
-  classified; see [heavy validation](heavy-validation.md).
+  capacity. The kbench 0/4 rerun tested 102 mutants: 68 caught, 0 missed, 12
+  unviable and 22 timeouts. The remaining 1/4-3/4 shards are queued on kbench;
+  see [heavy validation](heavy-validation.md).
 
 The remaining survivors are classified as:
 
