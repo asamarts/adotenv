@@ -250,8 +250,9 @@ unviable. The remaining work was split into file shards:
   public edits do not reach.
 - Safety/structure shard (`mask`, `exec`, `portability`, `diagnostic`,
   `example`, `position`, `structure`): 272 mutants; 180 caught, 17 missed, 54
-  unviable, 21 timeouts. Added non-empty portability and group-comment
-  assertions; remaining survivors are masked-debug, example-formatting,
+  unviable, 21 timeouts. Added masked-debug, non-empty portability and
+  group-comment assertions. The `mask` rerun tested 41 mutants with 36 caught
+  and 5 unviable; the remaining 13 survivors are example-formatting,
   defensive IO and boundary-check variants.
 
 The remaining survivors are classified as:
