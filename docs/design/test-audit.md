@@ -254,6 +254,10 @@ unviable. The remaining work was split into file shards:
   group-comment assertions. The `mask` rerun tested 41 mutants with 36 caught
   and 5 unviable; the remaining 13 survivors are example-formatting,
   defensive IO and boundary-check variants.
+- Parser-dialect shard (`parser/compose`, `docker`, `node`, `python`,
+  `unicode`): 299 mutants; 246 caught, 44 missed, 6 unviable, 3 timeouts. The
+  survivors are scanner index/end arithmetic and recovery guards; alternate
+  scan positions and the later parser checks preserve observable behavior.
 
 The remaining survivors are classified as:
 
