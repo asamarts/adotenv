@@ -262,6 +262,10 @@ unviable. The remaining work was split into file shards:
   missed, 16 unviable, 34 timeouts. The survivors are comment-trim comparisons
   and final-CR verification guards; the timeouts are nonterminating plan/index
   variants. No observable formatting or sorting failure was found.
+- Core-model shard (`model`): 307 mutants; 193 caught, 4 missed, 76 unviable,
+  34 timeouts. Added empty/non-empty lookup-index assertions after the shard;
+  the residual survivors are `HashWinners` capacity/probe boundaries and a
+  decoded-span boundary variant.
 
 The remaining survivors are classified as:
 

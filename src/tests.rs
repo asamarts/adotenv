@@ -606,8 +606,18 @@ fn lookup_index_grows_for_distinct_participating_keys() {
     let document = parse_strict(&source).unwrap();
     let index = document.lookup_index();
     assert_eq!(index.len(), 1_000);
+    assert!(!index.is_empty());
     assert!(index.hash_slots().unwrap() > 8);
     assert_eq!(index.get("K999"), Some("999"));
+    assert_eq!(index.get("missing"), None);
+}
+
+#[test]
+fn empty_lookup_index_reports_empty() {
+    let document = parse_strict("").unwrap();
+    let index = document.lookup_index();
+    assert!(index.is_empty());
+    assert_eq!(index.len(), 0);
     assert_eq!(index.get("missing"), None);
 }
 
