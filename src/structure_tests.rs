@@ -15,6 +15,8 @@ fn groups_split_on_blank_lines_and_keep_comments() {
     assert_eq!(groups[1].entries().count(), 2);
     assert_eq!(groups[2].items().count(), 1);
     assert_eq!(groups[2].entries().count(), 1);
+    assert_eq!(groups[0].comments().count(), 2);
+    assert_eq!(groups[1].comments().count(), 2);
     assert_eq!(groups[1].leading_comments().count(), 1);
     assert_eq!(&source[groups[1].span()], "# group\nA=1\n# A note\nB=2\n");
     let b = doc.unique("B").unwrap();
