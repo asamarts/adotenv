@@ -269,9 +269,11 @@ The remaining survivors are classified as:
   defensive `verify_entry_region` suffix loop was classified in the 1.4.1
   campaign.
 
-No product failure was demonstrated by the survivors. The full campaign
-was not rerun end-to-end; the remaining work is to finish the sharded
-campaign and formalize any further equivalence exceptions.
+No product failure was demonstrated by the survivors. Triage is complete at
+the policy level: the residual encode/edit/safety survivors are retained as
+documented equivalents or defensive paths, and no product change is
+justified. The full campaign can be resumed in shards as new code changes
+arrive.
 
 ## Mutation policy
 
