@@ -271,6 +271,10 @@ unviable. The remaining work was split into file shards:
   accounting guards in contextual resolution, synthetic keys, path reads and
   decoded-span arithmetic; no observable loading or resolution failure was
   found.
+- References shard (`references`): the 2026-11-18 local run was cancelled
+  after 41 outcomes (24 missed, 17 timeouts) when the shared host ran out of
+  capacity. It must be rerun on kbench or CI before its survivors are
+  classified; see [heavy validation](heavy-validation.md).
 
 The remaining survivors are classified as:
 
@@ -306,7 +310,8 @@ Product behavior is not changed solely to improve a mutation score. A
 survivor is excluded from gate expectations only after a written rationale
 and, where possible, a positive witness test. Full-workspace campaigns are
 run in file or package shards so one long process cannot invalidate all
-progress.
+progress. Follow [heavy validation](heavy-validation.md) for the resource
+requirements; mutation campaigns do not run on the shared development host.
 
 ## Docs site smoke
 

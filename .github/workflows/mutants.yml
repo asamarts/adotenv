@@ -46,7 +46,8 @@ jobs:
             --re 'in (merge_lone_cr|valid_key_in|verify_entry_region|same_meaning)' \
             --shard "$SHARD" \
             --timeout 90 \
-            --jobs 2
+            --jobs 2 \
+            --gitignore true
           status=$?
           case "$status" in
             0) exit 0 ;;

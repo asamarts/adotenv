@@ -125,10 +125,14 @@ tested 72 mutants: 60 caught and 12 equivalent survivors, with the exact
 classification recorded in the [test audit](test-audit.md). Survivors are input
 for targeted regression tests, not an automatic release blocker.
 
+Full test and mutation runs are resource-heavy. Follow
+[heavy validation](heavy-validation.md); in particular, do not run
+`cargo mutants` with multiple workers on the shared development host.
+
 ```console
 cargo mutants --file src/parser.rs --file src/edit.rs --file src/format.rs \
   --re 'in (merge_lone_cr|valid_key_in|verify_entry_region|same_meaning)' \
-  --shard 0/4 --timeout 90 --jobs 2
+  --shard 0/4 --timeout 90 --jobs 2 --gitignore true
 ```
 
 ## Supported Rust versions and semver
