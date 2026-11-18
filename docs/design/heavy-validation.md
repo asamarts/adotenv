@@ -135,7 +135,7 @@ ssh kbench "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add \
     export CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1; \
     exec cargo mutants --workspace --all-features \
       --file src/references.rs --jobs 1 --timeout 60 \
-      --gitignore true --baseline skip -- --test-threads=1'"
+      --gitignore true --baseline skip'"
 ```
 
 The two `--jobs` flags are different: the first after `cargo mutants` is the
