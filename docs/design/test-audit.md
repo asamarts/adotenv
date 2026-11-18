@@ -266,6 +266,11 @@ unviable. The remaining work was split into file shards:
   34 timeouts. Added empty/non-empty lookup-index assertions after the shard;
   the residual survivors are `HashWinners` capacity/probe boundaries and a
   decoded-span boundary variant.
+- Loading/resolution shard (`load`, `resolve`): 453 mutants; 282 caught, 76
+  missed, 73 unviable, 22 timeouts. The survivors are offset/boundary and
+  accounting guards in contextual resolution, synthetic keys, path reads and
+  decoded-span arithmetic; no observable loading or resolution failure was
+  found.
 
 The remaining survivors are classified as:
 
