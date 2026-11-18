@@ -95,7 +95,9 @@ The test environment was provisioned on 2026-11-18:
 The first bounded shard used a 12 GiB address-space limit, two Cargo build
 jobs, one test thread and two mutation workers. It tested 102 mutants:
 **68 caught, 0 missed, 12 unviable and 22 timeouts**. The host reported 2.6 GiB
-in use immediately after the task. The timeouts are scanner and bit-mask
+in use immediately after the task. `cargo-mutants` exits with status 3 when it
+records timeouts; that is a completed campaign after the timeout list is
+reviewed, not an infrastructure failure. The timeouts are scanner and bit-mask
 mutants that do not terminate within 60 seconds; they are not product
 failures.
 
