@@ -246,6 +246,9 @@ TAG=v1#beta
     let report = doc.portability(&[crate::Dialect::NODE_DOTENV]);
     let debug = format!("{:?}", mask(&report));
     assert!(debug.contains("PortabilityReport"), "{debug}");
+    assert!(debug.contains("PortabilityDifference"), "{debug}");
+    assert!(debug.contains("PortabilityReading"), "{debug}");
+    assert!(debug.contains("PortabilityDeclaration"), "{debug}");
     assert!(!debug.contains("secret"), "{debug}");
     assert!(!debug.contains("v1#beta"), "{debug}");
 }
