@@ -43,6 +43,7 @@ fn value_and_comment_differences_are_reported_per_line() {
     let (doc, _) = parse_with(source, Dialect::PORTABLE);
     let report = doc.portability(&[Dialect::NODE_DOTENV, Dialect::DOCKER_RAW]);
     assert_eq!(report.len(), 1);
+    assert!(!report.is_empty());
     let difference = &report.differences()[0];
     assert_eq!(difference.first_line, 1);
     assert_eq!(difference.last_line, 1);

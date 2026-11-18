@@ -248,6 +248,11 @@ unviable. The remaining work was split into file shards:
 - `src/edit.rs`: 74 mutants; 49 caught, 25 missed. The survivors are in
   internal lookup, insertion planning and verification branches that valid
   public edits do not reach.
+- Safety/structure shard (`mask`, `exec`, `portability`, `diagnostic`,
+  `example`, `position`, `structure`): 272 mutants; 180 caught, 17 missed, 54
+  unviable, 21 timeouts. Added non-empty portability and group-comment
+  assertions; remaining survivors are masked-debug, example-formatting,
+  defensive IO and boundary-check variants.
 
 The remaining survivors are classified as:
 
@@ -266,6 +271,22 @@ The remaining survivors are classified as:
 No product failure was demonstrated by the survivors. The full campaign
 was not rerun end-to-end; the remaining work is to finish the sharded
 campaign and formalize any further equivalence exceptions.
+
+## Mutation policy
+
+A surviving mutant is a test-coverage question, not automatically a product
+bug. Each survivor is classified as:
+
+- observable behavior that needs a regression test;
+- equivalent behavior caused by an alternate spelling, fallback or redundant
+  guard;
+- defensive code that valid public inputs cannot reach.
+
+Product behavior is not changed solely to improve a mutation score. A
+survivor is excluded from gate expectations only after a written rationale
+and, where possible, a positive witness test. Full-workspace campaigns are
+run in file or package shards so one long process cannot invalidate all
+progress.
 
 ## Docs site smoke
 
