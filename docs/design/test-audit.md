@@ -258,6 +258,10 @@ unviable. The remaining work was split into file shards:
   `unicode`): 299 mutants; 246 caught, 44 missed, 6 unviable, 3 timeouts. The
   survivors are scanner index/end arithmetic and recovery guards; alternate
   scan positions and the later parser checks preserve observable behavior.
+- Formatting/sorting shard (`format`, `sort`): 298 mutants; 242 caught, 6
+  missed, 16 unviable, 34 timeouts. The survivors are comment-trim comparisons
+  and final-CR verification guards; the timeouts are nonterminating plan/index
+  variants. No observable formatting or sorting failure was found.
 
 The remaining survivors are classified as:
 
