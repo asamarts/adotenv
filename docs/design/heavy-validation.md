@@ -117,6 +117,9 @@ is reviewed, not an infrastructure failure. The timeouts are scanner,
 delimiter and bit-mask mutants that do not terminate within 60 seconds; no
 finite test can catch them, and no product failure was demonstrated.
 
+The parser-core 0/4 shard tested 174 mutants: **116 caught, 0 missed, 24
+unviable and 34 timeouts**. Parser shards 1/4-3/4 remain.
+
 If the prerequisites are ever removed, reprovision them before queueing.
 If kbench is unavailable, use GitHub Actions. Do not fall back to a heavy
 local run.
@@ -126,19 +129,21 @@ To refresh the tracked source and queue a bounded workspace test:
 ```console
 tmp=$(mktemp -d ~/.tmp/adotenv-kbench.XXXXXX)
 git archive --format=tar.gz HEAD > "$tmp/src.tar.gz"
-ssh kbench 'sudo -n -u benchq mkdir -p /var/lib/benchq/adotenv-src'
-ssh kbench 'sudo -n -u benchq find /var/lib/benchq/adotenv-src \
-  -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
-ssh kbench 'sudo -n -u benchq tar -xzf - \
-  -C /var/lib/benchq/adotenv-src' < "$tmp/src.tar.gz"
+ssh kbench 'sudo -n -u benchq sh -c "cd /var/lib/benchq \
+  && mkdir -p adotenv-src \
+  && find adotenv-src -mindepth 1 -maxdepth 1 -exec rm -rf {} +"'
+ssh kbench 'sudo -n -u benchq sh -c "cd /var/lib/benchq \
+  && tar -xzf - -C adotenv-src"' < "$tmp/src.tar.gz"
 rm -rf "$tmp"
 
 ssh kbench "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add \
   --group bench --working-directory /var/lib/benchq/adotenv-src \
   --label adotenv-tests --print-task-id -- \
-  bash -lc 'ulimit -v 8388608; \
-    export CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2; \
-    exec cargo test --workspace --all-features --locked'"
+  env HOME=/var/lib/benchq CARGO_HOME=/var/lib/benchq/cargo \
+    PATH=/var/lib/benchq/bin:/var/lib/benchq/toolchain/bin:/usr/bin:/bin \
+    bash -c 'ulimit -v 8388608; \
+      export CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2; \
+      exec cargo test --workspace --all-features --locked'"
 ```
 
 Use the task id printed by `pueue add` to wait and collect the log:
@@ -154,21 +159,29 @@ For mutation testing, keep one worker and one test thread:
 ssh kbench "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add \
   --group bench --working-directory /var/lib/benchq/adotenv-src \
   --label adotenv-mutants --print-task-id -- \
-  bash -lc 'ulimit -v 8388608; \
-    export CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1; \
-    exec cargo mutants --workspace --all-features \
-      --file src/references.rs --jobs 1 --timeout 60 \
-      --gitignore true --baseline skip'"
+  env HOME=/var/lib/benchq CARGO_HOME=/var/lib/benchq/cargo \
+    CARGO=/var/lib/benchq/toolchain/bin/cargo \
+    PATH=/var/lib/benchq/bin:/var/lib/benchq/toolchain/bin:/usr/bin:/bin \
+    bash -c 'ulimit -v 8388608; \
+      export CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1; \
+      exec cargo mutants --workspace --all-features \
+        --file src/references.rs --jobs 1 --timeout 60 \
+        --gitignore true --baseline skip'"
 ```
 
 The two `--jobs` flags are different: the first after `cargo mutants` is the
 number of mutant workers, while `--jobs 2` in `.cargo/mutants.toml` is Cargo
-build parallelism. `--in-place` is acceptable only in the dedicated remote
-checkout with one mutant worker; it avoids the per-worker copy but mutates the
-source tree.
+build parallelism. Use `bash -c`, not `bash -lc`: the benchq account cannot
+read the login shell's `/home` profile, and `cargo mutants` needs `CARGO` set
+to the provisioned toolchain. `--in-place` is acceptable only in the dedicated
+remote checkout with one mutant worker; it avoids the per-worker copy but
+mutates the source tree.
 
-The queue has one slot. Do not run a mutation or test task at the same time as
-a benchmark, and do not submit the same campaign twice. Remove
+The queue has one slot. Before submitting, run `pueue status` and wait if any
+task from another project is running or queued. Submit one adotenv task at a
+time, wait for it, then re-check the queue before submitting the next shard.
+Do not queue several shards at once, do not run a mutation or test task at the
+same time as a benchmark, and do not submit the same campaign twice. Remove
 `mutants.out/` and remote scratch data after collecting results.
 
 ## Fallback and CI
