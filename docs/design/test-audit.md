@@ -279,6 +279,10 @@ unviable. The remaining work was split into file shards:
   The timeouts are nonterminating scanner, delimiter and bit-mask mutations;
   no product failure was demonstrated. See
   [heavy validation](heavy-validation.md).
+- Parser-core shard (`parser`): the kbench 0/4 run tested 174 mutants; 116
+  caught, 0 missed, 24 unviable and 34 timeouts. The timeouts are
+  nonterminating portable-value and physical-line mutations. Shards 1/4-3/4
+  remain to be run.
 
 The remaining survivors are classified as:
 
