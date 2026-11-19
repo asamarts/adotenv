@@ -272,13 +272,13 @@ unviable. The remaining work was split into file shards:
   decoded-span arithmetic; no observable loading or resolution failure was
   found.
 - References shard (`references`): the 2026-11-18 local run was cancelled
-  after 41 outcomes (24 missed, 17 timeouts) when the shared host ran out of
-  capacity. The kbench reruns tested 0/4 and 1/4: 0/4 had 68 caught, 0 missed,
-  12 unviable and 22 timeouts; 1/4 had 53 caught, 0 missed, 16 unviable and 33
-  timeouts. Shard 2/4 was killed by a global OOM after 87 outcomes when a
-  mutant test process reached 9.6 GiB RSS; shard 3/4 was stopped. Shards 2/4
-  and 3/4 must be rerun with one mutation worker and an 8 GiB per-process cap;
-  see [heavy validation](heavy-validation.md).
+  after 41 outcomes when the shared host ran out of capacity. The complete
+  kbench rerun tested **406 mutants: 205 caught, 0 missed, 59 unviable and 142
+  timeouts**. A two-worker run of 2/4 hit a global OOM after 87 outcomes when a
+  mutant test process reached 9.6 GiB RSS; the one-worker rerun completed.
+  The timeouts are nonterminating scanner, delimiter and bit-mask mutations;
+  no product failure was demonstrated. See
+  [heavy validation](heavy-validation.md).
 
 The remaining survivors are classified as:
 
