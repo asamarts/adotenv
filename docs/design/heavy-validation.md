@@ -73,10 +73,11 @@ cargo mutants --file src/references.rs --jobs 1 --timeout 60 \
   --gitignore true --baseline skip
 ```
 
-Do not override this with `--jobs` greater than two on any host without a
-memory limit. If a local test is unavoidable, use a temporary target directory,
-`CARGO_BUILD_JOBS=2`, `RUST_TEST_THREADS=1` and a memory cap such as
-`ulimit -v 12582912` (12 GiB). Stop the run if memory or load rises.
+Do not override this with more than one mutation worker on kbench or any host
+without an aggregate memory limit. If a local test is unavoidable, use a
+temporary target directory, `CARGO_BUILD_JOBS=2`, `RUST_TEST_THREADS=1` and a
+memory cap such as `ulimit -v 8388608` (8 GiB). Stop the run if memory or load
+rises.
 
 ## kbench procedure
 
@@ -92,14 +93,29 @@ The test environment was provisioned on 2026-11-18:
   `cargo fetch --locked`;
 - `/var/lib/benchq/adotenv-src` is a tracked-only source tree.
 
-The first bounded shard used a 12 GiB address-space limit, two Cargo build
-jobs, one test thread and two mutation workers. It tested 102 mutants:
-**68 caught, 0 missed, 12 unviable and 22 timeouts**. The host reported 2.6 GiB
-in use immediately after the task. `cargo-mutants` exits with status 3 when it
-records timeouts; that is a completed campaign after the timeout list is
-reviewed, not an infrastructure failure. The timeouts are scanner and bit-mask
-mutants that do not terminate within 60 seconds; they are not product
-failures.
+The first shard (0/4) used a 12 GiB address-space limit, two Cargo build jobs,
+one test thread and two mutation workers. It tested 102 mutants: **68 caught,
+0 missed, 12 unviable and 22 timeouts**. The host reported 2.6 GiB in use
+immediately after the task.
+
+The next shard (1/4) tested 102 mutants: **53 caught, 0 missed, 33 timeouts
+and 16 unviable**. During shard 2/4, one mutant test process reached **9.6 GiB
+RSS** and the 15 GiB host hit a global OOM. The benchq service peaked at
+14.5 GiB, the kernel killed the test process and restarted pueued; shard 3/4
+was stopped before it could repeat the failure. Two workers plus per-process
+limits were not enough because the limit is not an aggregate cgroup limit.
+
+The one-worker, 8 GiB reruns completed:
+
+- 2/4: 102 mutants; 30 caught, 0 missed, 30 unviable and 42 timeouts.
+- 3/4: 100 mutants; 54 caught, 0 missed, 1 unviable and 45 timeouts.
+
+Across all four shards the references file has **406 mutants: 205 caught, 0
+missed, 59 unviable and 142 timeouts**. `cargo-mutants` exits with status 3
+when it records timeouts; that is a completed campaign after the timeout list
+is reviewed, not an infrastructure failure. The timeouts are scanner,
+delimiter and bit-mask mutants that do not terminate within 60 seconds; no
+finite test can catch them, and no product failure was demonstrated.
 
 If the prerequisites are ever removed, reprovision them before queueing.
 If kbench is unavailable, use GitHub Actions. Do not fall back to a heavy
@@ -120,7 +136,7 @@ rm -rf "$tmp"
 ssh kbench "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add \
   --group bench --working-directory /var/lib/benchq/adotenv-src \
   --label adotenv-tests --print-task-id -- \
-  bash -lc 'ulimit -v 12582912; \
+  bash -lc 'ulimit -v 8388608; \
     export CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2; \
     exec cargo test --workspace --all-features --locked'"
 ```
@@ -138,7 +154,7 @@ For mutation testing, keep one worker and one test thread:
 ssh kbench "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add \
   --group bench --working-directory /var/lib/benchq/adotenv-src \
   --label adotenv-mutants --print-task-id -- \
-  bash -lc 'ulimit -v 12582912; \
+  bash -lc 'ulimit -v 8388608; \
     export CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1; \
     exec cargo mutants --workspace --all-features \
       --file src/references.rs --jobs 1 --timeout 60 \
