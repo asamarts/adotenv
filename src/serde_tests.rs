@@ -442,3 +442,36 @@ fn untagged_string_compatible_enums_follow_serde_fallback() {
         }
     );
 }
+
+#[test]
+fn map_access_reports_remaining_size_hint() {
+    struct Hints(Vec<Option<usize>>);
+
+    impl<'de> serde::Deserialize<'de> for Hints {
+        fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            struct Visitor;
+            impl<'de> serde::de::Visitor<'de> for Visitor {
+                type Value = Hints;
+                fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                    formatter.write_str("a map")
+                }
+                fn visit_map<A: serde::de::MapAccess<'de>>(
+                    self,
+                    mut map: A,
+                ) -> Result<Self::Value, A::Error> {
+                    let mut hints = Vec::new();
+                    hints.push(map.size_hint());
+                    while let Some((_key, _value)) = map.next_entry::<String, String>()? {
+                        hints.push(map.size_hint());
+                    }
+                    Ok(Hints(hints))
+                }
+            }
+            deserializer.deserialize_map(Visitor)
+        }
+    }
+
+    let doc = parse_strict("A=1\nB=2\n").unwrap();
+    let hints: Hints = doc.deserialize().unwrap();
+    assert_eq!(hints.0, [Some(2), Some(1), Some(0)]);
+}

@@ -1,4 +1,4 @@
-use alloc::borrow::ToOwned;
+use alloc::{borrow::ToOwned, string::ToString};
 
 use crate::{
     parse_owned_with_options, parse_strict_with_options, parse_values_with_options,
@@ -126,6 +126,55 @@ fn zero_limits_report_a_failure() {
             .limit()
             .is_some_and(|limit| limit.kind() == LimitKind::Diagnostics)
     }));
+}
+
+#[test]
+fn limit_kind_and_exceeded_format_clearly() {
+    assert_eq!(LimitKind::InputBytes.as_str(), "input-bytes");
+    assert_eq!(LimitKind::Items.as_str(), "items");
+    assert_eq!(LimitKind::Diagnostics.as_str(), "diagnostics");
+    assert_eq!(LimitKind::InputBytes.to_string(), "input-bytes");
+    assert_eq!(LimitKind::Items.to_string(), "items");
+    assert_eq!(LimitKind::Diagnostics.to_string(), "diagnostics");
+
+    let error = parse_strict_with_options(
+        "A=1\n",
+        Dialect::PORTABLE,
+        ParseOptions::default().with_max_input_bytes(3),
+    )
+    .unwrap_err();
+    assert_eq!(
+        limit(&error).to_string(),
+        "input-bytes limit 3 exceeded with observed 4"
+    );
+
+    let (_, diagnostics) = parse_with_options(
+        "A=1\nB=2\n",
+        Dialect::PORTABLE,
+        ParseOptions::default().with_max_items(1),
+    );
+    let item_limit = diagnostics
+        .iter()
+        .find_map(Diagnostic::limit)
+        .expect("item limit diagnostic");
+    assert_eq!(
+        item_limit.to_string(),
+        "items limit 1 exceeded with observed 2"
+    );
+
+    let (_, diagnostics) = parse_with_options(
+        "A=1\nA=2\nA=3\n",
+        Dialect::PORTABLE,
+        ParseOptions::default().with_max_diagnostics(1),
+    );
+    let diag_limit = diagnostics
+        .iter()
+        .find_map(Diagnostic::limit)
+        .expect("diagnostic limit diagnostic");
+    assert_eq!(
+        diag_limit.to_string(),
+        "diagnostics limit 1 exceeded with observed 2"
+    );
 }
 
 #[test]

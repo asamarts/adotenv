@@ -252,6 +252,44 @@ mod tests {
         assert_eq!(provider.values().get("B").map(String::as_str), Some("two"));
         let _ = std::fs::remove_file(path);
     }
+    #[test]
+    fn provider_metadata_identifies_each_source() {
+        let default_provider = AdotenvProvider::default();
+        assert!(default_provider.values().is_empty());
+        assert_eq!(
+            default_provider.metadata(),
+            Metadata::from("adotenv", "empty")
+        );
+
+        let from_values = AdotenvProvider::from_values(BTreeMap::new());
+        assert_eq!(
+            from_values.metadata(),
+            Metadata::from("adotenv", "explicit values")
+        );
+
+        let (document, _) = parse_with("A=1\n", Dialect::PORTABLE);
+        let from_document = AdotenvProvider::from_document(&document);
+        assert_eq!(
+            from_document.metadata(),
+            Metadata::from("adotenv", "literal document")
+        );
+
+        #[cfg(feature = "load")]
+        {
+            let path = std::env::temp_dir().join(format!(
+                "adotenv-figment-metadata-{}.env",
+                std::process::id()
+            ));
+            std::fs::write(&path, "A=1\n").unwrap();
+            let environment = adotenv::load::load_files([&path], Dialect::PORTABLE).unwrap();
+            let from_environment = AdotenvProvider::from_environment(&environment);
+            assert_eq!(
+                from_environment.metadata(),
+                Metadata::from("adotenv", "loaded environment")
+            );
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 #[cfg(test)]
