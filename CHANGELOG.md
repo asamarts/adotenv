@@ -8,6 +8,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Tests
 
+- Updated `tests/vectors/manifest.json` to version 2 with `sha256:<hex>`
+  digests, and required the `sha256:` prefix in `tests/vectors.rs` so vendored
+  manifests do not trigger default secret-scanner rules.
 - Added mutation-driven assertions for LSP diagnostic fields and completion
   context, CLI `set`/`fmt` argument boundaries, dialect presets and escape
   flags, comparison state and compact merge/debug behavior, and recorded the
