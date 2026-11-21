@@ -19,8 +19,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Documentation
 
 - Documented the heavy-validation policy, the kbench/benchq pueue procedure,
-  the local resource incident and the one-worker/8 GiB limit, and recorded the
-  completed references and parser mutation shards.
+  the local resource incident and the one-worker/8 GiB limit, recorded the
+  completed references (406 mutants, 0 missed) and parser-core (695 mutants,
+  0 missed) mutation campaigns, and refreshed the 1.5.4 CI coverage audit.
 
 ## [1.5.4] - 2026-11-16
 
