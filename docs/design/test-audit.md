@@ -311,6 +311,34 @@ unviable. The remaining work was split into file shards:
   missed, 48 unviable and 129 timeouts**. The timeouts are nonterminating
   portable-value, physical-line, scanner-index, quote-closing and budget-loop
   mutations; no product failure was demonstrated.
+- Parser-decode shard (`parser/decode`): both kbench shards (`--timeout 120`)
+  tested **241 mutants: 151 caught, 66 missed, 13 unviable and 11 timeouts**
+  (0/2: 84 caught, 22 missed, 12 unviable, 3 timeouts; 1/2: 67 caught, 44
+  missed, 1 unviable, 8 timeouts). Added targeted tests covering Compose octal
+  escape boundaries, Node `U+2028` backtick/anchor/lone-quote unquoting,
+  `SingleEscapes::QuoteAndBackslash` unknown escapes,
+  `DoubleEscapes::SINGLE_QUOTE`, `DropBackslash` raw-span mapping, Node vs
+  Portable second-backslash rescanning, Portable warning spans/gating, and
+  `QuotedTail::Append` `decode_tail` boundaries. Residual survivors are
+  `needs_decode` fast-path skip conditions, 1-byte ASCII quote advance
+  equivalence, `D`-guard equivalence and defensive `body.end`/`at == 0`/tail
+  LF guards.
+- Limit shard (`limit`): initial 60s run tested 9 mutants (6 caught, 1
+  unviable, 2 timeouts in `Display::fmt` caused by a passing single-threaded
+  package test run taking ~75s). Added `LimitKind::as_str` and `Display`
+  assertions for `LimitKind` and `LimitExceeded`; the `--timeout 120` rerun
+  tested **9 mutants: 8 caught, 1 unviable, 0 missed and 0 timeouts**.
+- Serde shard (`serde_support`): `--timeout 120` run tested **68 mutants: 33
+  caught, 3 missed, 32 unviable and 0 timeouts**. All three survivors were
+  `EntriesAccess::size_hint` (`None`, `Some(0)`, `Some(1)`); added a custom
+  `MapAccess` visitor test asserting `[Some(2), Some(1), Some(0)]`.
+- Adapter crates (`adotenv-process`, `adotenv-config`, `adotenv-figment`):
+  - `adotenv-process`: **9 mutants; 5 caught, 4 missed** (all four in
+    `#[cfg(windows)]` validation branches exercised by Windows CI).
+  - `adotenv-config`: **10 mutants; 9 caught, 0 missed, 1 unviable**.
+  - `adotenv-figment`: initial run tested 10 mutants (9 caught, 1 missed in
+    `Provider::metadata`). Added metadata assertions across all constructors;
+    the rerun tested **10 mutants: 10 caught, 0 missed**.
 
 The remaining survivors are classified as:
 
@@ -368,11 +396,12 @@ overflow and popover bounds.
    list is 5,502 mutants, and the partial full campaign plus file shards are
    recorded above. Windows-only validation branches are exercised by the
    Windows CI job but not by mutation runs on Linux.
-4. Remaining unsharded mutation targets are `src/limit.rs` (9 mutants),
-   `src/serde_support.rs` (68), `src/parser/decode.rs` (241), the adapter
-   crates (`adotenv-process` 9, `adotenv-config` 10, `adotenv-figment` 10),
-   and full-crate companion runs beyond the focused CLI/LSP campaigns
-   (`adotenv-lsp` 204, `adotenv-lint` 291, `adotenv-cli` 467). Run them on
-   kbench one shard at a time after an idle-queue check; see
-   [heavy validation](heavy-validation.md).
+4. All core crate source files and all three adapter crates
+   (`adotenv-process`, `adotenv-config`, `adotenv-figment`) have completed
+   sharded mutation runs. Optional full-crate sweeps beyond the focused
+   CLI/LSP campaigns remain for the three companion tools (`adotenv-lsp` 204
+   mutants, `adotenv-lint` 291, `adotenv-cli` 467), along with optional kbench
+   confirmation reruns for `serde_support` (`size_hint`) and `parser/decode`
+   after the new tests. Run them on kbench one shard at a time after an
+   idle-queue check; see [heavy validation](heavy-validation.md).
 

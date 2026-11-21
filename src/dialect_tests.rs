@@ -1568,3 +1568,178 @@ fn compose_quoted_entries_sort_when_each_owns_its_line() {
     let (doc, _) = parse_with("B=\"2\"\nA=\"1\"", Dialect::COMPOSE);
     assert_eq!(doc.sort().unwrap().as_str(), "A=\"1\"\nB=\"2\"");
 }
+
+#[test]
+fn compose_octal_escape_boundaries() {
+    for (source, expected) in [
+        ("A=\"\\0101\"\n", "A"),
+        ("A=\"\\0377\"\n", "\u{ff}"),
+        ("A=\"\\0400\"\n", "\\400"),
+        ("A=\"\\01019\"\n", "A9"),
+        ("A=\"\\012\"\n", "\\12"),
+        ("A=\"\\0789\"\n", "\\789"),
+        ("A=\"\\0\"\n", "\\"),
+    ] {
+        let doc = parse_strict_with(source, Dialect::COMPOSE).unwrap();
+        assert_eq!(doc.get("A"), Some(expected), "{source:?}");
+    }
+}
+
+#[test]
+fn node_unquote_backticks_anchors_and_lone_quotes() {
+    let (doc, _) = parse_with("A=x\u{2028}`y`\n", Dialect::NODE_DOTENV);
+    assert_eq!(doc.get("A"), Some("x\u{2028}y"));
+
+    let no_backticks = Dialect {
+        backticks: false,
+        ..Dialect::NODE_DOTENV
+    };
+    let (doc, _) = parse_with("A=x\u{2028}`y`\n", no_backticks);
+    assert_eq!(doc.get("A"), Some("x\u{2028}`y`"));
+
+    let (doc, _) = parse_with("A=x\u{2028}'\n", Dialect::NODE_DOTENV);
+    assert_eq!(doc.get("A"), Some("x\u{2028}'"));
+
+    let (doc, _) = parse_with("A=x'y'\n", Dialect::NODE_DOTENV);
+    assert_eq!(doc.get("A"), Some("x'y'"));
+
+    let (doc, _) = parse_with("A=x\u{2028}\"a\u{2028}\"b\"\n", Dialect::NODE_DOTENV);
+    assert_eq!(doc.get("A"), Some("x\u{2028}a\u{2028}\"b"));
+}
+
+#[test]
+fn selected_escape_single_double_and_rescan_edges() {
+    let python =
+        parse_strict_with("A='a\\nb\\\\c\\'d'\nB=\"a\\'b\"\n", Dialect::PYTHON_DOTENV).unwrap();
+    assert_eq!(python.get("A"), Some("a\\nb\\c'd"));
+    assert_eq!(python.get("B"), Some("a'b"));
+
+    let drop_backslash = Dialect {
+        unknown_escapes: UnknownEscapes::DropBackslash,
+        ..Dialect::PORTABLE
+    };
+    let doc = parse_strict_with("A=\"\\q\"\n", drop_backslash).unwrap();
+    let entry = doc.get_entry("A").unwrap();
+    assert_eq!(entry.value(), Some("q"));
+    assert_eq!(entry.decoded_span_to_raw(0..1), Ok(3..5));
+
+    let node_rescan = parse_strict_with("A=\"\\\\n\"\n", Dialect::NODE_DOTENV).unwrap();
+    assert_eq!(node_rescan.get("A"), Some("\\\n"));
+
+    let portable_no_backslash = Dialect {
+        double_escapes: DoubleEscapes::LF,
+        ..Dialect::PORTABLE
+    };
+    let (portable_pair, _) = parse_with("A=\"\\\\n\"\n", portable_no_backslash);
+    assert_eq!(portable_pair.get("A"), Some("\\\\n"));
+
+    let node_drop = Dialect {
+        unknown_escapes: UnknownEscapes::DropBackslash,
+        ..Dialect::NODE_DOTENV
+    };
+    let node_dropped = parse_strict_with("A=\"\\\\n\"\n", node_drop).unwrap();
+    assert_eq!(node_dropped.get("A"), Some("\\n"));
+
+    let warn_escape = Dialect {
+        unknown_escapes: UnknownEscapes::Warn,
+        ..Dialect::PORTABLE
+    };
+    let (_, diagnostics) = parse_with("A=\"\\\n\\q\"\n", warn_escape);
+    let unknown = diagnostics
+        .iter()
+        .find(|d| d.code() == Code::UnknownEscape && d.line() == 2);
+    assert!(
+        unknown.is_some(),
+        "expected line 2 warning: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn decode_warnings_crlf_and_tail_boundaries() {
+    let lf_ascii = Dialect {
+        line_breaks: LineBreaks::Lf,
+        whitespace: Whitespace::Ascii,
+        normalize_newlines: true,
+        ..Dialect::PORTABLE
+    };
+    let doc = parse_strict_with("A=x\r\r\n", lf_ascii).unwrap();
+    assert_eq!(doc.get("A"), Some("x\n"));
+
+    let (_, portable_warns) = parse_with("A=a#b`c\n", Dialect::PORTABLE);
+    assert_eq!(portable_warns.len(), 2);
+    assert_eq!(portable_warns[0].code(), Code::TightHash);
+    assert_eq!(portable_warns[0].span(), 3..4);
+    assert_eq!(portable_warns[1].code(), Code::Backtick);
+    assert_eq!(portable_warns[1].span(), 5..6);
+
+    let (_, quoted_diags) = parse_with("A=\"a#b`c\"\n", Dialect::PORTABLE);
+    assert_eq!(quoted_diags, []);
+
+    let raw_portable = Dialect {
+        raw_values: true,
+        ..Dialect::PORTABLE
+    };
+    let (_, raw_diags) = parse_with("A=a#b`c\n", raw_portable);
+    assert_eq!(raw_diags, []);
+
+    for other in [Dialect::DOCKER_RAW, Dialect::COMPOSE] {
+        let (_, diags) = parse_with("A=a#b`c\n", other);
+        assert!(
+            !diags
+                .iter()
+                .any(|d| matches!(d.code(), Code::TightHash | Code::Backtick)),
+            "{other:?}: {diags:?}"
+        );
+    }
+
+    let unnormalized = Dialect {
+        normalize_newlines: false,
+        unknown_escapes: UnknownEscapes::Warn,
+        ..Dialect::PORTABLE
+    };
+    let (_, diags) = parse_with("A=\"x\r\ny\r\\q\"\n", unnormalized);
+    let unknown = diags
+        .iter()
+        .find(|d| d.code() == Code::UnknownEscape)
+        .unwrap();
+    assert_eq!(unknown.line(), 3);
+
+    let append_norm = Dialect {
+        line_breaks: LineBreaks::Lf,
+        whitespace: Whitespace::Ascii,
+        quoted_tail: QuotedTail::Append,
+        normalize_newlines: true,
+        ..Dialect::PORTABLE
+    };
+    let source = "A=\"l1\nl2\"t\r#h`b\r\r\n";
+    let (doc, diags) = parse_with(source, append_norm);
+    assert_eq!(doc.get("A"), Some("l1\nl2t\n#h`b\n"));
+    let hash = diags.iter().find(|d| d.code() == Code::TightHash).unwrap();
+    let tick = diags.iter().find(|d| d.code() == Code::Backtick).unwrap();
+    assert_eq!(hash.line(), 3);
+    assert_eq!(&source[hash.span()], "#");
+    assert_eq!(tick.line(), 3);
+    assert_eq!(&source[tick.span()], "`");
+
+    let append_unnorm = Dialect {
+        normalize_newlines: false,
+        ..append_norm
+    };
+    let source = "A=\"l1\nl2\"t\r#h\r`b\n";
+    let (doc, diags) = parse_with(source, append_unnorm);
+    assert_eq!(doc.get("A"), Some("l1\nl2t\r#h\r`b"));
+    let hash = diags.iter().find(|d| d.code() == Code::TightHash).unwrap();
+    let tick = diags.iter().find(|d| d.code() == Code::Backtick).unwrap();
+    assert_eq!(hash.line(), 3);
+    assert_eq!(tick.line(), 4);
+
+    let compose_append = Dialect {
+        quoted_tail: QuotedTail::Append,
+        quoted_comments: false,
+        inline_comments: InlineComments::None,
+        ..Dialect::COMPOSE
+    };
+    let (doc, diags) = parse_with("A=\"x\"#h`b\n", compose_append);
+    assert_eq!(doc.get("A"), Some("x#h`b"));
+    assert_eq!(diags, []);
+}

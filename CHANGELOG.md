@@ -11,6 +11,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Updated `tests/vectors/manifest.json` to version 2 with `sha256:<hex>`
   digests, and required the `sha256:` prefix in `tests/vectors.rs` so vendored
   manifests do not trigger default secret-scanner rules.
+- Added mutation-driven assertions for `adotenv-figment` provider metadata,
+  `LimitKind`/`LimitExceeded` formatting, serde `MapAccess::size_hint`, and
+  parser decoding (Compose octal bounds, Node `U+2028` unquoting, escape
+  rescanning, Portable warning spans and `QuotedTail::Append` tails).
 - Added mutation-driven assertions for LSP diagnostic fields and completion
   context, CLI `set`/`fmt` argument boundaries, dialect presets and escape
   flags, comparison state and compact merge/debug behavior, and recorded the
@@ -20,8 +24,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Documented the heavy-validation policy, the kbench/benchq pueue procedure,
   the local resource incident and the one-worker/8 GiB limit, recorded the
-  completed references (406 mutants, 0 missed) and parser-core (695 mutants,
-  0 missed) mutation campaigns, and refreshed the 1.5.4 CI coverage audit.
+  completed core (references, parser, decode, limit, serde) and adapter
+  (`adotenv-process`, `adotenv-config`, `adotenv-figment`) mutation campaigns,
+  and refreshed the 1.5.4 CI coverage audit.
 
 ## [1.5.4] - 2026-11-16
 
