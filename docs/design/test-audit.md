@@ -280,8 +280,9 @@ unviable. The remaining work was split into file shards:
   no product failure was demonstrated. See
   [heavy validation](heavy-validation.md).
 - Parser-core shard (`parser`): the kbench 0/4 run tested 174 mutants; 116
-  caught, 0 missed, 24 unviable and 34 timeouts. The timeouts are
-  nonterminating portable-value and physical-line mutations. Shards 1/4-3/4
+  caught, 0 missed, 24 unviable and 34 timeouts. The 1/4 run tested 174
+  mutants; 136 caught, 0 missed, 18 unviable and 20 timeouts. The timeouts are
+  nonterminating portable-value and physical-line mutations. Shards 2/4-3/4
   remain to be run.
 
 The remaining survivors are classified as:
@@ -339,4 +340,7 @@ overflow and popover bounds.
    list is 5,502 mutants, and the partial full campaign plus file shards are
    recorded above. Windows-only validation branches are exercised by the
    Windows CI job but not by mutation runs on Linux.
+4. Parser-core mutation shards 2/4-3/4 and the adapter crates remain. Run them
+   on kbench one shard at a time after an idle-queue check; see
+   [heavy validation](heavy-validation.md).
 

@@ -13,6 +13,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   flags, comparison state and compact merge/debug behavior, and recorded the
   focused and sharded mutation triage.
 
+### Documentation
+
+- Documented the heavy-validation policy, the kbench/benchq pueue procedure,
+  the local resource incident and the one-worker/8 GiB limit, and recorded the
+  completed references and parser mutation shards.
+
 ## [1.5.4] - 2026-11-16
 
 ### Added
