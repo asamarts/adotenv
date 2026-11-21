@@ -5,6 +5,16 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # adotenv-lint targets Rust 1.81; globset >= 0.4.17 requires edition2024.
+      - dependency-name: "globset"
+        versions: [">= 0.4.17"]
+      # adotenv-lint targets Rust 1.81; toml >= 0.9 requires edition2024 via toml_writer.
+      - dependency-name: "toml"
+        versions: [">= 0.9.0"]
+      # Pinned to =0.22.14 for toml 0.8.14 compatibility (see adotenv-lint/Cargo.toml).
+      - dependency-name: "toml_edit"
+        versions: [">= 0.22.15"]
   - package-ecosystem: cargo
     directory: /fuzz
     schedule:
