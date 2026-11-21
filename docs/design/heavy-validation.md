@@ -125,9 +125,22 @@ Across all four kbench shards `src/parser.rs` completed with **695 mutants:
 - 2/4: 174 mutants; 141 caught, 0 missed, 0 unviable and 33 timeouts.
 - 3/4: 173 mutants; 125 caught, 0 missed, 6 unviable and 42 timeouts.
 
-Remaining targets (`src/limit.rs`, `src/serde_support.rs`,
-`src/parser/decode.rs`, the adapters and companion crates) follow the same
-one-shard-at-a-time idle-queue procedure.
+Remaining core and adapter shards also completed on kbench under the same
+one-worker / 8 GiB cap:
+
+- `adotenv-process`: 9 mutants; 5 caught, 4 Windows-only misses (covered by Windows CI).
+- `adotenv-config`: 10 mutants; 9 caught, 0 missed, 1 unviable.
+- `adotenv-figment`: 10 mutants; 10 caught, 0 missed after adding `Provider::metadata` assertions.
+- `src/limit.rs`: 9 mutants; 8 caught, 1 unviable, 0 missed, 0 timeouts after adding `Display`/`as_str` tests.
+- `src/serde_support.rs`: 68 mutants; 33 caught, 3 `size_hint` misses (covered by a new visitor test), 32 unviable, 0 timeouts.
+- `src/parser/decode.rs` (0/2 and 1/2): 241 mutants; 151 caught, 66 missed, 13 unviable, 11 timeouts; targeted tests were added for all genuine coverage gaps.
+
+Note on timeouts: a clean single-threaded `adotenv` package test pass takes
+about 73-75 seconds on `kbench`. Use `--timeout 120` (rather than `--timeout 60`)
+for `adotenv` core shards so uncaught survivors report as `MISSED` instead of
+timing out at 60 seconds. Optional full-crate companion sweeps (`adotenv-lsp`,
+`adotenv-lint`, `adotenv-cli`) follow the same one-shard-at-a-time idle-queue
+procedure.
 
 If the prerequisites are ever removed, reprovision them before queueing.
 If kbench is unavailable, use GitHub Actions. Do not fall back to a heavy
