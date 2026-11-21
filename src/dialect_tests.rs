@@ -1673,14 +1673,14 @@ fn decode_warnings_crlf_and_tail_boundaries() {
     assert_eq!(portable_warns[1].span(), 5..6);
 
     let (_, quoted_diags) = parse_with("A=\"a#b`c\"\n", Dialect::PORTABLE);
-    assert!(quoted_diags.is_empty());
+    assert_eq!(quoted_diags, []);
 
     let raw_portable = Dialect {
         raw_values: true,
         ..Dialect::PORTABLE
     };
     let (_, raw_diags) = parse_with("A=a#b`c\n", raw_portable);
-    assert!(raw_diags.is_empty());
+    assert_eq!(raw_diags, []);
 
     for other in [Dialect::DOCKER_RAW, Dialect::COMPOSE] {
         let (_, diags) = parse_with("A=a#b`c\n", other);
@@ -1741,5 +1741,5 @@ fn decode_warnings_crlf_and_tail_boundaries() {
     };
     let (doc, diags) = parse_with("A=\"x\"#h`b\n", compose_append);
     assert_eq!(doc.get("A"), Some("x#h`b"));
-    assert!(diags.is_empty());
+    assert_eq!(diags, []);
 }

@@ -255,7 +255,7 @@ mod tests {
     #[test]
     fn provider_metadata_identifies_each_source() {
         let default_provider = AdotenvProvider::default();
-        assert!(default_provider.values().is_empty());
+        assert_eq!(default_provider.values(), &BTreeMap::new());
         assert_eq!(
             default_provider.metadata(),
             Metadata::from("adotenv", "empty")
