@@ -118,7 +118,8 @@ delimiter and bit-mask mutants that do not terminate within 60 seconds; no
 finite test can catch them, and no product failure was demonstrated.
 
 The parser-core 0/4 shard tested 174 mutants: **116 caught, 0 missed, 24
-unviable and 34 timeouts**. Parser shards 1/4-3/4 remain.
+unviable and 34 timeouts**. Parser-core 1/4 tested 174 mutants: **136 caught,
+0 missed, 18 unviable and 20 timeouts**. Parser shards 2/4-3/4 remain.
 
 If the prerequisites are ever removed, reprovision them before queueing.
 If kbench is unavailable, use GitHub Actions. Do not fall back to a heavy
