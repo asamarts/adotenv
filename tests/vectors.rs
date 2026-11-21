@@ -71,10 +71,36 @@ fn hex(bytes: &[u8]) -> String {
     output
 }
 
+fn parse_sha256_digest(digest: &str) -> Option<&str> {
+    let hex = digest.strip_prefix("sha256:")?;
+    if hex.len() != 64
+        || !hex
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        return None;
+    }
+    Some(hex)
+}
+
+#[test]
+fn manifest_digest_requires_sha256_prefix() {
+    let bare = "0".repeat(64);
+    let prefixed = format!("sha256:{bare}");
+    assert_eq!(parse_sha256_digest(&prefixed), Some(bare.as_str()));
+    assert_eq!(parse_sha256_digest(&bare), None);
+    assert_eq!(parse_sha256_digest(&format!("sha512:{bare}")), None);
+    assert_eq!(parse_sha256_digest("sha256:0123"), None);
+    assert_eq!(
+        parse_sha256_digest(&format!("sha256:{}", "A".repeat(64))),
+        None
+    );
+}
+
 #[test]
 fn vector_manifest_matches_the_files() {
     let manifest = parse(MANIFEST);
-    assert_eq!(manifest["version"].as_u64(), Some(1), "manifest version");
+    assert_eq!(manifest["version"].as_u64(), Some(2), "manifest version");
     let files = manifest["files"].as_object().expect("files object");
     for (name, text) in [
         ("positions.json", POSITIONS),
@@ -83,10 +109,12 @@ fn vector_manifest_matches_the_files() {
         ("schema/check-report.v1.json", CHECK_REPORT_SCHEMA),
         ("schema/diff-report.v1.json", DIFF_REPORT_SCHEMA),
     ] {
-        let expected = files
+        let expected_raw = files
             .get(name)
             .and_then(Value::as_str)
             .unwrap_or_else(|| panic!("manifest has no hash for {name}"));
+        let expected = parse_sha256_digest(expected_raw)
+            .unwrap_or_else(|| panic!("manifest hash for {name} must use sha256:<hex>"));
         let actual = hex(Sha256::digest(text.as_bytes()).as_slice());
         assert_eq!(actual, expected, "manifest hash for {name}");
     }

@@ -108,7 +108,7 @@ Trusted Publishing.
 ## Test data
 
 The shared vectors and schema live under `tests/vectors/` as plain files that a format crate
-vendors with a recorded hash in `manifest.json`:
+vendors with a recorded `sha256:<hex>` digest in `manifest.json` (version 2):
 
 - `positions.json`: source, offset, and expected position per column unit, or expected error.
   Covers a byte-order mark, CRLF, a lone CR, astral characters, and NEL, LS and PS as content.

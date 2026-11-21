@@ -1,10 +1,10 @@
 {
-  "version": 1,
+  "version": 2,
   "files": {
-    "positions.json": "0d3d3e27db8e75c6254e6e7a923e3dfe128846e239b06c0b2a60f1ce50f63567",
-    "edit-order.json": "3afb63ede762448883f1b1c37be6182e3ff5d8e3a2cdfacb76da1e69abe3427b",
-    "github-escaping.json": "79a42d3123318860c645c429d6dde8e02cc0d2cb3313a26a4c2662f5293630d7",
-    "schema/check-report.v1.json": "1a025ca40b7b3c9821c3f8c42521a69dbac9d76fd2b5035f32059da375b0defa",
-    "schema/diff-report.v1.json": "9361744c8eba0ba3dbc67347a6e9ddc1aa6cdc4b3259626ae1e5c75816f480dc"
+    "positions.json": "sha256:0d3d3e27db8e75c6254e6e7a923e3dfe128846e239b06c0b2a60f1ce50f63567",
+    "edit-order.json": "sha256:3afb63ede762448883f1b1c37be6182e3ff5d8e3a2cdfacb76da1e69abe3427b",
+    "github-escaping.json": "sha256:79a42d3123318860c645c429d6dde8e02cc0d2cb3313a26a4c2662f5293630d7",
+    "schema/check-report.v1.json": "sha256:1a025ca40b7b3c9821c3f8c42521a69dbac9d76fd2b5035f32059da375b0defa",
+    "schema/diff-report.v1.json": "sha256:9361744c8eba0ba3dbc67347a6e9ddc1aa6cdc4b3259626ae1e5c75816f480dc"
   }
 }
