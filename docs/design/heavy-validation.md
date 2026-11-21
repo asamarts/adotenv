@@ -117,9 +117,17 @@ is reviewed, not an infrastructure failure. The timeouts are scanner,
 delimiter and bit-mask mutants that do not terminate within 60 seconds; no
 finite test can catch them, and no product failure was demonstrated.
 
-The parser-core 0/4 shard tested 174 mutants: **116 caught, 0 missed, 24
-unviable and 34 timeouts**. Parser-core 1/4 tested 174 mutants: **136 caught,
-0 missed, 18 unviable and 20 timeouts**. Parser shards 2/4-3/4 remain.
+Across all four kbench shards `src/parser.rs` completed with **695 mutants:
+518 caught, 0 missed, 48 unviable and 129 timeouts**:
+
+- 0/4: 174 mutants; 116 caught, 0 missed, 24 unviable and 34 timeouts.
+- 1/4: 174 mutants; 136 caught, 0 missed, 18 unviable and 20 timeouts.
+- 2/4: 174 mutants; 141 caught, 0 missed, 0 unviable and 33 timeouts.
+- 3/4: 173 mutants; 125 caught, 0 missed, 6 unviable and 42 timeouts.
+
+Remaining targets (`src/limit.rs`, `src/serde_support.rs`,
+`src/parser/decode.rs`, the adapters and companion crates) follow the same
+one-shard-at-a-time idle-queue procedure.
 
 If the prerequisites are ever removed, reprovision them before queueing.
 If kbench is unavailable, use GitHub Actions. Do not fall back to a heavy
