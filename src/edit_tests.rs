@@ -1020,7 +1020,7 @@ fn edit_options_forward_parse_limits_and_match_chunk_scanner() {
             replacement: String::from("\n"),
         },
     ];
-    let mut applied = chunks_source.to_owned();
+    let mut applied = String::from(chunks_source);
     for edit in chunk_edits.iter().rev() {
         applied.replace_range(edit.range.clone(), &edit.replacement);
     }
