@@ -53,9 +53,9 @@ reads the same source with another dialect.
 
 ## Limits
 
-`ParseOptions` adds opt-in bounds for untrusted input: source bytes, parsed
-items and collected diagnostics. The default has no byte or item limit and
-keeps the established 10,000-diagnostic budget.
+`ParseOptions` adds opt-in bounds for untrusted input: source bytes, physical
+lines, parsed items and collected diagnostics. The default has no byte, line or
+item limit and keeps the established 10,000-diagnostic budget.
 
 ```rust
 use adotenv::{parse_strict_with_options, Dialect, LimitKind, ParseOptions};
@@ -143,10 +143,12 @@ assert_eq!(winners, [("A", "2"), ("B", "3")]);
 | `lookup_index()` | A `LookupIndex` for many lookups |
 
 `get` scans the entries. For many lookups, build `lookup_index()` once; it has
-`get`, `get_entry`, `len` and `is_empty`. `effective_entries`, `parse_values`
-and the index leave out empty keys, and `effective_entries` also leaves out a
-key whose winning declaration is bare, unless the dialect reads bare keys as
-empty. Compose still exposes an empty key through `get("")`.
+`get`, `get_entry`, `unique`, `len` and `is_empty`. `effective_entries`,
+`parse_values` and `LookupIndex::get` / `get_entry` leave out empty keys, and
+`effective_entries` also leaves out a key whose winning declaration is bare,
+unless the dialect reads bare keys as empty. `LookupIndex::unique` matches
+`Document::unique` across every declaration, including bare keys and empty keys.
+Compose still exposes an empty key through `get("")`.
 
 ### Bare and empty declarations
 

@@ -6,6 +6,8 @@ use core::fmt;
 pub enum LimitKind {
     /// The source contains more bytes than the configured cap.
     InputBytes,
+    /// The source contains more physical lines than the configured cap.
+    Lines,
     /// Parsing reached more items than the configured cap.
     Items,
     /// Parsing produced more diagnostics than the configured cap.
@@ -18,6 +20,7 @@ impl LimitKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::InputBytes => "input-bytes",
+            Self::Lines => "lines",
             Self::Items => "items",
             Self::Diagnostics => "diagnostics",
         }

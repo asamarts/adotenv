@@ -146,7 +146,7 @@ fn known_safe(document: &Document<'_>, operations: &[Edit<'_>]) -> bool {
                     restored.push_str(&raw[..indent]);
                     restored.push_str(&raw[body..]);
                     let (after, _) = parse(&restored);
-                    after.has_bom() == document.has_bom()
+                    after.bom_span() == document.bom_span()
                         && after.items().all(|item| item.kind() != ItemKind::Invalid)
                 })
         }

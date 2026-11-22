@@ -282,7 +282,12 @@ fn bom_policy_is_explicit_and_errors_survive_ignored_line_policy() {
 
 #[test]
 fn line_limit_takes_precedence_over_bom_diagnostics() {
-    for policy in [BomPolicy::Strip, BomPolicy::Keep, BomPolicy::Error] {
+    for policy in [
+        BomPolicy::Strip,
+        BomPolicy::StripAll,
+        BomPolicy::Keep,
+        BomPolicy::Error,
+    ] {
         let dialect = Dialect::PORTABLE
             .with_bom(policy)
             .with_line_byte_limit(Some(1));
@@ -297,6 +302,102 @@ fn line_limit_takes_precedence_over_bom_diagnostics() {
             "{policy:?}"
         );
     }
+}
+
+#[test]
+fn bom_strip_all_strips_multi_bom_run_and_preserves_spans() {
+    let strip_all = Dialect::PORTABLE.with_bom(BomPolicy::StripAll);
+    // Single-BOM policy keeps its exact 3-byte semantics on a double BOM.
+    let (single, single_diags) = parse_with("\u{feff}\u{feff}A=1\n", Dialect::PORTABLE);
+    assert_eq!(single.bom_span(), Some(0..3));
+    assert_eq!(single.get("A"), None);
+    assert!(single_diags
+        .iter()
+        .any(|diag| diag.code() == Code::InvalidKey));
+
+    for count in [0usize, 1, 2, 5] {
+        let prefix = "\u{feff}".repeat(count);
+        let prefix_len = count * 3;
+        let source = format!("{prefix}A=1\nB=2\n");
+        let (doc, diags) = parse_with(&source, strip_all);
+        assert_eq!(doc.source(), source);
+        assert_eq!(doc.has_bom(), count > 0, "count={count}");
+        assert_eq!(
+            doc.bom_span(),
+            (count > 0).then_some(0..prefix_len),
+            "count={count}"
+        );
+        assert_eq!(doc.get("A"), Some("1"), "count={count}");
+        assert_eq!(doc.get("B"), Some("2"), "count={count}");
+        let first = doc.item(0).unwrap();
+        assert_eq!(first.span(), prefix_len..prefix_len + 4);
+        assert_eq!(
+            doc.unique("A").unwrap().key_span(),
+            prefix_len..prefix_len + 1
+        );
+        if count == 0 {
+            assert_eq!(diags, []);
+        } else {
+            assert_eq!(diags.len(), 1, "count={count}: {diags:?}");
+            assert_eq!(diags[0].code(), Code::ByteOrderMark);
+            assert_eq!(diags[0].span(), 0..prefix_len);
+            assert_eq!(diags[0].line(), 1);
+        }
+
+        // Strict, owned, values, compact, limited_document, format, sort, example.
+        let strict = parse_strict_with(&source, strip_all).unwrap();
+        assert_eq!(strict.bom_span(), doc.bom_span());
+        assert_eq!(strict.get("A"), Some("1"));
+        let (owned, _) = parse_owned_with(source.clone(), strip_all);
+        assert_eq!(owned.bom_span(), doc.bom_span());
+        assert_eq!(owned.into_owned().bom_span(), doc.bom_span());
+        let values = crate::parse_values_with(&source, strip_all).unwrap();
+        assert_eq!(values.get("A").map(String::as_str), Some("1"));
+        assert_eq!(values.get("B").map(String::as_str), Some("2"));
+        let compact = crate::parse_values_compact_with(&source, strip_all).unwrap();
+        assert_eq!(compact.get("A"), Some("1"));
+        assert_eq!(compact.get("B"), Some("2"));
+
+        let (limited, lim_diags) = crate::parse_with_options(
+            &source,
+            strip_all,
+            crate::ParseOptions::new().with_max_input_bytes(0),
+        );
+        assert_eq!(limited.bom_span(), doc.bom_span());
+        assert_eq!(limited.item(0).unwrap().span(), prefix_len..source.len());
+        assert_eq!(lim_diags.len(), 1);
+
+        let formatted = doc
+            .format(
+                &crate::FormatOptions::default().with_equals_spacing(crate::EqualsSpacing::Spaces),
+            )
+            .unwrap();
+        assert_eq!(formatted.as_str(), format!("{prefix}A = 1\nB = 2\n"));
+        assert!(formatted.edits()[0].range.start >= prefix_len);
+        let (reformatted, _) = parse_with(formatted.as_str(), strip_all);
+        assert_eq!(reformatted.bom_span(), doc.bom_span());
+
+        let unsorted_source = format!("{prefix}Z=1\nA=2\n");
+        let unsorted = parse_strict_with(&unsorted_source, strip_all).unwrap();
+        let sorted = unsorted.sort().unwrap();
+        assert_eq!(sorted.as_str(), format!("{prefix}A=2\nZ=1\n"));
+        assert_eq!(
+            parse_strict_with(sorted.as_str(), strip_all)
+                .unwrap()
+                .bom_span(),
+            doc.bom_span()
+        );
+
+        assert_eq!(doc.example(), format!("{prefix}A=\nB=\n"));
+    }
+
+    // BOM-only document under StripAll has 0 items and full bom_span.
+    let (bom_only, bom_diags) = parse_with("\u{feff}\u{feff}", strip_all);
+    assert_eq!(bom_only.bom_span(), Some(0..6));
+    assert_eq!(bom_only.items().len(), 0);
+    assert_eq!(bom_diags.len(), 1);
+    assert_eq!(bom_diags[0].span(), 0..6);
+    assert_eq!(bom_only.example(), "\u{feff}\u{feff}");
 }
 
 #[test]
@@ -1010,7 +1111,12 @@ proptest! {
         for dialect in PRESETS { assert_document_invariants(&source, dialect); }
         let mut dialect = PRESETS[selection as usize % PRESETS.len()];
         dialect.raw_values = selection & 1 != 0;
-        dialect.bom = [BomPolicy::Strip, BomPolicy::Keep, BomPolicy::Error][(selection >> 1) as usize % 3];
+        dialect.bom = [
+            BomPolicy::Strip,
+            BomPolicy::StripAll,
+            BomPolicy::Keep,
+            BomPolicy::Error,
+        ][(selection >> 1) as usize % 4];
         dialect.bare_keys = [BareKeys::Preserve, BareKeys::Ignore, BareKeys::Empty, BareKeys::Error][(selection >> 3) as usize % 4];
         dialect.unknown_escapes = [UnknownEscapes::Preserve, UnknownEscapes::Warn, UnknownEscapes::DropBackslash, UnknownEscapes::Error][(selection >> 5) as usize % 4];
         dialect.quoted_tail = [QuotedTail::Error, QuotedTail::Ignore, QuotedTail::Append, QuotedTail::LiteralFallback, QuotedTail::Skip, QuotedTail::NextStatement][(selection >> 7) as usize % 6];

@@ -355,7 +355,7 @@ proptest! {
     ) {
         let text: String = chars.into_iter().collect();
         let (doc, diagnostics) = parse(&text);
-        let mut at = if doc.has_bom() { 3 } else { 0 };
+        let mut at = doc.bom_span().map_or(0, |span| span.end);
         for item in doc.items() {
             let range = item.span();
             prop_assert_eq!(range.start, at);
@@ -423,17 +423,28 @@ proptest! {
         let text: String = source.into_iter().collect();
         let (document, _) = parse_with(&text, dialect);
         let index = document.lookup_index();
+        let tree_index = document.lookup_index_with_probe_limit(0);
         let keys: Vec<&str> = document
             .entries()
             .map(crate::Entry::key)
-            .filter(|key| !key.is_empty())
-            .chain(["missing"])
+            .chain(["", "missing"])
             .collect();
         for key in keys {
-            prop_assert_eq!(index.get(key), document.get(key));
+            if !key.is_empty() {
+                prop_assert_eq!(index.get(key), document.get(key));
+                prop_assert_eq!(
+                    index.get_entry(key).map(crate::Entry::id),
+                    document.get_entry(key).map(crate::Entry::id)
+                );
+                prop_assert_eq!(tree_index.get(key), document.get(key));
+            }
             prop_assert_eq!(
-                index.get_entry(key).map(crate::Entry::id),
-                document.get_entry(key).map(crate::Entry::id)
+                index.unique(key).map(crate::Entry::id),
+                document.unique(key).map(crate::Entry::id)
+            );
+            prop_assert_eq!(
+                tree_index.unique(key).map(crate::Entry::id),
+                document.unique(key).map(crate::Entry::id)
             );
         }
     }
@@ -580,12 +591,99 @@ fn lookup_index_tree_fallback_preserves_lookup_semantics() {
     assert_eq!(index.get("B"), None);
     assert_eq!(index.get("C"), Some("3"));
     assert_eq!(index.get("missing"), None);
+    assert_eq!(
+        index.unique("A").unwrap_err(),
+        crate::EditError::Duplicate(2)
+    );
+    assert_eq!(index.unique("B").unwrap().id(), 2);
+    assert_eq!(index.unique("C").unwrap().value(), Some("3"));
+    assert_eq!(
+        index.unique("missing").unwrap_err(),
+        crate::EditError::Missing
+    );
 
     let dialect = Dialect::PORTABLE.with_duplicates(Duplicates::First);
     let (document, _) = parse_with("A=first\nA=second\nBARE\n", dialect);
     let index = document.lookup_index_with_probe_limit(0);
     assert_eq!(index.get("A"), Some("first"));
     assert_eq!(index.get("BARE"), None);
+    assert_eq!(
+        index.unique("A").unwrap_err(),
+        crate::EditError::Duplicate(2)
+    );
+    assert_eq!(index.unique("BARE").unwrap().id(), 2);
+}
+
+#[test]
+fn lookup_index_unique_matches_document_unique_across_dialects_and_fallback() {
+    let cases = [
+        (
+            "A=1\nB=2\nB=3\nBARE\n",
+            Dialect::PORTABLE,
+            &["A", "B", "BARE", "MISSING"][..],
+        ),
+        (
+            "A=1\nA\nBARE\n__proto__=x\n",
+            Dialect::NODE_DOTENV,
+            &["A", "BARE", "__proto__", "MISSING"][..],
+        ),
+        (
+            "A=1\nA=2\nBARE\nBARE\n",
+            Dialect::PYTHON_DOTENV,
+            &["A", "BARE", "MISSING"][..],
+        ),
+        (
+            "=empty\nA=1\nBARE\nA\n",
+            Dialect::COMPOSE,
+            &["", "A", "BARE", "MISSING"][..],
+        ),
+        (
+            "A=1\nBARE\nBARE\n",
+            Dialect::DOCKER_RAW,
+            &["A", "BARE", "MISSING"][..],
+        ),
+    ];
+
+    for (source, dialect, keys) in cases {
+        let (doc, _) = parse_with(source, dialect);
+        let hash_index = doc.lookup_index();
+        let tree_index = doc.lookup_index_with_probe_limit(0);
+        let low_probe = doc.lookup_index_with_probe_limit(1);
+        for &key in keys {
+            let expected = doc.unique(key).map(crate::Entry::id);
+            assert_eq!(
+                hash_index.unique(key).map(crate::Entry::id),
+                expected,
+                "hash unique mismatch for {key:?} in {dialect:?}"
+            );
+            assert_eq!(
+                tree_index.unique(key).map(crate::Entry::id),
+                expected,
+                "tree unique mismatch for {key:?} in {dialect:?}"
+            );
+            assert_eq!(
+                low_probe.unique(key).map(crate::Entry::id),
+                expected,
+                "low-probe unique mismatch for {key:?} in {dialect:?}"
+            );
+        }
+    }
+
+    // Multiple non-participating declarations (Node bare keys + empty key in Compose).
+    let bare_source = "BARE\n".repeat(10);
+    let (node_doc, _) = parse_with(&bare_source, Dialect::NODE_DOTENV);
+    let node_index = node_doc.lookup_index();
+    assert_eq!(node_index.len(), 0);
+    assert_eq!(node_index.hash_slots(), Some(8));
+    assert_eq!(
+        node_index.unique("BARE").unwrap_err(),
+        crate::EditError::Duplicate(10)
+    );
+    let (compose_empty, _) = parse_with("=a\n=b\n", Dialect::COMPOSE);
+    assert_eq!(
+        compose_empty.lookup_index().unique("").unwrap_err(),
+        crate::EditError::Duplicate(2)
+    );
 }
 
 #[test]

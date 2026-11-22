@@ -1487,13 +1487,19 @@ impl Document<'_> {
         let last = retained.next()?;
         // A selected comment can become the output's BOM prelude. A prelude
         // alone is not a physical item and needs no insertion separator.
-        let becomes_prelude = !self.has_bom()
-            && plans[last.id()].whole == Whole::Uncomment
+        let becomes_prelude = plans[last.id()].whole == Whole::Uncomment
             && last.line_ending() == crate::LineEnding::None
             && last.raw().starts_with('#')
-            && last
-                .comment_text()
-                .is_some_and(|body| body.strip_prefix(' ').unwrap_or(body) == "\u{feff}");
+            && last.comment_text().is_some_and(|body| {
+                let stripped = body.strip_prefix(' ').unwrap_or(body);
+                match self.dialect().bom {
+                    crate::BomPolicy::Strip => !self.has_bom() && stripped == "\u{feff}",
+                    crate::BomPolicy::StripAll => {
+                        !stripped.is_empty() && stripped.chars().all(|c| c == '\u{feff}')
+                    }
+                    crate::BomPolicy::Keep | crate::BomPolicy::Error => false,
+                }
+            });
         if becomes_prelude && retained.next().is_none() {
             None
         } else {
@@ -1742,20 +1748,21 @@ impl Document<'_> {
         new_keys: Vec<&str>,
     ) -> Result<(), EditError> {
         let parsed = crate::parser::parse_document(output, self.dialect());
-        if parsed.has_bom() != self.has_bom() {
+        let before_bom = self.bom_span().map_or(0, |span| span.end);
+        let after_bom = parsed.bom_span().map_or(0, |span| span.end);
+        if after_bom != before_bom {
             // Only an explicitly uncommented leading region may expose its own
-            // BOM. Removing text before an unrelated BOM must still be refused.
+            // BOM run. Removing text before an unrelated BOM must still be refused.
             let selected = regions.first_mut().filter(|region| {
-                !self.has_bom()
-                    && parsed.has_bom()
-                    && region.range.start == 0
-                    && region.range.end >= 3
+                after_bom > before_bom
+                    && region.range.start == before_bom
+                    && region.range.end >= after_bom
                     && matches!(region.expect, Expect::Uncommented)
             });
             let Some(region) = selected else {
                 return Err(EditError::WouldChangeMeaning);
             };
-            region.range.start = 3;
+            region.range.start = after_bom;
         }
         let mut actual = parsed.items();
         // Uncommented declarations follow the collision rule of insertions.
@@ -1849,7 +1856,7 @@ impl Document<'_> {
         existing_new: usize,
     ) -> Result<(), EditError> {
         let parsed = crate::parser::parse_document(output, self.dialect());
-        if parsed.has_bom() != self.has_bom() {
+        if parsed.bom_span() != self.bom_span() {
             return Err(EditError::WouldChangeMeaning);
         }
         let before: Vec<_> = self.items().collect();

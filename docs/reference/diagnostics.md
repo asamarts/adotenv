@@ -62,7 +62,7 @@ custom dialects built from it.
 | `dotenv.non-posix-key` | Warning | none | A key is accepted but is not a POSIX shell variable name, such as `app.port`. Portable syntax only. |
 | `dotenv.tight-hash` | Warning | none | A `#` in an unquoted value is literal text, not a comment, as in `A=a#b`. Portable starts a comment only at a `#` after whitespace. Portable syntax only. |
 | `dotenv.backtick` | Warning | none | A backtick in an unquoted value is literal text, not a quote. Reported for each backtick. Portable syntax only. |
-| `dotenv.bom` | Info | none | The source starts with a UTF-8 byte-order mark, which the dialect sets apart from the items (`BomPolicy::Strip`, used by every preset). A first line over the byte limit reports `dotenv.line-too-long` instead. |
+| `dotenv.bom` | Info | none | The source starts with a UTF-8 byte-order mark, which the dialect sets apart from the items (`BomPolicy::Strip`, used by every preset, or `BomPolicy::StripAll` for a leading multi-BOM run). A first line over the byte limit reports `dotenv.line-too-long` instead. |
 | `dotenv.lone-cr` | Warning | none | A carriage return is not followed by a line feed. Portable ends a line there. Every lone CR is reported, including one inside a quoted value. Portable syntax with `LineBreaks::Universal` only. |
 | `dotenv.forbidden-bare-key` | Error | `Entry` | A declaration has no `=` and the dialect forbids that (`BareKeys::Error`). |
 | `dotenv.forbidden-bom` | Error | `Invalid` | The source starts with a byte-order mark and the dialect forbids that (`BomPolicy::Error`). The item holds only the three bytes of the mark. A first line over the byte limit reports `dotenv.line-too-long` instead. |

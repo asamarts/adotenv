@@ -360,7 +360,7 @@ pub struct Document<'src> {
     pub(crate) source: Cow<'src, str>,
     pub(crate) items: Vec<ItemData>,
     pub(crate) entries: Vec<EntryData>,
-    pub(crate) bom: bool,
+    pub(crate) bom_len: usize,
     pub(crate) dialect: Dialect,
     pub(crate) has_duplicate_keys: bool,
 }
@@ -667,17 +667,22 @@ impl Document<'_> {
     /// ```
     #[must_use]
     pub fn lookup_index(&self) -> LookupIndex<'_> {
+        let (winners, non_participating) = Winners::build(self, self.dialect.duplicates);
         LookupIndex {
             document: self,
-            winners: Winners::build(self, self.dialect.duplicates),
+            winners,
+            non_participating,
         }
     }
 
     #[cfg(test)]
     pub(crate) fn lookup_index_with_probe_limit(&self, probe_limit: usize) -> LookupIndex<'_> {
+        let (winners, non_participating) =
+            Winners::build_with_limit(self, self.dialect.duplicates, probe_limit);
         LookupIndex {
             document: self,
-            winners: Winners::build_with_limit(self, self.dialect.duplicates, probe_limit),
+            winners,
+            non_participating,
         }
     }
 
@@ -721,9 +726,10 @@ impl Document<'_> {
     /// kept outside the items.
     ///
     /// This is `true` only when the dialect strips the mark
-    /// ([`BomPolicy::Strip`](crate::BomPolicy::Strip), used by every preset).
-    /// The three bytes stay in [`Document::source`] but belong to no item, and
-    /// parsing reports [`DiagnosticCode::ByteOrderMark`]. Under
+    /// ([`BomPolicy::Strip`](crate::BomPolicy::Strip), used by every preset, or
+    /// [`BomPolicy::StripAll`](crate::BomPolicy::StripAll)). The stripped bytes
+    /// stay in [`Document::source`] but belong to no item, and parsing reports
+    /// [`DiagnosticCode::ByteOrderMark`]. Under
     /// [`BomPolicy::Error`](crate::BomPolicy::Error) the mark is an
     /// [`ItemKind::Invalid`] item instead, and under
     /// [`BomPolicy::Keep`](crate::BomPolicy::Keep) it is part of the first
@@ -741,13 +747,15 @@ impl Document<'_> {
     /// ```
     #[must_use]
     pub const fn has_bom(&self) -> bool {
-        self.bom
+        self.bom_len > 0
     }
-    /// Returns the byte range `0..3` of the stripped byte-order mark, or
-    /// `None` if [`Document::has_bom`] is `false`.
+    /// Returns the byte range of the stripped leading byte-order mark prefix
+    /// (`0..3` under [`BomPolicy::Strip`](crate::BomPolicy::Strip), or
+    /// `0..prefix_bytes` under [`BomPolicy::StripAll`](crate::BomPolicy::StripAll)),
+    /// or `None` if [`Document::has_bom`] is `false`.
     #[must_use]
     pub fn bom_span(&self) -> Option<Range<usize>> {
-        self.bom.then_some(0..3)
+        (self.bom_len > 0).then_some(0..self.bom_len)
     }
     /// Returns whether the source ends with a line ending (LF, CRLF or a lone
     /// CR).
@@ -802,7 +810,7 @@ impl Document<'_> {
             source: Cow::Owned(self.source.into_owned()),
             items: self.items,
             entries: self.entries,
-            bom: self.bom,
+            bom_len: self.bom_len,
             dialect: self.dialect,
             has_duplicate_keys: self.has_duplicate_keys,
         }
@@ -914,6 +922,7 @@ pub struct Entry<'doc> {
 pub struct LookupIndex<'doc> {
     document: &'doc Document<'doc>,
     winners: Winners<'doc>,
+    non_participating: Option<BTreeMap<&'doc str, (usize, usize)>>,
 }
 
 #[cfg(test)]
@@ -926,14 +935,16 @@ impl LookupIndex<'_> {
     }
 }
 
+type NonParticipating<'doc> = Option<BTreeMap<&'doc str, (usize, usize)>>;
+
 #[derive(Debug, Clone)]
 enum Winners<'doc> {
     Hash(HashWinners<'doc>),
-    Tree(BTreeMap<&'doc str, usize>),
+    Tree(BTreeMap<&'doc str, (usize, usize)>),
 }
 
 impl<'doc> Winners<'doc> {
-    fn build(document: &'doc Document<'doc>, policy: Duplicates) -> Self {
+    fn build(document: &'doc Document<'doc>, policy: Duplicates) -> (Self, NonParticipating<'doc>) {
         let entries = document.entries().len();
         let probe_limit = entries.saturating_mul(4).max(64);
         Self::build_with_limit(document, policy, probe_limit)
@@ -943,17 +954,26 @@ impl<'doc> Winners<'doc> {
         document: &'doc Document<'doc>,
         policy: Duplicates,
         probe_limit: usize,
-    ) -> Self {
+    ) -> (Self, NonParticipating<'doc>) {
         if probe_limit == 0 {
-            return Self::Tree(tree_winners(document, policy));
+            let (tree, non_participating) = tree_winners(document, policy);
+            return (Self::Tree(tree), non_participating);
         }
-        HashWinners::build(document, policy, probe_limit)
-            .map_or_else(|| Self::Tree(tree_winners(document, policy)), Self::Hash)
+        if let Some((hash, non_participating)) = HashWinners::build(document, policy, probe_limit) {
+            (Self::Hash(hash), non_participating)
+        } else {
+            let (tree, non_participating) = tree_winners(document, policy);
+            (Self::Tree(tree), non_participating)
+        }
     }
 
     fn get(&self, key: &str) -> Option<usize> {
+        self.get_with_count(key).map(|(index, _)| index)
+    }
+
+    fn get_with_count(&self, key: &str) -> Option<(usize, usize)> {
         match self {
-            Self::Hash(winners) => winners.get(key),
+            Self::Hash(winners) => winners.get_with_count(key),
             Self::Tree(winners) => winners.get(key).copied(),
         }
     }
@@ -970,10 +990,21 @@ impl<'doc> Winners<'doc> {
     }
 }
 
+fn record_non_participating<'doc>(
+    non_participating: &mut NonParticipating<'doc>,
+    key: &'doc str,
+    index: usize,
+) {
+    let map = non_participating.get_or_insert_with(BTreeMap::new);
+    let slot = map.entry(key).or_insert((index, 0));
+    slot.1 += 1;
+}
+
 #[derive(Debug, Clone, Copy)]
 struct HashSlot<'doc> {
     key: &'doc str,
     index: usize,
+    count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -987,15 +1018,18 @@ impl<'doc> HashWinners<'doc> {
         document: &'doc Document<'doc>,
         policy: Duplicates,
         probe_limit: usize,
-    ) -> Option<Self> {
+    ) -> Option<(Self, NonParticipating<'doc>)> {
         // Start small and grow with participating keys. Sizing from all entries
         // allocates a large table for declarations a dialect excludes from
         // lookup, such as Node bare keys.
         let mut slots = alloc::vec![None; 8];
         let mut len: usize = 0;
         let mut probes = 0;
+        let mut non_participating = None;
         for entry in document.entries() {
-            if !entry.participates_in_lookup() || entry.key().is_empty() {
+            let key = entry.key();
+            if !entry.participates_in_lookup() || key.is_empty() {
+                record_non_participating(&mut non_participating, key, entry.id());
                 continue;
             }
             if len.saturating_add(1) > slots.len().saturating_mul(3) / 4 {
@@ -1003,7 +1037,6 @@ impl<'doc> HashWinners<'doc> {
                 slots = rehash(slots, capacity);
             }
             let mask = slots.len() - 1;
-            let key = entry.key();
             let mut at = hash_key(key) & mask;
             loop {
                 match slots[at] {
@@ -1011,17 +1044,17 @@ impl<'doc> HashWinners<'doc> {
                         slots[at] = Some(HashSlot {
                             key,
                             index: entry.id(),
+                            count: 1,
                         });
                         len += 1;
                         break;
                     }
-                    Some(slot) if slot.key == key => {
+                    Some(mut slot) if slot.key == key => {
+                        slot.count += 1;
                         if policy == Duplicates::Last {
-                            slots[at] = Some(HashSlot {
-                                key,
-                                index: entry.id(),
-                            });
+                            slot.index = entry.id();
                         }
+                        slots[at] = Some(slot);
                         break;
                     }
                     Some(_) => {
@@ -1034,16 +1067,16 @@ impl<'doc> HashWinners<'doc> {
                 }
             }
         }
-        Some(Self { slots, len })
+        Some((Self { slots, len }, non_participating))
     }
 
-    fn get(&self, key: &str) -> Option<usize> {
+    fn get_with_count(&self, key: &str) -> Option<(usize, usize)> {
         let mask = self.slots.len() - 1;
         let mut at = hash_key(key) & mask;
         loop {
             match self.slots[at] {
                 None => return None,
-                Some(slot) if slot.key == key => return Some(slot.index),
+                Some(slot) if slot.key == key => return Some((slot.index, slot.count)),
                 Some(_) => at = (at + 1) & mask,
             }
         }
@@ -1066,22 +1099,22 @@ fn rehash(slots: Vec<Option<HashSlot<'_>>>, capacity: usize) -> Vec<Option<HashS
 fn tree_winners<'doc>(
     document: &'doc Document<'doc>,
     policy: Duplicates,
-) -> BTreeMap<&'doc str, usize> {
-    let mut winners = BTreeMap::new();
+) -> (BTreeMap<&'doc str, (usize, usize)>, NonParticipating<'doc>) {
+    let mut winners: BTreeMap<&'doc str, (usize, usize)> = BTreeMap::new();
+    let mut non_participating = None;
     for (index, entry) in document.entries().enumerate() {
-        if !entry.participates_in_lookup() || entry.key().is_empty() {
+        let key = entry.key();
+        if !entry.participates_in_lookup() || key.is_empty() {
+            record_non_participating(&mut non_participating, key, index);
             continue;
         }
-        match policy {
-            Duplicates::First => {
-                winners.entry(entry.key()).or_insert(index);
-            }
-            Duplicates::Last => {
-                winners.insert(entry.key(), index);
-            }
+        let slot = winners.entry(key).or_insert((index, 0));
+        if slot.1 > 0 && policy == Duplicates::Last {
+            slot.0 = index;
         }
+        slot.1 += 1;
     }
-    winners
+    (winners, non_participating)
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -1119,6 +1152,52 @@ impl<'doc> LookupIndex<'doc> {
                     .then_some("")
             })
         })
+    }
+    /// Returns the only declaration of `key`, failing if there are none or
+    /// several.
+    ///
+    /// This matches [`Document::unique`] semantics in `O(1)` average /
+    /// `O(log n)` worst-case time: every declaration of `key` counts, including
+    /// bare keys, declarations that do not take part in lookup, and empty keys
+    /// where the dialect accepts them.
+    ///
+    /// # Errors
+    ///
+    /// - [`EditError::Missing`] when no declaration has the key.
+    /// - [`EditError::Duplicate`] with the total number of declarations when
+    ///   the key is declared more than once.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::EditError;
+    ///
+    /// let doc = adotenv::parse_strict("PORT=8080\nPORT=9090\nHOST=localhost\n")?;
+    /// let index = doc.lookup_index();
+    ///
+    /// assert_eq!(index.unique("HOST")?.value(), Some("localhost"));
+    /// assert_eq!(index.unique("PORT").unwrap_err(), EditError::Duplicate(2));
+    /// assert_eq!(index.unique("MISSING").unwrap_err(), EditError::Missing);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn unique(&self, key: &str) -> Result<Entry<'doc>, EditError> {
+        let participating = if key.is_empty() {
+            None
+        } else {
+            self.winners.get_with_count(key)
+        };
+        let non_participating = self
+            .non_participating
+            .as_ref()
+            .and_then(|map| map.get(key).copied());
+        match (participating, non_participating) {
+            (None, None) => Err(EditError::Missing),
+            (Some((index, 1)), None) | (None, Some((index, 1))) => {
+                self.document.entry(index).ok_or(EditError::Missing)
+            }
+            (Some((_, a)), Some((_, b))) => Err(EditError::Duplicate(a + b)),
+            (Some((_, count)), None) | (None, Some((_, count))) => Err(EditError::Duplicate(count)),
+        }
     }
     /// Returns the number of keys in the index.
     ///

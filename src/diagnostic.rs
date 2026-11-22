@@ -152,7 +152,8 @@ pub enum DiagnosticCode {
     /// The source starts with a UTF-8 byte-order mark.
     ///
     /// Info, `dotenv.bom`, reported when the dialect strips the mark
-    /// ([`BomPolicy::Strip`](crate::BomPolicy::Strip), used by every preset).
+    /// ([`BomPolicy::Strip`](crate::BomPolicy::Strip), used by every preset, or
+    /// [`BomPolicy::StripAll`](crate::BomPolicy::StripAll)).
     /// See [`Document::has_bom`](crate::Document::has_bom). A first line over
     /// the dialect's byte limit reports `LineTooLong` instead.
     ByteOrderMark,

@@ -387,7 +387,7 @@ fn check_groups(original: &Document<'_>, output: &Document<'_>, plans: &[Plan]) 
             changed: plan.is_some(),
         });
     }
-    let bom = original.has_bom() != output.has_bom();
+    let bom = original.bom_span() != output.bom_span();
     if bom || checks.iter().all(|check| check.same) && found != output.groups().count() {
         for check in &mut checks {
             check.same = false;

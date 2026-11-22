@@ -141,7 +141,7 @@ fn check_example(document: &adotenv::Document<'_>) {
         })
     });
     if !overlong_first_line {
-        assert_eq!(document.has_bom(), after.has_bom());
+        assert_eq!(document.bom_span(), after.bom_span());
     }
     let expected: Vec<_> = document
         .entries()
@@ -243,7 +243,7 @@ fn check_result(source: &str, document: &adotenv::Document<'_>, options: &Format
         check_edit(source, edit, &mut previous_end);
     }
     let (after, _) = parse_with(formatted.as_str(), document.dialect());
-    assert_eq!(document.has_bom(), after.has_bom());
+    assert_eq!(document.bom_span(), after.bom_span());
     if options.blank_lines == BlankLines::Preserve {
         assert_eq!(document.items().len(), after.items().len());
     } else {
