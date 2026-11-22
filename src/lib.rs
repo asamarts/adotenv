@@ -48,13 +48,13 @@
 //!
 //! | Task | Start with |
 //! |---|---|
-//! | Parse text | [`parse`], [`parse_strict`], [`parse_owned`], [`parse_values`], [`parse_values_compact`], and their `_with` variants that take a [`Dialect`] |
+//! | Parse text | [`parse`], [`parse_strict`], [`parse_owned`], [`parse_values`], [`parse_values_compact`], [`parse_entries_compact`], and their `_with` variants that take a [`Dialect`] |
 //! | Look up values | [`Document::get`], [`Document::get_entry`], [`Document::get_all`], [`Document::effective_entries`], [`Document::lookup_index`] |
 //! | Walk the source | [`Document::items`], [`Document::entries`], [`Item`], [`Entry`], [`EntryTokens`] |
 //! | Report problems | [`Diagnostic`], [`DiagnosticCode`], [`Severity`] |
-//! | Bound untrusted input | [`ParseOptions`], [`LimitExceeded`], [`LimitKind`] |
+//! | Bound untrusted input | [`ParseOptions`], [`EditOptions`], [`LimitExceeded`], [`LimitKind`] |
 //! | Choose reading rules | [`Dialect`] and its presets |
-//! | Edit | [`Document::set`], [`Document::remove`], [`Document::rename`], [`Document::rename_with_references`], [`Document::insert`], [`Document::comment`], [`Document::uncomment`], [`Document::set_export`], or [`Document::edit`] with a batch of [`Edit`]s |
+//! | Edit | [`Document::set`], [`Document::remove`], [`Document::rename`], [`Document::rename_with_references`], [`Document::insert`], [`Document::comment`], [`Document::uncomment`], [`Document::set_export`], [`Document::edit`], or [`Document::edit_with_options`] with a batch of [`Edit`]s |
 //! | Set or remove one key of Portable text in one call | [`set`], [`remove`] |
 //! | Quote a value for a file | [`encode_value`], [`encode_value_with`] |
 //! | Format and sort | [`Document::format`] with [`FormatOptions`], [`Document::sort`] |
@@ -137,7 +137,7 @@
 //!
 //! Values may be secrets. `Debug` output of documents, items, entries, edit and format results,
 //! comparisons, loaded environments and entries, resolved values, lookup indexes, effective
-//! entries, compact values, line indexes, groups and portability reports include them, and so
+//! entries, compact values, compact entries, line indexes, groups and portability reports include them, and so
 //! do the messages of serde conversion errors. The core document, edit, comparison, load, resolution,
 //! line-index, group and portability types support a structure-preserving `Debug` form
 //! that replaces values with `<redacted>` through [`Masked`] and [`mask`]; use
@@ -198,7 +198,7 @@ mod serde_support;
 mod sort;
 mod structure;
 
-pub use compact::CompactValues;
+pub use compact::{CompactEntries, CompactValues};
 pub use compare::{ComparedValue, Comparison, ComparisonEntry, DifferenceKind};
 pub use diagnostic::{Diagnostic, DiagnosticCode, Severity};
 pub use dialect::{
@@ -206,7 +206,9 @@ pub use dialect::{
     KeySyntax, LineBreaks, MalformedLines, Multiline, QuotedTail, SingleEscapes, Syntax,
     UnknownEscapes, Whitespace,
 };
-pub use edit::{remove, set, Edit, EditError, InsertPosition, TextEdit, VerifiedEdits};
+pub use edit::{
+    remove, set, Edit, EditError, EditOptions, InsertPosition, TextEdit, VerifiedEdits,
+};
 pub use encode::{encode_value, encode_value_with, EncodeError};
 pub use format::{
     BlankLines, EqualsSpacing, FinalNewline, FormatError, FormatOptions, FormatResult, QuoteStyle,
@@ -218,10 +220,11 @@ pub use model::{
     LookupIndex, Quote,
 };
 pub use parser::{
-    parse, parse_owned, parse_owned_with, parse_owned_with_options, parse_strict,
-    parse_strict_with, parse_strict_with_options, parse_values, parse_values_compact,
-    parse_values_compact_with, parse_values_compact_with_options, parse_values_with,
-    parse_values_with_options, parse_with, parse_with_options, ParseOptions,
+    parse, parse_entries_compact, parse_entries_compact_with, parse_entries_compact_with_options,
+    parse_owned, parse_owned_with, parse_owned_with_options, parse_strict, parse_strict_with,
+    parse_strict_with_options, parse_values, parse_values_compact, parse_values_compact_with,
+    parse_values_compact_with_options, parse_values_with, parse_values_with_options, parse_with,
+    parse_with_options, ParseOptions,
 };
 pub use portability::{
     PortabilityDeclaration, PortabilityDifference, PortabilityPart, PortabilityReading,

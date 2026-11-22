@@ -12,7 +12,7 @@ use std::hint::black_box;
 use std::path::PathBuf;
 
 use adotenv::load::load_values_compact;
-use adotenv::{parse_values, parse_values_compact, Dialect};
+use adotenv::{parse_entries_compact, parse_values, parse_values_compact, Dialect};
 use adotenv_bench::{fixture, Shape, Size};
 use gungraun::{
     library_benchmark, library_benchmark_group, main, Callgrind, EventKind, LibraryBenchmarkConfig,
@@ -82,6 +82,30 @@ fn compact_long_line_128(source: String) {
     black_box(parse_values_compact(&source).expect("fixture parses"));
 }
 
+#[library_benchmark(setup = plain_8)]
+#[bench::plain_8()]
+fn compact_entries_plain_8(source: String) {
+    black_box(parse_entries_compact(&source).expect("fixture parses"));
+}
+
+#[library_benchmark(setup = plain_128)]
+#[bench::plain_128()]
+fn compact_entries_plain_128(source: String) {
+    black_box(parse_entries_compact(&source).expect("fixture parses"));
+}
+
+#[library_benchmark(setup = plain_1k)]
+#[bench::plain_1k()]
+fn compact_entries_plain_1k(source: String) {
+    black_box(parse_entries_compact(&source).expect("fixture parses"));
+}
+
+#[library_benchmark(setup = long_line_128)]
+#[bench::long_line_128()]
+fn compact_entries_long_line_128(source: String) {
+    black_box(parse_entries_compact(&source).expect("fixture parses"));
+}
+
 struct TempFixture {
     path: PathBuf,
 }
@@ -149,6 +173,16 @@ library_benchmark_group!(
 );
 
 library_benchmark_group!(
+    name = compact_entries,
+    benchmarks = [
+        compact_entries_plain_8,
+        compact_entries_plain_128,
+        compact_entries_plain_1k,
+        compact_entries_long_line_128
+    ]
+);
+
+library_benchmark_group!(
     name = compact_load,
     benchmarks = [compact_load_plain_128, compact_load_long_line_128]
 );
@@ -159,5 +193,5 @@ main!(
             .args(["--cache-sim=yes"])
             .soft_limits([(EventKind::Ir, 2.0), (EventKind::EstimatedCycles, 5.0)]),
     ),
-    library_benchmark_groups = [values, compact, compact_load]
+    library_benchmark_groups = [values, compact, compact_entries, compact_load]
 );

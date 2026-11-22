@@ -6,7 +6,7 @@ use std::hint::black_box;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use adotenv::{parse_values, parse_values_compact, CompactValues, Dialect};
+use adotenv::{parse_entries_compact, parse_values, parse_values_compact, CompactValues, Dialect};
 use adotenv_bench::competitors::{
     adotenv_load_values, load_values, parse_values as parse_competitor_values, Competitor,
     COMPARABLE_LOAD_SHAPES, COMPARABLE_VALUES_SHAPES,
@@ -33,6 +33,19 @@ fn values(c: &mut Criterion) {
                 "adotenv-compact {}",
                 fixture.name()
             );
+            let compact_entries_expected: BTreeMap<String, String> =
+                parse_entries_compact(fixture.source())
+                    .expect("fixture is valid Portable")
+                    .into_btreemap()
+                    .into_iter()
+                    .filter_map(|(k, v)| v.map(|v| (k, v)))
+                    .collect();
+            assert_eq!(
+                compact_entries_expected,
+                expected,
+                "adotenv-compact-entries {}",
+                fixture.name()
+            );
             group.throughput(Throughput::Bytes(fixture.bytes() as u64));
             group.bench_function(BenchmarkId::new("adotenv", &parameter), |b| {
                 b.iter(|| black_box(parse_values(black_box(fixture.source()))));
@@ -40,6 +53,12 @@ fn values(c: &mut Criterion) {
             group.bench_function(BenchmarkId::new("adotenv-compact", &parameter), |b| {
                 b.iter(|| black_box(parse_values_compact(black_box(fixture.source()))));
             });
+            group.bench_function(
+                BenchmarkId::new("adotenv-compact-entries", &parameter),
+                |b| {
+                    b.iter(|| black_box(parse_entries_compact(black_box(fixture.source()))));
+                },
+            );
             for competitor in Competitor::ALL
                 .into_iter()
                 .filter(|competitor| competitor.supports_values())

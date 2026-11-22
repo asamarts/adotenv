@@ -7,7 +7,10 @@ use alloc::{
 };
 use core::{error::Error, fmt, ops::Range};
 
-use crate::{encode::encode_native, AssignmentState, Dialect, Document, ItemKind, Quote, Severity};
+use crate::{
+    encode::encode_native, AssignmentState, Dialect, Document, ItemKind, LimitExceeded, LimitKind,
+    LineBreaks, ParseOptions, Quote, Severity,
+};
 
 /// A replacement of one byte range of the original source.
 ///
@@ -345,6 +348,78 @@ pub enum Edit<'a> {
     },
 }
 
+/// Optional bounds for verified edits.
+///
+/// All limits are opt-in and default to unbounded, matching [`Document::edit`].
+/// When configured, [`Document::edit_with_options`] enforces output byte and
+/// physical-line caps from the planned [`TextEdit`]s before allocating the
+/// output string, and forwards [`parse_limits`](Self::parse_limits) when
+/// verification parses the edited output.
+///
+/// For single operations whose value or inserted text alone exceeds a byte cap,
+/// enforcement may stop before encoding that operation so an oversized value
+/// cannot allocate an unbounded intermediate string.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::{EditError, EditOptions, LimitKind};
+///
+/// let doc = adotenv::parse_strict("PORT=8080\n")?;
+/// let options = EditOptions::new().with_max_output_bytes(12);
+/// let err = doc.set_with_options("PORT", "1234567890", options).unwrap_err();
+/// assert!(matches!(err, EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+pub struct EditOptions {
+    /// The maximum output length in bytes, or `None` for no limit.
+    pub max_output_bytes: Option<usize>,
+    /// The maximum number of physical lines in the output, or `None` for no
+    /// limit.
+    ///
+    /// Physical lines follow the document dialect's
+    /// [`LineBreaks`](crate::LineBreaks) policy without counting a trailing
+    /// final line ending as a phantom empty line.
+    pub max_output_lines: Option<usize>,
+    /// Optional [`ParseOptions`] applied when verification parses the output.
+    pub parse_limits: ParseOptions,
+}
+
+impl EditOptions {
+    /// Returns options with no output or verification parse limits.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            max_output_bytes: None,
+            max_output_lines: None,
+            parse_limits: ParseOptions::new(),
+        }
+    }
+
+    /// Sets the maximum output length in bytes.
+    #[must_use]
+    pub const fn with_max_output_bytes(mut self, limit: usize) -> Self {
+        self.max_output_bytes = Some(limit);
+        self
+    }
+
+    /// Sets the maximum number of physical lines in the output.
+    #[must_use]
+    pub const fn with_max_output_lines(mut self, limit: usize) -> Self {
+        self.max_output_lines = Some(limit);
+        self
+    }
+
+    /// Sets the [`ParseOptions`] forwarded to verification re-parsing.
+    #[must_use]
+    pub const fn with_parse_limits(mut self, limits: ParseOptions) -> Self {
+        self.parse_limits = limits;
+        self
+    }
+}
+
 /// The reason an edit was refused.
 ///
 /// Edits never return partial results: when any operation of a batch fails,
@@ -421,6 +496,13 @@ pub enum EditError {
     /// without it, or removing a line so that a byte order mark on the next
     /// line would start the file.
     WouldChangeMeaning,
+    /// The planned output or verification parse exceeded a configured limit.
+    ///
+    /// Returned by [`Document::edit_with_options`] and its single-operation
+    /// helpers when [`EditOptions::max_output_bytes`],
+    /// [`EditOptions::max_output_lines`], or [`EditOptions::parse_limits`] is
+    /// exceeded.
+    Limit(LimitExceeded),
 }
 impl fmt::Display for EditError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -444,6 +526,7 @@ impl fmt::Display for EditError {
             Self::WouldChangeMeaning => {
                 f.write_str("edit would change other parts of the document or miss its change")
             }
+            Self::Limit(limit) => write!(f, "edit exceeded limit: {limit}"),
         }
     }
 }
@@ -889,6 +972,163 @@ impl<'a> Boundaries<'a> {
     }
 }
 
+fn check_operation_byte_budget(
+    operations: &[Edit<'_>],
+    options: EditOptions,
+) -> Result<(), EditError> {
+    let cap = match (
+        options.max_output_bytes,
+        options.parse_limits.max_input_bytes,
+    ) {
+        (Some(out), Some(input)) => {
+            if out <= input {
+                Some((LimitKind::OutputBytes, out))
+            } else {
+                Some((LimitKind::InputBytes, input))
+            }
+        }
+        (Some(out), None) => Some((LimitKind::OutputBytes, out)),
+        (None, Some(input)) => Some((LimitKind::InputBytes, input)),
+        (None, None) => None,
+    };
+    let Some((kind, limit)) = cap else {
+        return Ok(());
+    };
+    let mut min_inserted = 0usize;
+    for operation in operations {
+        match *operation {
+            Edit::Set { value, .. } => {
+                if value.len() > limit {
+                    return Err(EditError::Limit(LimitExceeded::new(
+                        kind,
+                        limit,
+                        value.len(),
+                    )));
+                }
+            }
+            Edit::Rename { key, .. } => {
+                if key.len() > limit {
+                    return Err(EditError::Limit(LimitExceeded::new(kind, limit, key.len())));
+                }
+            }
+            Edit::Insert { key, value, .. } => {
+                let needed = key
+                    .len()
+                    .saturating_add(value.map_or(0, |text| text.len().saturating_add(1)));
+                min_inserted = min_inserted.saturating_add(needed);
+                if min_inserted > limit {
+                    return Err(EditError::Limit(LimitExceeded::new(
+                        kind,
+                        limit,
+                        min_inserted,
+                    )));
+                }
+            }
+            Edit::Remove { .. }
+            | Edit::Comment { .. }
+            | Edit::Uncomment { .. }
+            | Edit::Export { .. } => {}
+        }
+    }
+    Ok(())
+}
+
+fn check_planned_output_limits(
+    source: &str,
+    edits: &[TextEdit],
+    breaks: LineBreaks,
+    options: EditOptions,
+) -> Result<(), EditError> {
+    if options.max_output_bytes.is_some() || options.parse_limits.max_input_bytes.is_some() {
+        let removed: usize = edits.iter().map(|edit| edit.range.len()).sum();
+        let added = edits.iter().fold(0usize, |acc, edit| {
+            acc.saturating_add(edit.replacement.len())
+        });
+        let output_bytes = source.len().saturating_sub(removed).saturating_add(added);
+        if let Some(limit) = options.max_output_bytes {
+            if output_bytes > limit {
+                return Err(EditError::Limit(LimitExceeded::new(
+                    LimitKind::OutputBytes,
+                    limit,
+                    output_bytes,
+                )));
+            }
+        }
+        if let Some(limit) = options.parse_limits.max_input_bytes {
+            if output_bytes > limit {
+                return Err(EditError::Limit(LimitExceeded::new(
+                    LimitKind::InputBytes,
+                    limit,
+                    output_bytes,
+                )));
+            }
+        }
+    }
+    let line_limit = match (options.max_output_lines, options.parse_limits.max_lines) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (Some(a), None) | (None, Some(a)) => Some(a),
+        (None, None) => None,
+    };
+    if let Some(limit) = line_limit {
+        if let Some(observed) = planned_exceeds_line_limit(source, edits, breaks, limit) {
+            return Err(EditError::Limit(LimitExceeded::new(
+                LimitKind::Lines,
+                limit,
+                observed,
+            )));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn planned_exceeds_line_limit(
+    source: &str,
+    edits: &[TextEdit],
+    breaks: LineBreaks,
+    limit: usize,
+) -> Option<usize> {
+    let mut lines = 0usize;
+    let mut pending_break = false;
+    let mut pending_cr = false;
+    let mut scan = |chunk: &str| -> Option<usize> {
+        for &byte in chunk.as_bytes() {
+            if pending_cr {
+                pending_cr = false;
+                if byte == b'\n' {
+                    pending_break = true;
+                    continue;
+                }
+            }
+            if lines == 0 || pending_break {
+                pending_break = false;
+                lines = lines.saturating_add(1);
+                if lines > limit {
+                    return Some(lines);
+                }
+            }
+            if byte == b'\n' {
+                pending_break = true;
+            } else if byte == b'\r' && breaks == LineBreaks::Universal {
+                pending_cr = true;
+                pending_break = true;
+            }
+        }
+        None
+    };
+
+    let mut cursor = 0;
+    for edit in edits {
+        if let Some(observed) = scan(&source[cursor..edit.range.start]) {
+            return Some(observed);
+        }
+        if let Some(observed) = scan(&edit.replacement) {
+            return Some(observed);
+        }
+        cursor = edit.range.end;
+    }
+    scan(&source[cursor..])
+}
+
 impl Document<'_> {
     /// Applies a batch of edits and verifies the complete output once.
     ///
@@ -949,6 +1189,26 @@ impl Document<'_> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn edit(&self, operations: &[Edit<'_>]) -> Result<VerifiedEdits, EditError> {
+        self.edit_with_options(operations, EditOptions::new())
+    }
+
+    /// Applies a batch of edits with opt-in output and verification limits.
+    ///
+    /// This is [`Document::edit`] with [`EditOptions`]. Output byte and
+    /// physical-line budgets are checked from the planned [`TextEdit`]s before
+    /// allocating the output string, and [`EditOptions::parse_limits`] bounds
+    /// verification re-parsing.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Document::edit`], plus
+    /// [`EditError::Limit`] when a configured output or verification parse
+    /// limit is exceeded.
+    pub fn edit_with_options(
+        &self,
+        operations: &[Edit<'_>],
+        options: EditOptions,
+    ) -> Result<VerifiedEdits, EditError> {
         let keys = KeyLookup::new(self, operations);
         let mut plans: Vec<_> = self
             .items()
@@ -964,6 +1224,7 @@ impl Document<'_> {
         for operation in operations {
             self.plan_operation(*operation, &mut plans, &mut edits, &mut insertions, &keys)?;
         }
+        check_operation_byte_budget(operations, options)?;
         insertions.sort_by_key(|insertion| insertion.offset);
         // The dominant line ending scans the whole source; compute it once per
         // batch, and only when a new line can be added.
@@ -984,9 +1245,10 @@ impl Document<'_> {
         let groups =
             self.plan_insertions(insertions, &plans, &mut edits, &mut end_insertions, ending)?;
         let edits = Self::normalize_edits(edits)?;
+        check_planned_output_limits(self.source(), &edits, self.dialect().line_breaks, options)?;
         let output = Self::apply_edits(self.source(), &edits);
         let regions = self.expected_regions(&plans, &end_insertions, &edits, groups)?;
-        self.verify_regions(&output, regions, ending, new_keys)?;
+        self.verify_regions(&output, regions, ending, new_keys, options.parse_limits)?;
         Ok(VerifiedEdits { edits, output })
     }
 
@@ -1746,8 +2008,11 @@ impl Document<'_> {
         mut regions: Vec<Region<'_>>,
         ending: &str,
         new_keys: Vec<&str>,
+        parse_limits: ParseOptions,
     ) -> Result<(), EditError> {
-        let parsed = crate::parser::parse_document(output, self.dialect());
+        let parsed =
+            crate::parser::parse_document_with_options(output, self.dialect(), parse_limits)
+                .map_err(EditError::Limit)?;
         let before_bom = self.bom_span().map_or(0, |span| span.end);
         let after_bom = parsed.bom_span().map_or(0, |span| span.end);
         if after_bom != before_bom {
@@ -1939,10 +2204,30 @@ impl Document<'_> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn set(&self, key: &str, value: &str) -> Result<VerifiedEdits, EditError> {
-        self.edit(&[Edit::Set {
-            entry: self.unique(key)?.id(),
-            value,
-        }])
+        self.set_with_options(key, value, EditOptions::new())
+    }
+    /// Sets the literal value of the only declaration of `key` with opt-in
+    /// output and verification limits.
+    ///
+    /// This is [`Document::set`] with [`EditOptions`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Document::set`], plus [`EditError::Limit`]
+    /// when an [`EditOptions`] limit is exceeded.
+    pub fn set_with_options(
+        &self,
+        key: &str,
+        value: &str,
+        options: EditOptions,
+    ) -> Result<VerifiedEdits, EditError> {
+        self.edit_with_options(
+            &[Edit::Set {
+                entry: self.unique(key)?.id(),
+                value,
+            }],
+            options,
+        )
     }
     /// Removes the only declaration of `key`, keeping the comments around it.
     ///
@@ -1969,9 +2254,28 @@ impl Document<'_> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn remove(&self, key: &str) -> Result<VerifiedEdits, EditError> {
-        self.edit(&[Edit::Remove {
-            item: self.unique(key)?.item_id(),
-        }])
+        self.remove_with_options(key, EditOptions::new())
+    }
+    /// Removes the only declaration of `key` with opt-in output and
+    /// verification limits.
+    ///
+    /// This is [`Document::remove`] with [`EditOptions`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Document::remove`], plus
+    /// [`EditError::Limit`] when an [`EditOptions`] limit is exceeded.
+    pub fn remove_with_options(
+        &self,
+        key: &str,
+        options: EditOptions,
+    ) -> Result<VerifiedEdits, EditError> {
+        self.edit_with_options(
+            &[Edit::Remove {
+                item: self.unique(key)?.item_id(),
+            }],
+            options,
+        )
     }
     /// Renames the only declaration of `key` to `new_key`.
     ///
@@ -2005,10 +2309,30 @@ impl Document<'_> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn rename(&self, key: &str, new_key: &str) -> Result<VerifiedEdits, EditError> {
-        self.edit(&[Edit::Rename {
-            entry: self.unique(key)?.id(),
-            key: new_key,
-        }])
+        self.rename_with_options(key, new_key, EditOptions::new())
+    }
+    /// Renames the only declaration of `key` to `new_key` with opt-in output
+    /// and verification limits.
+    ///
+    /// This is [`Document::rename`] with [`EditOptions`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Document::rename`], plus
+    /// [`EditError::Limit`] when an [`EditOptions`] limit is exceeded.
+    pub fn rename_with_options(
+        &self,
+        key: &str,
+        new_key: &str,
+        options: EditOptions,
+    ) -> Result<VerifiedEdits, EditError> {
+        self.edit_with_options(
+            &[Edit::Rename {
+                entry: self.unique(key)?.id(),
+                key: new_key,
+            }],
+            options,
+        )
     }
     /// Renames the only declaration of `key` and every variable reference to
     /// it in the document's values.
@@ -2148,11 +2472,32 @@ impl Document<'_> {
         value: Option<&str>,
         position: InsertPosition<'_>,
     ) -> Result<VerifiedEdits, EditError> {
-        self.edit(&[Edit::Insert {
-            key,
-            value,
-            position,
-        }])
+        self.insert_with_options(key, value, position, EditOptions::new())
+    }
+    /// Inserts a declaration of a key with opt-in output and verification
+    /// limits.
+    ///
+    /// This is [`Document::insert`] with [`EditOptions`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Document::insert`], plus
+    /// [`EditError::Limit`] when an [`EditOptions`] limit is exceeded.
+    pub fn insert_with_options(
+        &self,
+        key: &str,
+        value: Option<&str>,
+        position: InsertPosition<'_>,
+        options: EditOptions,
+    ) -> Result<VerifiedEdits, EditError> {
+        self.edit_with_options(
+            &[Edit::Insert {
+                key,
+                value,
+                position,
+            }],
+            options,
+        )
     }
     /// Comments out the only declaration of `key`, line by line.
     ///

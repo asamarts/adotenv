@@ -849,6 +849,193 @@ fn strip_all_bom_edits_preserve_alignment_and_reject_bom_run_changes() {
 }
 
 #[test]
+fn edit_options_bound_output_bytes_lines_and_verification_parsing() {
+    use crate::{EditOptions, LimitKind};
+
+    let doc = crate::parse_strict("A=1\nB='x'\n").unwrap();
+
+    // Exact byte boundary succeeds; 1 byte tighter fails cleanly with OutputBytes.
+    let exact = doc
+        .set_with_options("A", "123", EditOptions::new().with_max_output_bytes(12))
+        .unwrap();
+    assert_eq!(exact.as_str(), "A=123\nB='x'\n");
+    let err = doc
+        .set_with_options("A", "123", EditOptions::new().with_max_output_bytes(11))
+        .unwrap_err();
+    assert!(
+        matches!(err, EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes && limit.limit() == 11 && limit.observed() == 12),
+        "{err:?}"
+    );
+    assert!(err.to_string().contains("output-bytes limit 11 exceeded"));
+
+    // Oversized single Set / Insert / Rename fails before unbounded allocation.
+    let huge = "x".repeat(4096);
+    let err = doc
+        .set_with_options("A", &huge, EditOptions::new().with_max_output_bytes(64))
+        .unwrap_err();
+    assert!(
+        matches!(err, EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes && limit.observed() > 64)
+    );
+
+    let err = doc
+        .insert_with_options(
+            "BIG",
+            Some(&huge),
+            InsertPosition::End,
+            EditOptions::new().with_max_output_bytes(64),
+        )
+        .unwrap_err();
+    assert!(matches!(err, EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes));
+
+    let err = doc
+        .rename_with_options("A", &huge, EditOptions::new().with_max_output_bytes(64))
+        .unwrap_err();
+    assert!(matches!(err, EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes));
+
+    // Many small inserts in one batch trigger cumulative byte cap.
+    let batch: Vec<_> = (0..20)
+        .map(|i| Edit::Insert {
+            key: if i % 2 == 0 { "K_EVEN" } else { "K_ODD" },
+            value: Some("value"),
+            position: InsertPosition::End,
+        })
+        .collect();
+    let err = doc
+        .edit_with_options(&batch, EditOptions::new().with_max_output_bytes(64))
+        .unwrap_err();
+    assert!(matches!(err, EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes));
+
+    // Output line budget catches multiline single-quoted Set and Insert.
+    let ok_lines = doc
+        .set_with_options("B", "l1\nl2", EditOptions::new().with_max_output_lines(3))
+        .unwrap();
+    assert_eq!(ok_lines.as_str(), "A=1\nB='l1\nl2'\n");
+    let err = doc
+        .set_with_options("B", "l1\nl2", EditOptions::new().with_max_output_lines(2))
+        .unwrap_err();
+    assert!(
+        matches!(err, EditError::Limit(limit) if limit.kind() == LimitKind::Lines && limit.limit() == 2 && limit.observed() == 3),
+        "{err:?}"
+    );
+
+    // Double-quoted value escapes newlines onto a single physical line, so max_output_lines(2) allows it.
+    let double_doc = crate::parse_strict("A=\"1\"\nB=2\n").unwrap();
+    let escaped = double_doc
+        .set_with_options(
+            "A",
+            "l1\nl2\nl3",
+            EditOptions::new().with_max_output_lines(2),
+        )
+        .unwrap();
+    assert_eq!(escaped.as_str(), "A=\"l1\\nl2\\nl3\"\nB=2\n");
+
+    // remove_with_options works and shrinks output back within budget.
+    let removed = doc
+        .remove_with_options(
+            "B",
+            EditOptions::new()
+                .with_max_output_bytes(4)
+                .with_max_output_lines(1),
+        )
+        .unwrap();
+    assert_eq!(removed.as_str(), "A=1\n");
+
+    // Empty batch still honors configured limits.
+    let empty_err = doc
+        .edit_with_options(&[], EditOptions::new().with_max_output_bytes(2))
+        .unwrap_err();
+    assert!(matches!(empty_err, EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes));
+}
+
+#[test]
+fn edit_options_forward_parse_limits_and_match_chunk_scanner() {
+    use crate::{EditOptions, LimitKind, LineBreaks, ParseOptions};
+
+    let doc = crate::parse_strict("A=1\nB='x'\n").unwrap();
+    let huge = "x".repeat(4096);
+
+    // parse_limits forwards InputBytes, Lines, Items, and Diagnostics to verification.
+    let err = doc
+        .set_with_options(
+            "A",
+            "123",
+            EditOptions::new().with_parse_limits(ParseOptions::new().with_max_input_bytes(11)),
+        )
+        .unwrap_err();
+    assert!(matches!(err, EditError::Limit(limit) if limit.kind() == LimitKind::InputBytes));
+
+    let err = doc
+        .insert_with_options(
+            "C",
+            Some("3"),
+            InsertPosition::End,
+            EditOptions::new().with_parse_limits(ParseOptions::new().with_max_items(2)),
+        )
+        .unwrap_err();
+    assert!(matches!(err, EditError::Limit(limit) if limit.kind() == LimitKind::Items));
+
+    let err = doc
+        .insert_with_options(
+            "C",
+            Some("3"),
+            InsertPosition::End,
+            EditOptions::new().with_parse_limits(ParseOptions::new().with_max_lines(2)),
+        )
+        .unwrap_err();
+    assert!(matches!(err, EditError::Limit(limit) if limit.kind() == LimitKind::Lines));
+
+    let warn_doc = crate::parse("A=1\nA=2\n").0;
+    let err = warn_doc
+        .edit_with_options(
+            &[Edit::Set {
+                entry: 0,
+                value: "9",
+            }],
+            EditOptions::new().with_parse_limits(ParseOptions::new().with_max_diagnostics(0)),
+        )
+        .unwrap_err();
+    assert!(matches!(err, EditError::Limit(limit) if limit.kind() == LimitKind::Diagnostics));
+
+    // InvalidTarget / ConflictingEdits precede byte-budget rejection.
+    assert_eq!(
+        doc.edit_with_options(
+            &[Edit::Set {
+                entry: 99,
+                value: &huge
+            }],
+            EditOptions::new().with_max_output_bytes(4),
+        ),
+        Err(EditError::InvalidTarget)
+    );
+
+    // Cross-chunk CRLF / CR / LF streaming check matches whole-string exceeds_line_limit.
+    let chunks_source = "A=1\rX\rB=2\n";
+    let chunk_edits = [
+        crate::TextEdit {
+            range: 4..5,
+            replacement: String::from("\n"),
+        },
+        crate::TextEdit {
+            range: 6..6,
+            replacement: String::from("\n"),
+        },
+    ];
+    let mut applied = chunks_source.to_owned();
+    for edit in chunk_edits.iter().rev() {
+        applied.replace_range(edit.range.clone(), &edit.replacement);
+    }
+    for breaks in [LineBreaks::Universal, LineBreaks::Lf] {
+        for limit in 0..=6 {
+            let planned =
+                crate::edit::planned_exceeds_line_limit(chunks_source, &chunk_edits, breaks, limit);
+            let direct = crate::parser::exceeds_line_limit(&applied, breaks, limit)
+                .map(|(_, observed)| observed);
+            assert_eq!(planned, direct, "breaks={breaks:?} limit={limit}");
+        }
+    }
+}
+
+#[test]
 fn indexed_insertions_keep_source_order_and_snapshot_duplicate_rules() {
     let (doc, _) = parse("Z=first\nB=second\nA=third\n");
     let result = doc

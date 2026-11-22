@@ -263,10 +263,12 @@ fn zero_limits_report_a_failure() {
 #[test]
 fn limit_kind_and_exceeded_format_clearly() {
     assert_eq!(LimitKind::InputBytes.as_str(), "input-bytes");
+    assert_eq!(LimitKind::OutputBytes.as_str(), "output-bytes");
     assert_eq!(LimitKind::Lines.as_str(), "lines");
     assert_eq!(LimitKind::Items.as_str(), "items");
     assert_eq!(LimitKind::Diagnostics.as_str(), "diagnostics");
     assert_eq!(LimitKind::InputBytes.to_string(), "input-bytes");
+    assert_eq!(LimitKind::OutputBytes.to_string(), "output-bytes");
     assert_eq!(LimitKind::Lines.to_string(), "lines");
     assert_eq!(LimitKind::Items.to_string(), "items");
     assert_eq!(LimitKind::Diagnostics.to_string(), "diagnostics");
