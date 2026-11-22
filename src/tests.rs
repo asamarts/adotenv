@@ -684,6 +684,26 @@ fn lookup_index_unique_matches_document_unique_across_dialects_and_fallback() {
         compose_empty.lookup_index().unique("").unwrap_err(),
         crate::EditError::Duplicate(2)
     );
+
+    // Force HashWinners::build to exceed probe_limit > 0 and fall back to Tree.
+    let mut many = String::new();
+    for index in 0..32 {
+        writeln!(many, "KEY_{index}={index}").unwrap();
+    }
+    many.push_str("KEY_0=override\nBARE_ONLY\n");
+    let (many_doc, _) = parse_with(&many, Dialect::NODE_DOTENV);
+    let fallback = many_doc.lookup_index_with_probe_limit(1);
+    assert_eq!(fallback.hash_slots(), None);
+    assert_eq!(
+        fallback.unique("KEY_0").unwrap_err(),
+        crate::EditError::Duplicate(2)
+    );
+    assert_eq!(fallback.unique("KEY_15").unwrap().value(), Some("15"));
+    assert_eq!(fallback.unique("BARE_ONLY").unwrap().value(), None);
+    assert_eq!(
+        fallback.unique("MISSING").unwrap_err(),
+        crate::EditError::Missing
+    );
 }
 
 #[test]

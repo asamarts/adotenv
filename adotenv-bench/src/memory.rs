@@ -509,6 +509,19 @@ mod tests {
     }
 
     #[test]
+    fn compact_entries_memory_case_runs() {
+        let report = run(
+            Size::Eight,
+            Shape::Plain,
+            Mode::Values,
+            Implementation::AdotenvCompactEntries,
+        )
+        .unwrap();
+        assert_eq!(report.implementation, "adotenv-compact-entries");
+        assert_eq!(report.entries, 8);
+    }
+
+    #[test]
     fn reports_json_with_missing_rss() {
         let report = MemoryReport {
             size: "8",

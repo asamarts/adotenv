@@ -972,11 +972,8 @@ impl<'a> Boundaries<'a> {
     }
 }
 
-fn check_operation_byte_budget(
-    operations: &[Edit<'_>],
-    options: EditOptions,
-) -> Result<(), EditError> {
-    let cap = match (
+fn effective_byte_cap(options: EditOptions) -> Option<(LimitKind, usize)> {
+    match (
         options.max_output_bytes,
         options.parse_limits.max_input_bytes,
     ) {
@@ -990,44 +987,36 @@ fn check_operation_byte_budget(
         (Some(out), None) => Some((LimitKind::OutputBytes, out)),
         (None, Some(input)) => Some((LimitKind::InputBytes, input)),
         (None, None) => None,
-    };
-    let Some((kind, limit)) = cap else {
+    }
+}
+
+fn check_operation_byte_budget(
+    operations: &[Edit<'_>],
+    options: EditOptions,
+) -> Result<(), EditError> {
+    let Some((kind, limit)) = effective_byte_cap(options) else {
         return Ok(());
     };
-    let mut min_inserted = 0usize;
+    let mut min_required = 0usize;
     for operation in operations {
-        match *operation {
-            Edit::Set { value, .. } => {
-                if value.len() > limit {
-                    return Err(EditError::Limit(LimitExceeded::new(
-                        kind,
-                        limit,
-                        value.len(),
-                    )));
-                }
-            }
-            Edit::Rename { key, .. } => {
-                if key.len() > limit {
-                    return Err(EditError::Limit(LimitExceeded::new(kind, limit, key.len())));
-                }
-            }
-            Edit::Insert { key, value, .. } => {
-                let needed = key
-                    .len()
-                    .saturating_add(value.map_or(0, |text| text.len().saturating_add(1)));
-                min_inserted = min_inserted.saturating_add(needed);
-                if min_inserted > limit {
-                    return Err(EditError::Limit(LimitExceeded::new(
-                        kind,
-                        limit,
-                        min_inserted,
-                    )));
-                }
-            }
+        let needed = match *operation {
+            Edit::Set { value, .. } => value.len(),
+            Edit::Rename { key, .. } => key.len(),
+            Edit::Insert { key, value, .. } => key
+                .len()
+                .saturating_add(value.map_or(0, |text| text.len().saturating_add(1))),
             Edit::Remove { .. }
             | Edit::Comment { .. }
             | Edit::Uncomment { .. }
-            | Edit::Export { .. } => {}
+            | Edit::Export { .. } => 0,
+        };
+        min_required = min_required.saturating_add(needed);
+        if min_required > limit {
+            return Err(EditError::Limit(LimitExceeded::new(
+                kind,
+                limit,
+                min_required,
+            )));
         }
     }
     Ok(())
@@ -1039,29 +1028,18 @@ fn check_planned_output_limits(
     breaks: LineBreaks,
     options: EditOptions,
 ) -> Result<(), EditError> {
-    if options.max_output_bytes.is_some() || options.parse_limits.max_input_bytes.is_some() {
+    if let Some((kind, limit)) = effective_byte_cap(options) {
         let removed: usize = edits.iter().map(|edit| edit.range.len()).sum();
         let added = edits.iter().fold(0usize, |acc, edit| {
             acc.saturating_add(edit.replacement.len())
         });
         let output_bytes = source.len().saturating_sub(removed).saturating_add(added);
-        if let Some(limit) = options.max_output_bytes {
-            if output_bytes > limit {
-                return Err(EditError::Limit(LimitExceeded::new(
-                    LimitKind::OutputBytes,
-                    limit,
-                    output_bytes,
-                )));
-            }
-        }
-        if let Some(limit) = options.parse_limits.max_input_bytes {
-            if output_bytes > limit {
-                return Err(EditError::Limit(LimitExceeded::new(
-                    LimitKind::InputBytes,
-                    limit,
-                    output_bytes,
-                )));
-            }
+        if output_bytes > limit {
+            return Err(EditError::Limit(LimitExceeded::new(
+                kind,
+                limit,
+                output_bytes,
+            )));
         }
     }
     let line_limit = match (options.max_output_lines, options.parse_limits.max_lines) {

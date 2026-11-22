@@ -1009,7 +1009,7 @@ fn edit_options_forward_parse_limits_and_match_chunk_scanner() {
     );
 
     // Cross-chunk CRLF / CR / LF streaming check matches whole-string exceeds_line_limit.
-    let chunks_source = "A=1\rX\rB=2\n";
+    let chunks_source = "A=1\rX\rB=2\rC=3\n";
     let chunk_edits = [
         crate::TextEdit {
             range: 4..5,
@@ -1032,6 +1032,201 @@ fn edit_options_forward_parse_limits_and_match_chunk_scanner() {
                 .map(|(_, observed)| observed);
             assert_eq!(planned, direct, "breaks={breaks:?} limit={limit}");
         }
+    }
+}
+
+#[test]
+fn edit_options_combine_byte_and_line_caps_and_pass_when_within_parse_limits() {
+    use crate::{EditOptions, LimitKind, ParseOptions};
+
+    assert_eq!(EditOptions::default(), EditOptions::new());
+    let doc = crate::parse_strict("A=1\nB=2\n").unwrap();
+
+    // Passing edit with non-empty parse_limits exercises verification Ok path.
+    let ok = doc
+        .edit_with_options(
+            &[Edit::Set {
+                entry: 0,
+                value: "10",
+            }],
+            EditOptions::new()
+                .with_max_output_bytes(32)
+                .with_max_output_lines(4)
+                .with_parse_limits(
+                    ParseOptions::new()
+                        .with_max_input_bytes(32)
+                        .with_max_lines(4)
+                        .with_max_items(4)
+                        .with_max_diagnostics(4),
+                ),
+        )
+        .unwrap();
+    assert_eq!(ok.as_str(), "A=10\nB=2\n");
+
+    // Tighter cap wins consistently between max_output_bytes and parse_limits.max_input_bytes.
+    let out_tighter = doc
+        .set_with_options(
+            "A",
+            "1234",
+            EditOptions::new()
+                .with_max_output_bytes(10)
+                .with_parse_limits(ParseOptions::new().with_max_input_bytes(20)),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        out_tighter,
+        EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes && limit.limit() == 10
+    ));
+    let in_tighter = doc
+        .set_with_options(
+            "A",
+            "1234",
+            EditOptions::new()
+                .with_max_output_bytes(20)
+                .with_parse_limits(ParseOptions::new().with_max_input_bytes(10)),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        in_tighter,
+        EditError::Limit(limit) if limit.kind() == LimitKind::InputBytes && limit.limit() == 10
+    ));
+
+    // Tighter line cap wins between max_output_lines and parse_limits.max_lines.
+    let line_tighter = doc
+        .insert_with_options(
+            "C",
+            Some("3"),
+            InsertPosition::End,
+            EditOptions::new()
+                .with_max_output_lines(5)
+                .with_parse_limits(ParseOptions::new().with_max_lines(2)),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        line_tighter,
+        EditError::Limit(limit) if limit.kind() == LimitKind::Lines && limit.limit() == 2
+    ));
+}
+
+#[test]
+fn edit_options_bound_multi_set_comment_and_strip_all_bom() {
+    use crate::{BomPolicy, Dialect, EditOptions, LimitKind};
+
+    let doc = crate::parse_strict("A=1\nB=2\n").unwrap();
+
+    // Cumulative multi-Set batch triggers early byte cap; Comment triggers planned byte cap.
+    let multi_set = doc
+        .edit_with_options(
+            &[
+                Edit::Set {
+                    entry: 0,
+                    value: "12345",
+                },
+                Edit::Set {
+                    entry: 1,
+                    value: "67890",
+                },
+            ],
+            EditOptions::new().with_max_output_bytes(8),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        multi_set,
+        EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes
+    ));
+    let commented = doc
+        .edit_with_options(
+            &[Edit::Comment { item: 0 }],
+            EditOptions::new().with_max_output_bytes(9),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        commented,
+        EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes && limit.observed() == 10
+    ));
+
+    // StripAll multi-BOM prefix bytes count toward output_bytes.
+    let bom_doc = crate::parse_strict_with(
+        "\u{feff}\u{feff}A=1\n",
+        Dialect::PORTABLE.with_bom(BomPolicy::StripAll),
+    )
+    .unwrap();
+    assert!(bom_doc
+        .set_with_options("A", "2", EditOptions::new().with_max_output_bytes(10))
+        .is_ok());
+    assert!(matches!(
+        bom_doc.set_with_options("A", "2", EditOptions::new().with_max_output_bytes(9)),
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::OutputBytes && limit.observed() == 10
+    ));
+}
+
+#[test]
+fn edit_options_early_budget_boundaries_lone_cr_and_bom_prelude() {
+    use crate::{BomPolicy, Dialect, EditOptions, LimitKind};
+
+    // Exact operation minimum byte budget succeeds (min_required == limit).
+    let empty = crate::parse_strict("").unwrap();
+    let exact = empty
+        .insert_with_options(
+            "A",
+            Some("123"),
+            InsertPosition::End,
+            EditOptions::new().with_max_output_bytes(5),
+        )
+        .unwrap();
+    assert_eq!(exact.as_str(), "A=123");
+
+    // Pre-encoding byte budget rejects oversized values before encoding fails.
+    let docker = crate::parse_strict_with("A=1\n", Dialect::DOCKER_RAW).unwrap();
+    let unencodable = "\n".repeat(32);
+    let early = docker
+        .set_with_options(
+            "A",
+            &unencodable,
+            EditOptions::new().with_max_output_bytes(16),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        early,
+        EditError::Limit(limit)
+            if limit.kind() == LimitKind::OutputBytes
+                && limit.limit() == 16
+                && limit.observed() == 32
+    ));
+
+    // Lone CR counts as a physical line break only under LineBreaks::Universal.
+    let lf_doc = crate::parse_strict_with("# a\rb\nA=1", Dialect::COMPOSE).unwrap();
+    assert!(lf_doc
+        .set_with_options("A", "2", EditOptions::new().with_max_output_lines(2))
+        .is_ok());
+    let universal_doc = crate::parse_strict("# a\rb\nA=1").unwrap();
+    assert!(matches!(
+        universal_doc.set_with_options("A", "2", EditOptions::new().with_max_output_lines(2)),
+        Err(EditError::Limit(limit))
+            if limit.kind() == LimitKind::Lines && limit.limit() == 2 && limit.observed() == 3
+    ));
+
+    // BOM-prelude omission applies only when uncommenting a BOM-only comment.
+    for bom in [BomPolicy::Strip, BomPolicy::StripAll] {
+        let dialect = Dialect::PORTABLE.with_bom(bom);
+        let kept = crate::parse_strict_with("# \u{feff}", dialect)
+            .unwrap()
+            .insert("A", Some("1"), InsertPosition::End)
+            .unwrap();
+        assert_eq!(kept.as_str(), "# \u{feff}\nA=1");
+
+        let uncommented = crate::parse_strict_with("# A=1", dialect)
+            .unwrap()
+            .edit(&[
+                Edit::Uncomment { item: 0 },
+                Edit::Insert {
+                    key: "B",
+                    value: Some("2"),
+                    position: InsertPosition::End,
+                },
+            ])
+            .unwrap();
+        assert_eq!(uncommented.as_str(), "A=1\nB=2");
     }
 }
 
