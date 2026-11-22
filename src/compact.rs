@@ -11,7 +11,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 
-use crate::Duplicates;
+use crate::{AssignmentState, Duplicates};
 
 const NO_VALUE: usize = usize::MAX;
 
@@ -157,6 +157,153 @@ impl fmt::Debug for CompactValues {
     }
 }
 
+/// A compact, sorted map of winning `.env` entries that preserves bare
+/// declarations.
+///
+/// Returned by [`parse_entries_compact`](crate::parse_entries_compact) and its
+/// `_with` variants. Unlike [`CompactValues`], which drops winning bare
+/// declarations, `CompactEntries` keeps them as `None` when the dialect
+/// retains bare declarations in lookup (`BareKeys::Preserve`), allowing
+/// callers to distinguish bare declarations (`KEY` -> `Some(None)`), empty
+/// assignments (`KEY=` -> `Some(Some(""))`), non-empty assignments
+/// (`KEY=1` -> `Some(Some("1"))`), and absent keys (`None`) in one contiguous
+/// buffer without allocating a lossless [`Document`](crate::Document).
+///
+/// Lookup is `O(log n)` and iteration is ordered by key. Values stay literal:
+/// references are not expanded. Empty keys are omitted.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::AssignmentState;
+///
+/// let entries = adotenv::parse_entries_compact("PORT=8080\nPORT=9090\nDEBUG\nEMPTY=\n")?;
+/// assert_eq!(entries.len(), 3);
+/// assert_eq!(entries.get("PORT"), Some(Some("9090")));
+/// assert_eq!(entries.get("EMPTY"), Some(Some("")));
+/// assert_eq!(entries.get("DEBUG"), Some(None));
+/// assert_eq!(entries.get("MISSING"), None);
+/// assert_eq!(entries.get_state("DEBUG"), Some(AssignmentState::Bare));
+/// assert_eq!(entries.get_state("EMPTY"), Some(AssignmentState::Empty));
+/// assert_eq!(entries.get_value("PORT"), Some("9090"));
+/// assert_eq!(entries.get_value("DEBUG"), None);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+#[derive(Clone)]
+pub struct CompactEntries {
+    data: String,
+    entries: Box<[CompactEntry]>,
+}
+
+impl CompactEntries {
+    /// Returns the number of winning entries, including bare declarations.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Returns whether there are no winning entries.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Returns the winning entry for `key`:
+    ///
+    /// - `None` when `key` has no participating declaration.
+    /// - `Some(None)` when the winning declaration is bare under
+    ///   [`BareKeys::Preserve`](crate::BareKeys::Preserve).
+    /// - `Some(Some(value))` when the winning declaration has an effective
+    ///   value (including `""` for `KEY=` or bare keys under
+    ///   [`BareKeys::Empty`](crate::BareKeys::Empty)).
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<Option<&str>> {
+        self.entries
+            .binary_search_by(|entry| entry.key(&self.data).cmp(key))
+            .ok()
+            .map(|index| self.entries[index].value(&self.data))
+    }
+
+    /// Returns the effective value of `key`, or `None` if it is absent or bare.
+    #[must_use]
+    pub fn get_value(&self, key: &str) -> Option<&str> {
+        self.get(key).flatten()
+    }
+
+    /// Returns the effective assignment state of `key`, or `None` if it has no
+    /// winning entry.
+    ///
+    /// Under [`BareKeys::Empty`](crate::BareKeys::Empty), bare keys have an
+    /// effective empty value (`Some(Some(""))`) and therefore report
+    /// [`AssignmentState::Empty`].
+    #[must_use]
+    pub fn get_state(&self, key: &str) -> Option<AssignmentState> {
+        self.get(key).map(|value| match value {
+            None => AssignmentState::Bare,
+            Some("") => AssignmentState::Empty,
+            Some(_) => AssignmentState::Value,
+        })
+    }
+
+    /// Returns whether `key` has a winning entry, including a bare declaration.
+    #[must_use]
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.get(key).is_some()
+    }
+
+    /// Returns an iterator over `(key, value)` pairs ordered by key, where
+    /// winning bare declarations yield `None`.
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
+    pub fn iter(&self) -> impl Iterator<Item = (&str, Option<&str>)> + '_ {
+        self.entries
+            .iter()
+            .map(|entry| (entry.key(&self.data), entry.value(&self.data)))
+    }
+
+    /// Returns an iterator over keys, ordered lexicographically.
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
+    pub fn keys(&self) -> impl Iterator<Item = &str> + '_ {
+        self.entries.iter().map(|entry| entry.key(&self.data))
+    }
+
+    /// Returns an iterator over optional values in key order.
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
+    pub fn values(&self) -> impl Iterator<Item = Option<&str>> + '_ {
+        self.entries.iter().map(|entry| entry.value(&self.data))
+    }
+
+    /// Converts to a sorted map preserving `None` for bare declarations.
+    #[must_use]
+    pub fn into_btreemap(self) -> BTreeMap<String, Option<String>> {
+        self.iter()
+            .map(|(key, value)| (key.to_owned(), value.map(ToOwned::to_owned)))
+            .collect()
+    }
+}
+
+impl Default for CompactEntries {
+    fn default() -> Self {
+        Self {
+            data: String::new(),
+            entries: Vec::new().into_boxed_slice(),
+        }
+    }
+}
+
+impl PartialEq for CompactEntries {
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.iter().eq(other.iter())
+    }
+}
+
+impl Eq for CompactEntries {}
+
+impl fmt::Debug for CompactEntries {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_map().entries(self.iter()).finish()
+    }
+}
+
 #[derive(Clone, Copy)]
 struct CompactEntry {
     key_start: usize,
@@ -209,16 +356,28 @@ impl CompactBuilder {
     }
 
     pub(crate) fn finish(self, duplicates: Duplicates, shrink: bool) -> CompactValues {
+        let (data, entries) = self.finish_raw(duplicates, shrink, false);
+        CompactValues { data, entries }
+    }
+
+    pub(crate) fn finish_entries(self, duplicates: Duplicates, shrink: bool) -> CompactEntries {
+        let (data, entries) = self.finish_raw(duplicates, shrink, true);
+        CompactEntries { data, entries }
+    }
+
+    fn finish_raw(
+        self,
+        duplicates: Duplicates,
+        shrink: bool,
+        keep_bare: bool,
+    ) -> (String, Box<[CompactEntry]>) {
         let Self {
             mut data,
             mut entries,
         } = self;
         if entries.is_empty() {
             data.shrink_to_fit();
-            return CompactValues {
-                data,
-                entries: Vec::new().into_boxed_slice(),
-            };
+            return (data, Vec::new().into_boxed_slice());
         }
 
         entries.sort_by(|left, right| left.key(&data).cmp(right.key(&data)));
@@ -235,7 +394,7 @@ impl CompactBuilder {
                 Duplicates::First => entries[start],
                 Duplicates::Last => entries[end - 1],
             };
-            if winner.value(&data).is_some() {
+            if keep_bare || winner.value(&data).is_some() {
                 selected.push(winner);
             }
             start = end;
@@ -245,10 +404,7 @@ impl CompactBuilder {
             if shrink {
                 data.shrink_to_fit();
             }
-            return CompactValues {
-                data,
-                entries: selected.into_boxed_slice(),
-            };
+            return (data, selected.into_boxed_slice());
         }
 
         let capacity = selected
@@ -259,21 +415,20 @@ impl CompactBuilder {
         let mut rebuilt = Vec::with_capacity(selected.len());
         for mut entry in selected {
             let key = entry.key(&data);
-            let value = entry
-                .value(&data)
-                .expect("selected compact entries always carry a value");
             entry.key_start = compact.len();
             compact.push_str(key);
             entry.key_len = key.len();
-            entry.value_start = compact.len();
-            compact.push_str(value);
-            entry.value_len = value.len();
+            if let Some(value) = entry.value(&data) {
+                entry.value_start = compact.len();
+                compact.push_str(value);
+                entry.value_len = value.len();
+            } else {
+                entry.value_start = NO_VALUE;
+                entry.value_len = 0;
+            }
             rebuilt.push(entry);
         }
 
-        CompactValues {
-            data: compact,
-            entries: rebuilt.into_boxed_slice(),
-        }
+        (compact, rebuilt.into_boxed_slice())
     }
 }

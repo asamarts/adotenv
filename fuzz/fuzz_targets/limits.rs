@@ -2,8 +2,9 @@
 #![forbid(unsafe_code)]
 
 use adotenv::{
-    parse_strict_with_options, parse_values_compact_with_options, parse_values_with_options,
-    parse_with_options, Dialect, LimitKind, ParseOptions, Severity,
+    parse_entries_compact_with_options, parse_strict_with_options,
+    parse_values_compact_with_options, parse_values_with_options, parse_with_options, Dialect,
+    LimitKind, ParseOptions, Severity,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -21,6 +22,7 @@ fn check(source: &str, dialect: Dialect, options: ParseOptions) {
     let _ = parse_strict_with_options(source, dialect, options);
     let _ = parse_values_with_options(source, dialect, options);
     let _ = parse_values_compact_with_options(source, dialect, options);
+    let _ = parse_entries_compact_with_options(source, dialect, options);
 }
 
 fuzz_target!(|data: &[u8]| {

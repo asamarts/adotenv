@@ -1,6 +1,6 @@
 use core::fmt;
 
-/// Which configured parse or load limit was exceeded.
+/// Which configured parse, load or edit limit was exceeded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum LimitKind {
@@ -10,8 +10,10 @@ pub enum LimitKind {
     Items,
     /// Parsing produced more diagnostics than the configured cap.
     Diagnostics,
-    /// The source contains more physical lines than the configured cap.
+    /// The source or planned output contains more physical lines than the configured cap.
     Lines,
+    /// The planned edit output contains more bytes than the configured cap.
+    OutputBytes,
 }
 
 impl LimitKind {
@@ -23,6 +25,7 @@ impl LimitKind {
             Self::Items => "items",
             Self::Diagnostics => "diagnostics",
             Self::Lines => "lines",
+            Self::OutputBytes => "output-bytes",
         }
     }
 }

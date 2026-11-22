@@ -8,7 +8,7 @@ use alloc::{
 };
 use core::{cell::Cell, ops::Range};
 
-use crate::compact::{CompactBuilder, CompactValues};
+use crate::compact::{CompactBuilder, CompactEntries, CompactValues};
 use crate::dialect::{
     BareKeys, BomPolicy, ColonSeparator, Dialect, Duplicates, InlineComments, KeySyntax,
     LineBreaks, MalformedLines, QuotedTail, SingleEscapes, Syntax, Whitespace,
@@ -609,8 +609,8 @@ pub fn parse_values_compact_with_options(
         return Ok(CompactValues::default());
     }
     if dialect == Dialect::PORTABLE && options.max_items.is_none() {
-        if let Some(values) = parse_simple_portable_values_compact(source) {
-            return Ok(values);
+        if let Some(values) = parse_simple_portable_compact(source) {
+            return Ok(values.finish(Duplicates::Last, false));
         }
     }
     let mut parser = Parser::<false>::new(
@@ -629,9 +629,102 @@ pub fn parse_values_compact_with_options(
     }
 }
 
-/// Fast path for the common Portable `KEY=value` line shape, building compact
-/// values.
-fn parse_simple_portable_values_compact(source: &str) -> Option<CompactValues> {
+/// Parses `.env` text with the Portable dialect into compact winning entries,
+/// preserving bare declarations.
+///
+/// This is the bare-preserving counterpart of [`parse_values_compact`]. Unlike
+/// [`CompactValues`], [`CompactEntries`] keeps winning bare declarations as
+/// `None` when the dialect retains them in lookup (`BareKeys::Preserve`),
+/// distinguishing bare declarations (`KEY`), empty assignments (`KEY=`), and
+/// absent keys in one contiguous buffer without building a lossless
+/// [`Document`].
+///
+/// Empty keys are left out. Warnings are dropped and the first error is
+/// returned.
+///
+/// # Errors
+///
+/// Returns the first error-severity [`Diagnostic`] in source order.
+///
+/// # Examples
+///
+/// ```
+/// let entries = adotenv::parse_entries_compact("PORT=8080\nDEBUG\nEMPTY=\n")?;
+/// assert_eq!(entries.get("PORT"), Some(Some("8080")));
+/// assert_eq!(entries.get("EMPTY"), Some(Some("")));
+/// assert_eq!(entries.get("DEBUG"), Some(None));
+/// assert_eq!(entries.get("MISSING"), None);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn parse_entries_compact(source: &str) -> Result<CompactEntries, Diagnostic> {
+    parse_entries_compact_with_options(source, Dialect::PORTABLE, ParseOptions::default())
+}
+
+/// Parses `.env` text with the given dialect into compact winning entries,
+/// preserving bare declarations when the dialect keeps them in lookup.
+///
+/// Empty keys are left out, and duplicate/bare-key handling follows `dialect`:
+/// [`BareKeys::Preserve`] maps winning bare keys to `Some(None)`,
+/// [`BareKeys::Empty`] maps them to `Some(Some(""))`, and [`BareKeys::Ignore`]
+/// omits them unless overridden by an assigned declaration.
+///
+/// # Errors
+///
+/// Returns the first error-severity [`Diagnostic`] in source order.
+pub fn parse_entries_compact_with(
+    source: &str,
+    dialect: Dialect,
+) -> Result<CompactEntries, Diagnostic> {
+    parse_entries_compact_with_options(source, dialect, ParseOptions::default())
+}
+
+/// Parses `.env` text into compact winning entries with opt-in limits.
+///
+/// This is [`parse_entries_compact_with`] with [`ParseOptions`].
+///
+/// # Errors
+///
+/// Returns the first error-severity diagnostic, including a limit failure.
+///
+/// # Panics
+///
+/// Panics only if an internal invariant is broken, which cannot happen
+/// through this API.
+pub fn parse_entries_compact_with_options(
+    source: &str,
+    dialect: Dialect,
+    options: ParseOptions,
+) -> Result<CompactEntries, Diagnostic> {
+    if let Some(diagnostic) = check_source_limits(source, dialect.line_breaks, options) {
+        return Err(diagnostic);
+    }
+    if source.is_empty() {
+        return Ok(CompactEntries::default());
+    }
+    if dialect == Dialect::PORTABLE && options.max_items.is_none() {
+        if let Some(entries) = parse_simple_portable_compact(source) {
+            return Ok(entries.finish_entries(Duplicates::Last, false));
+        }
+    }
+    let mut parser = Parser::<false>::new(
+        source,
+        dialect,
+        Some(Projection::new_compact(dialect, source.len())),
+        options,
+    );
+    parser.run();
+    let projection = parser
+        .projection
+        .expect("projected parser has projection state");
+    match projection.error {
+        Some(error) => Err(error),
+        None => Ok(projection.finish_compact_entries()),
+    }
+}
+
+/// Fast path for the common Portable `KEY=value` line shape, collecting into a
+/// compact builder.
+fn parse_simple_portable_compact(source: &str) -> Option<CompactBuilder> {
     let mut values = CompactBuilder::with_capacity(source.len());
     if source.len() <= 512 {
         for line in source.split('\n') {
@@ -641,7 +734,7 @@ fn parse_simple_portable_values_compact(source: &str) -> Option<CompactValues> {
             let (key, value) = simple_portable_parts(line)?;
             values.push(key, Some(value));
         }
-        return Some(values.finish(Duplicates::Last, false));
+        return Some(values);
     }
 
     let mut previous_key: Option<&str> = None;
@@ -656,7 +749,7 @@ fn parse_simple_portable_values_compact(source: &str) -> Option<CompactValues> {
         previous_key = Some(key);
         values.push(key, Some(value));
     }
-    Some(values.finish(Duplicates::Last, false))
+    Some(values)
 }
 
 fn simple_portable_parts(line: &str) -> Option<(&str, &str)> {
@@ -917,6 +1010,33 @@ pub(crate) fn parse_document(source: &str, dialect: Dialect) -> Document<'_> {
     parse_impl::<false>(source, dialect, ParseOptions::default()).0
 }
 
+/// Parse with optional verification limits, failing with the first triggered
+/// [`LimitExceeded`] instead of returning a truncated document.
+pub(crate) fn parse_document_with_options(
+    source: &str,
+    dialect: Dialect,
+    options: ParseOptions,
+) -> Result<Document<'_>, LimitExceeded> {
+    if options == ParseOptions::new() {
+        return Ok(parse_document(source, dialect));
+    }
+    let (document, diagnostics) = if options.max_diagnostics.is_some() {
+        parse_impl::<true>(source, dialect, options)
+    } else {
+        parse_impl::<false>(source, dialect, options)
+    };
+    if let Some(limit) = diagnostics.iter().find_map(Diagnostic::limit).or_else(|| {
+        document
+            .items
+            .iter()
+            .filter_map(|item| item.invalid.as_ref())
+            .find_map(|diagnostic| diagnostic.limit())
+    }) {
+        return Err(limit);
+    }
+    Ok(document)
+}
+
 fn posix_key(key: &str) -> bool {
     let bytes = key.as_bytes();
     !bytes.is_empty()
@@ -1137,6 +1257,12 @@ impl Projection {
         self.compact
             .expect("compact projection has a builder")
             .finish(self.duplicates, true)
+    }
+
+    fn finish_compact_entries(self) -> CompactEntries {
+        self.compact
+            .expect("compact projection has a builder")
+            .finish_entries(self.duplicates, true)
     }
 }
 

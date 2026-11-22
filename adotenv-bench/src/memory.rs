@@ -12,7 +12,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use adotenv::{
-    load::LoadedValues, parse_strict, CompactValues, Document, ExpandOptions, ResolvedDocument,
+    load::LoadedValues, parse_strict, CompactEntries, CompactValues, Document, ExpandOptions,
+    ResolvedDocument,
 };
 
 use crate::competitors::{load_values, parse_values, Competitor};
@@ -150,6 +151,8 @@ pub enum Implementation {
     Adotenv,
     /// The adotenv compact values implementation.
     AdotenvCompact,
+    /// The adotenv compact entries implementation (preserving bare declarations).
+    AdotenvCompactEntries,
     /// A pinned competitor.
     Competitor(Competitor),
 }
@@ -164,6 +167,9 @@ impl Implementation {
         if label == "adotenv-compact" {
             return Some(Self::AdotenvCompact);
         }
+        if label == "adotenv-compact-entries" {
+            return Some(Self::AdotenvCompactEntries);
+        }
         Competitor::ALL
             .into_iter()
             .find(|competitor| competitor.label() == label)
@@ -176,6 +182,7 @@ impl Implementation {
         match self {
             Self::Adotenv => "adotenv",
             Self::AdotenvCompact => "adotenv-compact",
+            Self::AdotenvCompactEntries => "adotenv-compact-entries",
             Self::Competitor(competitor) => competitor.label(),
         }
     }
@@ -184,12 +191,13 @@ impl Implementation {
     #[must_use]
     pub const fn supports(self, mode: Mode) -> bool {
         match (self, mode) {
-            (Self::Adotenv, _) | (Self::AdotenvCompact, Mode::Values | Mode::Load) => true,
+            (Self::Adotenv, _)
+            | (Self::AdotenvCompact, Mode::Values | Mode::Load)
+            | (Self::AdotenvCompactEntries, Mode::Values) => true,
             (Self::Competitor(competitor), Mode::Values) => competitor.supports_values(),
             (Self::Competitor(competitor), Mode::Load) => competitor.supports_load(),
-            (Self::AdotenvCompact, _) | (Self::Competitor(_), Mode::Document | Mode::Resolve) => {
-                false
-            }
+            (Self::AdotenvCompact | Self::AdotenvCompactEntries, _)
+            | (Self::Competitor(_), Mode::Document | Mode::Resolve) => false,
         }
     }
 }
@@ -364,6 +372,7 @@ pub fn run(
 enum Holding<'a> {
     Values(BTreeMap<String, String>),
     Compact(CompactValues),
+    CompactEntries(CompactEntries),
     Document(Document<'a>),
     Load(LoadedValues),
     Resolve(ResolvedDocument),
@@ -381,6 +390,9 @@ fn execute<'a>(
         )),
         (Mode::Values, Implementation::AdotenvCompact) => Ok(Holding::Compact(
             adotenv::parse_values_compact(fixture.source()).map_err(|error| error.to_string())?,
+        )),
+        (Mode::Values, Implementation::AdotenvCompactEntries) => Ok(Holding::CompactEntries(
+            adotenv::parse_entries_compact(fixture.source()).map_err(|error| error.to_string())?,
         )),
         (Mode::Values, Implementation::Competitor(competitor)) => {
             Ok(Holding::Values(parse_values(competitor, fixture.source())?))
@@ -486,6 +498,14 @@ mod tests {
             Implementation::from_label("adotenv-compact"),
             Some(Implementation::AdotenvCompact)
         );
+        assert_eq!(
+            Implementation::from_label("adotenv-compact-entries"),
+            Some(Implementation::AdotenvCompactEntries)
+        );
+        assert!(Implementation::AdotenvCompactEntries.supports(Mode::Values));
+        assert!(!Implementation::AdotenvCompactEntries.supports(Mode::Load));
+        assert!(!Implementation::AdotenvCompactEntries.supports(Mode::Document));
+        assert!(!Implementation::AdotenvCompactEntries.supports(Mode::Resolve));
     }
 
     #[test]

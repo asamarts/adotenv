@@ -170,6 +170,11 @@ assert_eq!(doc.get("EMPTY"), Some(""));
 while the entry itself stays bare: its `state()` is `Bare` and its `value()` is
 `None`. A bare declaration never reads the process environment.
 
+When you need compact read-only storage without a full `Document`,
+`parse_values_compact` returns `CompactValues` (omitting bare declarations),
+while `parse_entries_compact` returns `CompactEntries` (preserving winning bare
+declarations as `None` under `BareKeys::Preserve`).
+
 ## Raw tokens
 
 An `Entry` gives the decoded value and the source tokens behind it:

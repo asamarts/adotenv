@@ -24,9 +24,9 @@ use crate::load::{
     LoadedEntry, LoadedEnvironment, LoadedResolveError, LoadedValues, ResolvedEnvironment,
 };
 use crate::{
-    CommandCall, CommandError, CommandOutcome, CompactValues, ComparedValue, Comparison,
-    ComparisonEntry, Document, EffectiveEntry, Entry, FormatResult, Group, Groups, Item, LineIndex,
-    LookupIndex, PortabilityDeclaration, PortabilityDifference, PortabilityPart,
+    CommandCall, CommandError, CommandOutcome, CompactEntries, CompactValues, ComparedValue,
+    Comparison, ComparisonEntry, Document, EffectiveEntry, Entry, FormatResult, Group, Groups,
+    Item, LineIndex, LookupIndex, PortabilityDeclaration, PortabilityDifference, PortabilityPart,
     PortabilityReading, PortabilityReport, ResolveError, ResolveFailure, ResolvedDocument,
     ResolvedEntry, ResolvedSegment, TextEdit, VerifiedEdits,
 };
@@ -192,6 +192,16 @@ impl Mask for CompactValues {
     fn fmt_masked(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("CompactValues")
+            .field("len", &self.len())
+            .field("values", &REDACTED)
+            .finish()
+    }
+}
+
+impl Mask for CompactEntries {
+    fn fmt_masked(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CompactEntries")
             .field("len", &self.len())
             .field("values", &REDACTED)
             .finish()
