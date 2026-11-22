@@ -4,7 +4,7 @@
 # suite for every mutant. Ignore build/scratch data when copying, cap Cargo's
 # build parallelism, and keep the test harness single-threaded. The worker
 # count and wall-clock timeout still belong on the command line: use
-# `--jobs 1 --timeout 60` locally, or run the campaign on kbench/CI.
+# `--jobs 1 --timeout 120` locally, or run the campaign on kbench/CI.
 # See docs/design/heavy-validation.md.
 gitignore = true
 additional_cargo_args = ["--jobs", "2"]

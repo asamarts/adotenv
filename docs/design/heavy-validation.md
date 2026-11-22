@@ -69,7 +69,7 @@ single-threaded. Those defaults do not set the mutation worker count or the
 wall-clock timeout, so a local invocation must still be bounded explicitly:
 
 ```console
-cargo mutants --file src/references.rs --jobs 1 --timeout 60 \
+cargo mutants --file src/references.rs --jobs 1 --timeout 120 \
   --gitignore true --baseline skip
 ```
 
@@ -132,8 +132,8 @@ one-worker / 8 GiB cap:
 - `adotenv-config`: 10 mutants; 9 caught, 0 missed, 1 unviable.
 - `adotenv-figment`: 10 mutants; 10 caught, 0 missed after adding `Provider::metadata` assertions.
 - `src/limit.rs`: 9 mutants; 8 caught, 1 unviable, 0 missed, 0 timeouts after adding `Display`/`as_str` tests.
-- `src/serde_support.rs`: 68 mutants; 33 caught, 3 `size_hint` misses (covered by a new visitor test), 32 unviable, 0 timeouts.
-- `src/parser/decode.rs` (0/2 and 1/2): 241 mutants; 151 caught, 66 missed, 13 unviable, 11 timeouts; targeted tests were added for all genuine coverage gaps.
+- `src/serde_support.rs`: 68 mutants; 36 caught, 32 unviable, 0 missed, 0 timeouts after adding the `size_hint` visitor test and verifying 3/3 caught on kbench.
+- `src/parser/decode.rs` (0/2 and 1/2): 241 mutants; 151 caught, 66 missed, 13 unviable, 11 timeouts; targeted tests closed the genuine coverage gaps, and confirmation shard 0/2 verified 93 caught, 8 missed (7 equivalent/defensive + 1 EOF bounds guard closed in follow-up) and 1 timeout.
 
 Note on timeouts: a clean single-threaded `adotenv` package test pass takes
 about 73-75 seconds on `kbench`. Use `--timeout 120` (rather than `--timeout 60`)
@@ -158,14 +158,14 @@ ssh kbench 'sudo -n -u benchq sh -c "cd /var/lib/benchq \
   && tar -xzf - -C adotenv-src"' < "$tmp/src.tar.gz"
 rm -rf "$tmp"
 
-ssh kbench "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add \
+ssh kbench 'PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add \
   --group bench --working-directory /var/lib/benchq/adotenv-src \
   --label adotenv-tests --print-task-id -- \
-  env HOME=/var/lib/benchq CARGO_HOME=/var/lib/benchq/cargo \
-    PATH=/var/lib/benchq/bin:/var/lib/benchq/toolchain/bin:/usr/bin:/bin \
-    bash -c 'ulimit -v 8388608; \
-      export CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2; \
-      exec cargo test --workspace --all-features --locked'"
+  "ulimit -v 8388608; \
+    export HOME=/var/lib/benchq CARGO_HOME=/var/lib/benchq/cargo \
+      PATH=/var/lib/benchq/bin:/var/lib/benchq/toolchain/bin:/usr/bin:/bin \
+      CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2; \
+    exec cargo test --workspace --all-features --locked"'
 ```
 
 Use the task id printed by `pueue add` to wait and collect the log:
@@ -175,29 +175,30 @@ PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue wait <task>
 PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue log <task>
 ```
 
-For mutation testing, keep one worker and one test thread:
+For mutation testing, keep one worker and one test thread, and pass the
+shell command as a single quoted argument so `pueue` does not split on `;`:
 
 ```console
-ssh kbench "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add \
+ssh kbench 'PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add \
   --group bench --working-directory /var/lib/benchq/adotenv-src \
   --label adotenv-mutants --print-task-id -- \
-  env HOME=/var/lib/benchq CARGO_HOME=/var/lib/benchq/cargo \
-    CARGO=/var/lib/benchq/toolchain/bin/cargo \
-    PATH=/var/lib/benchq/bin:/var/lib/benchq/toolchain/bin:/usr/bin:/bin \
-    bash -c 'ulimit -v 8388608; \
-      export CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1; \
-      exec cargo mutants --workspace --all-features \
-        --file src/references.rs --jobs 1 --timeout 60 \
-        --gitignore true --baseline skip'"
+  "ulimit -v 8388608; \
+    export HOME=/var/lib/benchq CARGO_HOME=/var/lib/benchq/cargo \
+      CARGO=/var/lib/benchq/toolchain/bin/cargo \
+      PATH=/var/lib/benchq/bin:/var/lib/benchq/toolchain/bin:/usr/bin:/bin \
+      CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1; \
+    exec cargo mutants --workspace --all-features \
+      --file src/references.rs --jobs 1 --timeout 120 \
+      --gitignore true --baseline skip"'
 ```
 
 The two `--jobs` flags are different: the first after `cargo mutants` is the
 number of mutant workers, while `--jobs 2` in `.cargo/mutants.toml` is Cargo
-build parallelism. Use `bash -c`, not `bash -lc`: the benchq account cannot
-read the login shell's `/home` profile, and `cargo mutants` needs `CARGO` set
-to the provisioned toolchain. `--in-place` is acceptable only in the dedicated
-remote checkout with one mutant worker; it avoids the per-worker copy but
-mutates the source tree.
+build parallelism. Pass a non-login command string (not `bash -lc`): the
+benchq account cannot read the login shell's `/home` profile, and
+`cargo mutants` needs `CARGO` set to the provisioned toolchain. `--in-place`
+is acceptable only in the dedicated remote checkout with one mutant worker;
+it avoids the per-worker copy but mutates the source tree.
 
 The queue has one slot. Before submitting, run `pueue status` and wait if any
 task from another project is running or queued. Submit one adotenv task at a
