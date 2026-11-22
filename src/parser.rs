@@ -1025,13 +1025,7 @@ pub(crate) fn parse_document_with_options(
     } else {
         parse_impl::<false>(source, dialect, options)
     };
-    if let Some(limit) = diagnostics.iter().find_map(Diagnostic::limit).or_else(|| {
-        document
-            .items
-            .iter()
-            .filter_map(|item| item.invalid.as_ref())
-            .find_map(|diagnostic| diagnostic.limit())
-    }) {
+    if let Some(limit) = diagnostics.iter().find_map(Diagnostic::limit) {
         return Err(limit);
     }
     Ok(document)

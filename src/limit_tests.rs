@@ -258,6 +258,13 @@ fn zero_limits_report_a_failure() {
             .limit()
             .is_some_and(|limit| limit.kind() == LimitKind::Diagnostics)
     }));
+    let (_, bom_diag_limit) =
+        parse_with_options("\u{feff}A=1\n", Dialect::PORTABLE, diagnostic_options);
+    assert!(bom_diag_limit.iter().any(|diagnostic| {
+        diagnostic
+            .limit()
+            .is_some_and(|limit| limit.kind() == LimitKind::Diagnostics && limit.observed() == 1)
+    }));
 }
 
 #[test]

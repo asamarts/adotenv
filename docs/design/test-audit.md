@@ -366,6 +366,49 @@ documented equivalents or defensive paths, and no product change is
 justified. The full campaign can be resumed in shards as new code changes
 arrive.
 
+## Focused mutation testing for 1.6.0 additions
+
+A targeted `--in-diff` mutation pass evaluated all **259 mutants** across the
+`1.6.0` core additions (`src/compact.rs`, `src/dialect.rs`, `src/edit.rs`,
+`src/format.rs`, `src/limit.rs`, `src/mask.rs`, `src/model.rs`,
+`src/parser.rs` and `src/sort.rs`) in three one-worker shards (`--timeout 120`):
+
+- 0/3: 87 mutants; 68 caught, 5 missed, 13 unviable and 1 timeout.
+- 1/3: 87 mutants; 60 caught, 7 missed, 20 unviable and 0 timeouts.
+- 2/3: 85 mutants; 68 caught, 5 missed, 11 unviable and 1 timeout.
+
+Across all three shards, the initial pass recorded **196 caught, 17 missed, 44
+unviable and 2 timeouts**. Twelve of the 17 survivors were genuine test gaps:
+
+- `CompactEntries::is_empty` on empty inputs;
+- `check_operation_byte_budget` exact-boundary acceptance and pre-encoding
+  rejection before `finish_sets`;
+- `planned_exceeds_line_limit` lone-CR handling between `LineBreaks::Lf` and
+  `LineBreaks::Universal`;
+- `Document::last_retained_item` BOM-prelude guards when keeping a BOM-only
+  comment or uncommenting a non-BOM comment before an `End` insert under
+  `BomPolicy::Strip` and `BomPolicy::StripAll`;
+- Portable fast-path bypass guards in `parse_values_compact_with_options` and
+  `parse_entries_compact_with_options` for `Duplicates::First` and `max_items`.
+
+After adding regression tests in `src/compact_tests.rs` and `src/edit_tests.rs`,
+a targeted confirmation rerun of all six affected functions (**36 mutants**)
+verified **35 caught, 1 unviable, 0 missed and 0 timeouts**, bringing the
+`1.6.0` diff to **208 caught, 5 equivalent/defensive survivors, 44 unviable
+and 2 timeouts**:
+
+- Three survivors in `Document::verify_regions` are equivalent or defensive
+  BOM-span guards (`after_bom > before_bom` inside `after_bom != before_bom`,
+  plus defensive start/end invariants where a subsequent span check still
+  refuses cross-region BOM absorption).
+- One survivor in `tree_winners` (`slot.1 > 0` to `>=`) is equivalent because
+  `or_insert((index, 0))` already initialized `slot.0` to `index`.
+- One survivor (`parse_simple_portable_compact -> None`) bypasses a pure
+  performance fast path whose fallback produces identical output.
+- Both timeouts (`end *= BOM.len()` in `BomPolicy::stripped_prefix_len` and
+  `at *= 1` in `exceeds_line_limit`) are nonterminating zero-multiplication
+  loop mutations.
+
 ## Mutation policy
 
 A surviving mutant is a test-coverage question, not automatically a product

@@ -251,7 +251,7 @@ fn compact_entries_match_document_and_enforce_limits_and_fast_path() {
         assert_eq!(actual, expected, "{dialect:?}");
     }
 
-    // >512-byte sorted Portable fast path.
+    // >512-byte sorted Portable fast path and unsorted/duplicate/bare fallback.
     let mut big = String::new();
     for index in 0..80 {
         writeln!(big, "KEY_{index:03}=VAL_{index:03}").unwrap();
@@ -260,6 +260,42 @@ fn compact_entries_match_document_and_enforce_limits_and_fast_path() {
     let fast = parse_entries_compact(&big).unwrap();
     assert_eq!(fast.len(), 80);
     assert_eq!(fast.get("KEY_079"), Some(Some("VAL_079")));
+
+    let mut unsorted_big = String::new();
+    for index in (0..80).rev() {
+        writeln!(unsorted_big, "KEY_{index:03}=VAL_{index:03}").unwrap();
+    }
+    assert!(unsorted_big.len() > 512);
+    assert_eq!(parse_entries_compact(&unsorted_big).unwrap(), fast);
+    assert_eq!(
+        parse_values_compact(&unsorted_big).unwrap().len(),
+        parse_values_compact(&big).unwrap().len()
+    );
+
+    // Duplicate bare keys, equality across ordering, multiline escapes, and BomPolicy::Error.
+    let dup_bare = parse_entries_compact("A\nA\n").unwrap();
+    assert_eq!(dup_bare.len(), 1);
+    assert_eq!(dup_bare.get("A"), Some(None));
+    assert_eq!(
+        parse_entries_compact("A=1\nB=2\n").unwrap(),
+        parse_entries_compact("B=2\nA=1\n").unwrap()
+    );
+    assert_ne!(
+        parse_entries_compact("A\n").unwrap(),
+        parse_entries_compact("A=\n").unwrap()
+    );
+    let escaped = parse_entries_compact("A=\"a\\nb\"\nB='c\nd'\n").unwrap();
+    assert_eq!(escaped.get("A"), Some(Some("a\nb")));
+    assert_eq!(escaped.get("B"), Some(Some("c\nd")));
+    assert_eq!(
+        parse_entries_compact_with(
+            "\u{feff}A=1\n",
+            Dialect::PORTABLE.with_bom(BomPolicy::Error)
+        )
+        .unwrap_err()
+        .code(),
+        DiagnosticCode::ForbiddenByteOrderMark
+    );
 
     // ParseOptions limits (bytes, lines, items).
     let byte_err = parse_entries_compact_with_options(
@@ -279,6 +315,36 @@ fn compact_entries_match_document_and_enforce_limits_and_fast_path() {
     assert_eq!(line_err.limit().unwrap().kind(), LimitKind::Lines);
 
     let item_err = parse_entries_compact_with_options(
+        "A=1\nB=2\n",
+        Dialect::PORTABLE,
+        ParseOptions::new().with_max_items(1),
+    )
+    .unwrap_err();
+    assert_eq!(item_err.limit().unwrap().kind(), LimitKind::Items);
+}
+
+#[test]
+fn compact_fast_path_guards_and_empty_entries() {
+    assert!(parse_entries_compact("").unwrap().is_empty());
+    assert!(parse_entries_compact("# comment\n").unwrap().is_empty());
+
+    // Simple KEY=value inputs with non-Portable duplicate policy must bypass Portable fast path.
+    let first_values = parse_values_compact_with(
+        "A=1\nA=2\n",
+        Dialect::PORTABLE.with_duplicates(Duplicates::First),
+    )
+    .unwrap();
+    assert_eq!(first_values.get("A"), Some("1"));
+
+    let first_entries = parse_entries_compact_with(
+        "A=1\nA=2\n",
+        Dialect::PORTABLE.with_duplicates(Duplicates::First),
+    )
+    .unwrap();
+    assert_eq!(first_entries.get("A"), Some(Some("1")));
+
+    // Simple KEY=value Portable inputs must bypass fast path when max_items is configured.
+    let item_err = parse_values_compact_with_options(
         "A=1\nB=2\n",
         Dialect::PORTABLE,
         ParseOptions::new().with_max_items(1),
