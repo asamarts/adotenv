@@ -448,20 +448,6 @@ pub enum BomPolicy {
     /// [`Dialect::line_byte_limit`], the line-limit error takes precedence and
     /// this diagnostic is not reported.
     Strip,
-    /// Every leading contiguous UTF-8 byte-order mark (`\u{feff}+`) is set
-    /// apart from the items.
-    ///
-    /// The whole leading run belongs to no item,
-    /// [`Document::bom_span`](crate::Document::bom_span) returns
-    /// `Some(0..prefix_bytes)`, and one informational
-    /// [`DiagnosticCode::ByteOrderMark`](crate::DiagnosticCode::ByteOrderMark)
-    /// covering that span is reported.
-    /// [`Document::source`](crate::Document::source) still contains the full
-    /// run so item spans and [`TextEdit`](crate::TextEdit) ranges stay aligned
-    /// to the original buffer. If the first physical line exceeds
-    /// [`Dialect::line_byte_limit`], the line-limit error takes precedence and
-    /// this diagnostic is not reported.
-    StripAll,
     /// The mark is ordinary text at the start of the first line.
     ///
     /// In Portable it makes the first key invalid. Where the dialect's
@@ -476,6 +462,20 @@ pub enum BomPolicy {
     /// exceeds [`Dialect::line_byte_limit`], the line-limit error takes
     /// precedence and this diagnostic is not reported.
     Error,
+    /// Every leading contiguous UTF-8 byte-order mark (`\u{feff}+`) is set
+    /// apart from the items.
+    ///
+    /// The whole leading run belongs to no item,
+    /// [`Document::bom_span`](crate::Document::bom_span) returns
+    /// `Some(0..prefix_bytes)`, and one informational
+    /// [`DiagnosticCode::ByteOrderMark`](crate::DiagnosticCode::ByteOrderMark)
+    /// covering that span is reported.
+    /// [`Document::source`](crate::Document::source) still contains the full
+    /// run so item spans and [`TextEdit`](crate::TextEdit) ranges stay aligned
+    /// to the original buffer. If the first physical line exceeds
+    /// [`Dialect::line_byte_limit`], the line-limit error takes precedence and
+    /// this diagnostic is not reported.
+    StripAll,
 }
 
 impl BomPolicy {
