@@ -2,7 +2,7 @@
 name = "adotenv-bench"
 version = "0.0.0"
 edition = "2021"
-rust-version = "1.81"
+rust-version = "1.88"
 publish = false
 description = "Deterministic fixture and benchmark foundation for adotenv."
 license = "Apache-2.0 OR MIT"

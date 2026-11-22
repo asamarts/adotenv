@@ -6,12 +6,12 @@ described in [Quality](quality.md).
 
 ## Coverage at 1.5.4
 
-From CI run `44849624526` (`cargo llvm-cov --workspace --all-features`) on
-2026-11-20 at commit `a1490e3`. The core crate (`coverage-summary.txt`) covers
-93.5 percent of regions (9,995 of 10,685) and 94.3 percent of lines (9,476 of
+From CI run `44960249753` (`cargo llvm-cov --workspace --all-features`) on
+2026-11-21 at commit `8a50850`. The core crate (`coverage-summary.txt`) covers
+93.8 percent of regions (10,018 of 10,685) and 94.5 percent of lines (9,497 of
 10,047). Across all seven published crates (`lcov.info`, production source
-files excluding tests and benchmarks), line coverage is 91.8 percent (13,436 of
-14,633 lines). The earlier `1.2.0` local workspace baseline (94.4 percent of
+files excluding tests and benchmarks), line coverage is 92.0 percent (13,490 of
+14,660 lines). The earlier `1.2.0` local workspace baseline (94.4 percent of
 regions and 94.8 percent of lines on 2026-11-04) predates `compact.rs`,
 `limit.rs`, `adotenv-lint` and `adotenv-lsp`.
 
@@ -19,33 +19,32 @@ regions and 94.8 percent of lines on 2026-11-04) predates `compact.rs`,
 
 | Scope | Regions | Lines |
 |---|---:|---:|
-| Core crate total | 93.5% | 94.3% |
-| `compare.rs`, `parser/unicode.rs` | 100.0% | 100.0% |
+| Core crate total | 93.8% | 94.5% |
+| `compare.rs`, `limit.rs`, `parser/unicode.rs` | 100.0% | 100.0% |
 | `parser/docker.rs` | 99.4% | 99.3% |
 | `compact.rs` | 99.4% | 99.4% |
 | `structure.rs` | 98.5% | 99.0% |
-| `parser/decode.rs` | 98.2% | 99.1% |
+| `parser/decode.rs` | 98.5% | 99.4% |
 | `position.rs` | 98.1% | 98.2% |
 | `portability.rs` | 97.8% | 97.5% |
-| `format.rs` | 97.7% | 97.4% |
 | `diagnostic.rs` | 97.7% | 97.8% |
+| `format.rs` | 97.6% | 97.2% |
 | `dialect.rs` | 97.4% | 97.4% |
-| `example.rs` | 97.2% | 96.5% |
 | `sort.rs` | 96.5% | 96.0% |
 | `model.rs` | 96.3% | 97.5% |
-| `parser.rs` | 95.9% | 95.5% |
+| `parser.rs` | 96.3% | 95.7% |
+| `example.rs` | 96.2% | 96.5% |
+| `references.rs` | 95.6% | 96.3% |
 | `parser/python.rs` | 95.5% | 94.5% |
-| `references.rs` | 95.4% | 95.8% |
-| `encode.rs` | 95.3% | 97.1% |
+| `encode.rs` | 95.2% | 97.0% |
+| `serde_support.rs` | 94.2% | 98.3% |
 | `parser/compose.rs` | 94.2% | 94.0% |
 | `parser/node.rs` | 94.0% | 97.0% |
-| `edit.rs` | 93.4% | 95.3% |
-| `serde_support.rs` | 92.8% | 97.2% |
-| `exec.rs` | 88.0% | 88.4% |
+| `edit.rs` | 93.5% | 95.4% |
+| `exec.rs` | 88.4% | 88.8% |
 | `resolve.rs` | 84.9% | 90.1% |
 | `mask.rs` | 84.8% | 87.2% |
 | `load.rs` | 84.6% | 85.0% |
-| `limit.rs` | 58.6% | 66.7% |
 
 ### Published companion crates
 
@@ -53,10 +52,10 @@ Line coverage from the workspace `lcov.info` artifact (excluding tests):
 
 | Scope | Lines |
 |---|---:|
-| Published crates total (7 crates) | 91.8% |
+| Published crates total (7 crates) | 92.0% |
+| `adotenv-figment/src/lib.rs` | 100.0% |
 | `adotenv-process/src/lib.rs` | 99.1% |
 | `adotenv-config/src/lib.rs` | 98.1% |
-| `adotenv-figment/src/lib.rs` | 96.2% |
 | `adotenv-cli/src/main.rs` | 93.6% |
 | `adotenv-lsp/src/lib.rs` | 92.7% |
 | `adotenv-lint/src/lib.rs` | 92.2% |
@@ -64,12 +63,12 @@ Line coverage from the workspace `lcov.info` artifact (excluding tests):
 | `adotenv-lint/src/main.rs` | 81.8% |
 | `adotenv-lsp/src/main.rs` | 46.5% |
 
-`mask.rs` improved to 87.2 percent of lines after the structural and
-portability mask assertions; `exec.rs`, `load.rs` and `resolve.rs` retain
-defensive error and platform branches. `limit.rs` has 10 missed lines in its
-`Display` and `as_str` formatting arms, and `adotenv-lsp/src/main.rs` has
-unexercised stdio transport dispatch branches while its core operations in
-`adotenv-lsp/src/lib.rs` are at 92.7 percent.
+`limit.rs` and `adotenv-figment/src/lib.rs` reached 100.0 percent line coverage
+after the mutation-driven test additions, and `mask.rs` is at 87.2 percent of
+lines. `exec.rs`, `load.rs` and `resolve.rs` retain defensive error and
+platform branches, while `adotenv-lsp/src/main.rs` has unexercised stdio
+transport dispatch branches (its core operations in `adotenv-lsp/src/lib.rs`
+are at 92.7 percent).
 
 
 ## What the tests cover
@@ -319,10 +318,14 @@ unviable. The remaining work was split into file shards:
   `SingleEscapes::QuoteAndBackslash` unknown escapes,
   `DoubleEscapes::SINGLE_QUOTE`, `DropBackslash` raw-span mapping, Node vs
   Portable second-backslash rescanning, Portable warning spans/gating, and
-  `QuotedTail::Append` `decode_tail` boundaries. Residual survivors are
-  `needs_decode` fast-path skip conditions, 1-byte ASCII quote advance
-  equivalence, `D`-guard equivalence and defensive `body.end`/`at == 0`/tail
-  LF guards.
+  `QuotedTail::Append` `decode_tail` boundaries. A targeted confirmation rerun
+  of shard 0/2 (102 mutants) tested **93 caught, 8 missed and 1 timeout**,
+  confirming every `NodeUnquote` and `selected_escape` survivor and 10 of 11
+  `replace_octal` survivors are caught; follow-up tests then closed the
+  remaining `replace_octal` EOF bounds guard (`end < body_end`) and the bare-LF
+  unnormalized-line check in `decode`. Residual survivors are `needs_decode`
+  fast-path skip conditions, 1-byte ASCII quote advance equivalence, `D`-guard
+  equivalence and defensive `body.end`/`at == 0`/tail LF guards.
 - Limit shard (`limit`): initial 60s run tested 9 mutants (6 caught, 1
   unviable, 2 timeouts in `Display::fmt` caused by a passing single-threaded
   package test run taking ~75s). Added `LimitKind::as_str` and `Display`
@@ -331,7 +334,10 @@ unviable. The remaining work was split into file shards:
 - Serde shard (`serde_support`): `--timeout 120` run tested **68 mutants: 33
   caught, 3 missed, 32 unviable and 0 timeouts**. All three survivors were
   `EntriesAccess::size_hint` (`None`, `Some(0)`, `Some(1)`); added a custom
-  `MapAccess` visitor test asserting `[Some(2), Some(1), Some(0)]`.
+  `MapAccess` visitor test asserting `[Some(2), Some(1), Some(0)]`. The kbench
+  `size_hint` confirmation rerun verified **3 of 3 caught (0 missed)**,
+  leaving `serde_support` at **36 caught, 32 unviable, 0 missed and 0
+  timeouts**.
 - Adapter crates (`adotenv-process`, `adotenv-config`, `adotenv-figment`):
   - `adotenv-process`: **9 mutants; 5 caught, 4 missed** (all four in
     `#[cfg(windows)]` validation branches exercised by Windows CI).
@@ -400,8 +406,8 @@ overflow and popover bounds.
    (`adotenv-process`, `adotenv-config`, `adotenv-figment`) have completed
    sharded mutation runs. Optional full-crate sweeps beyond the focused
    CLI/LSP campaigns remain for the three companion tools (`adotenv-lsp` 204
-   mutants, `adotenv-lint` 291, `adotenv-cli` 467), along with optional kbench
-   confirmation reruns for `serde_support` (`size_hint`) and `parser/decode`
-   after the new tests. Run them on kbench one shard at a time after an
-   idle-queue check; see [heavy validation](heavy-validation.md).
+   mutants, `adotenv-lint` 291, `adotenv-cli` 467), along with the optional
+   `parser/decode` confirmation shard 1/2 rerun. Run them on kbench one shard
+   at a time after an idle-queue check; see
+   [heavy validation](heavy-validation.md).
 

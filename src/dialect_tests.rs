@@ -1583,6 +1583,15 @@ fn compose_octal_escape_boundaries() {
         let doc = parse_strict_with(source, Dialect::COMPOSE).unwrap();
         assert_eq!(doc.get("A"), Some(expected), "{source:?}");
     }
+
+    // Exercise `replace_octal` at exact EOF (`body_end == source.len()`), where
+    // `end <= body_end` would index out of bounds.
+    let node_octal = Dialect {
+        double_escapes: DoubleEscapes::OCTAL,
+        ..Dialect::NODE_DOTENV
+    };
+    let doc = parse_strict_with("A=\"\\012", node_octal).unwrap();
+    assert_eq!(doc.get("A"), Some("\"\\12"));
 }
 
 #[test]
@@ -1703,6 +1712,13 @@ fn decode_warnings_crlf_and_tail_boundaries() {
         .find(|d| d.code() == Code::UnknownEscape)
         .unwrap();
     assert_eq!(unknown.line(), 3);
+
+    let (_, lf_diags) = parse_with("A=\"x\ny\\q\"\n", unnormalized);
+    let lf_unknown = lf_diags
+        .iter()
+        .find(|d| d.code() == Code::UnknownEscape)
+        .unwrap();
+    assert_eq!(lf_unknown.line(), 2);
 
     let append_norm = Dialect {
         line_breaks: LineBreaks::Lf,
