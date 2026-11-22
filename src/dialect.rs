@@ -438,10 +438,10 @@ pub enum LineBreaks {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum BomPolicy {
-    /// The mark is set apart from the items.
+    /// A single leading mark is set apart from the items.
     ///
     /// It belongs to no item, [`Document::bom_span`](crate::Document::bom_span)
-    /// returns its range, and an informational
+    /// returns `Some(0..3)`, and an informational
     /// [`DiagnosticCode::ByteOrderMark`](crate::DiagnosticCode::ByteOrderMark)
     /// is reported. [`Document::source`](crate::Document::source) still
     /// contains it. Every preset uses this. If the first physical line exceeds
@@ -462,6 +462,38 @@ pub enum BomPolicy {
     /// exceeds [`Dialect::line_byte_limit`], the line-limit error takes
     /// precedence and this diagnostic is not reported.
     Error,
+    /// Every leading contiguous UTF-8 byte-order mark (`\u{feff}+`) is set
+    /// apart from the items.
+    ///
+    /// The whole leading run belongs to no item,
+    /// [`Document::bom_span`](crate::Document::bom_span) returns
+    /// `Some(0..prefix_bytes)`, and one informational
+    /// [`DiagnosticCode::ByteOrderMark`](crate::DiagnosticCode::ByteOrderMark)
+    /// covering that span is reported.
+    /// [`Document::source`](crate::Document::source) still contains the full
+    /// run so item spans and [`TextEdit`](crate::TextEdit) ranges stay aligned
+    /// to the original buffer. If the first physical line exceeds
+    /// [`Dialect::line_byte_limit`], the line-limit error takes precedence and
+    /// this diagnostic is not reported.
+    StripAll,
+}
+
+impl BomPolicy {
+    pub(crate) fn stripped_prefix_len(self, source: &str) -> usize {
+        const BOM: &[u8] = "\u{feff}".as_bytes();
+        match self {
+            Self::Strip => usize::from(source.as_bytes().starts_with(BOM)) * BOM.len(),
+            Self::StripAll => {
+                let bytes = source.as_bytes();
+                let mut end = 0;
+                while bytes[end..].starts_with(BOM) {
+                    end += BOM.len();
+                }
+                end
+            }
+            Self::Keep | Self::Error => 0,
+        }
+    }
 }
 /// Which declaration wins when a key is declared more than once.
 ///

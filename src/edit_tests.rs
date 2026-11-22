@@ -799,6 +799,56 @@ fn uncomment_can_expose_a_selected_bom_but_never_an_unselected_one() {
 }
 
 #[test]
+fn strip_all_bom_edits_preserve_alignment_and_reject_bom_run_changes() {
+    let strip_all = crate::Dialect::PORTABLE.with_bom(crate::BomPolicy::StripAll);
+    let source = "\u{feff}\u{feff}A=1\nB=2\n";
+    let doc = crate::parse_strict_with(source, strip_all).unwrap();
+    let edited = doc.set("A", "9").unwrap();
+    assert_eq!(edited.as_str(), "\u{feff}\u{feff}A=9\nB=2\n");
+    assert_eq!(edited.edits()[0].range, 8..9);
+    replay(source, &edited);
+
+    let renamed = doc.rename_with_references("A", "ALPHA").unwrap();
+    assert_eq!(renamed.as_str(), "\u{feff}\u{feff}ALPHA=1\nB=2\n");
+    replay(source, &renamed);
+
+    // Removing the first line must not silently extend a StripAll BOM run.
+    let (exposed, _) = parse_with("\u{feff}A=1\n\u{feff}B=2\n", strip_all);
+    assert_eq!(exposed.bom_span(), Some(0..3));
+    assert_eq!(
+        exposed.edit(&[Edit::Remove { item: 0 }]),
+        Err(EditError::WouldChangeMeaning)
+    );
+
+    // Explicitly uncommenting a leading multi-BOM comment is allowed.
+    let (commented, _) = parse_with("# \u{feff}\u{feff}A=1\n", strip_all);
+    let uncommented = commented.edit(&[Edit::Uncomment { item: 0 }]).unwrap();
+    assert_eq!(uncommented.as_str(), "\u{feff}\u{feff}A=1\n");
+    let (after, _) = parse_with(uncommented.as_str(), strip_all);
+    assert_eq!(after.bom_span(), Some(0..6));
+    assert_eq!(after.get("A"), Some("1"));
+    replay("# \u{feff}\u{feff}A=1\n", &uncommented);
+
+    // Uncommenting a BOM-only comment after an existing BOM under StripAll + insert.
+    let (extend, _) = parse_with("\u{feff}# \u{feff}", strip_all);
+    let extended = extend
+        .edit(&[
+            Edit::Uncomment { item: 0 },
+            Edit::Insert {
+                key: "A",
+                value: Some("1"),
+                position: InsertPosition::End,
+            },
+        ])
+        .unwrap();
+    assert_eq!(extended.as_str(), "\u{feff}\u{feff}A=1");
+    let (after, _) = parse_with(extended.as_str(), strip_all);
+    assert_eq!(after.bom_span(), Some(0..6));
+    assert_eq!(after.get("A"), Some("1"));
+    replay("\u{feff}# \u{feff}", &extended);
+}
+
+#[test]
 fn indexed_insertions_keep_source_order_and_snapshot_duplicate_rules() {
     let (doc, _) = parse("Z=first\nB=second\nA=third\n");
     let result = doc

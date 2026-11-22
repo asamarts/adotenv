@@ -61,6 +61,13 @@ pub(crate) const MAX_DIAGNOSTICS: usize = 10_000;
 pub struct ParseOptions {
     /// The maximum source length in bytes, or `None` for no limit.
     pub max_input_bytes: Option<usize>,
+    /// The maximum number of physical lines, or `None` for no limit.
+    ///
+    /// Physical lines are counted according to the dialect's
+    /// [`LineBreaks`](crate::LineBreaks): CRLF counts once, a trailing final
+    /// line ending does not add a phantom empty line, and an empty source has
+    /// zero lines.
+    pub max_lines: Option<usize>,
     /// The maximum number of parsed items, or `None` for no limit.
     ///
     /// The value parser counts statements rather than retaining item data.
@@ -80,12 +87,13 @@ impl Default for ParseOptions {
 }
 
 impl ParseOptions {
-    /// Returns options with no byte, item or diagnostic limit beyond the
+    /// Returns options with no byte, line, item or diagnostic limit beyond the
     /// established diagnostic budget.
     #[must_use]
     pub const fn new() -> Self {
         Self {
             max_input_bytes: None,
+            max_lines: None,
             max_items: None,
             max_diagnostics: None,
         }
@@ -95,6 +103,16 @@ impl ParseOptions {
     #[must_use]
     pub const fn with_max_input_bytes(mut self, limit: usize) -> Self {
         self.max_input_bytes = Some(limit);
+        self
+    }
+
+    /// Sets the maximum number of physical lines.
+    ///
+    /// Physical lines follow the dialect's [`LineBreaks`](crate::LineBreaks)
+    /// policy without counting a trailing final line ending as an extra line.
+    #[must_use]
+    pub const fn with_max_lines(mut self, limit: usize) -> Self {
+        self.max_lines = Some(limit);
         self
     }
 
@@ -224,20 +242,11 @@ fn parse_impl<const D: bool>(
     dialect: Dialect,
     options: ParseOptions,
 ) -> (Document<'_>, Vec<Diagnostic>) {
-    if let Some(limit) = options.max_input_bytes {
-        if source.len() > limit {
-            let diagnostic = limit_diagnostic(
-                LimitKind::InputBytes,
-                limit,
-                source.len(),
-                0..source.len(),
-                1,
-            );
-            return (
-                limited_document(source, dialect, diagnostic.clone()),
-                vec![diagnostic],
-            );
-        }
+    if let Some(diagnostic) = check_source_limits(source, dialect.line_breaks, options) {
+        return (
+            limited_document(source, dialect, diagnostic.clone()),
+            vec![diagnostic],
+        );
     }
     let mut parser = Parser::<D>::new(source, dialect, None, options);
     parser.run();
@@ -297,6 +306,82 @@ fn parse_impl<const D: bool>(
     (parser.document, diagnostics)
 }
 
+fn check_source_limits(
+    source: &str,
+    breaks: LineBreaks,
+    options: ParseOptions,
+) -> Option<Diagnostic> {
+    if let Some(limit) = options.max_input_bytes {
+        if source.len() > limit {
+            return Some(limit_diagnostic(
+                LimitKind::InputBytes,
+                limit,
+                source.len(),
+                0..source.len(),
+                1,
+            ));
+        }
+    }
+    if let Some(limit) = options.max_lines {
+        if let Some((offset, observed)) = exceeds_line_limit(source, breaks, limit) {
+            let line = if offset == 0 {
+                1
+            } else {
+                line_breaks(&source[..offset]) + 1
+            };
+            return Some(limit_diagnostic(
+                LimitKind::Lines,
+                limit,
+                observed,
+                offset..source.len(),
+                line,
+            ));
+        }
+    }
+    None
+}
+
+pub(crate) fn exceeds_line_limit(
+    source: &str,
+    breaks: LineBreaks,
+    limit: usize,
+) -> Option<(usize, usize)> {
+    if source.is_empty() {
+        return None;
+    }
+    if limit == 0 {
+        return Some((0, 1));
+    }
+    let bytes = source.as_bytes();
+    let mut lines = 1usize;
+    let mut at = 0usize;
+    while at < bytes.len() {
+        let next = match bytes[at] {
+            b'\n' => Some(at + 1),
+            b'\r' if breaks == LineBreaks::Universal => Some(
+                at + if bytes.get(at + 1) == Some(&b'\n') {
+                    2
+                } else {
+                    1
+                },
+            ),
+            _ => None,
+        };
+        if let Some(next) = next {
+            if next < bytes.len() {
+                lines = lines.saturating_add(1);
+                if lines > limit {
+                    return Some((next, lines));
+                }
+            }
+            at = next;
+        } else {
+            at += 1;
+        }
+    }
+    None
+}
+
 fn limit_diagnostic(
     kind: LimitKind,
     limit: usize,
@@ -309,8 +394,8 @@ fn limit_diagnostic(
 }
 
 fn limited_document(source: &str, dialect: Dialect, diagnostic: Diagnostic) -> Document<'_> {
-    let bom = source.starts_with('\u{feff}') && dialect.bom == BomPolicy::Strip;
-    let start = if bom { 3 } else { 0 };
+    let bom_len = dialect.bom.stripped_prefix_len(source);
+    let start = bom_len;
     let ending = if source.ends_with("\r\n") {
         LineEnding::CrLf
     } else if source.ends_with('\n') {
@@ -331,7 +416,7 @@ fn limited_document(source: &str, dialect: Dialect, diagnostic: Diagnostic) -> D
             invalid: Some(Box::new(diagnostic)),
         }],
         entries: Vec::new(),
-        bom,
+        bom_len,
         dialect,
         has_duplicate_keys: false,
     }
@@ -435,16 +520,8 @@ pub fn parse_values_with_options(
     dialect: Dialect,
     options: ParseOptions,
 ) -> Result<BTreeMap<String, String>, Diagnostic> {
-    if let Some(limit) = options.max_input_bytes {
-        if source.len() > limit {
-            return Err(limit_diagnostic(
-                LimitKind::InputBytes,
-                limit,
-                source.len(),
-                0..source.len(),
-                1,
-            ));
-        }
+    if let Some(diagnostic) = check_source_limits(source, dialect.line_breaks, options) {
+        return Err(diagnostic);
     }
     if source.is_empty() {
         return Ok(BTreeMap::new());
@@ -525,16 +602,8 @@ pub fn parse_values_compact_with_options(
     dialect: Dialect,
     options: ParseOptions,
 ) -> Result<CompactValues, Diagnostic> {
-    if let Some(limit) = options.max_input_bytes {
-        if source.len() > limit {
-            return Err(limit_diagnostic(
-                LimitKind::InputBytes,
-                limit,
-                source.len(),
-                0..source.len(),
-                1,
-            ));
-        }
+    if let Some(diagnostic) = check_source_limits(source, dialect.line_breaks, options) {
+        return Err(diagnostic);
     }
     if source.is_empty() {
         return Ok(CompactValues::default());
@@ -722,12 +791,12 @@ pub fn parse_owned_with_options(
     dialect: Dialect,
     options: ParseOptions,
 ) -> (Document<'static>, Vec<Diagnostic>) {
-    let (items, entries, bom, has_duplicate_keys, diagnostics) = {
+    let (items, entries, bom_len, has_duplicate_keys, diagnostics) = {
         let (document, diagnostics) = parse_with_options(&source, dialect, options);
         (
             document.items,
             document.entries,
-            document.bom,
+            document.bom_len,
             document.has_duplicate_keys,
             diagnostics,
         )
@@ -737,7 +806,7 @@ pub fn parse_owned_with_options(
             source: Cow::Owned(source),
             items,
             entries,
-            bom,
+            bom_len,
             dialect,
             has_duplicate_keys,
         },
@@ -1118,7 +1187,7 @@ impl<'src, const D: bool> Parser<'src, D> {
                 source: Cow::Borrowed(source),
                 items: Vec::new(),
                 entries: Vec::new(),
-                bom: false,
+                bom_len: 0,
                 dialect,
                 has_duplicate_keys: false,
             },
@@ -1202,12 +1271,19 @@ impl<'src, const D: bool> Parser<'src, D> {
         } else {
             None
         };
-        let bom = initial_bom && dialect.bom == BomPolicy::Strip && rejected_bom_line.is_none();
-        self.document.bom = bom;
-        let mut at = if bom { 3 } else { 0 };
-        if D && bom {
-            self.diagnostics
-                .push(Diagnostic::new(DiagnosticCode::ByteOrderMark, 0..3, 1));
+        let bom_len = if rejected_bom_line.is_none() {
+            dialect.bom.stripped_prefix_len(source)
+        } else {
+            0
+        };
+        self.document.bom_len = bom_len;
+        let mut at = bom_len;
+        if D && bom_len > 0 {
+            self.push_diagnostic(Diagnostic::new(
+                DiagnosticCode::ByteOrderMark,
+                0..bom_len,
+                1,
+            ));
         }
         if let Some(first) = rejected_bom_line {
             self.invalid(

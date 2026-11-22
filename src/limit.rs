@@ -10,6 +10,8 @@ pub enum LimitKind {
     Items,
     /// Parsing produced more diagnostics than the configured cap.
     Diagnostics,
+    /// The source contains more physical lines than the configured cap.
+    Lines,
 }
 
 impl LimitKind {
@@ -20,6 +22,7 @@ impl LimitKind {
             Self::InputBytes => "input-bytes",
             Self::Items => "items",
             Self::Diagnostics => "diagnostics",
+            Self::Lines => "lines",
         }
     }
 }

@@ -1053,7 +1053,7 @@ fn check_items(
             changed,
         });
     }
-    let bom = left.has_bom() != right.has_bom();
+    let bom = left.bom_span() != right.bom_span();
     if bom || checks.iter().all(|check| check.same) && found != right.items().len() {
         for check in &mut checks {
             check.same = false;

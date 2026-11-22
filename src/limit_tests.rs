@@ -1,9 +1,10 @@
-use alloc::{borrow::ToOwned, string::ToString};
+use alloc::{borrow::ToOwned, string::String, string::ToString};
+use core::fmt::Write as _;
 
 use crate::{
-    parse_owned_with_options, parse_strict_with_options, parse_values_with_options,
-    parse_with_options, Diagnostic, DiagnosticCode, Dialect, ItemKind, LimitKind, ParseOptions,
-    Severity,
+    parse_owned_with_options, parse_strict_with_options, parse_values_compact_with_options,
+    parse_values_with_options, parse_with_options, Diagnostic, DiagnosticCode, Dialect, ItemKind,
+    LimitKind, LineBreaks, ParseOptions, Severity,
 };
 
 fn limit(diagnostic: &Diagnostic) -> crate::LimitExceeded {
@@ -110,7 +111,138 @@ fn diagnostic_limit_is_exact_and_structured() {
 }
 
 #[test]
+fn line_limit_is_exact_across_endings_dialects_and_entry_points() {
+    let cases = [
+        ("", Dialect::PORTABLE, 0),
+        ("A=1", Dialect::PORTABLE, 1),
+        ("A=1\n", Dialect::PORTABLE, 1),
+        ("A=1\r\n", Dialect::PORTABLE, 1),
+        ("A=1\r", Dialect::PORTABLE, 1),
+        ("A=1\r", Dialect::COMPOSE, 1),
+        ("\n", Dialect::PORTABLE, 1),
+        ("\n\n", Dialect::PORTABLE, 2),
+        ("A=1\nB=2\n", Dialect::PORTABLE, 2),
+        ("A=1\r\nB=2\r\n", Dialect::PORTABLE, 2),
+        ("A=1\rB=2", Dialect::PORTABLE, 2),
+        ("A=1\rB=2", Dialect::COMPOSE, 1),
+        ("A=1\r\r\n", Dialect::PORTABLE, 2),
+        ("A=1\r\r\n", Dialect::COMPOSE, 1),
+        ("A=\"one\ntwo\nthree\"\n", Dialect::PORTABLE, 3),
+        ("# c1\n# c2\n# c3\n# c4\n", Dialect::PORTABLE, 4),
+        ("\n\n\n\n", Dialect::PORTABLE, 4),
+    ];
+
+    for (source, dialect, expected_lines) in cases {
+        // Exact boundary passes across all entry points.
+        let ok_options = ParseOptions::new().with_max_lines(expected_lines);
+        let (doc, diags) = parse_with_options(source, dialect, ok_options);
+        assert_eq!(doc.source(), source);
+        assert!(
+            !diags.iter().any(|diag| diag.limit().is_some()),
+            "expected no limit for {source:?} ({dialect:?}) at {expected_lines}: {diags:?}"
+        );
+        assert!(parse_strict_with_options(source, dialect, ok_options).is_ok());
+        assert!(parse_values_with_options(source, dialect, ok_options).is_ok());
+        assert!(parse_values_compact_with_options(source, dialect, ok_options).is_ok());
+        let (owned, owned_diags) = parse_owned_with_options(source.to_owned(), dialect, ok_options);
+        assert_eq!(owned.source(), source);
+        assert!(!owned_diags.iter().any(|diag| diag.limit().is_some()));
+
+        if expected_lines > 0 {
+            let cap = expected_lines - 1;
+            let fail_options = ParseOptions::new().with_max_lines(cap);
+            let (doc, diags) = parse_with_options(source, dialect, fail_options);
+            assert_eq!(doc.source(), source);
+            let diag = diags
+                .iter()
+                .find(|diag| diag.limit().is_some())
+                .expect("line limit diagnostic");
+            let observed = limit(diag);
+            assert_eq!(diag.code(), DiagnosticCode::LimitExceeded);
+            assert_eq!(diag.severity(), Severity::Error);
+            assert_eq!(observed.kind(), LimitKind::Lines);
+            assert_eq!(observed.limit(), cap);
+            assert_eq!(observed.observed(), expected_lines);
+            assert_eq!(doc.items().len(), 1);
+            assert_eq!(doc.items().next().unwrap().kind(), ItemKind::Invalid);
+
+            let strict_err = parse_strict_with_options(source, dialect, fail_options).unwrap_err();
+            assert_eq!(limit(&strict_err), observed);
+            let values_err = parse_values_with_options(source, dialect, fail_options).unwrap_err();
+            assert_eq!(limit(&values_err), observed);
+            let compact_err =
+                parse_values_compact_with_options(source, dialect, fail_options).unwrap_err();
+            assert_eq!(limit(&compact_err), observed);
+            let (_, owned_diags) =
+                parse_owned_with_options(source.to_owned(), dialect, fail_options);
+            assert_eq!(limit(&owned_diags[0]), observed);
+        }
+    }
+}
+
+#[test]
+fn line_limit_covers_fast_paths_and_universal_diagnostic_lines() {
+    // Exercise the >512-byte simple-portable fast path in values and compact parsers.
+    let mut big = String::new();
+    for index in 0..80 {
+        writeln!(big, "KEY_{index:03}=VALUE_{index:03}").unwrap();
+    }
+    assert!(big.len() > 512);
+    assert!(parse_values_with_options(
+        &big,
+        Dialect::PORTABLE,
+        ParseOptions::new().with_max_lines(80),
+    )
+    .is_ok());
+    assert!(parse_values_compact_with_options(
+        &big,
+        Dialect::PORTABLE,
+        ParseOptions::new().with_max_lines(80),
+    )
+    .is_ok());
+    let values_err = parse_values_with_options(
+        &big,
+        Dialect::PORTABLE,
+        ParseOptions::new().with_max_lines(10),
+    )
+    .unwrap_err();
+    assert_eq!(limit(&values_err).kind(), LimitKind::Lines);
+    assert_eq!(limit(&values_err).limit(), 10);
+    assert_eq!(limit(&values_err).observed(), 11);
+    let compact_err = parse_values_compact_with_options(
+        &big,
+        Dialect::PORTABLE,
+        ParseOptions::new().with_max_lines(10),
+    )
+    .unwrap_err();
+    assert_eq!(limit(&compact_err), limit(&values_err));
+
+    // Line-break mode: embedded lone CR under LineBreaks::Lf stays on one physical line,
+    // while Diagnostic::line() still follows universal 1-based line numbers.
+    let lf_dialect = Dialect::PORTABLE.with_line_breaks(LineBreaks::Lf);
+    let err = parse_strict_with_options(
+        "A=1\rB=2\nC=3\n",
+        lf_dialect,
+        ParseOptions::new().with_max_lines(1),
+    )
+    .unwrap_err();
+    assert_eq!(limit(&err).kind(), LimitKind::Lines);
+    assert_eq!(limit(&err).observed(), 2);
+    assert_eq!(err.line(), 3);
+    assert_eq!(err.span(), 8..12);
+}
+
+#[test]
 fn zero_limits_report_a_failure() {
+    let line_options = ParseOptions::default().with_max_lines(0);
+    assert!(parse_strict_with_options("", Dialect::PORTABLE, line_options).is_ok());
+    let (_, bom_diags) = parse_with_options("\u{feff}", Dialect::PORTABLE, line_options);
+    assert!(bom_diags.iter().any(|diagnostic| {
+        diagnostic
+            .limit()
+            .is_some_and(|limit| limit.kind() == LimitKind::Lines && limit.observed() == 1)
+    }));
+
     let item_options = ParseOptions::default().with_max_items(0);
     let (_, diagnostics) = parse_with_options("A=1\n", Dialect::PORTABLE, item_options);
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -131,9 +263,11 @@ fn zero_limits_report_a_failure() {
 #[test]
 fn limit_kind_and_exceeded_format_clearly() {
     assert_eq!(LimitKind::InputBytes.as_str(), "input-bytes");
+    assert_eq!(LimitKind::Lines.as_str(), "lines");
     assert_eq!(LimitKind::Items.as_str(), "items");
     assert_eq!(LimitKind::Diagnostics.as_str(), "diagnostics");
     assert_eq!(LimitKind::InputBytes.to_string(), "input-bytes");
+    assert_eq!(LimitKind::Lines.to_string(), "lines");
     assert_eq!(LimitKind::Items.to_string(), "items");
     assert_eq!(LimitKind::Diagnostics.to_string(), "diagnostics");
 
@@ -146,6 +280,17 @@ fn limit_kind_and_exceeded_format_clearly() {
     assert_eq!(
         limit(&error).to_string(),
         "input-bytes limit 3 exceeded with observed 4"
+    );
+
+    let line_error = parse_strict_with_options(
+        "A=1\nB=2\n",
+        Dialect::PORTABLE,
+        ParseOptions::default().with_max_lines(1),
+    )
+    .unwrap_err();
+    assert_eq!(
+        limit(&line_error).to_string(),
+        "lines limit 1 exceeded with observed 2"
     );
 
     let (_, diagnostics) = parse_with_options(
@@ -189,7 +334,8 @@ fn limits_are_a_no_op_when_not_configured() {
 #[test]
 fn load_read_and_parse_limits_are_structured() {
     use crate::load::{
-        load_cascade_values_with_options, load_cascade_with_options, LoadError, LoadOptions,
+        load_cascade_values_compact_with_options, load_cascade_values_with_options,
+        load_cascade_with_options, LoadError, LoadOptions,
     };
     use std::{
         fs,
@@ -234,6 +380,21 @@ fn load_read_and_parse_limits_are_structured() {
     assert!(matches!(
         values,
         Err(LoadError::Limit { limit, .. }) if limit.kind() == LimitKind::InputBytes
+    ));
+
+    let line_limits =
+        LoadOptions::new(Dialect::PORTABLE).with_limits(ParseOptions::default().with_max_lines(1));
+    assert!(matches!(
+        load_cascade_with_options(&directory, "", line_limits),
+        Err(LoadError::Limit { limit, .. }) if limit.kind() == LimitKind::Lines && limit.observed() == 2
+    ));
+    assert!(matches!(
+        load_cascade_values_with_options(&directory, "", line_limits),
+        Err(LoadError::Limit { limit, .. }) if limit.kind() == LimitKind::Lines && limit.observed() == 2
+    ));
+    assert!(matches!(
+        load_cascade_values_compact_with_options(&directory, "", line_limits),
+        Err(LoadError::Limit { limit, .. }) if limit.kind() == LimitKind::Lines && limit.observed() == 2
     ));
 
     fs::remove_dir_all(&directory).unwrap();

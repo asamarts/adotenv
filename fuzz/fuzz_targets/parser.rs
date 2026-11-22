@@ -420,10 +420,11 @@ fuzz_target!(|bytes: &[u8]| {
     }
     let selector = bytes.first().copied().unwrap_or(0);
     let mut custom = presets[usize::from(selector) % presets.len()];
-    custom.bom = if selector & 8 != 0 {
-        BomPolicy::Error
-    } else {
-        BomPolicy::Keep
+    custom.bom = match (selector >> 2) & 3 {
+        0 => BomPolicy::Strip,
+        1 => BomPolicy::StripAll,
+        2 => BomPolicy::Keep,
+        _ => BomPolicy::Error,
     };
     custom.bare_keys = if selector & 16 != 0 {
         BareKeys::Empty
