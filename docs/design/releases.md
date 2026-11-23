@@ -2,7 +2,7 @@
 
 | Version | Date | Focus |
 |---|---|---|
-| 1.6.0 | 2026-11-22 | Line limits, `BomPolicy::StripAll`, `LookupIndex::unique`, `EditOptions` and `CompactEntries` |
+| 1.6.0 | 2026-11-23 | Line limits, `BomPolicy::StripAll`, `LookupIndex::unique`, `EditOptions` and `CompactEntries` |
 | 1.5.4 | 2026-11-16 | Diff-report schema and published schema URLs; no library behavior change |
 | 1.5.3 | 2026-11-16 | Package-safe integration tests; no library behavior change |
 | 1.5.2 | 2026-11-15 | CLI help-text corrections; no library behavior change |
