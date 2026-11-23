@@ -417,10 +417,25 @@ pub fn workspace_symbols_with_options(
 /// rest of this crate. Returns `None` when the range is out of bounds.
 #[must_use]
 pub fn apply_change(text: &str, range: Option<Range>, replacement: &str) -> Option<String> {
+    apply_change_with_options(text, range, replacement, &LspOptions::new())
+}
+
+/// Applies one LSP content change to a document string using `options`.
+///
+/// This is [`apply_change`] with an explicit dialect, matching the BOM policy
+/// used for position mapping across the rest of the crate (including
+/// [`BomPolicy::StripAll`] and [`BomPolicy::Keep`]).
+#[must_use]
+pub fn apply_change_with_options(
+    text: &str,
+    range: Option<Range>,
+    replacement: &str,
+    options: &LspOptions,
+) -> Option<String> {
     let Some(range) = range else {
         return Some(replacement.to_owned());
     };
-    let mapped = Mapped::new(text);
+    let mapped = Mapped::new_for_dialect(text, options.dialect);
     let start = mapped.offset(range.start)?;
     let end = mapped.offset(range.end)?;
     if start > end || end > text.len() {
@@ -582,9 +597,10 @@ pub fn rename(
 /// # Errors
 ///
 /// Returns [`RenameError::NoSymbol`] when the document cannot be parsed or
-/// `position` is not on a key or reference, and [`RenameError::Edit`] when the
-/// rename is invalid or, with matching references present, a new key cannot be
-/// written as a variable reference.
+/// `position` is not on a key or reference, and [`RenameError::Edit`] when a
+/// configured parse limit is exceeded ([`EditError::Limit`]), the rename is
+/// invalid, or matching references exist and the new key cannot be written as a
+/// variable reference.
 pub fn rename_with_options(
     text: &str,
     uri: &Uri,
@@ -664,15 +680,11 @@ struct Mapped<'a> {
 }
 
 impl<'a> Mapped<'a> {
-    fn new(text: &'a str) -> Self {
-        Self::new_for_dialect(text, Dialect::PORTABLE)
-    }
-
     fn new_for_dialect(text: &'a str, dialect: Dialect) -> Self {
-        let bom_chars = if dialect.bom == BomPolicy::StripAll {
-            text.chars().take_while(|ch| *ch == '\u{feff}').count()
-        } else {
-            usize::from(text.starts_with('\u{feff}'))
+        let bom_chars = match dialect.bom {
+            BomPolicy::StripAll => text.chars().take_while(|ch| *ch == '\u{feff}').count(),
+            BomPolicy::Keep => 0,
+            _ => usize::from(text.starts_with('\u{feff}')),
         };
         Self {
             index: LineIndex::new(text),
