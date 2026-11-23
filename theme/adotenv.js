@@ -454,7 +454,12 @@
             });
         }
         sizes.sort(function (a, b) { return (sizeRank(a) || 0) - (sizeRank(b) || 0); });
-        const hasCompact = rows.some(function (row) { return row.implementation === "adotenv-compact"; });
+        const hasCompact = rows.some(function (row) {
+            return row.implementation === "adotenv-compact" || row.implementation === "adotenv-compact-entries";
+        });
+        const hasCompactEntries = rows.some(function (row) {
+            return row.implementation === "adotenv-compact-entries";
+        });
         const metric = kind === "memory"
             ? makeSelect("Metric", ["retained", "peak", "allocations"], "retained",
                 "Retained is heap still held by the returned values; peak is the maximum during the operation; allocations counts allocator calls. Lower is better.")
@@ -479,12 +484,16 @@
             table.closest(".table-wrapper") || table,
             kind === "memory" ? "Memory comparison" : "Speed comparison",
             kind === "memory"
-                ? (hasCompact
-                    ? "Compact is the opt-in CompactValues API; Map is the standard BTreeMap API. Compare both with every available pinned library. Lower is better."
-                    : "Map is the standard BTreeMap API. Compare it with every available pinned library. Lower is better.")
-                : (hasCompact
-                    ? "Compact is the opt-in compact loader; Map is the standard map-backed loader. Compare both with every available pinned library. Lower is better."
-                    : "Map is the standard map-backed loader. Compare it with every available pinned library. Lower is better."),
+                ? (hasCompactEntries
+                    ? "Compact is CompactValues, CompactEntries preserves bare declarations, and Map is the standard BTreeMap API. Compare with every available pinned library. Lower is better."
+                    : hasCompact
+                        ? "Compact is the opt-in CompactValues API; Map is the standard BTreeMap API. Compare both with every available pinned library. Lower is better."
+                        : "Map is the standard BTreeMap API. Compare it with every available pinned library. Lower is better.")
+                : (hasCompactEntries
+                    ? "Compact is CompactValues, CompactEntries preserves bare declarations, and Map is the standard map-backed API. Compare with every available pinned library. Lower is better."
+                    : hasCompact
+                        ? "Compact is the opt-in compact loader; Map is the standard map-backed loader. Compare both with every available pinned library. Lower is better."
+                        : "Map is the standard map-backed loader. Compare it with every available pinned library. Lower is better."),
             controls
         );
 
@@ -496,11 +505,12 @@
                 return row.mode === selectedMode && row.shape === selectedShape;
             });
             const knownCompetitors = ["dotenv", "dotenv-flow", "dotenv-parser", "dotenvs", "dotenvy"];
+            const adotenvImplementations = ["adotenv", "adotenv-compact", "adotenv-compact-entries"];
             const competitorOrder = knownCompetitors.filter(function (implementation) {
                 return rows.some(function (row) { return row.implementation === implementation; });
             }).concat(Array.from(new Set(rows.map(function (row) { return row.implementation; })))
                 .filter(function (implementation) {
-                    return implementation !== "adotenv" && implementation !== "adotenv-compact" && !knownCompetitors.includes(implementation);
+                    return !adotenvImplementations.includes(implementation) && !knownCompetitors.includes(implementation);
                 })
                 .sort());
             const chartRows = sizes.map(function (size) {
@@ -519,10 +529,12 @@
                 };
             });
             const available = new Set(selectedRows.map(function (row) { return row.implementation; }));
-            const candidates = [
+            const adotenvCandidates = [
                 { key: "compact", implementation: "adotenv-compact", label: "Compact API", className: "bench-bar-compact" },
+                { key: "compact-entries", implementation: "adotenv-compact-entries", label: "CompactEntries API", className: "bench-bar-compact-entries" },
                 { key: "map", implementation: "adotenv", label: "Map API", className: "bench-bar-map" }
-            ].concat(competitorOrder.map(function (implementation, index) {
+            ];
+            const candidates = adotenvCandidates.concat(competitorOrder.map(function (implementation, index) {
                 return {
                     key: "competitor-" + index,
                     implementation: implementation,
@@ -533,10 +545,10 @@
             const selectedView = view.select.value;
             let series;
             if (selectedView === "Best competitor") {
-                series = candidates.slice(0, 2).filter(function (item) { return available.has(item.implementation); });
+                series = adotenvCandidates.filter(function (item) { return available.has(item.implementation); });
                 series.push({ key: "best", label: "Best competitor", className: "bench-bar-best", best: true });
             } else if (selectedView === "Compact vs map") {
-                series = candidates.slice(0, 2).filter(function (item) { return available.has(item.implementation); });
+                series = adotenvCandidates.filter(function (item) { return available.has(item.implementation); });
             } else {
                 series = candidates.filter(function (item) { return available.has(item.implementation); });
             }

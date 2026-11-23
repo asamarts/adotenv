@@ -35,7 +35,9 @@ cargo run --release -p adotenv-xtask -- memory \
 cells are selected automatically by supported API.
 
 `adotenv-compact` is an additional `values` and `load` implementation for the
-compact-values evaluation. Run the separate compact matrix with `--compact`:
+compact-values evaluation, and `adotenv-compact-entries` adds `values`
+measurements for bare-preserving `CompactEntries`. Run the compact matrix with
+`--compact`:
 
 ```console
 cargo run --release -p adotenv-xtask -- queue \

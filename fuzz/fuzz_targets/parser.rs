@@ -1,13 +1,13 @@
 #![no_main]
 #![forbid(unsafe_code)]
 
-use std::{ops::Range, vec::Vec};
+use std::{collections::BTreeMap, ops::Range, vec::Vec};
 
 use adotenv::{
-    parse, parse_owned, parse_owned_with, parse_strict, parse_strict_with, parse_with,
-    AssignmentState, BareKeys, BomPolicy, ColumnEncoding, Dialect, Document, Entry, EntryTokens,
-    Item, ItemKind, LineBreaks, LineEnding, PositionError, Quote, QuotedTail, ReferenceKind,
-    ReferenceRules, Severity,
+    parse, parse_entries_compact_with, parse_owned, parse_owned_with, parse_strict,
+    parse_strict_with, parse_with, AssignmentState, BareKeys, BomPolicy, ColumnEncoding, Dialect,
+    Document, Duplicates, Entry, EntryTokens, Item, ItemKind, LineBreaks, LineEnding,
+    PositionError, Quote, QuotedTail, ReferenceKind, ReferenceRules, Severity,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -355,10 +355,50 @@ fn check_selected(source: &str, dialect: Dialect) {
         .iter()
         .find(|d| d.severity() == Severity::Error)
         .cloned();
+    let has_error = first.is_some();
     assert_eq!(
         parse_strict_with(source, dialect),
         first.map_or(Ok(doc.clone()), Err)
     );
+    let index = doc.lookup_index();
+    for entry in doc.entries() {
+        assert_eq!(
+            index.unique(entry.key()).map(|e| e.id()),
+            doc.unique(entry.key()).map(|e| e.id())
+        );
+    }
+    assert_eq!(
+        index.unique("").map(|e| e.id()),
+        doc.unique("").map(|e| e.id())
+    );
+    assert_eq!(
+        index.unique("__ADOTENV_MISSING__").map(|e| e.id()),
+        doc.unique("__ADOTENV_MISSING__").map(|e| e.id())
+    );
+    if !has_error {
+        let compact = parse_entries_compact_with(source, dialect).unwrap();
+        let mut expected: BTreeMap<&str, Option<&str>> = BTreeMap::new();
+        for entry in doc.entries() {
+            if !entry.participates_in_lookup() || entry.key().is_empty() {
+                continue;
+            }
+            let effective = entry.value().or_else(|| {
+                (entry.state() == AssignmentState::Bare && dialect.bare_keys == BareKeys::Empty)
+                    .then_some("")
+            });
+            match dialect.duplicates {
+                Duplicates::First => {
+                    expected.entry(entry.key()).or_insert(effective);
+                }
+                Duplicates::Last => {
+                    expected.insert(entry.key(), effective);
+                }
+                _ => unreachable!("update the fuzz oracle for new duplicate policies"),
+            }
+        }
+        let actual: BTreeMap<&str, Option<&str>> = compact.iter().collect();
+        assert_eq!(actual, expected);
+    }
     let (owned, owned_diagnostics) = parse_owned_with(source.to_owned(), dialect);
     assert_eq!(owned_diagnostics, diagnostics);
     assert_eq!(owned, doc.into_owned());

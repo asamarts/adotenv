@@ -95,11 +95,18 @@ assert_eq!(values.get("C").map(String::as_str), Some("3"));
 assert_eq!(values.len(), 2);
 ```
 
-For lower retained memory, `parse_values_compact` returns a `CompactValues`:
+For lower retained memory, `parse_values_compact` returns a `CompactValues`, and
+`parse_entries_compact` returns a `CompactEntries` that also keeps winning bare
+declarations:
 
 ```rust
 let values = adotenv::parse_values_compact("A=1\nB=2\n").unwrap();
 assert_eq!(values.get("B"), Some("2"));
+
+let entries = adotenv::parse_entries_compact("A=1\nDEBUG\nEMPTY=\n").unwrap();
+assert_eq!(entries.get("A"), Some(Some("1")));
+assert_eq!(entries.get("DEBUG"), Some(None));
+assert_eq!(entries.get("EMPTY"), Some(Some("")));
 ```
 
 ## Dialects
@@ -142,6 +149,7 @@ assert!(doc.unique("A").is_err());
 
 let index = doc.lookup_index();
 assert_eq!(index.get("A"), Some("2"));
+assert_eq!(index.unique("B").unwrap().value(), Some("3"));
 assert_eq!(index.len(), 2);
 
 let winners: Vec<_> = doc
@@ -324,6 +332,9 @@ assert_eq!(text, verified.as_str());
 
 `set`, `remove`, `rename`, `insert`, `comment`, `uncomment`, `set_export` and
 `edit` verify the whole batch and reject changes that alter unrelated syntax.
+Pass `EditOptions` to `edit_with_options`, `set_with_options`,
+`remove_with_options`, `insert_with_options` or `rename_with_options` to bound
+output bytes, output line counts and verification parsing.
 
 Use `encode_value_with(value, dialect)` when you need a standalone literal token:
 
@@ -541,13 +552,16 @@ let config = config::Config::builder()
   than replaced.
 - Parsing does not read files, environment variables or commands.
 - Retained documents keep token and item metadata. Use `ParseOptions` to bound
-  input bytes, items and diagnostics for untrusted input; the limits are opt-in.
+  input bytes, physical lines, items and diagnostics for untrusted input, and
+  `EditOptions` to bound edited output bytes, output lines and verification
+  parsing; the limits are opt-in.
   The loader's `LoadOptions::with_limits` also bounds the read itself.
 - `Debug` output of documents, items, entries, edit and format results,
   comparisons, loaded environments and entries, resolved values, lookup
-  indexes, effective entries, line indexes, groups and portability reports
-  includes values. The core document, edit, comparison, load, resolution,
-  line-index, group and portability types support a value-redacting `Debug`
+  indexes, effective entries, compact values, compact entries, line indexes,
+  groups and portability reports includes values. The core document, edit,
+  comparison, load, resolution, compact-values, compact-entries, line-index,
+  group and portability types support a value-redacting `Debug`
   form through `adotenv::Masked` and `adotenv::mask`; use
   `DeserializeError::masked()` for serde errors. Adapter types still include
   values. Do not log normal `Debug` output when values are secret.

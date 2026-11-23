@@ -171,7 +171,12 @@ async function chartOnCurrent(path, kind) {
     const selected = records.filter((record) => record.mode === selectedMode && record.shape === selectedShape);
     const sizes = new Set(selected.map((record) => record.size));
     const implementations = new Set(selected.map((record) => record.implementation));
-    const hasCompact = implementations.has("adotenv-compact") && implementations.has("adotenv");
+    const adotenvPresent = ["adotenv", "adotenv-compact", "adotenv-compact-entries"].filter((name) =>
+        implementations.has(name),
+    );
+    const hasCompact =
+        (implementations.has("adotenv-compact") || implementations.has("adotenv-compact-entries")) &&
+        implementations.has("adotenv");
 
     const controls = page.locator(".bench-control select");
     check(await page.locator(".bench-info-toggle").count() === await controls.count(), `${path}: selector help is incomplete`);
@@ -187,10 +192,10 @@ async function chartOnCurrent(path, kind) {
 
     if (hasCompact) {
         await libraries.selectOption({ label: "Compact vs map" });
-        check(await page.locator(".bench-bar").count() === sizes.size * 2, `${path}: compact-vs-map bar count is stale`);
+        check(await page.locator(".bench-bar").count() === sizes.size * adotenvPresent.length, `${path}: compact-vs-map bar count is stale`);
     }
 
-    const bestSeries = hasCompact ? 3 : 2;
+    const bestSeries = adotenvPresent.length + 1;
     await libraries.selectOption({ label: "Best competitor" });
     check(await page.locator(".bench-bar").count() === sizes.size * bestSeries, `${path}: best-competitor bar count is stale`);
     check(await page.locator(".bench-legend-item").count() === bestSeries, `${path}: best-competitor legend is stale`);

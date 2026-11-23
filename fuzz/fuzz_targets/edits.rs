@@ -4,7 +4,8 @@
 use std::ops::Range;
 
 use adotenv::{
-    parse, parse_with, Dialect, Document, Edit, InsertPosition, ItemKind, VerifiedEdits,
+    parse, parse_with, Dialect, Document, Edit, EditError, EditOptions, InsertPosition, ItemKind,
+    LimitKind, VerifiedEdits,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -709,6 +710,21 @@ fuzz_target!(|bytes: &[u8]| {
     let Ok(verified) = result else {
         return;
     };
+    let exact = document.edit_with_options(
+        &operations,
+        EditOptions::new().with_max_output_bytes(verified.as_str().len()),
+    );
+    assert_eq!(exact, Ok(verified.clone()));
+    if !verified.as_str().is_empty() {
+        let too_small = document.edit_with_options(
+            &operations,
+            EditOptions::new().with_max_output_bytes(verified.as_str().len() - 1),
+        );
+        assert!(matches!(
+            too_small,
+            Err(EditError::Limit(limit)) if limit.kind() == LimitKind::OutputBytes
+        ));
+    }
     check_replay(source, &verified);
     check_targets(&document, &operations, &verified);
     let (after, _) = parse(verified.as_str());

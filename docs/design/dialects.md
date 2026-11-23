@@ -128,7 +128,7 @@ Every field of `Dialect` is public and has a builder of the same name:
 | `bare_keys` | Keys without `=`: keep, ignore, read as empty or error |
 | `raw_values` | Keep every byte after the separator as the value |
 | `line_breaks` | Whether a lone CR ends a line |
-| `bom` | A leading byte-order mark: strip, keep as text or error |
+| `bom` | Leading byte-order marks: strip one, strip all leading marks, keep as text or error |
 | `duplicates` | Whether the first or last duplicate wins |
 | `quoted_tail` | Text after a closing quote: error, ignore, append, fall back, skip or next statement |
 | `multiline` | Which quote styles may span lines |

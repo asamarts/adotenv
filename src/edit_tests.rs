@@ -45,6 +45,20 @@ fn verified_edits_into_edits_and_error_display_are_stable() {
     assert_eq!(result.into_edits(), expected);
     assert!(format!("{}", EditError::Missing).contains("requested key"));
     assert!(format!("{}", EditError::Duplicate(2)).contains("2 declarations"));
+    assert!(format!("{}", EditError::InvalidTarget).contains("out of range"));
+    assert!(format!("{}", EditError::InvalidKey).contains("cannot be represented"));
+    assert!(format!("{}", EditError::InvalidReferenceKey).contains("variable reference"));
+    assert!(format!("{}", EditError::Unencodable).contains("selected dialect"));
+    assert!(format!("{}", EditError::ConflictingEdits).contains("conflicting"));
+    assert!(format!("{}", EditError::WouldChangeMeaning).contains("change other parts"));
+    let limit_err = doc
+        .set_with_options(
+            "A",
+            "12345",
+            crate::EditOptions::new().with_max_output_bytes(3),
+        )
+        .unwrap_err();
+    assert!(format!("{limit_err}").contains("edit exceeded limit:"));
 }
 
 #[test]
@@ -1207,7 +1221,12 @@ fn edit_options_early_budget_boundaries_lone_cr_and_bom_prelude() {
     ));
 
     // BOM-prelude omission applies only when uncommenting a BOM-only comment.
-    for bom in [BomPolicy::Strip, BomPolicy::StripAll] {
+    for bom in [
+        BomPolicy::Strip,
+        BomPolicy::StripAll,
+        BomPolicy::Keep,
+        BomPolicy::Error,
+    ] {
         let dialect = Dialect::PORTABLE.with_bom(bom);
         let kept = crate::parse_strict_with("# \u{feff}", dialect)
             .unwrap()

@@ -6,6 +6,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `ParseOptions::max_lines` / `with_max_lines` and `LimitKind::Lines` to bound
+  physical input lines before parsing across document, values, compact and
+  loader APIs.
+- `BomPolicy::StripAll` to strip leading runs of UTF-8 byte-order marks, with
+  `Document::bom_span()` returning the full stripped BOM prefix span.
+- `LookupIndex::unique`, providing indexed `O(1)` average / `O(log n)` worst-case
+  uniqueness checks matching `Document::unique` across participating, bare and
+  empty keys.
+- `EditOptions`, `EditError::Limit(LimitExceeded)`, `LimitKind::OutputBytes`,
+  and `Document::{edit,set,remove,insert,rename}_with_options` to bound edited
+  output bytes, output physical lines and verification re-parsing before
+  allocating the output string.
+- `CompactEntries` and `parse_entries_compact` / `parse_entries_compact_with` /
+  `parse_entries_compact_with_options` (with `Mask` redaction support) for
+  single-buffer read-only storage that preserves winning bare declarations under
+  `BareKeys::Preserve`.
+- `adotenv-compact-entries` support in `adotenv-bench` (Criterion, Callgrind
+  `det_parse`, memory binary), `adotenv-xtask`, and docs benchmark charts.
+
 ### Tests
 
 - Updated `tests/vectors/manifest.json` to version 2 with `sha256:<hex>`
@@ -19,6 +40,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   context, CLI `set`/`fmt` argument boundaries, dialect presets and escape
   flags, comparison state and compact merge/debug behavior, and recorded the
   focused and sharded mutation triage.
+- Completed a focused `--in-diff` mutation sweep of all 259 mutants across the
+  `1.6.0` core additions, closed all 12 genuine test gaps, verified 35 caught /
+  0 missed on the 36-mutant confirmation rerun, and expanded `tests/public_api.rs`
+  and fuzz targets (`limits`, `edits`, `parser`) for the new `1.6.0` APIs.
 
 ### Documentation
 
