@@ -17,10 +17,12 @@ use std::{
 };
 
 use adotenv::{
-    parse_strict_with, parse_with, ColumnEncoding, Document, EditError, Entry, InlineComments,
-    LineIndex, Position as ParserPosition, Reference,
+    parse_strict_with_options, parse_with_options, BomPolicy, ColumnEncoding, Document, EditError,
+    Entry, InlineComments, LineIndex, Position as ParserPosition, Reference,
 };
-pub use adotenv::{Dialect, EqualsSpacing, QuoteStyle, Severity};
+pub use adotenv::{
+    Dialect, EqualsSpacing, LimitExceeded, LimitKind, ParseOptions, QuoteStyle, Severity,
+};
 use adotenv_lint::lint;
 pub use adotenv_lint::{KeyCase, LintOptions, Rule};
 use lsp_types::{
@@ -41,6 +43,8 @@ pub struct LspOptions {
     pub dialect: Dialect,
     /// Optional linter policy. Parser diagnostics remain enabled.
     pub lint: Option<LintOptions>,
+    /// Optional parser bounds applied to every document parse.
+    pub parse_options: ParseOptions,
 }
 
 impl Default for LspOptions {
@@ -50,13 +54,15 @@ impl Default for LspOptions {
 }
 
 impl LspOptions {
-    /// Returns Portable parsing, visible hover values and no linter.
+    /// Returns Portable parsing, visible hover values, no linter and no parse
+    /// limits.
     #[must_use]
     pub const fn new() -> Self {
         Self {
             mask_values: false,
             dialect: Dialect::PORTABLE,
             lint: None,
+            parse_options: ParseOptions::new(),
         }
     }
 
@@ -78,6 +84,13 @@ impl LspOptions {
     #[must_use]
     pub const fn with_lint_options(mut self, lint: LintOptions) -> Self {
         self.lint = Some(lint);
+        self
+    }
+
+    /// Sets opt-in [`ParseOptions`] bounds applied when parsing documents.
+    #[must_use]
+    pub const fn with_parse_options(mut self, parse_options: ParseOptions) -> Self {
+        self.parse_options = parse_options;
         self
     }
 }
@@ -122,8 +135,8 @@ impl From<EditError> for RenameError {
 /// `options.lint` contains an explicit policy.
 #[must_use]
 pub fn diagnostics(text: &str, uri: &Uri, options: &LspOptions) -> Vec<LspDiagnostic> {
-    let (document, diagnostics) = parse_with(text, options.dialect);
-    let mapped = Mapped::new(text);
+    let (document, diagnostics) = parse_with_options(text, options.dialect, options.parse_options);
+    let mapped = Mapped::new_for_dialect(text, options.dialect);
     let mut output = diagnostics
         .into_iter()
         .map(|diagnostic| {
@@ -192,7 +205,7 @@ pub fn completion_with_options(
     position: Position,
     options: &LspOptions,
 ) -> CompletionResponse {
-    let Some(offset) = Mapped::new(text).offset(position) else {
+    let Some(offset) = Mapped::new_for_dialect(text, options.dialect).offset(position) else {
         return CompletionResponse::Array(Vec::new());
     };
     let line_start = text[..offset]
@@ -225,7 +238,7 @@ pub fn completion_with_options(
         return CompletionResponse::Array(Vec::new());
     }
 
-    let (document, _) = parse_with(text, options.dialect);
+    let (document, _) = parse_with_options(text, options.dialect, options.parse_options);
     let mut keys = BTreeSet::new();
     for entry in document.entries() {
         keys.insert(entry.key().to_owned());
@@ -336,8 +349,8 @@ pub fn document_symbols(text: &str) -> DocumentSymbolResponse {
 #[must_use]
 #[allow(deprecated)]
 pub fn document_symbols_with_options(text: &str, options: &LspOptions) -> DocumentSymbolResponse {
-    let (document, _) = parse_with(text, options.dialect);
-    let mapped = Mapped::new(text);
+    let (document, _) = parse_with_options(text, options.dialect, options.parse_options);
+    let mapped = Mapped::new_for_dialect(text, options.dialect);
     DocumentSymbolResponse::Nested(
         document
             .entries()
@@ -377,8 +390,8 @@ pub fn workspace_symbols_with_options(
     query: &str,
     options: &LspOptions,
 ) -> Vec<SymbolInformation> {
-    let (document, _) = parse_with(text, options.dialect);
-    let mapped = Mapped::new(text);
+    let (document, _) = parse_with_options(text, options.dialect, options.parse_options);
+    let mapped = Mapped::new_for_dialect(text, options.dialect);
     let query = query.to_lowercase();
     document
         .entries()
@@ -434,21 +447,22 @@ pub fn definition_with_options(
     position: Position,
     options: &LspOptions,
 ) -> Option<GotoDefinitionResponse> {
-    let (document, _) = parse_with(text, options.dialect);
-    let offset = Mapped::new(text).offset(position)?;
+    let (document, _) = parse_with_options(text, options.dialect, options.parse_options);
+    let mapped = Mapped::new_for_dialect(text, options.dialect);
+    let offset = mapped.offset(position)?;
     let name = name_at(&document, offset)?;
     let entry = document.get_entry(name)?;
     Some(GotoDefinitionResponse::Scalar(Location::new(
         uri.clone(),
-        Mapped::new(text).range(entry.key_span()),
+        mapped.range(entry.key_span()),
     )))
 }
 
 /// Returns hover information for a key or reference.
 #[must_use]
 pub fn hover(text: &str, position: Position, options: &LspOptions) -> Option<Hover> {
-    let (document, _) = parse_with(text, options.dialect);
-    let mapped = Mapped::new(text);
+    let (document, _) = parse_with_options(text, options.dialect, options.parse_options);
+    let mapped = Mapped::new_for_dialect(text, options.dialect);
     let offset = mapped.offset(position)?;
     if let Some(reference) = reference_at(&document, offset) {
         let name = reference_name(&document, &reference)?;
@@ -515,14 +529,14 @@ pub fn references_with_options(
     include_declaration: bool,
     options: &LspOptions,
 ) -> Vec<Location> {
-    let (document, _) = parse_with(text, options.dialect);
-    let Some(offset) = Mapped::new(text).offset(position) else {
+    let (document, _) = parse_with_options(text, options.dialect, options.parse_options);
+    let mapped = Mapped::new_for_dialect(text, options.dialect);
+    let Some(offset) = mapped.offset(position) else {
         return Vec::new();
     };
     let Some(name) = name_at(&document, offset) else {
         return Vec::new();
     };
-    let mapped = Mapped::new(text);
     let mut locations = Vec::new();
     for entry in document.entries() {
         if entry.key() == name && include_declaration {
@@ -578,8 +592,13 @@ pub fn rename_with_options(
     new_name: &str,
     options: &LspOptions,
 ) -> Result<WorkspaceEdit, RenameError> {
-    let document = parse_strict_with(text, options.dialect).map_err(|_| RenameError::NoSymbol)?;
-    let mapped = Mapped::new(text);
+    let document = parse_strict_with_options(text, options.dialect, options.parse_options)
+        .map_err(|diagnostic| {
+            diagnostic.limit().map_or(RenameError::NoSymbol, |limit| {
+                RenameError::Edit(EditError::Limit(limit))
+            })
+        })?;
+    let mapped = Mapped::new_for_dialect(text, options.dialect);
     let offset = mapped.offset(position).ok_or(RenameError::NoSymbol)?;
     let old_name = name_at(&document, offset)
         .ok_or(RenameError::NoSymbol)?
@@ -640,22 +659,33 @@ fn entry_content_span(document: &Document<'_>, entry: Entry<'_>) -> std::ops::Ra
 
 struct Mapped<'a> {
     index: LineIndex<'a>,
-    bom: bool,
+    bom_chars: usize,
+    bom_bytes: usize,
 }
 
 impl<'a> Mapped<'a> {
     fn new(text: &'a str) -> Self {
+        Self::new_for_dialect(text, Dialect::PORTABLE)
+    }
+
+    fn new_for_dialect(text: &'a str, dialect: Dialect) -> Self {
+        let bom_chars = if dialect.bom == BomPolicy::StripAll {
+            text.chars().take_while(|ch| *ch == '\u{feff}').count()
+        } else {
+            usize::from(text.starts_with('\u{feff}'))
+        };
         Self {
             index: LineIndex::new(text),
-            bom: text.starts_with('\u{feff}'),
+            bom_chars,
+            bom_bytes: bom_chars * '\u{feff}'.len_utf8(),
         }
     }
 
     fn offset(&self, position: Position) -> Option<usize> {
         let line = usize::try_from(position.line).ok()?;
         let mut column = usize::try_from(position.character).ok()?;
-        if line == 0 && self.bom {
-            column = column.checked_add(1)?;
+        if line == 0 && self.bom_chars > 0 {
+            column = column.checked_add(self.bom_chars)?;
         }
         self.index
             .to_offset(ParserPosition { line, column }, ColumnEncoding::Utf16)
@@ -663,7 +693,7 @@ impl<'a> Mapped<'a> {
     }
 
     fn range(&self, span: std::ops::Range<usize>) -> Range {
-        if self.bom && span.start == 0 && span.end == 3 {
+        if self.bom_bytes > 0 && span.start == 0 && span.end == self.bom_bytes {
             // The byte-order mark has no visible width. Anchor its diagnostic
             // to the first visible character instead of a zero-width range.
             return Range::new(
@@ -683,8 +713,8 @@ impl<'a> Mapped<'a> {
     fn position(&self, offset: usize) -> Position {
         match self.index.to_position(offset, ColumnEncoding::Utf16) {
             Ok(position) => {
-                let column = if position.line == 0 && self.bom {
-                    position.column.saturating_sub(1)
+                let column = if position.line == 0 && self.bom_chars > 0 {
+                    position.column.saturating_sub(self.bom_chars)
                 } else {
                     position.column
                 };

@@ -1,6 +1,10 @@
-//! Binary-level configuration checks.
+//! Binary-level configuration and stdio transport checks.
 
-use std::{fs, process::Command};
+use std::{
+    fs,
+    io::{BufRead, BufReader, Write},
+    process::{Command, Stdio},
+};
 
 fn temp_path(name: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
@@ -34,4 +38,133 @@ fn conflicting_config_modes_fail_before_the_server_starts() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("cannot be combined"), "{stderr}");
+}
+
+#[test]
+fn help_and_version_flags_exit_successfully() {
+    let help = Command::new(env!("CARGO_BIN_EXE_adotenv-lsp"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    assert!(help.status.success());
+    let stdout = String::from_utf8_lossy(&help.stdout);
+    assert!(stdout.contains("--max-input-bytes"));
+    assert!(stdout.contains("--max-lines"));
+
+    let version = Command::new(env!("CARGO_BIN_EXE_adotenv-lsp"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(version.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&version.stdout).trim(),
+        format!("adotenv-lsp {}", env!("CARGO_PKG_VERSION"))
+    );
+}
+
+fn write_lsp_message(writer: &mut impl Write, payload: &serde_json::Value) {
+    let body = serde_json::to_vec(payload).unwrap();
+    write!(writer, "Content-Length: {}\r\n\r\n", body.len()).unwrap();
+    writer.write_all(&body).unwrap();
+    writer.flush().unwrap();
+}
+
+fn read_lsp_message(reader: &mut impl BufRead) -> serde_json::Value {
+    let mut length = None;
+    let mut line = String::new();
+    loop {
+        line.clear();
+        reader.read_line(&mut line).unwrap();
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            break;
+        }
+        if let Some(value) = trimmed.strip_prefix("Content-Length:") {
+            length = Some(value.trim().parse::<usize>().unwrap());
+        }
+    }
+    let mut body = vec![0u8; length.expect("Content-Length header")];
+    reader.read_exact(&mut body).unwrap();
+    serde_json::from_slice(&body).unwrap()
+}
+
+#[test]
+fn stdio_server_handles_initialize_diagnostics_hover_and_shutdown() {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_adotenv-lsp"))
+        .args(["--mask-values", "--max-lines", "2"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+
+    write_lsp_message(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": { "capabilities": {} }
+        }),
+    );
+    let init = read_lsp_message(&mut stdout);
+    assert_eq!(init["id"], 1);
+    assert_eq!(
+        init["result"]["capabilities"]["hoverProvider"].as_bool(),
+        Some(true)
+    );
+
+    write_lsp_message(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "initialized",
+            "params": {}
+        }),
+    );
+    write_lsp_message(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": {
+                    "uri": "file:///tmp/.env",
+                    "languageId": "dotenv",
+                    "version": 1,
+                    "text": "A=1\nB=2\nC=3\n"
+                }
+            }
+        }),
+    );
+    let diag = read_lsp_message(&mut stdout);
+    assert_eq!(diag["method"], "textDocument/publishDiagnostics");
+    assert_eq!(
+        diag["params"]["diagnostics"][0]["code"],
+        "dotenv.limit-exceeded"
+    );
+
+    write_lsp_message(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "shutdown",
+            "params": null
+        }),
+    );
+    let shut = read_lsp_message(&mut stdout);
+    assert_eq!(shut["id"], 2);
+    write_lsp_message(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "exit",
+            "params": null
+        }),
+    );
+    drop(stdin);
+    let status = child.wait().unwrap();
+    assert!(status.success());
 }

@@ -38,8 +38,11 @@ names, such as keys containing `-`, fail with the core
 ## Diagnostics, masking and environment
 
 Parser diagnostics are always enabled. `LspOptions::with_dialect` selects the
-parser dialect for every operation; the stdio server takes it from the loaded
-lint configuration. Linter findings are an explicit policy:
+parser dialect for every operation (including `BomPolicy::StripAll` multi-BOM
+position mapping); the stdio server takes it from the loaded lint configuration.
+`LspOptions::with_parse_options` (and the stdio binary's `--max-input-bytes` /
+`--max-lines` flags) applies opt-in `ParseOptions` bounds to every document
+parse. Linter findings are an explicit policy:
 `LspOptions::with_lint_options` accepts the linter's own `LintOptions` rule and
 severity policy. The default `LspOptions` does not run the linter, so
 diagnostics do not silently depend on a policy configuration.

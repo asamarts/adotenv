@@ -1,9 +1,9 @@
 # adotenv-lsp
 
 An optional Language Server Protocol companion for `adotenv` documents.
-Version 0.4.2 is published on crates.io as an unstable prototype with explicit
-lint configuration and configurable parser dialect. Breaking changes may occur
-within the 0.x line.
+Version 0.5.0 is an unstable prototype with explicit lint configuration,
+configurable parser dialect, opt-in parse limits and multi-BOM support.
+Breaking changes may occur within the 0.x line.
 
 It supports:
 
@@ -29,6 +29,7 @@ adotenv-lsp
 adotenv-lsp --help
 adotenv-lsp --version
 adotenv-lsp --mask-values
+adotenv-lsp --max-input-bytes 1048576 --max-lines 10000
 adotenv-lsp --config .adotenv-lint.toml
 adotenv-lsp --discover-lint-config
 ```
@@ -47,10 +48,13 @@ disables the linter duplicate-key rule unless `[rules]` explicitly enables it.
 
 ## Library
 
-Linter findings are opt-in through `LspOptions::with_lint_options`, and
-`LspOptions::with_dialect` selects the parser rules used by every operation.
+Linter findings are opt-in through `LspOptions::with_lint_options`,
+`LspOptions::with_dialect` selects the parser rules used by every operation,
+and `LspOptions::with_parse_options` applies opt-in `ParseOptions` bounds
+(bytes, lines, items and diagnostics) to every parse.
 Parser diagnostics remain enabled independently. The crate re-exports
-`Dialect`, `LintOptions`, `KeyCase`, `QuoteStyle`, `EqualsSpacing`, `Rule` and
+`Dialect`, `ParseOptions`, `LimitKind`, `LimitExceeded`, `LintOptions`,
+`KeyCase`, `QuoteStyle`, `EqualsSpacing`, `Rule` and
 `Severity` so callers can configure a policy without a separate direct
 dependency.
 
