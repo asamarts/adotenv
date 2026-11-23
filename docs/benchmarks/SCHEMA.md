@@ -10,7 +10,7 @@ consumers must ignore unknown fields added in a later release.
 | `size` | string | Size label (`8`, `128`, `1k`, `10k`, `100k`) |
 | `shape` | string | Fixture shape label |
 | `mode` | string | `values`, `document`, `load` or `resolve` |
-| `implementation` | string | `adotenv`, `adotenv-compact`, or a pinned competitor label |
+| `implementation` | string | `adotenv`, `adotenv-compact`, `adotenv-compact-entries`, or a pinned competitor label |
 | `entries` | integer | Parsed declaration count |
 | `source_bytes` | integer | Generated fixture byte length |
 | `fixture_sha256` | string | SHA-256 of the exact fixture source |

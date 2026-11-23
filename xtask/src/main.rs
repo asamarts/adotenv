@@ -1008,6 +1008,7 @@ fn implementations(compact: bool) -> Vec<Implementation> {
     let mut implementations = vec![Implementation::Adotenv];
     if compact {
         implementations.push(Implementation::AdotenvCompact);
+        implementations.push(Implementation::AdotenvCompactEntries);
     }
     implementations.extend(Competitor::ALL.into_iter().map(Implementation::Competitor));
     implementations
@@ -1161,5 +1162,18 @@ mod tests {
             check_memory_gate(&baseline, &current, "adotenv-compact", 5, 0, 0).len(),
             1
         );
+    }
+
+    #[test]
+    fn compact_implementations_include_values_and_entries() {
+        let plain = implementations(false);
+        assert!(plain.contains(&Implementation::Adotenv));
+        assert!(!plain.contains(&Implementation::AdotenvCompact));
+        assert!(!plain.contains(&Implementation::AdotenvCompactEntries));
+
+        let compact = implementations(true);
+        assert!(compact.contains(&Implementation::Adotenv));
+        assert!(compact.contains(&Implementation::AdotenvCompact));
+        assert!(compact.contains(&Implementation::AdotenvCompactEntries));
     }
 }

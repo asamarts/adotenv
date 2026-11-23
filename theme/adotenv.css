@@ -101,6 +101,7 @@ html:not(.js) {
     --hl-meta: #116329;
     --hl-attr: #0550ae;
     --chart-best: #b7791f;
+    --chart-compact-entries: #0e7490;
     --competitor-1: #0969da;
     --competitor-2: #8250df;
     --competitor-3: #bf8700;
@@ -182,6 +183,7 @@ html:not(.js) {
     --hl-meta: #7ee787;
     --hl-attr: #79c0ff;
     --chart-best: #d29922;
+    --chart-compact-entries: #22d3ee;
     --competitor-1: #58a6ff;
     --competitor-2: #bc8cff;
     --competitor-3: #d29922;
@@ -1410,6 +1412,7 @@ html:not(.adotenv-nav) .content .nav-wrapper .mobile-nav-chapters .fa-svg {
 }
 
 .bench-bar-compact { fill: var(--accent); }
+.bench-bar-compact-entries { fill: var(--chart-compact-entries); }
 .bench-bar-map { fill: var(--subtle); }
 .bench-bar-best { fill: var(--chart-best); }
 .bench-bar-impl-0 { fill: var(--competitor-1); }
@@ -1441,6 +1444,7 @@ html:not(.adotenv-nav) .content .nav-wrapper .mobile-nav-chapters .fa-svg {
 }
 
 .bench-swatch.bench-bar-compact { background: var(--accent); }
+.bench-swatch.bench-bar-compact-entries { background: var(--chart-compact-entries); }
 .bench-swatch.bench-bar-map { background: var(--subtle); }
 .bench-swatch.bench-bar-best { background: var(--chart-best); }
 .bench-swatch.bench-bar-impl-0 { background: var(--competitor-1); }

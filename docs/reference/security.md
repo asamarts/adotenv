@@ -25,11 +25,19 @@ files, `Document::resolve` substitutes references from a lookup you pass,
   instead of replacing it.
 - A retained `Document` keeps item and token metadata for the whole file, so
   memory grows with the input. Use `ParseOptions` with `parse_with_options`,
-  `parse_strict_with_options`, `parse_values_with_options` or
-  `parse_owned_with_options` to bound input bytes, items and diagnostics.
+  `parse_strict_with_options`, `parse_values_with_options`,
+  `parse_values_compact_with_options`, `parse_entries_compact_with_options` or
+  `parse_owned_with_options` to bound input bytes, physical lines, items and
+  diagnostics.
   Limits are opt-in; the 1.x default keeps accepting valid input. A future
-  major release may choose default limits. `parse_values` keeps only final
-  values and uses much less memory.
+  major release may choose default limits. `parse_values`, `parse_values_compact`
+  and `parse_entries_compact` skip the document model and use much less memory.
+- For untrusted edits, pass `EditOptions` to `Document::edit_with_options`,
+  `set_with_options`, `remove_with_options`, `insert_with_options` or
+  `rename_with_options` to bound output bytes (`LimitKind::OutputBytes`),
+  output physical lines (`LimitKind::Lines`) and verification re-parsing
+  (`parse_limits`). Planned byte and line budgets are checked before allocating
+  the output string; exceeding a limit fails with `EditError::Limit`.
 - The loader accepts the same limits with `LoadOptions::with_limits`.
   `max_input_bytes` bounds the file size and the read itself, so a file that
   changes after its metadata check cannot grow without bound. Exceeding a
@@ -61,9 +69,9 @@ files, `Document::resolve` substitutes references from a lookup you pass,
   `ResolveError::DepthExceeded`, `TooManyReferences`, `ValueTooLarge` or
   `OutputTooLarge`. See
   [References and resolution](../design/expansion.md#resolution).
-- Fuzz targets cover parsing, edits, encoding, resolution, formatting and
-  parse limits. A bounded fuzz run is evidence, not a proof; see
-  [Quality](../design/quality.md).
+- Fuzz targets cover parsing, edits, encoding, resolution, formatting,
+  parse limits and differential parsing. A bounded fuzz run is evidence, not a
+  proof; see [Quality](../design/quality.md).
 
 ## Secret values
 
@@ -71,10 +79,10 @@ Values may be secrets. These outputs include them:
 
 - `Debug` output of documents, items, entries, edit and format results,
   comparisons, loaded environments and entries, resolved values, lookup
-  indexes, effective entries, compact values, line indexes, groups, portability
-  reports and the adapter types. The core document, edit, comparison, load,
-  resolution, compact-values, line-index, group and portability types support a
-  value-redacting `Debug`
+  indexes, effective entries, compact values, compact entries, line indexes,
+  groups, portability reports and the adapter types. The core document, edit,
+  comparison, load, resolution, compact-values, compact-entries, line-index,
+  group and portability types support a value-redacting `Debug`
   form through `adotenv::Masked` and `adotenv::mask`; use
   `DeserializeError::masked()` for serde errors. Adapter types still include
   values. Do not log normal `Debug` output when values are secret.

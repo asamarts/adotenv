@@ -12,10 +12,11 @@ It never changes the source: printing a document returns the original bytes.
 | `parse_owned(String)` | `(Document<'static>, Vec<Diagnostic>)` | Like `parse`, but the document owns the source |
 | `parse_values(source)` | `Result<BTreeMap<String, String>, Diagnostic>` | Returns the first error |
 | `parse_values_compact(source)` | `Result<CompactValues, Diagnostic>` | Returns the first error; lower retained memory |
+| `parse_entries_compact(source)` | `Result<CompactEntries, Diagnostic>` | Returns the first error; lower retained memory, preserves bare keys |
 
 Each has a `_with` variant that takes a [`Dialect`](../design/dialects.md):
-`parse_with`, `parse_strict_with`, `parse_owned_with`, `parse_values_with` and
-`parse_values_compact_with`.
+`parse_with`, `parse_strict_with`, `parse_owned_with`, `parse_values_with`,
+`parse_values_compact_with` and `parse_entries_compact_with`.
 Without one, the Portable dialect is used.
 
 `parse` never fails. It recovers at the smallest safe boundary, so one broken
@@ -70,11 +71,13 @@ assert_eq!(limit.observed(), 13);
 ```
 
 Use the `_with_options` variants of the parse functions. A recovering `parse`
-returns the source and a `dotenv.limit-exceeded` diagnostic; input and item
-limits also add an invalid item for the remainder. `parse_strict` and
-`parse_values` return that diagnostic as an error. `Diagnostic::limit()`
+returns the source and a `dotenv.limit-exceeded` diagnostic; input byte, line
+and item limits also add an invalid item for the remainder. `parse_strict`,
+`parse_values`, `parse_values_compact` and `parse_entries_compact` return that
+diagnostic as an error. `Diagnostic::limit()`
 carries the structured kind, configured maximum and observed size or count.
-`ParseOptions` item limits count statements for the values-only parser.
+`ParseOptions` item limits count statements for the values-only and compact
+parsers.
 
 The loader accepts the same limits through `LoadOptions::with_limits` and also
 uses `max_input_bytes` to bound the read itself. A load returns
