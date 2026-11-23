@@ -6,7 +6,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [1.6.0] - 2026-11-22
+## [1.6.0] - 2026-11-23
 
 ### Added
 
@@ -44,8 +44,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   focused and sharded mutation triage.
 - Completed a focused `--in-diff` mutation sweep of all 259 mutants across the
   `1.6.0` core additions, closed all 12 genuine test gaps, verified 35 caught /
-  0 missed on the 36-mutant confirmation rerun, and expanded `tests/public_api.rs`
-  and fuzz targets (`limits`, `edits`, `parser`) for the new `1.6.0` APIs.
+  0 missed on the 36-mutant confirmation rerun, expanded `tests/public_api.rs`
+  and fuzz targets (`limits`, `edits`, `parser`) for the new `1.6.0` APIs, and
+  passed four sequential GitHub Actions fuzz workflow runs across all seven
+  targets (`45118514973`, `45119286866`, `45119980331`, `45120661154`).
 
 ### Documentation
 

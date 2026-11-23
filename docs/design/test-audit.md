@@ -172,6 +172,14 @@ in-memory competitors on the conservative `KEY=value` grammar and runs
 malformed/recovery inputs through parser invariants where upstream semantics
 differ.
 
+On 2026-11-23, four sequential GitHub Actions `fuzz.yml` workflow runs passed
+against `1.6.0` release commit `eb2cef1`, each covering all seven targets
+(`parser`, `edits`, `encoding`, `resolve`, `format`, `limits` and
+`differential`, including the new `EditOptions`, `CompactEntries`,
+`LookupIndex::unique` and `max_lines` invariants): `45118514973`,
+`45119286866`, `45119980331` and `45120661154` (28 of 28 target jobs passed,
+with zero crashes and zero timeouts).
+
 ## Mutation testing at 1.2.0
 
 A focused mutation campaign ran on the security and limit modules changed by
