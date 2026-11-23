@@ -32,6 +32,7 @@ adotenv-lint --key-order --key-case upper .env
 adotenv-lint --format=json --recursive .
 adotenv-lint --format=github --key-order .
 adotenv-lint --recursive --exclude='target/**' .
+adotenv-lint --max-input-bytes 1048576 --max-lines 10000 .env
 ```
 
 Without `--fix` the CLI is report-only. With `--fix` it applies compatible

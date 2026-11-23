@@ -2762,3 +2762,95 @@ fn double_dash_ends_option_parsing() {
     assert_eq!(load.status.code(), Some(0), "{}", stderr(&load));
     assert_eq!(stdout(&load), "A=1\n");
 }
+
+#[test]
+fn parse_and_output_limit_flags_apply_across_cli_commands() {
+    let dir = TempDir::new();
+    let file = dir.file(".env", "A=1\nB=2\nC=3\n");
+    let other = dir.file(".env.other", "A=1\nB=9\n");
+
+    // check reports dotenv.limit-exceeded with exit code 1 (human & json)
+    let check_lines = run(&[
+        "--max-lines",
+        "2",
+        "check",
+        "--json",
+        file.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        check_lines.status.code(),
+        Some(1),
+        "{}",
+        stderr(&check_lines)
+    );
+    assert!(stdout(&check_lines).contains("dotenv.limit-exceeded"));
+
+    // get rejects oversized input with exit code 2
+    let get_bytes = run(&["get", "--max-input-bytes=4", file.to_str().unwrap(), "A"]);
+    assert_eq!(get_bytes.status.code(), Some(2));
+    assert!(stderr(&get_bytes).contains("limit"));
+
+    // diff enforces limits on baseline and target
+    let diff_lines = run(&[
+        "--max-lines=2",
+        "diff",
+        file.to_str().unwrap(),
+        other.to_str().unwrap(),
+    ]);
+    assert_eq!(diff_lines.status.code(), Some(2));
+
+    // load enforces ParseOptions limits through LoadOptions
+    let load_lines = run(&["--max-lines", "2", "load", dir.path().to_str().unwrap()]);
+    assert_eq!(load_lines.status.code(), Some(2));
+
+    // set enforces --max-output-bytes and --max-output-lines via EditOptions
+    let set_out_bytes = run(&[
+        "set",
+        "--max-output-bytes",
+        "12",
+        file.to_str().unwrap(),
+        "A",
+        "very-long-value",
+    ]);
+    assert_eq!(set_out_bytes.status.code(), Some(2));
+    assert_eq!(fs::read_to_string(&file).unwrap(), "A=1\nB=2\nC=3\n");
+
+    let set_out_lines = run(&[
+        "set",
+        "--max-output-lines=3",
+        file.to_str().unwrap(),
+        "D",
+        "4",
+    ]);
+    assert_eq!(set_out_lines.status.code(), Some(2));
+    assert_eq!(fs::read_to_string(&file).unwrap(), "A=1\nB=2\nC=3\n");
+
+    // set succeeds when within bounds and keeps --dialect= after file as literal value
+    let set_ok = run(&[
+        "set",
+        "--max-output-bytes=64",
+        "--max-output-lines",
+        "4",
+        "--max-lines=3",
+        file.to_str().unwrap(),
+        "A",
+        "--max-lines=99",
+    ]);
+    assert_eq!(set_ok.status.code(), Some(0), "{}", stderr(&set_ok));
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "A=--max-lines=99\nB=2\nC=3\n"
+    );
+
+    // Invalid and duplicate limit flags fail with exit code 2
+    for bad in [
+        &["--max-lines"][..],
+        &["--max-input-bytes=abc"][..],
+        &["--max-lines", "1", "--max-lines", "2", "get", "x", "A"][..],
+        &["set", "--max-output-bytes=abc", "x", "A", "1"][..],
+        &["set", "--max-output-lines"][..],
+    ] {
+        let out = run(bad);
+        assert_eq!(out.status.code(), Some(2), "{bad:?}");
+    }
+}

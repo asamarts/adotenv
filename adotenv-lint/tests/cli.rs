@@ -327,3 +327,34 @@ fn rules_table_can_enable_and_disable_rules() {
     let output = run_in(dir.path(), &[".env"]);
     assert_eq!(output.status.code(), Some(0));
 }
+
+#[test]
+fn parse_limit_flags_bound_input_bytes_and_lines() {
+    let dir = TempDir::new();
+    let file = dir.file("app.env", "A=1\nB=2\nC=3\n");
+
+    let too_many_lines = run(&["--max-lines", "2", file.to_str().unwrap()]);
+    assert_eq!(too_many_lines.status.code(), Some(2));
+    assert!(String::from_utf8(too_many_lines.stderr)
+        .unwrap()
+        .contains("line"));
+
+    let too_many_bytes = run(&["--max-input-bytes=6", file.to_str().unwrap()]);
+    assert_eq!(too_many_bytes.status.code(), Some(2));
+    assert!(String::from_utf8(too_many_bytes.stderr)
+        .unwrap()
+        .contains("limit"));
+
+    let within_limits = run(&[
+        "--max-input-bytes",
+        "64",
+        "--max-lines=3",
+        file.to_str().unwrap(),
+    ]);
+    assert_eq!(within_limits.status.code(), Some(0));
+
+    let bad_val = run(&["--max-lines=abc", file.to_str().unwrap()]);
+    assert_eq!(bad_val.status.code(), Some(2));
+    let missing_val = run(&["--max-input-bytes"]);
+    assert_eq!(missing_val.status.code(), Some(2));
+}

@@ -10,7 +10,8 @@ cargo install adotenv-cli --locked
 The binary is `adotenv-cli`.
 
 ```text
-adotenv-cli [--dialect portable|node|python|compose|docker] [--dialect=<value>] <command> [options]
+adotenv-cli [--dialect portable|node|python|compose|docker] [--dialect=<value>]
+            [--max-input-bytes <n>] [--max-lines <n>] <command> [options]
 
 get <file> <key>
 check [--format human|json|github] [--json] [--source] [-r|--recursive] [--exclude <path>] <path>...
@@ -18,7 +19,7 @@ fmt [--write|--check] [--sort] [-r|--recursive] [--exclude <path>] <path>...
 diff [--format human|matrix|json] [--json] [--mask] <baseline> <file>...
 example <file>
 load <directory> [mode]
-set <file> <key> <value>
+set [--max-output-bytes <n>] [--max-output-lines <n>] <file> <key> <value>
 run <directory> [mode] -- <program> [args...]
 ```
 

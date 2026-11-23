@@ -14,9 +14,10 @@ use std::{
 use std::fmt::Write as _;
 
 use adotenv::{
-    load::{load_cascade_with, LoadedEnvironment},
-    parse_strict_with, parse_with, AssignmentState, ComparedValue, Comparison, Diagnostic, Dialect,
-    DifferenceKind, Document, FormatOptions, Severity,
+    load::{load_cascade_with_options, LoadOptions, LoadedEnvironment},
+    parse_strict_with, parse_strict_with_options, parse_with_options, AssignmentState,
+    ComparedValue, Comparison, Diagnostic, Dialect, DifferenceKind, Document, EditOptions,
+    FormatOptions, ParseOptions, Severity,
 };
 
 /// Exit code: the command succeeded.
@@ -97,10 +98,16 @@ fn main() -> ExitCode {
     ExitCode::from(if output_failed { FAILURE } else { code })
 }
 
+#[derive(Clone, Copy)]
+struct GlobalOptions {
+    dialect: Dialect,
+    parse_options: ParseOptions,
+}
+
 fn run(args: &[String]) -> u8 {
     let mut args = args.to_vec();
-    let dialect = match extract_dialect(&mut args) {
-        Ok(dialect) => dialect,
+    let global = match extract_global_options(&mut args) {
+        Ok(global) => global,
         Err(()) => return 2,
     };
     let Some(command) = args.first().map(String::as_str) else {
@@ -116,14 +123,14 @@ fn run(args: &[String]) -> u8 {
             outln!("adotenv-cli {}", env!("CARGO_PKG_VERSION"));
             SUCCESS
         }
-        "get" => get(&args[1..], dialect),
-        "check" => check(&args[1..], dialect),
-        "fmt" => fmt(&args[1..], dialect),
-        "diff" => diff(&args[1..], dialect),
-        "example" => example(&args[1..], dialect),
-        "load" => load(&args[1..], dialect),
-        "set" => set(&args[1..], dialect),
-        "run" => run_command(&args[1..], dialect),
+        "get" => get(&args[1..], global),
+        "check" => check(&args[1..], global),
+        "fmt" => fmt(&args[1..], global),
+        "diff" => diff(&args[1..], global),
+        "example" => example(&args[1..], global),
+        "load" => load(&args[1..], global),
+        "set" => set(&args[1..], global),
+        "run" => run_command(&args[1..], global),
         _ => {
             errln!("unknown command: {command}");
             usage();
@@ -132,19 +139,49 @@ fn run(args: &[String]) -> u8 {
     }
 }
 
-fn extract_dialect(args: &mut Vec<String>) -> Result<Dialect, ()> {
-    // Global dialect options may appear before the command, or anywhere after
-    // it before a `--` terminator. `set` is the exception: once its file
-    // argument has been seen, a later `--dialect=...` is a key or value, not a
-    // global option.
-    let mut selected = None;
+enum GlobalOptionValue {
+    Dialect(Dialect),
+    MaxInputBytes(usize),
+    MaxLines(usize),
+}
+
+fn extract_global_options(args: &mut Vec<String>) -> Result<GlobalOptions, ()> {
+    // Global options may appear before the command, or anywhere after it
+    // before a `--` terminator. `set` is the exception: once its file argument
+    // has been seen, a later `--dialect=...` is a key or value, not a global
+    // option.
+    let mut dialect = None;
+    let mut max_input_bytes = None;
+    let mut max_lines = None;
+    let mut ranges = Vec::new();
+    let mut record = |start: usize, end: usize, parsed: GlobalOptionValue| -> Result<(), ()> {
+        match parsed {
+            GlobalOptionValue::Dialect(value) => {
+                if dialect.replace(value).is_some() {
+                    errln!("--dialect may be specified only once");
+                    return Err(());
+                }
+            }
+            GlobalOptionValue::MaxInputBytes(value) => {
+                if max_input_bytes.replace(value).is_some() {
+                    errln!("--max-input-bytes may be specified only once");
+                    return Err(());
+                }
+            }
+            GlobalOptionValue::MaxLines(value) => {
+                if max_lines.replace(value).is_some() {
+                    errln!("--max-lines may be specified only once");
+                    return Err(());
+                }
+            }
+        }
+        ranges.push((start, end));
+        Ok(())
+    };
     let mut index = 0;
     while index < args.len() {
-        if let Some((end, value)) = dialect_option(args, index)? {
-            if selected.replace((index, end, value)).is_some() {
-                errln!("--dialect may be specified only once");
-                return Err(());
-            }
+        if let Some((end, value)) = global_option(args, index)? {
+            record(index, end, value)?;
             index = end;
         } else {
             break;
@@ -159,12 +196,18 @@ fn extract_dialect(args: &mut Vec<String>) -> Result<Dialect, ()> {
             if args[index] == "--" || stop_at_first_positional && positional_seen {
                 break;
             }
-            if let Some((end, value)) = dialect_option(args, index)? {
-                if selected.replace((index, end, value)).is_some() {
-                    errln!("--dialect may be specified only once");
-                    return Err(());
-                }
+            if let Some((end, value)) = global_option(args, index)? {
+                record(index, end, value)?;
                 index = end;
+                continue;
+            }
+            if stop_at_first_positional
+                && matches!(
+                    args[index].as_str(),
+                    "--max-output-bytes" | "--max-output-lines"
+                )
+            {
+                index = (index + 2).min(args.len());
                 continue;
             }
             if stop_at_first_positional && !args[index].starts_with('-') {
@@ -173,12 +216,58 @@ fn extract_dialect(args: &mut Vec<String>) -> Result<Dialect, ()> {
             index += 1;
         }
     }
-    if let Some((start, end, dialect)) = selected {
+    for (start, end) in ranges.into_iter().rev() {
         args.drain(start..end);
-        Ok(dialect)
-    } else {
-        Ok(Dialect::PORTABLE)
     }
+    let mut parse_options = ParseOptions::new();
+    if let Some(limit) = max_input_bytes {
+        parse_options = parse_options.with_max_input_bytes(limit);
+    }
+    if let Some(limit) = max_lines {
+        parse_options = parse_options.with_max_lines(limit);
+    }
+    Ok(GlobalOptions {
+        dialect: dialect.unwrap_or(Dialect::PORTABLE),
+        parse_options,
+    })
+}
+
+fn parse_limit_value(flag: &str, value: &str) -> Result<usize, ()> {
+    value.parse::<usize>().map_err(|_| {
+        errln!("{flag} expects a non-negative integer: {value}");
+    })
+}
+
+fn global_option(args: &[String], index: usize) -> Result<Option<(usize, GlobalOptionValue)>, ()> {
+    if let Some((end, dialect)) = dialect_option(args, index)? {
+        return Ok(Some((end, GlobalOptionValue::Dialect(dialect))));
+    }
+    for (flag, prefix, wrap) in [
+        (
+            "--max-input-bytes",
+            "--max-input-bytes=",
+            GlobalOptionValue::MaxInputBytes as fn(usize) -> GlobalOptionValue,
+        ),
+        (
+            "--max-lines",
+            "--max-lines=",
+            GlobalOptionValue::MaxLines as fn(usize) -> GlobalOptionValue,
+        ),
+    ] {
+        if args[index] == flag {
+            if index + 1 >= args.len() {
+                errln!("{flag} requires a value");
+                return Err(());
+            }
+            let parsed = parse_limit_value(flag, &args[index + 1])?;
+            return Ok(Some((index + 2, wrap(parsed))));
+        }
+        if let Some(value) = args[index].strip_prefix(prefix) {
+            let parsed = parse_limit_value(flag, value)?;
+            return Ok(Some((index + 1, wrap(parsed))));
+        }
+    }
+    Ok(None)
 }
 
 fn dialect_option(args: &[String], index: usize) -> Result<Option<(usize, Dialect)>, ()> {
@@ -206,7 +295,8 @@ fn dialect_option(args: &[String], index: usize) -> Result<Option<(usize, Dialec
     };
     Ok(Some((end, dialect)))
 }
-const USAGE: &str = r#"adotenv-cli [--dialect <portable|node|python|compose|docker>] [--dialect=<value>] <command> [options]
+const USAGE: &str = r#"adotenv-cli [--dialect <portable|node|python|compose|docker>] [--dialect=<value>]
+            [--max-input-bytes <n>] [--max-lines <n>] <command> [options]
 
 Commands:
   get <file> <key>             Print an effective literal value
@@ -219,7 +309,8 @@ Commands:
                                 Compare effective keys, optionally masking values
   example <file>               Print a value-free example (comments are kept)
   load <directory> [mode]      Print the standard dotenv cascade as Portable lines
-  set <file> <key> <value>     Set and write one declaration
+  set [--max-output-bytes <n>] [--max-output-lines <n>] <file> <key> <value>
+                                Set and write one declaration
   run <directory> [mode] -- <program> [args...]
                                 Run a child with the environment plus loaded values
 
@@ -240,7 +331,7 @@ fn usage() {
     out!("{USAGE}");
 }
 
-fn get(args: &[String], dialect: Dialect) -> u8 {
+fn get(args: &[String], global: GlobalOptions) -> u8 {
     let (args, options_ended) = strip_options_terminator(args);
     if args.len() != 2 {
         errln!("usage: adotenv-cli get <file> <key>");
@@ -257,7 +348,7 @@ fn get(args: &[String], dialect: Dialect) -> u8 {
         Ok(source) => source,
         Err(error) => return fail(error),
     };
-    let doc = match parse_strict_with(&source, dialect) {
+    let doc = match parse_strict_with_options(&source, global.dialect, global.parse_options) {
         Ok(doc) => doc,
         Err(error) => return fail(format!("{path}: {error}")),
     };
@@ -617,7 +708,7 @@ fn parse_fmt_args(args: &[String]) -> Result<FmtArgs, String> {
     })
 }
 
-fn check(args: &[String], dialect: Dialect) -> u8 {
+fn check(args: &[String], global: GlobalOptions) -> u8 {
     let CheckArgs {
         paths: raw_paths,
         format,
@@ -705,7 +796,7 @@ fn check(args: &[String], dialect: Dialect) -> u8 {
                 continue;
             }
         };
-        let (_, diagnostics) = parse_with(&source, dialect);
+        let (_, diagnostics) = parse_with_options(&source, global.dialect, global.parse_options);
         let mut file_has_error = false;
         let mut rendered = Vec::new();
         for diagnostic in &diagnostics {
@@ -975,7 +1066,7 @@ fn json_string(value: &str) -> String {
     output
 }
 
-fn fmt(args: &[String], dialect: Dialect) -> u8 {
+fn fmt(args: &[String], global: GlobalOptions) -> u8 {
     let FmtArgs {
         paths: raw_paths,
         write,
@@ -1049,7 +1140,7 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
                 continue;
             }
         };
-        let (doc, diagnostics) = parse_with(&source, dialect);
+        let (doc, diagnostics) = parse_with_options(&source, global.dialect, global.parse_options);
         let has_errors = diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity() == Severity::Error);
@@ -1067,7 +1158,11 @@ fn fmt(args: &[String], dialect: Dialect) -> u8 {
                 }
             };
             formatting_source = sorted.into_string();
-            formatting_doc = match parse_strict_with(&formatting_source, dialect) {
+            formatting_doc = match parse_strict_with_options(
+                &formatting_source,
+                global.dialect,
+                global.parse_options,
+            ) {
                 Ok(doc) => doc,
                 Err(error) => {
                     code = code.max(fail(format!("{}: {error}", path.display())));
@@ -1177,7 +1272,7 @@ fn parse_diff_args(args: &[String]) -> Result<DiffArgs, String> {
     })
 }
 
-fn diff(args: &[String], dialect: Dialect) -> u8 {
+fn diff(args: &[String], global: GlobalOptions) -> u8 {
     let DiffArgs {
         paths,
         format,
@@ -1200,21 +1295,22 @@ fn diff(args: &[String], dialect: Dialect) -> u8 {
         return FAILURE;
     }
     if format != DiffFormat::Matrix {
-        return diff_streaming(&paths, format, dialect, mask);
+        return diff_streaming(&paths, format, global, mask);
     }
 
-    diff_matrix_files(&paths, dialect, mask)
+    diff_matrix_files(&paths, global, mask)
 }
 
-fn diff_streaming(paths: &[String], format: DiffFormat, dialect: Dialect, mask: bool) -> u8 {
+fn diff_streaming(paths: &[String], format: DiffFormat, global: GlobalOptions, mask: bool) -> u8 {
     let baseline_source = match read_text(&paths[0]) {
         Ok(source) => source,
         Err(error) => return fail(error),
     };
-    let baseline = match parse_strict_with(&baseline_source, dialect) {
-        Ok(document) => document,
-        Err(error) => return fail(format!("{}: {error}", paths[0])),
-    };
+    let baseline =
+        match parse_strict_with_options(&baseline_source, global.dialect, global.parse_options) {
+            Ok(document) => document,
+            Err(error) => return fail(format!("{}: {error}", paths[0])),
+        };
 
     let mut output = String::new();
     if format == DiffFormat::Json {
@@ -1232,10 +1328,11 @@ fn diff_streaming(paths: &[String], format: DiffFormat, dialect: Dialect, mask: 
             Ok(source) => source,
             Err(error) => return fail(error),
         };
-        let document = match parse_strict_with(&source, dialect) {
-            Ok(document) => document,
-            Err(error) => return fail(format!("{path}: {error}")),
-        };
+        let document =
+            match parse_strict_with_options(&source, global.dialect, global.parse_options) {
+                Ok(document) => document,
+                Err(error) => return fail(format!("{path}: {error}")),
+            };
         let comparison = baseline.compare(&document);
         if !comparison.is_empty() {
             differs = true;
@@ -1317,15 +1414,16 @@ impl MatrixRows {
     }
 }
 
-fn diff_matrix_files(paths: &[String], dialect: Dialect, mask: bool) -> u8 {
+fn diff_matrix_files(paths: &[String], global: GlobalOptions, mask: bool) -> u8 {
     let baseline_source = match read_text(&paths[0]) {
         Ok(source) => source,
         Err(error) => return fail(error),
     };
-    let baseline = match parse_strict_with(&baseline_source, dialect) {
-        Ok(document) => document,
-        Err(error) => return fail(format!("{}: {error}", paths[0])),
-    };
+    let baseline =
+        match parse_strict_with_options(&baseline_source, global.dialect, global.parse_options) {
+            Ok(document) => document,
+            Err(error) => return fail(format!("{}: {error}", paths[0])),
+        };
     let mut matrix = MatrixRows::new();
     matrix.push(&baseline, mask);
 
@@ -1335,10 +1433,11 @@ fn diff_matrix_files(paths: &[String], dialect: Dialect, mask: bool) -> u8 {
             Ok(source) => source,
             Err(error) => return fail(error),
         };
-        let document = match parse_strict_with(&source, dialect) {
-            Ok(document) => document,
-            Err(error) => return fail(format!("{path}: {error}")),
-        };
+        let document =
+            match parse_strict_with_options(&source, global.dialect, global.parse_options) {
+                Ok(document) => document,
+                Err(error) => return fail(format!("{path}: {error}")),
+            };
         if !baseline.compare(&document).is_empty() {
             differs = true;
         }
@@ -1515,7 +1614,7 @@ fn difference_kind_name(kind: DifferenceKind) -> &'static str {
     }
 }
 
-fn example(args: &[String], dialect: Dialect) -> u8 {
+fn example(args: &[String], global: GlobalOptions) -> u8 {
     let (args, options_ended) = strip_options_terminator(args);
     if args.len() != 1 {
         errln!("usage: adotenv-cli example <file>");
@@ -1531,7 +1630,7 @@ fn example(args: &[String], dialect: Dialect) -> u8 {
         Ok(source) => source,
         Err(error) => return fail(error),
     };
-    let (doc, diagnostics) = parse_with(&source, dialect);
+    let (doc, diagnostics) = parse_with_options(&source, global.dialect, global.parse_options);
     for diagnostic in diagnostics {
         errln!("{}: {diagnostic}", args[0]);
     }
@@ -1539,7 +1638,7 @@ fn example(args: &[String], dialect: Dialect) -> u8 {
     SUCCESS
 }
 
-fn load(args: &[String], dialect: Dialect) -> u8 {
+fn load(args: &[String], global: GlobalOptions) -> u8 {
     let (args, options_ended) = strip_options_terminator(args);
     if args.is_empty() || args.len() > 2 {
         errln!("usage: adotenv-cli load <directory> [mode]");
@@ -1562,7 +1661,11 @@ fn load(args: &[String], dialect: Dialect) -> u8 {
             return FAILURE;
         }
     }
-    let loaded = match load_cascade_with(&args[0], mode, dialect) {
+    let loaded = match load_cascade_with_options(
+        &args[0],
+        mode,
+        LoadOptions::new(global.dialect).with_limits(global.parse_options),
+    ) {
         Ok(loaded) => loaded,
         Err(error) => return fail(error.to_string()),
     };
@@ -1602,10 +1705,90 @@ fn render_portable(loaded: &LoadedEnvironment) -> Result<String, String> {
     Ok(output)
 }
 
-fn set(args: &[String], dialect: Dialect) -> u8 {
-    let (args, options_ended) = strip_options_terminator(args);
+struct SetArgs {
+    positional: Vec<String>,
+    options_ended: bool,
+    edit_options: EditOptions,
+}
+
+fn parse_set_args(args: &[String], parse_limits: ParseOptions) -> Result<SetArgs, String> {
+    let mut edit_options = EditOptions::new().with_parse_limits(parse_limits);
+    let mut index = 0;
+    let mut options_ended = false;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--" => {
+                options_ended = true;
+                index += 1;
+                break;
+            }
+            "--max-output-bytes" => {
+                index += 1;
+                if index >= args.len() {
+                    return Err("--max-output-bytes requires a value".to_string());
+                }
+                let limit = args[index].parse::<usize>().map_err(|_| {
+                    format!(
+                        "--max-output-bytes expects a non-negative integer: {}",
+                        args[index]
+                    )
+                })?;
+                edit_options = edit_options.with_max_output_bytes(limit);
+            }
+            "--max-output-lines" => {
+                index += 1;
+                if index >= args.len() {
+                    return Err("--max-output-lines requires a value".to_string());
+                }
+                let limit = args[index].parse::<usize>().map_err(|_| {
+                    format!(
+                        "--max-output-lines expects a non-negative integer: {}",
+                        args[index]
+                    )
+                })?;
+                edit_options = edit_options.with_max_output_lines(limit);
+            }
+            argument if argument.starts_with("--max-output-bytes=") => {
+                let raw = &argument["--max-output-bytes=".len()..];
+                let limit = raw.parse::<usize>().map_err(|_| {
+                    format!("--max-output-bytes expects a non-negative integer: {raw}")
+                })?;
+                edit_options = edit_options.with_max_output_bytes(limit);
+            }
+            argument if argument.starts_with("--max-output-lines=") => {
+                let raw = &argument["--max-output-lines=".len()..];
+                let limit = raw.parse::<usize>().map_err(|_| {
+                    format!("--max-output-lines expects a non-negative integer: {raw}")
+                })?;
+                edit_options = edit_options.with_max_output_lines(limit);
+            }
+            _ => break,
+        }
+        index += 1;
+    }
+    Ok(SetArgs {
+        positional: args[index..].to_vec(),
+        options_ended,
+        edit_options,
+    })
+}
+
+fn set(args: &[String], global: GlobalOptions) -> u8 {
+    let SetArgs {
+        positional: args,
+        options_ended,
+        edit_options,
+    } = match parse_set_args(args, global.parse_options) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            errln!("{error}");
+            return FAILURE;
+        }
+    };
     if args.len() != 3 {
-        errln!("usage: adotenv-cli set <file> <key> <value>");
+        errln!(
+            "usage: adotenv-cli set [--max-output-bytes <n>] [--max-output-lines <n>] <file> <key> <value>"
+        );
         return FAILURE;
     }
     if !options_ended {
@@ -1626,11 +1809,11 @@ fn set(args: &[String], dialect: Dialect) -> u8 {
         Ok(source) => source,
         Err(error) => return fail(error),
     };
-    let doc = match parse_strict_with(&source, dialect) {
+    let doc = match parse_strict_with_options(&source, global.dialect, global.parse_options) {
         Ok(doc) => doc,
         Err(error) => return fail(format!("{}: {error}", args[0])),
     };
-    let edited = match doc.set(&args[1], &args[2]) {
+    let edited = match doc.set_with_options(&args[1], &args[2], edit_options) {
         Ok(edited) => edited,
         Err(error) => return fail(format!("{}: {error}", args[0])),
     };
@@ -1642,7 +1825,7 @@ fn set(args: &[String], dialect: Dialect) -> u8 {
     SUCCESS
 }
 
-fn run_command(args: &[String], dialect: Dialect) -> u8 {
+fn run_command(args: &[String], global: GlobalOptions) -> u8 {
     let Some(separator) = args.iter().position(|arg| arg == "--") else {
         errln!("usage: adotenv-cli run <directory> [mode] -- <program> [args...]");
         return FAILURE;
@@ -1668,7 +1851,11 @@ fn run_command(args: &[String], dialect: Dialect) -> u8 {
         .map_or("", String::as_str);
     let program = &args[separator + 1];
     let program_args = &args[separator + 2..];
-    let loaded = match load_cascade_with(directory, mode, dialect) {
+    let loaded = match load_cascade_with_options(
+        directory,
+        mode,
+        LoadOptions::new(global.dialect).with_limits(global.parse_options),
+    ) {
         Ok(loaded) => loaded,
         Err(error) => return fail(error.to_string()),
     };
