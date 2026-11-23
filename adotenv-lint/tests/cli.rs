@@ -358,3 +358,39 @@ fn parse_limit_flags_bound_input_bytes_and_lines() {
     let missing_val = run(&["--max-input-bytes"]);
     assert_eq!(missing_val.status.code(), Some(2));
 }
+
+#[test]
+fn help_version_default_scan_multi_json_and_dir_without_recursive() {
+    let help = run(&["--help"]);
+    assert_eq!(help.status.code(), Some(0));
+    assert!(String::from_utf8(help.stdout)
+        .unwrap()
+        .contains("--max-lines"));
+
+    let version = run(&["--version"]);
+    assert_eq!(version.status.code(), Some(0));
+    assert!(String::from_utf8(version.stdout)
+        .unwrap()
+        .starts_with("adotenv-lint "));
+
+    let dir = TempDir::new();
+    let file = dir.file(".env", "A=1\nA=2\nB=3\nB=4\n");
+
+    // Passing a directory without --recursive fails with exit code 2.
+    let dir_err = run(&[dir.path().to_str().unwrap()]);
+    assert_eq!(dir_err.status.code(), Some(2));
+    assert!(String::from_utf8(dir_err.stderr)
+        .unwrap()
+        .contains("--recursive"));
+
+    // No path argument searches the current directory recursively.
+    let default_scan = run_in(dir.path(), &["--format=json"]);
+    assert_eq!(default_scan.status.code(), Some(1));
+    let json = String::from_utf8(default_scan.stdout).unwrap();
+    assert!(json.starts_with('[') && json.trim_end().ends_with(']'));
+    assert!(json.contains("},{"));
+
+    // --fix respects --max-lines.
+    let fix_limited = run(&["--fix", "--max-lines=2", file.to_str().unwrap()]);
+    assert_eq!(fix_limited.status.code(), Some(2));
+}

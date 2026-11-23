@@ -810,7 +810,40 @@ mod tests {
 
     #[test]
     fn json_escaping_is_value_safe() {
-        assert_eq!(json_string("a\"b\\c\n"), "\"a\\\"b\\\\c\\n\"");
+        assert_eq!(
+            json_string("a\"b\\c\n\r\t\x01"),
+            "\"a\\\"b\\\\c\\n\\r\\t\\u0001\""
+        );
+    }
+
+    #[test]
+    fn parses_space_and_equals_option_forms() {
+        let options = parse_args(&mut args(&[
+            "--dialect",
+            "python",
+            "--config=custom.toml",
+            "--exclude",
+            "vendor/**",
+            "--format=github",
+            "--key-case=lower",
+            "--quote-style",
+            "double",
+            "--equals-spacing",
+            "spaces",
+            "app.env",
+        ]))
+        .unwrap();
+        assert_eq!(options.dialect, Dialect::PYTHON_DOTENV);
+        assert_eq!(options.config.as_deref(), Some("custom.toml"));
+        assert_eq!(options.exclude, ["vendor/**"]);
+        assert_eq!(options.format, Format::Github);
+        assert_eq!(options.lint.key_case, KeyCase::Lower);
+        assert_eq!(options.lint.quote_style, QuoteStyle::Double);
+        assert_eq!(options.lint.equals_spacing, EqualsSpacing::Spaces);
+        assert_eq!(options.paths, ["app.env"]);
+
+        assert_eq!(github_level(Severity::Info), "notice");
+        assert_eq!(severity_name(Severity::Info), "info");
     }
 
     #[test]
