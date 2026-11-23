@@ -219,8 +219,12 @@ publication-grade `kbench` evaluations for the 1.5.0 release: memory at SHA
 `0a9fc92` wins retained heap in all 20 non-empty values/load cells, ties at zero
 bytes in the 10 empty cells, and wins peak heap and allocation count in all 30
 cells; speed at SHA `79937cc` wins all 25 values/load cells against the best
-pinned competitor. See
-[the 1.5.0 compact results](../benchmarks/RESULTS-1.5.0.md). The map-based 1.4.1
+pinned competitor. See [the 1.5.0 compact results](../benchmarks/RESULTS-1.5.0.md). The 1.6.0
+publication run at RC SHA `79860ac` reproduces all 25/25 `CompactValues` speed
+wins and 20/20 non-empty retained-heap wins (30/30 peak and allocation wins)
+and adds bare-preserving `CompactEntries` with 10/10 `values` speed wins and
+identical memory to `CompactValues`; see
+[the 1.6.0 results](../benchmarks/RESULTS-1.6.0.md). The map-based 1.4.1
 claim remains historical release evidence.
 
 ## Earlier measurements
