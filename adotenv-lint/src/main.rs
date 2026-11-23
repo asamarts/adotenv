@@ -15,7 +15,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use adotenv::{parse_strict_with, Dialect, Severity};
+use adotenv::{parse_strict_with_options, Dialect, ParseOptions, Severity};
 use adotenv_lint::{
     apply_batch, lint, load_effective_config, parse_dialect, parse_equals_spacing as parse_spacing,
     parse_key_case, parse_output_format as parse_format, parse_quote_style, ConfigExplicit,
@@ -41,6 +41,8 @@ Options:
   --trim-trailing-whitespace  Require trimmed trailing whitespace
   --config <path>             Read policy from a TOML file
   --exclude <pattern>         Ignore paths matching a glob
+  --max-input-bytes <n>       Reject files larger than <n> bytes
+  --max-lines <n>             Reject files with more than <n> physical lines
   --fix                       Apply verified fixes and write changed files
   --                          End option parsing
   -h, --help                  Print this usage
@@ -73,6 +75,7 @@ struct Explicit {
 #[derive(Debug)]
 struct Options {
     dialect: Dialect,
+    parse_limits: ParseOptions,
     format: Format,
     recursive: bool,
     fix: bool,
@@ -138,13 +141,14 @@ fn run() -> Result<u8, String> {
                 continue;
             }
         };
-        let document = match parse_strict_with(&source, options.dialect) {
-            Ok(document) => document,
-            Err(error) => {
-                first_error = Some(format!("{}: {error}", path.display()));
-                continue;
-            }
-        };
+        let document =
+            match parse_strict_with_options(&source, options.dialect, options.parse_limits) {
+                Ok(document) => document,
+                Err(error) => {
+                    first_error = Some(format!("{}: {error}", path.display()));
+                    continue;
+                }
+            };
         let mut findings = lint(&document, options.lint);
         if options.fix && !findings.is_empty() {
             match fix_file(&path, source, &options) {
@@ -225,7 +229,7 @@ fn fix_file(path: &Path, mut source: String, options: &Options) -> Result<Vec<Fi
     }
     let original = source.clone();
     for _ in 0..MAX_FIX_ROUNDS {
-        let document = parse_strict_with(&source, options.dialect)
+        let document = parse_strict_with_options(&source, options.dialect, options.parse_limits)
             .map_err(|error| format!("cannot parse after fix: {error}"))?;
         let findings = lint(&document, options.lint);
         let fixes: Vec<Fix> = findings
@@ -391,10 +395,17 @@ fn apply_config(options: &mut Options) -> Result<(), String> {
     Ok(())
 }
 
+fn parse_limit(flag: &str, value: &str) -> Result<usize, String> {
+    value
+        .parse::<usize>()
+        .map_err(|_| format!("{flag} expects a non-negative integer: {value}"))
+}
+
 #[allow(clippy::too_many_lines)]
 fn parse_args(args: &mut [String]) -> Result<Options, String> {
     let mut options = Options {
         dialect: Dialect::PORTABLE,
+        parse_limits: ParseOptions::new(),
         format: Format::Human,
         recursive: false,
         fix: false,
@@ -438,6 +449,19 @@ fn parse_args(args: &mut [String]) -> Result<Options, String> {
                     .exclude
                     .push(value(args, index, "--exclude")?.to_owned());
                 options.explicit.exclude = true;
+            }
+            "--max-input-bytes" => {
+                index += 1;
+                let limit = parse_limit(
+                    "--max-input-bytes",
+                    value(args, index, "--max-input-bytes")?,
+                )?;
+                options.parse_limits = options.parse_limits.with_max_input_bytes(limit);
+            }
+            "--max-lines" => {
+                index += 1;
+                let limit = parse_limit("--max-lines", value(args, index, "--max-lines")?)?;
+                options.parse_limits = options.parse_limits.with_max_lines(limit);
             }
             "--dialect" => {
                 index += 1;
@@ -487,6 +511,15 @@ fn parse_args(args: &mut [String]) -> Result<Options, String> {
                     .exclude
                     .push(argument["--exclude=".len()..].to_owned());
                 options.explicit.exclude = true;
+            }
+            argument if argument.starts_with("--max-input-bytes=") => {
+                let limit =
+                    parse_limit("--max-input-bytes", &argument["--max-input-bytes=".len()..])?;
+                options.parse_limits = options.parse_limits.with_max_input_bytes(limit);
+            }
+            argument if argument.starts_with("--max-lines=") => {
+                let limit = parse_limit("--max-lines", &argument["--max-lines=".len()..])?;
+                options.parse_limits = options.parse_limits.with_max_lines(limit);
             }
             argument if argument.starts_with("--format=") => {
                 options.format = parse_format(&argument["--format=".len()..])?;
