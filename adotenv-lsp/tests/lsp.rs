@@ -585,7 +585,7 @@ fn hover_covers_references_bare_keys_and_edge_cases() {
     let CompletionResponse::Array(oob) = completion("A=1\n", position(9, 0)) else {
         panic!("expected array");
     };
-    assert!(oob.is_empty());
+    assert_eq!(oob, Vec::new());
     let CompletionResponse::Array(after_sq) = completion("HOST=1\nURL='a' $H\n", position(1, 10))
     else {
         panic!("expected array");
@@ -602,8 +602,14 @@ fn hover_covers_references_bare_keys_and_edge_cases() {
         ),
         None
     );
-    assert!(references("A=1\n", &uri(), position(9, 0), true).is_empty());
-    assert!(references("# comment\n", &uri(), position(0, 2), true).is_empty());
+    assert_eq!(
+        references("A=1\n", &uri(), position(9, 0), true),
+        Vec::new()
+    );
+    assert_eq!(
+        references("# comment\n", &uri(), position(0, 2), true),
+        Vec::new()
+    );
 }
 
 #[test]

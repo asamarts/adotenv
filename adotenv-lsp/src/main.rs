@@ -784,7 +784,7 @@ mod tests {
             .unwrap();
         let skipped_diags = recv_diagnostics(&client);
         assert_eq!(skipped_diags.uri.as_str(), skip_uri);
-        assert!(skipped_diags.diagnostics.is_empty());
+        assert_eq!(skipped_diags.diagnostics, Vec::new());
 
         // didChange (incremental removal of invalid line) -> clean diagnostics
         client
@@ -804,7 +804,7 @@ mod tests {
             )))
             .unwrap();
         let updated = recv_diagnostics(&client);
-        assert!(updated.diagnostics.is_empty());
+        assert_eq!(updated.diagnostics, Vec::new());
 
         // Invalid incremental change & unknown notification & unexpected response are ignored cleanly
         client
@@ -979,7 +979,7 @@ mod tests {
             )))
             .unwrap();
         let closed = recv_diagnostics(&client);
-        assert!(closed.diagnostics.is_empty());
+        assert_eq!(closed.diagnostics, Vec::new());
 
         // Shutdown + exit
         let shut = send_req(&client, 12, "shutdown", serde_json::Value::Null);
