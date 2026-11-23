@@ -5,22 +5,26 @@ commands, fixture catalogue, result schema and raw per-release evidence for
 `adotenv`.
 
 <div class="bench-callouts">
-<a class="bench-callout" href="RESULTS-1.5.0.html"><strong>1.5.0 results</strong><span>Compact memory and speed evidence, with links to charts and sortable tables.</span></a>
-<a class="bench-callout" href="compact-memory.html"><strong>Memory chart</strong><span>Compare all available libraries, compact vs map, or the best-competitor view.</span></a>
-<a class="bench-callout" href="speed-1.5.0.html"><strong>Speed chart</strong><span>Compare values and load timings across every size and shape.</span></a>
+<a class="bench-callout" href="RESULTS-1.6.0.html"><strong>1.6.0 results</strong><span>CompactValues, CompactEntries and map memory and speed evidence from one release-candidate commit.</span></a>
+<a class="bench-callout" href="compact-memory-1.6.0.html"><strong>Memory chart</strong><span>Compare all available libraries, compact vs map, or the best-competitor view.</span></a>
+<a class="bench-callout" href="speed-1.6.0.html"><strong>Speed chart</strong><span>Compare values and load timings across every size and shape.</span></a>
 <a class="bench-callout" href="METHODOLOGY.html"><strong>Methodology</strong><span>How the comparable matrix, gates and publication runs work.</span></a>
 </div>
 
-The current published evidence is the [1.5.0 result page](RESULTS-1.5.0.md).
-It records strict non-empty retained-heap wins, with zero-byte ties on empty
-inputs, strict peak and allocation wins in all values/load cells, and 25/25
-speed wins against the best pinned competitor. The speed matrix was recorded at
-`79937cc` after the 1.5.0 tag as post-release evidence; the page and changelog
-record that provenance.
+The current published evidence is the [1.6.0 result page](RESULTS-1.6.0.md),
+recorded from clean release-candidate commit `79860ac`. It records 25/25 strict
+speed wins and 20/20 non-empty retained-heap wins (with 10/10 empty ties and
+30/30 peak/allocation wins) for `CompactValues`, plus 10/10 strict speed wins
+and byte-for-byte identical memory to `CompactValues` across all 15 `values`
+cells for bare-preserving `CompactEntries`.
+
+The [1.5.0 result page](RESULTS-1.5.0.md) remains historical compact-values
+evidence (memory from `0a9fc92`, post-release speed from `79937cc`).
 
 Charts can show **all available pinned libraries**, isolate **compact vs map**, or show
 only the **best competitor** per cell. Compact is the opt-in `CompactValues`
-API; map is the standard `BTreeMap`-returning API.
+API, CompactEntries is the bare-preserving `CompactEntries` API, and map is the
+standard `BTreeMap`-returning API.
 
 The [1.4.1 result page](RESULTS-1.4.1.md) remains historical evidence for the
 map-based API and for the speed claim. It records a strict win in all 25
@@ -34,20 +38,28 @@ cells. Retained heap is a tie in all 30 map-based cells and a loss in none.
 - [Scenario catalogue](SCENARIOS.md) -- fixtures, exact hashes and modes.
 - [Result schema](SCHEMA.md) -- JSONL and bencher formats.
 - [1.4.1 results](RESULTS-1.4.1.md) -- historical speed and map-based evidence.
-- [1.5.0 results](RESULTS-1.5.0.md) -- current compact memory and speed evidence.
+- [1.5.0 results](RESULTS-1.5.0.md) -- historical compact-values memory and speed evidence.
+- [1.6.0 results](RESULTS-1.6.0.md) -- current compact-values, compact-entries and map evidence.
 
 The rendered tables are also available directly:
 
-- [1.4.1 map memory results](memory.md) and [raw JSONL](memory.jsonl)
+- [1.6.0 compact memory results](compact-memory-1.6.0.md) and
+  [raw JSONL](compact-memory-1.6.0.jsonl)
+- [1.6.0 speed results](speed-1.6.0.md) and
+  [raw bencher output](speed-1.6.0.txt)
 - [1.5.0 compact memory results](compact-memory.md) and
   [raw JSONL](compact-memory.jsonl)
-- [1.4.1 speed results](speed.md) and [raw bencher output](speed.txt)
 - [1.5.0 compact speed results](speed-1.5.0.md) and
   [raw bencher output](speed-1.5.0.txt)
-- [Memory fingerprint](memory.fingerprint.json),
-  [speed fingerprint](speed.fingerprint.json),
-  [compact memory fingerprint](compact-memory.fingerprint.json) and
-  [compact speed fingerprint](speed-1.5.0.fingerprint.json)
+- [1.4.1 map memory results](memory.md) and [raw JSONL](memory.jsonl)
+- [1.4.1 speed results](speed.md) and [raw bencher output](speed.txt)
+- Fingerprints:
+  [1.6.0 memory](compact-memory-1.6.0.fingerprint.json),
+  [1.6.0 speed](speed-1.6.0.fingerprint.json),
+  [1.5.0 compact memory](compact-memory.fingerprint.json),
+  [1.5.0 compact speed](speed-1.5.0.fingerprint.json),
+  [1.4.1 memory](memory.fingerprint.json) and
+  [1.4.1 speed](speed.fingerprint.json)
 
 ## Reproduce one cell
 

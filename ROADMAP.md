@@ -18,8 +18,15 @@ The current release provides:
 
 ## Current status
 
-`adotenv`, `adotenv-process` and `adotenv-cli` 1.5.4 were published on
-2026-11-16 with the diff-report schema and published schema URLs. `adotenv-lint`
+`adotenv`, `adotenv-process` and `adotenv-cli` 1.6.0 are prepared for release
+with physical line limits (`ParseOptions::max_lines`, `LimitKind::Lines`),
+multi-BOM stripping (`BomPolicy::StripAll`, `Document::bom_span`), indexed
+uniqueness checks (`LookupIndex::unique`), bounded verified edits
+(`EditOptions`, `EditError::Limit`, `LimitKind::OutputBytes`,
+`Document::{edit,set,remove,insert,rename}_with_options`), and bare-preserving
+compact entries (`CompactEntries`, `parse_entries_compact*`). The previous
+published lockstep release was 1.5.4 on 2026-11-16 with the diff-report schema
+and published schema URLs. `adotenv-lint`
 0.2.1 and `adotenv-lsp` 0.4.2 were published on 2026-11-15. The previous
 lockstep releases were 1.5.3 on 2026-11-16 with package-safe integration tests,
 1.5.2 on 2026-11-15 with CLI help-text corrections, and 1.5.1 on 2026-11-15

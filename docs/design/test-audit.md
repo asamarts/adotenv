@@ -4,14 +4,15 @@ This page records test coverage at the last release and the known gaps.
 Coverage is a guide, not a release gate. How the tests are organized is
 described in [Quality](quality.md).
 
-## Coverage at 1.5.4
+## Coverage at 1.6.0
 
-From CI run `44960249753` (`cargo llvm-cov --workspace --all-features`) on
-2026-11-21 at commit `8a50850`. The core crate (`coverage-summary.txt`) covers
-93.8 percent of regions (10,018 of 10,685) and 94.5 percent of lines (9,497 of
-10,047). Across all seven published crates (`lcov.info`, production source
-files excluding tests and benchmarks), line coverage is 92.0 percent (13,490 of
-14,660 lines). The earlier `1.2.0` local workspace baseline (94.4 percent of
+From CI run `45107927491` (`cargo llvm-cov --workspace --all-features`) on
+2026-11-22 at commit `ca38775`. The core crate (`coverage-summary.txt`) covers
+94.2 percent of regions (10,448 of 11,096) and 94.9 percent of lines (9,932 of
+10,469). Across all seven published crates (`lcov.info`, production source
+files excluding tests and benchmarks), line coverage is 93.3 percent (13,795 of
+14,792 lines), up from 92.0 percent at 1.5.4 (CI run `44960249753`, commit
+`8a50850`). The earlier `1.2.0` local workspace baseline (94.4 percent of
 regions and 94.8 percent of lines on 2026-11-04) predates `compact.rs`,
 `limit.rs`, `adotenv-lint` and `adotenv-lsp`.
 
@@ -19,32 +20,32 @@ regions and 94.8 percent of lines on 2026-11-04) predates `compact.rs`,
 
 | Scope | Regions | Lines |
 |---|---:|---:|
-| Core crate total | 93.8% | 94.5% |
+| Core crate total | 94.2% | 94.9% |
 | `compare.rs`, `limit.rs`, `parser/unicode.rs` | 100.0% | 100.0% |
+| `compact.rs` | 99.6% | 99.5% |
 | `parser/docker.rs` | 99.4% | 99.3% |
-| `compact.rs` | 99.4% | 99.4% |
 | `structure.rs` | 98.5% | 99.0% |
 | `parser/decode.rs` | 98.5% | 99.4% |
 | `position.rs` | 98.1% | 98.2% |
 | `portability.rs` | 97.8% | 97.5% |
 | `diagnostic.rs` | 97.7% | 97.8% |
 | `format.rs` | 97.6% | 97.2% |
-| `dialect.rs` | 97.4% | 97.4% |
+| `dialect.rs` | 97.6% | 97.6% |
+| `model.rs` | 97.5% | 98.4% |
+| `parser.rs` | 97.4% | 97.0% |
 | `sort.rs` | 96.5% | 96.0% |
-| `model.rs` | 96.3% | 97.5% |
-| `parser.rs` | 96.3% | 95.7% |
 | `example.rs` | 96.2% | 96.5% |
-| `references.rs` | 95.6% | 96.3% |
 | `parser/python.rs` | 95.5% | 94.5% |
 | `encode.rs` | 95.2% | 97.0% |
+| `edit.rs` | 94.7% | 96.5% |
 | `serde_support.rs` | 94.2% | 98.3% |
 | `parser/compose.rs` | 94.2% | 94.0% |
 | `parser/node.rs` | 94.0% | 97.0% |
-| `edit.rs` | 93.5% | 95.4% |
-| `exec.rs` | 88.4% | 88.8% |
+| `references.rs` | 92.6% | 92.8% |
+| `exec.rs` | 88.0% | 88.4% |
+| `load.rs` | 85.9% | 86.1% |
+| `mask.rs` | 85.1% | 87.5% |
 | `resolve.rs` | 84.9% | 90.1% |
-| `mask.rs` | 84.8% | 87.2% |
-| `load.rs` | 84.6% | 85.0% |
 
 ### Published companion crates
 
@@ -52,23 +53,24 @@ Line coverage from the workspace `lcov.info` artifact (excluding tests):
 
 | Scope | Lines |
 |---|---:|
-| Published crates total (7 crates) | 92.0% |
+| Published crates total (7 crates) | 93.3% |
 | `adotenv-figment/src/lib.rs` | 100.0% |
 | `adotenv-process/src/lib.rs` | 99.1% |
 | `adotenv-config/src/lib.rs` | 98.1% |
-| `adotenv-cli/src/main.rs` | 93.6% |
-| `adotenv-lsp/src/lib.rs` | 92.7% |
-| `adotenv-lint/src/lib.rs` | 92.2% |
-| `adotenv-lint/src/config.rs` | 85.5% |
-| `adotenv-lint/src/main.rs` | 81.8% |
-| `adotenv-lsp/src/main.rs` | 46.5% |
+| `adotenv-cli/src/main.rs` | 94.3% |
+| `adotenv-lsp/src/lib.rs` | 92.9% |
+| `adotenv-lint/src/lib.rs` | 92.4% |
+| `adotenv-lint/src/config.rs` | 87.3% |
+| `adotenv-lint/src/main.rs` | 86.7% |
+| `adotenv-lsp/src/main.rs` | 46.6% |
 
-`limit.rs` and `adotenv-figment/src/lib.rs` reached 100.0 percent line coverage
-after the mutation-driven test additions, and `mask.rs` is at 87.2 percent of
-lines. `exec.rs`, `load.rs` and `resolve.rs` retain defensive error and
-platform branches, while `adotenv-lsp/src/main.rs` has unexercised stdio
-transport dispatch branches (its core operations in `adotenv-lsp/src/lib.rs`
-are at 92.7 percent).
+`limit.rs`, `compare.rs`, `parser/unicode.rs` and `adotenv-figment/src/lib.rs`
+are at 100.0 percent line coverage, `compact.rs` is at 99.5 percent, `model.rs`
+at 98.4 percent, `parser.rs` at 97.0 percent, `edit.rs` at 96.5 percent, and
+`mask.rs` at 87.5 percent. `exec.rs`, `load.rs` and `resolve.rs` retain
+defensive error and platform branches, while `adotenv-lsp/src/main.rs` has
+unexercised stdio transport dispatch branches (its core operations in
+`adotenv-lsp/src/lib.rs` are at 92.9 percent).
 
 
 ## What the tests cover

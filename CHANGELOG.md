@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-22
+
 ### Added
 
 - `ParseOptions::max_lines` / `with_max_lines` and `LimitKind::Lines` to bound
@@ -47,6 +49,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Documentation
 
+- Published 1.6.0 publication-grade memory and speed benchmark evidence
+  (`docs/benchmarks/RESULTS-1.6.0.md`) from clean RC commit `79860ac`, covering
+  `CompactValues` (25/25 speed wins, 20/20 non-empty retained-heap wins, 30/30
+  peak/allocation wins) and `CompactEntries` (10/10 values speed wins,
+  byte-for-byte identical memory to `CompactValues`), and refreshed the 1.6.0
+  CI coverage audit (`94.2%` regions / `94.9%` lines core; `93.3%` across all 7
+  published crates).
 - Documented the heavy-validation policy, the kbench/benchq pueue procedure,
   the local resource incident and the one-worker/8 GiB limit, recorded the
   completed core (references, parser, decode, limit, serde) and adapter
