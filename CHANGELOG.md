@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-22
+
 ### Added
 
 - `ParseOptions::max_lines` / `with_max_lines` and `LimitKind::Lines` to bound
