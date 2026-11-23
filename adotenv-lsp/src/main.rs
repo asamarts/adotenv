@@ -4,7 +4,7 @@ use std::{collections::HashMap, env, error::Error, path::PathBuf, process::ExitC
 
 use adotenv_lint::{load_effective_config, ConfigExplicit, IgnoredPaths, LintConfig, LintPolicy};
 use adotenv_lsp::{
-    apply_change, completion_with_options, definition_with_options, diagnostics,
+    apply_change_with_options, completion_with_options, definition_with_options, diagnostics,
     document_symbols_with_options, hover, references_with_options, rename_with_options,
     workspace_symbols_with_options, LspOptions, ParseOptions,
 };
@@ -247,7 +247,7 @@ fn handle_notification(
             let uri = params.text_document.uri;
             let mut text = documents.get(uri.as_str()).cloned().unwrap_or_default();
             for change in params.content_changes {
-                text = apply_change(&text, change.range, &change.text)
+                text = apply_change_with_options(&text, change.range, &change.text, &options)
                     .ok_or("invalid incremental document change")?;
             }
             documents.insert(uri.as_str().to_owned(), text);
@@ -865,12 +865,16 @@ mod tests {
             &client,
             4,
             "workspace/symbol",
-            serde_json::json!({ "query": "ho" }),
+            serde_json::json!({ "query": "" }),
         );
-        assert_eq!(
-            ws_syms.response_result.unwrap().as_array().unwrap().len(),
-            1
-        );
+        let ws_arr = ws_syms.response_result.unwrap();
+        let ws_names: Vec<&str> = ws_arr
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|sym| sym["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(ws_names, vec!["HOST", "URL"]);
 
         let def = send_req(
             &client,

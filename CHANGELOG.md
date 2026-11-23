@@ -14,7 +14,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `ParseOptions`, `LimitKind` and `LimitExceeded` from `adotenv` 1.6.0) to apply
   opt-in byte, line, item and diagnostic bounds across all LSP operations, plus
   `--max-input-bytes` and `--max-lines` CLI flags on the stdio server.
-- Multi-BOM position and diagnostic range mapping under `BomPolicy::StripAll`.
+- Multi-BOM position, diagnostic range and incremental edit mapping
+  (`apply_change_with_options`) under `BomPolicy::StripAll`, and unshifted
+  line-0 mapping under `BomPolicy::Keep`.
 - Structured `RenameError::Edit(EditError::Limit(_))` reporting when a
   configured parse limit rejects a rename request.
 

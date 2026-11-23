@@ -646,4 +646,22 @@ fn parse_options_and_strip_all_bom_apply_across_lsp_operations() {
         hov.range.unwrap(),
         lsp_types::Range::new(position(0, 0), position(0, 4))
     );
+    assert_eq!(
+        adotenv_lsp::apply_change_with_options(
+            multi,
+            Some(lsp_types::Range::new(position(0, 0), position(0, 4))),
+            "NAME",
+            &strip_all,
+        ),
+        Some("\u{feff}\u{feff}NAME=localhost\n".to_owned())
+    );
+
+    // BomPolicy::Keep does not hide the leading BOM in position mapping.
+    let keep_bom = LspOptions::new().with_dialect(Dialect::NODE_DOTENV.with_bom(BomPolicy::Keep));
+    let single = "\u{feff}HOST=localhost\n";
+    let keep_hov = hover(single, position(0, 1), &keep_bom).unwrap();
+    assert_eq!(
+        keep_hov.range.unwrap(),
+        lsp_types::Range::new(position(0, 1), position(0, 5))
+    );
 }
