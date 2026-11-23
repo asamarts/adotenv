@@ -549,3 +549,95 @@ fn rename_rejects_a_key_that_cannot_be_a_reference() {
         RenameError::Edit(EditError::InvalidReferenceKey)
     ));
 }
+
+#[test]
+fn hover_covers_references_bare_keys_and_edge_cases() {
+    use std::error::Error as _;
+
+    // Reference hover (resolved and unresolved) + bare key hover.
+    let source = "HOST=localhost\nURL=${HOST}/${MISSING}\nBARE\n";
+    let resolved = hover(source, position(1, 7), &LspOptions::new()).unwrap();
+    let HoverContents::Markup(markup) = resolved.contents else {
+        panic!("expected markup hover");
+    };
+    assert!(markup.value.contains("`${HOST}`; declared on line 1"));
+
+    let unresolved = hover(source, position(1, 16), &LspOptions::new()).unwrap();
+    let HoverContents::Markup(markup) = unresolved.contents else {
+        panic!("expected markup hover");
+    };
+    assert!(markup.value.contains("`${MISSING}`; unresolved"));
+
+    let bare = hover(source, position(2, 0), &LspOptions::new()).unwrap();
+    let HoverContents::Markup(markup) = bare.contents else {
+        panic!("expected markup hover");
+    };
+    assert!(markup.value.contains("`<bare>`"));
+
+    // RenameError Display and Error::source coverage.
+    assert!(RenameError::NoSymbol.to_string().contains("no .env key"));
+    assert!(RenameError::NoSymbol.source().is_none());
+    let edit_err = RenameError::from(EditError::InvalidKey);
+    assert!(edit_err.to_string().contains("rename refused:"));
+    assert!(edit_err.source().is_some());
+
+    // Completion out-of-range and after closing single quote.
+    let CompletionResponse::Array(oob) = completion("A=1\n", position(9, 0)) else {
+        panic!("expected array");
+    };
+    assert!(oob.is_empty());
+    let CompletionResponse::Array(after_sq) = completion("HOST=1\nURL='a' $H\n", position(1, 10))
+    else {
+        panic!("expected array");
+    };
+    assert_eq!(after_sq.len(), 1);
+    assert_eq!(after_sq[0].label, "HOST");
+
+    // apply_change inverted range and references out-of-range / non-symbol.
+    assert_eq!(
+        apply_change(
+            "A=1\n",
+            Some(lsp_types::Range::new(position(0, 2), position(0, 1))),
+            "x"
+        ),
+        None
+    );
+    assert!(references("A=1\n", &uri(), position(9, 0), true).is_empty());
+    assert!(references("# comment\n", &uri(), position(0, 2), true).is_empty());
+}
+
+#[test]
+fn parse_options_and_strip_all_bom_apply_across_lsp_operations() {
+    use adotenv::BomPolicy;
+    use adotenv_lsp::{LimitKind, ParseOptions};
+
+    // ParseOptions::with_max_lines enforced across diagnostics and rename.
+    let bounded = LspOptions::new().with_parse_options(ParseOptions::new().with_max_lines(2));
+    let diags = diagnostics("A=1\nB=2\nC=3\n", &uri(), &bounded);
+    assert_eq!(code(&diags[0]), Some("dotenv.limit-exceeded"));
+    let rename_err =
+        adotenv_lsp::rename_with_options("A=1\nB=2\nC=3\n", &uri(), position(0, 0), "X", &bounded)
+            .unwrap_err();
+    assert!(matches!(
+        rename_err,
+        RenameError::Edit(EditError::Limit(limit)) if limit.kind() == LimitKind::Lines
+    ));
+
+    // BomPolicy::StripAll hides full multi-BOM prefix on line 0 and anchors diagnostic.
+    let strip_all = LspOptions::new().with_dialect(Dialect::PORTABLE.with_bom(BomPolicy::StripAll));
+    let multi = "\u{feff}\u{feff}HOST=localhost\n";
+    let bom_diags = diagnostics(multi, &uri(), &strip_all);
+    let bom = bom_diags
+        .iter()
+        .find(|d| code(d) == Some("dotenv.bom"))
+        .expect("bom diagnostic");
+    assert_eq!(
+        bom.range,
+        lsp_types::Range::new(position(0, 0), position(0, 1))
+    );
+    let hov = hover(multi, position(0, 0), &strip_all).unwrap();
+    assert_eq!(
+        hov.range.unwrap(),
+        lsp_types::Range::new(position(0, 0), position(0, 4))
+    );
+}

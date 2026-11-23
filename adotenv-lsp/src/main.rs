@@ -6,7 +6,7 @@ use adotenv_lint::{load_effective_config, ConfigExplicit, IgnoredPaths, LintConf
 use adotenv_lsp::{
     apply_change, completion_with_options, definition_with_options, diagnostics,
     document_symbols_with_options, hover, references_with_options, rename_with_options,
-    workspace_symbols_with_options, LspOptions,
+    workspace_symbols_with_options, LspOptions, ParseOptions,
 };
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
@@ -30,6 +30,7 @@ fn main() -> ExitCode {
 }
 
 const USAGE: &str = "adotenv-lsp [-h|--help] [--version] [--mask-values] \
+                     [--max-input-bytes <n>] [--max-lines <n>] \
                      [--config <path> | --discover-lint-config]\n";
 
 fn run() -> Result<()> {
@@ -44,6 +45,17 @@ fn run() -> Result<()> {
     }
     let (options, ignore) = load_policy(&cli)?;
     let (connection, io_threads) = Connection::stdio();
+    serve(&connection, options, ignore.as_ref())?;
+    drop(connection);
+    io_threads.join()?;
+    Ok(())
+}
+
+fn serve(
+    connection: &Connection,
+    options: LspOptions,
+    ignore: Option<&IgnoredPaths>,
+) -> Result<()> {
     let capabilities = ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Kind(
             TextDocumentSyncKind::INCREMENTAL,
@@ -70,9 +82,9 @@ fn run() -> Result<()> {
                 if connection.handle_shutdown(&request)? {
                     break;
                 }
-                if let Err(error) = handle_request(&connection, &request, &documents, options) {
+                if let Err(error) = handle_request(connection, &request, &documents, options) {
                     send_error(
-                        &connection,
+                        connection,
                         request.id.clone(),
                         lsp_server::ErrorCode::InvalidParams,
                         &error.to_string(),
@@ -80,27 +92,23 @@ fn run() -> Result<()> {
                 }
             }
             Message::Notification(notification) => {
-                if let Err(error) = handle_notification(
-                    &connection,
-                    &notification,
-                    &mut documents,
-                    options,
-                    ignore.as_ref(),
-                ) {
+                if let Err(error) =
+                    handle_notification(connection, &notification, &mut documents, options, ignore)
+                {
                     let _ = error;
                 }
             }
             Message::Response(_) => {}
         }
     }
-    drop(connection);
-    io_threads.join()?;
     Ok(())
 }
 
 #[allow(clippy::struct_excessive_bools)]
 struct Cli {
     mask_values: bool,
+    max_input_bytes: Option<usize>,
+    max_lines: Option<usize>,
     config: Option<PathBuf>,
     discover_lint_config: bool,
     help: bool,
@@ -119,9 +127,17 @@ fn parse_args() -> Result<Cli> {
     parse_args_from(arguments)
 }
 
+fn parse_limit(flag: &str, value: &str) -> Result<usize> {
+    value
+        .parse::<usize>()
+        .map_err(|_| format!("{flag} expects a non-negative integer: {value}").into())
+}
+
 fn parse_args_from(arguments: impl IntoIterator<Item = String>) -> Result<Cli> {
     let mut cli = Cli {
         mask_values: false,
+        max_input_bytes: None,
+        max_lines: None,
         config: None,
         discover_lint_config: false,
         help: false,
@@ -134,6 +150,16 @@ fn parse_args_from(arguments: impl IntoIterator<Item = String>) -> Result<Cli> {
             "--version" => cli.version = true,
             "--mask-values" => cli.mask_values = true,
             "--discover-lint-config" => cli.discover_lint_config = true,
+            "--max-input-bytes" => {
+                let value = arguments
+                    .next()
+                    .ok_or("--max-input-bytes requires a number")?;
+                cli.max_input_bytes = Some(parse_limit("--max-input-bytes", &value)?);
+            }
+            "--max-lines" => {
+                let value = arguments.next().ok_or("--max-lines requires a number")?;
+                cli.max_lines = Some(parse_limit("--max-lines", &value)?);
+            }
             "--config" => {
                 let value = arguments.next().ok_or("--config requires a path")?;
                 cli.config = Some(PathBuf::from(value));
@@ -142,6 +168,15 @@ fn parse_args_from(arguments: impl IntoIterator<Item = String>) -> Result<Cli> {
                 if let Some(extra) = arguments.next() {
                     return Err(format!("unexpected argument: {extra}").into());
                 }
+            }
+            other if other.starts_with("--max-input-bytes=") => {
+                cli.max_input_bytes = Some(parse_limit(
+                    "--max-input-bytes",
+                    &other["--max-input-bytes=".len()..],
+                )?);
+            }
+            other if other.starts_with("--max-lines=") => {
+                cli.max_lines = Some(parse_limit("--max-lines", &other["--max-lines=".len()..])?);
             }
             other if other.starts_with("--config=") => {
                 cli.config = Some(PathBuf::from(&other["--config=".len()..]));
@@ -164,7 +199,16 @@ fn load_policy(cli: &Cli) -> Result<(LspOptions, Option<IgnoredPaths>)> {
     } else {
         None
     };
-    let mut options = LspOptions::default().with_mask_values(cli.mask_values);
+    let mut parse_options = ParseOptions::new();
+    if let Some(limit) = cli.max_input_bytes {
+        parse_options = parse_options.with_max_input_bytes(limit);
+    }
+    if let Some(limit) = cli.max_lines {
+        parse_options = parse_options.with_max_lines(limit);
+    }
+    let mut options = LspOptions::default()
+        .with_mask_values(cli.mask_values)
+        .with_parse_options(parse_options);
     let Some(config) = config else {
         return Ok((options, None));
     };
@@ -477,10 +521,24 @@ mod tests {
         values.iter().map(|value| (*value).to_owned()).collect()
     }
 
+    fn cli_with_config(config: Option<PathBuf>) -> Cli {
+        Cli {
+            mask_values: false,
+            max_input_bytes: None,
+            max_lines: None,
+            config,
+            discover_lint_config: false,
+            help: false,
+            version: false,
+        }
+    }
+
     #[test]
     fn defaults_to_no_lint_configuration() {
         let cli = parse_args_from(args(&[])).unwrap();
         assert!(!cli.mask_values);
+        assert!(cli.max_input_bytes.is_none());
+        assert!(cli.max_lines.is_none());
         assert!(cli.config.is_none());
         assert!(!cli.discover_lint_config);
     }
@@ -490,16 +548,29 @@ mod tests {
         let path =
             std::env::temp_dir().join(format!("adotenv-lsp-dialect-{}.toml", std::process::id()));
         std::fs::write(&path, "dialect = \"python\"\n").unwrap();
-        let cli = Cli {
-            mask_values: false,
-            config: Some(path.clone()),
-            discover_lint_config: false,
-            help: false,
-            version: false,
-        };
+        let cli = cli_with_config(Some(path.clone()));
         let (options, _) = load_policy(&cli).unwrap();
         let _ = std::fs::remove_file(path);
         assert_eq!(options.dialect, Dialect::PYTHON_DOTENV);
+    }
+
+    #[test]
+    fn parses_limit_flags_and_forwards_to_parse_options() {
+        let cli = parse_args_from(args(&["--max-input-bytes", "4096", "--max-lines=128"])).unwrap();
+        assert_eq!(cli.max_input_bytes, Some(4096));
+        assert_eq!(cli.max_lines, Some(128));
+        let (options, _) = load_policy(&cli).unwrap();
+        assert_eq!(options.parse_options.max_input_bytes, Some(4096));
+        assert_eq!(options.parse_options.max_lines, Some(128));
+
+        let cli_eq = parse_args_from(args(&["--max-input-bytes=64", "--max-lines", "4"])).unwrap();
+        assert_eq!(cli_eq.max_input_bytes, Some(64));
+        assert_eq!(cli_eq.max_lines, Some(4));
+
+        assert!(parse_args_from(args(&["--max-input-bytes"])).is_err());
+        assert!(parse_args_from(args(&["--max-lines"])).is_err());
+        assert!(parse_args_from(args(&["--max-input-bytes=abc"])).is_err());
+        assert!(parse_args_from(args(&["--max-lines=-1"])).is_err());
     }
 
     #[test]
@@ -533,13 +604,7 @@ mod tests {
 
     #[test]
     fn default_policy_has_no_linter_or_ignores() {
-        let cli = Cli {
-            mask_values: false,
-            config: None,
-            discover_lint_config: false,
-            help: false,
-            version: false,
-        };
+        let cli = cli_with_config(None);
         let (options, ignore) = load_policy(&cli).unwrap();
         assert!(options.lint.is_none());
         assert!(ignore.is_none());
@@ -554,13 +619,7 @@ mod tests {
             "key_order = true\nignore = [\".env.skip\"]\n[rules]\nduplicate-key = \"error\"\n",
         )
         .unwrap();
-        let cli = Cli {
-            mask_values: false,
-            config: Some(path.clone()),
-            discover_lint_config: false,
-            help: false,
-            version: false,
-        };
+        let cli = cli_with_config(Some(path.clone()));
         let (options, ignore) = load_policy(&cli).unwrap();
         let lint = options.lint.expect("lint policy");
         assert!(lint.key_order);
@@ -577,13 +636,7 @@ mod tests {
         let path =
             std::env::temp_dir().join(format!("adotenv-lsp-duplicate-{}.toml", std::process::id()));
         std::fs::write(&path, "key_order = true\n").unwrap();
-        let cli = Cli {
-            mask_values: false,
-            config: Some(path.clone()),
-            discover_lint_config: false,
-            help: false,
-            version: false,
-        };
+        let cli = cli_with_config(Some(path.clone()));
         let (options, _) = load_policy(&cli).unwrap();
         let uri: lsp_types::Uri = "file:///tmp/.env".parse().unwrap();
         let diagnostics = adotenv_lsp::diagnostics("B=2\nA=1\nA=2\n", &uri, &options);
@@ -619,12 +672,16 @@ mod tests {
         let uri: lsp_types::Uri = "file:///tmp/my%20dir/.env".parse().unwrap();
         assert!(ignored_uri(&uri, Some(&ignore)));
         assert_eq!(
-            decoded_uri_path("/tmp/my%20dir/.env"),
-            PathBuf::from("/tmp/my dir/.env")
+            decoded_uri_path("/tmp/my%20dir%2fsub%2F.env"),
+            PathBuf::from("/tmp/my dir/sub/.env")
         );
         assert_eq!(
             decoded_uri_path("/tmp/bad%ZZpath"),
             PathBuf::from("/tmp/bad%ZZpath")
+        );
+        assert_eq!(
+            decoded_uri_path("/tmp/%FFbad"),
+            PathBuf::from("/tmp/%FFbad")
         );
     }
 
@@ -633,14 +690,308 @@ mod tests {
         let path =
             std::env::temp_dir().join(format!("adotenv-lsp-invalid-{}.toml", std::process::id()));
         std::fs::write(&path, "unknown = true\n").unwrap();
-        let cli = Cli {
-            mask_values: false,
-            config: Some(path.clone()),
-            discover_lint_config: false,
-            help: false,
-            version: false,
-        };
+        let cli = cli_with_config(Some(path.clone()));
         assert!(load_policy(&cli).is_err());
         let _ = std::fs::remove_file(path);
+    }
+
+    fn send_req(client: &Connection, id: i32, method: &str, params: serde_json::Value) -> Response {
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                id.into(),
+                method.to_owned(),
+                params,
+            )))
+            .unwrap();
+        match client.receiver.recv().unwrap() {
+            Message::Response(response) => response,
+            other => panic!("expected response for {method}, got {other:?}"),
+        }
+    }
+
+    fn recv_diagnostics(client: &Connection) -> PublishDiagnosticsParams {
+        match client.receiver.recv().unwrap() {
+            Message::Notification(notification)
+                if notification.method == "textDocument/publishDiagnostics" =>
+            {
+                serde_json::from_value(notification.params).unwrap()
+            }
+            other => panic!("expected publishDiagnostics, got {other:?}"),
+        }
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn serve_handles_full_lsp_lifecycle_over_memory_transport() {
+        let (server, client) = Connection::memory();
+        let ignore = IgnoredPaths::new(&[".env.skip".to_owned()]).unwrap();
+        let options = LspOptions::new().with_mask_values(true);
+        let thread = std::thread::spawn(move || serve(&server, options, Some(&ignore)));
+
+        // Initialize handshake
+        let init = send_req(
+            &client,
+            1,
+            "initialize",
+            serde_json::json!({ "capabilities": {} }),
+        );
+        let result = init.response_result.unwrap();
+        assert_eq!(result["capabilities"]["renameProvider"], true);
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "initialized".to_owned(),
+                serde_json::json!({}),
+            )))
+            .unwrap();
+
+        // didOpen -> publishDiagnostics
+        let uri = "file:///tmp/.env";
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "textDocument/didOpen".to_owned(),
+                serde_json::json!({
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": "dotenv",
+                        "version": 1,
+                        "text": "HOST=secret\nURL=${HOST}\nBAD KEY=1\n"
+                    }
+                }),
+            )))
+            .unwrap();
+        let diags = recv_diagnostics(&client);
+        assert_eq!(diags.uri.as_str(), uri);
+        assert_eq!(diags.diagnostics.len(), 1);
+
+        // Ignored URI publishes empty diagnostics
+        let skip_uri = "file:///tmp/.env.skip";
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "textDocument/didOpen".to_owned(),
+                serde_json::json!({
+                    "textDocument": {
+                        "uri": skip_uri,
+                        "languageId": "dotenv",
+                        "version": 1,
+                        "text": "BAD KEY=1\n"
+                    }
+                }),
+            )))
+            .unwrap();
+        let skipped_diags = recv_diagnostics(&client);
+        assert_eq!(skipped_diags.uri.as_str(), skip_uri);
+        assert!(skipped_diags.diagnostics.is_empty());
+
+        // didChange (incremental removal of invalid line) -> clean diagnostics
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "textDocument/didChange".to_owned(),
+                serde_json::json!({
+                    "textDocument": { "uri": uri, "version": 2 },
+                    "contentChanges": [{
+                        "range": {
+                            "start": { "line": 2, "character": 0 },
+                            "end": { "line": 3, "character": 0 }
+                        },
+                        "text": ""
+                    }]
+                }),
+            )))
+            .unwrap();
+        let updated = recv_diagnostics(&client);
+        assert!(updated.diagnostics.is_empty());
+
+        // Invalid incremental change & unknown notification & unexpected response are ignored cleanly
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "textDocument/didChange".to_owned(),
+                serde_json::json!({
+                    "textDocument": { "uri": uri, "version": 3 },
+                    "contentChanges": [{
+                        "range": {
+                            "start": { "line": 99, "character": 0 },
+                            "end": { "line": 99, "character": 1 }
+                        },
+                        "text": "x"
+                    }]
+                }),
+            )))
+            .unwrap();
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "custom/ignored".to_owned(),
+                serde_json::json!({}),
+            )))
+            .unwrap();
+        client
+            .sender
+            .send(Message::Response(Response::new_ok(
+                999.into(),
+                serde_json::Value::Null,
+            )))
+            .unwrap();
+
+        // completion, documentSymbol, workspace/symbol, definition, hover, references, rename
+        let comp = send_req(
+            &client,
+            2,
+            "textDocument/completion",
+            serde_json::json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 0, "character": 0 }
+            }),
+        );
+        assert_eq!(comp.response_result.unwrap().as_array().unwrap().len(), 2);
+
+        let doc_syms = send_req(
+            &client,
+            3,
+            "textDocument/documentSymbol",
+            serde_json::json!({ "textDocument": { "uri": uri } }),
+        );
+        assert_eq!(
+            doc_syms.response_result.unwrap().as_array().unwrap().len(),
+            2
+        );
+
+        let ws_syms = send_req(
+            &client,
+            4,
+            "workspace/symbol",
+            serde_json::json!({ "query": "ho" }),
+        );
+        assert_eq!(
+            ws_syms.response_result.unwrap().as_array().unwrap().len(),
+            1
+        );
+
+        let def = send_req(
+            &client,
+            5,
+            "textDocument/definition",
+            serde_json::json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 1, "character": 7 }
+            }),
+        );
+        assert_eq!(def.response_result.unwrap()["range"]["start"]["line"], 0);
+
+        let hov = send_req(
+            &client,
+            6,
+            "textDocument/hover",
+            serde_json::json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 0, "character": 0 }
+            }),
+        );
+        let hov_val = hov.response_result.unwrap()["contents"]["value"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(hov_val.contains("<redacted>"));
+        assert!(!hov_val.contains("secret"));
+
+        let refs = send_req(
+            &client,
+            7,
+            "textDocument/references",
+            serde_json::json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 0, "character": 0 },
+                "context": { "includeDeclaration": true }
+            }),
+        );
+        assert_eq!(refs.response_result.unwrap().as_array().unwrap().len(), 2);
+
+        let ren_ok = send_req(
+            &client,
+            8,
+            "textDocument/rename",
+            serde_json::json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 0, "character": 0 },
+                "newName": "SERVER"
+            }),
+        );
+        assert_eq!(
+            ren_ok.response_result.unwrap()["changes"][uri]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+
+        // Error paths: bad rename (RequestFailed), unopened doc (InvalidParams), unknown method (MethodNotFound)
+        let ren_err = send_req(
+            &client,
+            9,
+            "textDocument/rename",
+            serde_json::json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 0, "character": 0 },
+                "newName": "BAD-REF"
+            }),
+        );
+        assert_eq!(
+            ren_err.response_result.unwrap_err().code,
+            lsp_server::ErrorCode::RequestFailed as i32
+        );
+
+        let unopened = send_req(
+            &client,
+            10,
+            "textDocument/hover",
+            serde_json::json!({
+                "textDocument": { "uri": "file:///tmp/missing.env" },
+                "position": { "line": 0, "character": 0 }
+            }),
+        );
+        assert_eq!(
+            unopened.response_result.unwrap_err().code,
+            lsp_server::ErrorCode::InvalidParams as i32
+        );
+
+        let unknown = send_req(
+            &client,
+            11,
+            "textDocument/doesNotExist",
+            serde_json::json!({}),
+        );
+        assert_eq!(
+            unknown.response_result.unwrap_err().code,
+            lsp_server::ErrorCode::MethodNotFound as i32
+        );
+
+        // didClose clears diagnostics
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "textDocument/didClose".to_owned(),
+                serde_json::json!({ "textDocument": { "uri": uri } }),
+            )))
+            .unwrap();
+        let closed = recv_diagnostics(&client);
+        assert!(closed.diagnostics.is_empty());
+
+        // Shutdown + exit
+        let shut = send_req(&client, 12, "shutdown", serde_json::Value::Null);
+        assert!(shut.response_result.is_ok());
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "exit".to_owned(),
+                serde_json::Value::Null,
+            )))
+            .unwrap();
+
+        thread.join().unwrap().unwrap();
     }
 }

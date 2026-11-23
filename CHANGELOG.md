@@ -6,6 +6,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [adotenv-lsp 0.5.0] - 2026-11-23
+
+### Added
+
+- `LspOptions::parse_options` / `with_parse_options` (re-exporting
+  `ParseOptions`, `LimitKind` and `LimitExceeded` from `adotenv` 1.6.0) to apply
+  opt-in byte, line, item and diagnostic bounds across all LSP operations, plus
+  `--max-input-bytes` and `--max-lines` CLI flags on the stdio server.
+- Multi-BOM position and diagnostic range mapping under `BomPolicy::StripAll`.
+- Structured `RenameError::Edit(EditError::Limit(_))` reporting when a
+  configured parse limit rejects a rename request.
+
+### Tests
+
+- Added in-process `Connection::memory()` transport lifecycle tests in
+  `adotenv-lsp/src/main.rs` and end-to-end stdio JSON-RPC subprocess tests in
+  `adotenv-lsp/tests/cli.rs`, plus library coverage for reference/bare hover,
+  `RenameError` formatting/source, `ParseOptions` bounds and `BomPolicy::StripAll`.
+
 ## [1.6.0] - 2026-11-23
 
 ### Added
