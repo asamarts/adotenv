@@ -664,4 +664,55 @@ fn parse_options_and_strip_all_bom_apply_across_lsp_operations() {
         keep_hov.range.unwrap(),
         lsp_types::Range::new(position(0, 1), position(0, 5))
     );
+
+    // Mutation-driven regression assertions:
+    // 1. Completion on line > 0 at key start does not bleed into the previous line.
+    let CompletionResponse::Array(line1_key) = completion("A=1\nK\n", position(1, 1)) else {
+        panic!("expected array");
+    };
+    assert_eq!(line1_key.len(), 2);
+    assert_eq!(line1_key[0].label, "A");
+
+    // 2. Pure insertion (zero-width range, start == end) succeeds in apply_change.
+    assert_eq!(
+        apply_change(
+            "A=1\n",
+            Some(lsp_types::Range::new(position(0, 0), position(0, 0))),
+            "export "
+        ),
+        Some("export A=1\n".to_owned())
+    );
+
+    // 3. BOM on line 0 does not shift positions or edits on line 1.
+    let line1_hov = hover("\u{feff}A=1\nHOST=2\n", position(1, 0), &LspOptions::new()).unwrap();
+    assert_eq!(
+        line1_hov.range.unwrap(),
+        lsp_types::Range::new(position(1, 0), position(1, 4))
+    );
+    assert_eq!(
+        apply_change(
+            "\u{feff}A=1\nHOST=2\n",
+            Some(lsp_types::Range::new(position(1, 0), position(1, 4))),
+            "NAME"
+        ),
+        Some("\u{feff}A=1\nNAME=2\n".to_owned())
+    );
+
+    // 4. Non-BOM zero-width diagnostic at offset 0 stays zero-width (not 0..1),
+    //    and a BOM-prefixed limit diagnostic spanning past the BOM is not clamped to 0..1.
+    let missing_key = diagnostics("=1\n", &uri(), &LspOptions::new());
+    assert_eq!(
+        missing_key[0].range,
+        lsp_types::Range::new(position(0, 0), position(0, 0))
+    );
+    let bom_limit = diagnostics(
+        "\u{feff}HOST=localhost\n",
+        &uri(),
+        &LspOptions::new().with_parse_options(ParseOptions::new().with_max_input_bytes(4)),
+    );
+    assert_eq!(code(&bom_limit[0]), Some("dotenv.limit-exceeded"));
+    assert_eq!(
+        bom_limit[0].range,
+        lsp_types::Range::new(position(0, 0), position(1, 0))
+    );
 }

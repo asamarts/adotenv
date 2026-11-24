@@ -135,6 +135,7 @@ one-worker / 8 GiB cap:
 - `src/serde_support.rs`: 68 mutants; 36 caught, 32 unviable, 0 missed, 0 timeouts after adding the `size_hint` visitor test and verifying 3/3 caught on kbench.
 - `src/parser/decode.rs` (0/2 and 1/2): 241 mutants; 151 caught, 66 missed, 13 unviable, 11 timeouts; targeted tests closed the genuine coverage gaps, and confirmation shard 0/2 verified 93 caught, 8 missed (7 equivalent/defensive + 1 EOF bounds guard closed in follow-up) and 1 timeout.
 - `1.6.0` core additions (`--in-diff`, 0/3 through 2/3): 259 mutants; 196 caught, 17 missed, 44 unviable, 2 timeouts; added regression tests for all 12 genuine survivors and confirmed 35 caught, 1 unviable, 0 missed and 0 timeouts across the 36-mutant confirmation rerun (208 caught, 5 equivalent/defensive survivors, 44 unviable, 2 timeouts in total).
+- `adotenv-lsp/src/lib.rs`: 146 mutants; 115 caught, 28 unviable, 0 timeouts, 3 equivalent survivors (0 genuine gaps) after adding 5 targeted regression assertions and 2-second transport test channel timeouts.
 
 Note on timeouts: a clean single-threaded `adotenv` package test pass takes
 about 73-75 seconds on `kbench`. Use `--timeout 120` (rather than `--timeout 60`)
