@@ -26,8 +26,10 @@ bounded verified edits (`EditOptions`, `EditError::Limit`,
 `LimitKind::OutputBytes`, `Document::{edit,set,remove,insert,rename}_with_options`),
 and bare-preserving compact entries (`CompactEntries`, `parse_entries_compact*`).
 The previous published lockstep release was 1.5.4 on 2026-11-16 with the
-diff-report schema and published schema URLs. `adotenv-lint`
-0.2.1 and `adotenv-lsp` 0.4.2 were published on 2026-11-15. The previous
+diff-report schema and published schema URLs. `adotenv-lsp` 0.5.0 and
+`adotenv-lint` 0.2.2 were published on 2026-11-23 with `adotenv` 1.6.0 parse
+limits and expanded transport/config coverage (following `adotenv-lint` 0.2.1
+and `adotenv-lsp` 0.4.2 on 2026-11-15). The previous
 lockstep releases were 1.5.3 on 2026-11-16 with package-safe integration tests,
 1.5.2 on 2026-11-15 with CLI help-text corrections, and 1.5.1 on 2026-11-15
 with companion-tooling fixes; 1.5.0 on 2026-11-12 added the compact values API,
@@ -63,7 +65,8 @@ companion work are recorded there.
    0.2.1 and 0.3.0 on 2026-11-08. The 0.3 line adds workspace symbols for open
    documents; linter 0.2.0 and LSP 0.4.0 were published on 2026-11-11 with
    shared configuration policy, followed by linter 0.2.1 and LSP 0.4.1 on
-   2026-11-15, then LSP 0.4.2 the same day. See
+   2026-11-15, LSP 0.4.2 the same day, and LSP 0.5.0 and linter 0.2.2 on
+   2026-11-23 with `adotenv` 1.6.0 parse limits. See
    [#14](https://github.com/asamarts/adotenv/issues/14).
 5. Expand conformance cases only when a real upstream behavior is pinned and
    reproducible.

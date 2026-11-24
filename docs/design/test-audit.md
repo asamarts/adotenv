@@ -49,34 +49,36 @@ regions and 94.8 percent of lines on 2026-11-04) predates `compact.rs`,
 
 ### Published companion crates
 
-Line coverage from the workspace `lcov.info` artifact (CI run `45243636543` at
-commit `94835f1`, including the `adotenv-lsp 0.5.0` transport and library tests;
-production source files across all seven published crates, excluding tests and
-benchmarks):
+Line coverage from the workspace `lcov.info` artifact (CI run `45294775181` at
+commit `f623bce`, including the `adotenv-lsp 0.5.0` transport/library tests and
+the `adotenv-lint 0.2.2` config/CLI coverage pass; production source files
+across all seven published crates, excluding tests and benchmarks):
 
 | Scope | Lines |
 |---|---:|
-| Published crates total (7 crates) | 95.3% |
+| Published crates total (7 crates) | 95.9% |
 | `adotenv-figment/src/lib.rs` | 100.0% |
 | `adotenv-lsp/src/lib.rs` | 99.1% |
 | `adotenv-process/src/lib.rs` | 99.1% |
+| `adotenv-lint/src/config.rs` | 98.8% |
+| `adotenv-lsp/src/main.rs` | 98.5% |
 | `adotenv-config/src/lib.rs` | 98.1% |
-| `adotenv-lsp/src/main.rs` | 98.1% |
 | `adotenv-cli/src/main.rs` | 94.3% |
+| `adotenv-lint/src/main.rs` | 94.2% |
 | `adotenv-lint/src/lib.rs` | 92.4% |
-| `adotenv-lint/src/config.rs` | 87.3% |
-| `adotenv-lint/src/main.rs` | 86.7% |
 
 `limit.rs`, `compare.rs`, `parser/unicode.rs` and `adotenv-figment/src/lib.rs`
 are at 100.0 percent line coverage, `compact.rs` is at 99.5 percent,
 `adotenv-lsp/src/lib.rs` and `adotenv-process/src/lib.rs` at 99.1 percent,
-`model.rs` at 98.4 percent, `adotenv-lsp/src/main.rs` and
-`adotenv-config/src/lib.rs` at 98.1 percent, `parser.rs` at 97.0 percent,
-`edit.rs` at 96.5 percent, and `mask.rs` at 87.5 percent. Across all seven
-published crates, line coverage reached 95.3 percent (14,393 of 15,100 lines),
-up from 93.3 percent at 1.6.0 (`ca38775`) and 92.0 percent at 1.5.4 (`8a50850`).
-`exec.rs`, `load.rs` and `resolve.rs` retain defensive error and platform
-branches.
+`adotenv-lint/src/config.rs` at 98.8 percent, `adotenv-lsp/src/main.rs` at 98.5
+percent, `model.rs` at 98.4 percent, `adotenv-config/src/lib.rs` at 98.1
+percent, `parser.rs` at 97.0 percent, `edit.rs` at 96.5 percent,
+`adotenv-cli/src/main.rs` at 94.3 percent, `adotenv-lint/src/main.rs` at 94.2
+percent, and `mask.rs` at 87.5 percent. Across all seven published crates, line
+coverage reached 95.9 percent (14,759 of 15,382 lines), up from 95.3 percent at
+`adotenv-lsp 0.5.0` (`94835f1`), 93.3 percent at 1.6.0 (`ca38775`) and 92.0
+percent at 1.5.4 (`8a50850`). `exec.rs`, `load.rs` and `resolve.rs` retain
+defensive error and platform branches.
 
 
 ## What the tests cover
