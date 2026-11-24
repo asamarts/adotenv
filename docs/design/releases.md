@@ -2,6 +2,8 @@
 
 | Version | Date | Focus |
 |---|---|---|
+| adotenv-lint 0.2.2 | 2026-11-23 | `adotenv` 1.6.0 adoption, CLI parse-limit flags and expanded coverage |
+| adotenv-lsp 0.5.0 | 2026-11-23 | `adotenv` 1.6.0 parse limits, multi-BOM/keep mapping and transport tests |
 | 1.6.0 | 2026-11-23 | Line limits, `BomPolicy::StripAll`, `LookupIndex::unique`, `EditOptions` and `CompactEntries` |
 | 1.5.4 | 2026-11-16 | Diff-report schema and published schema URLs; no library behavior change |
 | 1.5.3 | 2026-11-16 | Package-safe integration tests; no library behavior change |
