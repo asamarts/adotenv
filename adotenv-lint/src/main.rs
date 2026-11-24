@@ -819,6 +819,10 @@ mod tests {
     #[test]
     fn parses_space_and_equals_option_forms() {
         let options = parse_args(&mut args(&[
+            "--recursive",
+            "--fix",
+            "--max-lines",
+            "100",
             "--dialect",
             "python",
             "--config=custom.toml",
@@ -833,6 +837,8 @@ mod tests {
             "app.env",
         ]))
         .unwrap();
+        assert!(options.recursive);
+        assert!(options.fix);
         assert_eq!(options.dialect, Dialect::PYTHON_DOTENV);
         assert_eq!(options.config.as_deref(), Some("custom.toml"));
         assert_eq!(options.exclude, ["vendor/**"]);
@@ -842,7 +848,13 @@ mod tests {
         assert_eq!(options.lint.equals_spacing, EqualsSpacing::Spaces);
         assert_eq!(options.paths, ["app.env"]);
 
+        assert!(is_ignored_dir(".git"));
+        assert!(is_ignored_dir("target"));
+        assert!(is_ignored_dir("node_modules"));
+        assert!(!is_ignored_dir("nested"));
+        assert_eq!(github_level(Severity::Warning), "warning");
         assert_eq!(github_level(Severity::Info), "notice");
+        assert_eq!(severity_name(Severity::Warning), "warning");
         assert_eq!(severity_name(Severity::Info), "info");
     }
 

@@ -56,16 +56,16 @@ across all seven published crates, excluding tests and benchmarks):
 
 | Scope | Lines |
 |---|---:|
-| Published crates total (7 crates) | 95.9% |
+| Published crates total (7 crates) | 96.0% |
 | `adotenv-figment/src/lib.rs` | 100.0% |
 | `adotenv-lsp/src/lib.rs` | 99.1% |
 | `adotenv-process/src/lib.rs` | 99.1% |
 | `adotenv-lint/src/config.rs` | 98.8% |
 | `adotenv-lsp/src/main.rs` | 98.5% |
 | `adotenv-config/src/lib.rs` | 98.1% |
+| `adotenv-lint/src/lib.rs` | 96.2% |
 | `adotenv-cli/src/main.rs` | 94.3% |
 | `adotenv-lint/src/main.rs` | 94.2% |
-| `adotenv-lint/src/lib.rs` | 92.4% |
 
 `limit.rs`, `compare.rs`, `parser/unicode.rs` and `adotenv-figment/src/lib.rs`
 are at 100.0 percent line coverage, `compact.rs` is at 99.5 percent,
@@ -73,12 +73,13 @@ are at 100.0 percent line coverage, `compact.rs` is at 99.5 percent,
 `adotenv-lint/src/config.rs` at 98.8 percent, `adotenv-lsp/src/main.rs` at 98.5
 percent, `model.rs` at 98.4 percent, `adotenv-config/src/lib.rs` at 98.1
 percent, `parser.rs` at 97.0 percent, `edit.rs` at 96.5 percent,
-`adotenv-cli/src/main.rs` at 94.3 percent, `adotenv-lint/src/main.rs` at 94.2
-percent, and `mask.rs` at 87.5 percent. Across all seven published crates, line
-coverage reached 95.9 percent (14,759 of 15,382 lines), up from 95.3 percent at
-`adotenv-lsp 0.5.0` (`94835f1`), 93.3 percent at 1.6.0 (`ca38775`) and 92.0
-percent at 1.5.4 (`8a50850`). `exec.rs`, `load.rs` and `resolve.rs` retain
-defensive error and platform branches.
+`adotenv-lint/src/lib.rs` at 96.2 percent, `adotenv-cli/src/main.rs` at 94.3
+percent, `adotenv-lint/src/main.rs` at 94.2 percent, and `mask.rs` at 87.5
+percent. Across all seven published crates, line coverage reached 96.0 percent
+(14,853 of 15,471 lines, CI run `45341434718` at `9d852ec`), up from 95.3
+percent at `adotenv-lsp 0.5.0` (`94835f1`), 93.3 percent at 1.6.0 (`ca38775`)
+and 92.0 percent at 1.5.4 (`8a50850`). `exec.rs`, `load.rs` and `resolve.rs`
+retain defensive error and platform branches.
 
 
 ## What the tests cover
@@ -459,6 +460,26 @@ The combined confirmation sweep (**170 mutants**) verified **130 caught, 39
 unviable, 0 timeouts and 1 equivalent survivor** (`group.len() > 1` to `>= 1`
 in `lint`, where `group.iter().skip(1)` already yields nothing for length 1).
 
+### Companion binary sweeps (`adotenv-lsp/src/main.rs`, `adotenv-lint/src/main.rs`, `2026-11-24`)
+
+- `adotenv-lsp/src/main.rs` (**84 mutants**): initially 65 caught, 6 unviable,
+  1 infinite-loop timeout (`index -= 3` in `decoded_uri_path`) and 12 missed
+  (11 genuine gaps + 1 bitwise-equivalent `|` vs `^` in `decoded_uri_path`).
+  Adding assertions for all 8 `ServerCapabilities` fields, standalone
+  `--config=`, and truncated/leading percent-escapes in `decoded_uri_path`
+  closed all 11 genuine gaps (confirmed on `kbench`: **76 caught, 6 unviable,
+  1 timeout, 1 equivalent survivor, 0 genuine gaps**).
+- `adotenv-lint/src/main.rs` (**131 mutants**): initially 104 caught, 3
+  unviable, 1 infinite-loop timeout (`index -= 1` in `parse_args`) and 23
+  missed (10 Windows-only `#[cfg(windows)]` / `#[cfg(not(unix))]` branches
+  exercised by Windows CI, 4 defensive/race-injection branches in `write_fixed`
+  / `fix_file`, and 9 genuine gaps). Tightening JSON array start checks,
+  testing `--max-lines` at non-zero option index, multi-byte UTF-8 filename
+  truncation, recursive `walk` directory filtering, `is_ignored_dir`, and
+  `Severity::Warning` output helpers closed all genuine gaps (confirmed on
+  `kbench`: **111 caught, 3 unviable, 2 infinite-loop timeouts, 10
+  Windows-only + 5 defensive/equivalent survivors, 0 genuine gaps**).
+
 ## Mutation policy
 
 A surviving mutant is a test-coverage question, not automatically a product
@@ -496,11 +517,10 @@ overflow and popover bounds.
    recorded above. Windows-only validation branches are exercised by the
    Windows CI job but not by mutation runs on Linux.
 4. All core crate source files, all three adapter crates (`adotenv-process`,
-   `adotenv-config`, `adotenv-figment`), `adotenv-lsp/src/lib.rs` and the
-   `adotenv-lint` library (`src/lib.rs`, `src/config.rs`) have completed
-   sharded or full-file mutation runs. Optional remaining companion binary
-   sweeps are `adotenv-lsp/src/main.rs`, `adotenv-lint/src/main.rs`,
-   `adotenv-cli`, and the optional `parser/decode` confirmation shard 1/2
-   rerun. Run them on kbench one shard at a time after an idle-queue check;
-   see [heavy validation](heavy-validation.md).
+   `adotenv-config`, `adotenv-figment`), `adotenv-lsp` (`lib.rs` + `main.rs`)
+   and `adotenv-lint` (`lib.rs` + `config.rs` + `main.rs`) have completed
+   sharded or full-file mutation runs. Optional remaining sweeps are
+   `adotenv-cli/src/main.rs` and the optional `parser/decode` confirmation
+   shard 1/2 rerun. Run them on kbench one shard at a time after an idle-queue
+   check; see [heavy validation](heavy-validation.md).
 
