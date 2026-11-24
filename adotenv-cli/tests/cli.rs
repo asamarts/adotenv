@@ -2790,7 +2790,7 @@ fn parse_and_output_limit_flags_apply_across_cli_commands() {
     assert_eq!(get_bytes.status.code(), Some(2));
     assert!(stderr(&get_bytes).contains("limit"));
 
-    // diff enforces limits on baseline and target
+    // diff enforces limits on baseline and target (human & matrix)
     let diff_lines = run(&[
         "--max-lines=2",
         "diff",
@@ -2798,10 +2798,37 @@ fn parse_and_output_limit_flags_apply_across_cli_commands() {
         other.to_str().unwrap(),
     ]);
     assert_eq!(diff_lines.status.code(), Some(2));
+    let diff_matrix_lines = run(&[
+        "--max-lines=2",
+        "diff",
+        "--format",
+        "matrix",
+        file.to_str().unwrap(),
+        other.to_str().unwrap(),
+    ]);
+    assert_eq!(diff_matrix_lines.status.code(), Some(2));
 
-    // load enforces ParseOptions limits through LoadOptions
+    // fmt refuses to format a limit-exceeded document (exit 2); example prints diagnostic
+    let fmt_lines = run(&["--max-lines=2", "fmt", file.to_str().unwrap()]);
+    assert_eq!(fmt_lines.status.code(), Some(2));
+    assert!(stderr(&fmt_lines).contains("limit"));
+    let example_lines = run(&["--max-lines=2", "example", file.to_str().unwrap()]);
+    assert_eq!(example_lines.status.code(), Some(0));
+    assert!(stderr(&example_lines).contains("limit"));
+
+    // load and run enforce ParseOptions limits through LoadOptions
     let load_lines = run(&["--max-lines", "2", "load", dir.path().to_str().unwrap()]);
     assert_eq!(load_lines.status.code(), Some(2));
+    let run_lines = run(&[
+        "--max-lines",
+        "2",
+        "run",
+        dir.path().to_str().unwrap(),
+        "--",
+        "echo",
+        "hi",
+    ]);
+    assert_eq!(run_lines.status.code(), Some(2));
 
     // set enforces --max-output-bytes and --max-output-lines via EditOptions
     let set_out_bytes = run(&[

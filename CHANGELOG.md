@@ -12,8 +12,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   parse-limit flags across all commands, plus `--max-output-bytes <n>` and
   `--max-output-lines <n>` on `set` (backed by `adotenv` 1.6.0 `ParseOptions`
   and `EditOptions`).
-- `adotenv-lint` (`0.2.2`): adopted `adotenv` 1.6.0 and added
-  `--max-input-bytes <n>` and `--max-lines <n>` CLI parse-limit flags.
+
+## [adotenv-lint 0.2.2] - 2026-11-23
+
+### Added
+
+- Adopted `adotenv` 1.6.0 and added `--max-input-bytes <n>` and `--max-lines <n>`
+  CLI parse-limit flags across lint and `--fix` runs.
+
+### Tests
+
+- Expanded `adotenv-lint` configuration, option-parsing and CLI coverage
+  (`OutputFormat::as_str`, `ConfigError`, `[rules]` overrides, multi-finding
+  JSON output, default recursive scan and limit flags).
 
 ## [adotenv-lsp 0.5.0] - 2026-11-23
 

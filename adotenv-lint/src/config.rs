@@ -824,12 +824,124 @@ mod tests {
 
     #[test]
     fn parses_dialects_and_spacing() {
+        assert_eq!(parse_dialect("portable").unwrap(), Dialect::PORTABLE);
         assert_eq!(parse_dialect("node").unwrap(), Dialect::NODE_DOTENV);
+        assert_eq!(parse_dialect("python").unwrap(), Dialect::PYTHON_DOTENV);
+        assert_eq!(parse_dialect("compose").unwrap(), Dialect::COMPOSE);
         assert_eq!(parse_dialect("docker").unwrap(), Dialect::DOCKER_RAW);
+        assert_eq!(parse_dialect("docker-raw").unwrap(), Dialect::DOCKER_RAW);
+        assert!(parse_dialect("nope").is_err());
+
+        assert_eq!(parse_key_case("lower").unwrap(), KeyCase::Lower);
+        assert_eq!(parse_key_case("upper").unwrap(), KeyCase::Upper);
+        assert!(parse_key_case("mixed").is_err());
+
+        assert_eq!(parse_quote_style("preserve").unwrap(), QuoteStyle::Preserve);
+        assert_eq!(parse_quote_style("double").unwrap(), QuoteStyle::Double);
+        assert_eq!(parse_quote_style("single").unwrap(), QuoteStyle::Single);
+        assert_eq!(parse_quote_style("unquoted").unwrap(), QuoteStyle::Unquoted);
+        assert!(parse_quote_style("backtick").is_err());
+
+        assert_eq!(
+            parse_equals_spacing("preserve").unwrap(),
+            EqualsSpacing::Preserve
+        );
+        assert_eq!(parse_equals_spacing("none").unwrap(), EqualsSpacing::None);
         assert_eq!(
             parse_equals_spacing("spaces").unwrap(),
             EqualsSpacing::Spaces
         );
+        assert!(parse_equals_spacing("tabs").is_err());
+
+        assert_eq!(OutputFormat::Human.as_str(), "human");
+        assert_eq!(OutputFormat::Json.as_str(), "json");
+        assert_eq!(OutputFormat::Github.as_str(), "github");
+        assert_eq!(parse_output_format("human").unwrap(), OutputFormat::Human);
+        assert_eq!(parse_output_format("json").unwrap(), OutputFormat::Json);
         assert_eq!(parse_output_format("github").unwrap(), OutputFormat::Github);
+        assert!(parse_output_format("xml").is_err());
+
+        assert_eq!(
+            "warning".parse::<RuleSeverity>().unwrap().severity(),
+            Some(Severity::Warning)
+        );
+        assert_eq!(
+            "error".parse::<RuleSeverity>().unwrap().severity(),
+            Some(Severity::Error)
+        );
+        assert_eq!("off".parse::<RuleSeverity>().unwrap().severity(), None);
+        assert!("fatal".parse::<RuleSeverity>().is_err());
+    }
+
+    #[test]
+    fn config_apply_and_validation_cover_all_fields_and_errors() {
+        let full = LintConfig::from_toml(
+            "dialect = \"compose\"\n\
+             format = \"github\"\n\
+             recursive = true\n\
+             key_order = true\n\
+             key_case = \"lower\"\n\
+             quote_style = \"double\"\n\
+             equals_spacing = \"spaces\"\n\
+             trim_trailing_whitespace = true\n\
+             ignore = [\"vendor/**\"]\n\
+             [rules]\n\
+             key-case = \"warning\"\n\
+             quote-style = \"error\"\n\
+             whitespace = \"warning\"\n",
+            Path::new("full.toml"),
+        )
+        .unwrap();
+        let mut policy = LintPolicy::default();
+        full.apply(&mut policy, ConfigExplicit::default());
+        assert_eq!(policy.dialect, Dialect::COMPOSE);
+        assert_eq!(policy.format, OutputFormat::Github);
+        assert!(policy.recursive);
+        assert!(policy.lint.key_order);
+        assert_eq!(policy.lint.key_case, KeyCase::Lower);
+        assert_eq!(policy.lint.quote_style, QuoteStyle::Double);
+        assert_eq!(policy.lint.equals_spacing, EqualsSpacing::Spaces);
+        assert!(policy.lint.trim_trailing_whitespace);
+        assert_eq!(policy.ignore, ["vendor/**"]);
+
+        // Disabling rules via [rules] resets non-explicit top-level policies.
+        let disable = LintConfig::from_toml(
+            "[rules]\nkey-case = \"off\"\nquote-style = \"off\"\nwhitespace = \"off\"\n",
+            Path::new("off.toml"),
+        )
+        .unwrap();
+        disable.apply(&mut policy, ConfigExplicit::default());
+        assert_eq!(policy.lint.key_case, KeyCase::Off);
+        assert_eq!(policy.lint.quote_style, QuoteStyle::Preserve);
+        assert_eq!(policy.lint.equals_spacing, EqualsSpacing::Preserve);
+        assert!(!policy.lint.trim_trailing_whitespace);
+
+        // Invalid enum values report ConfigError with path and message.
+        for (snippet, expected) in [
+            ("dialect = \"nope\"\n", "unknown dialect: nope"),
+            ("format = \"nope\"\n", "unknown format: nope"),
+            ("key_case = \"nope\"\n", "unknown key case: nope"),
+            ("quote_style = \"nope\"\n", "unknown quote style: nope"),
+            (
+                "equals_spacing = \"nope\"\n",
+                "unknown equals spacing: nope",
+            ),
+            (
+                "[rules]\nkey-case = \"nope\"\n",
+                "unknown severity for key-case: nope",
+            ),
+        ] {
+            let err = LintConfig::from_toml(snippet, Path::new("bad.toml")).unwrap_err();
+            assert_eq!(err.path(), Some(Path::new("bad.toml")));
+            assert_eq!(err.message(), expected);
+            assert!(err.to_string().contains("bad.toml"));
+        }
+
+        let no_path = ConfigError {
+            path: None,
+            message: "plain error".to_owned(),
+        };
+        assert_eq!(no_path.path(), None);
+        assert_eq!(no_path.to_string(), "plain error");
     }
 }

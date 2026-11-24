@@ -17,7 +17,8 @@ version.
 ## Commands
 
 ```text
-adotenv-cli [--dialect <portable|node|python|compose|docker>] [--dialect=<value>] <command> [options]
+adotenv-cli [--dialect <portable|node|python|compose|docker>] [--dialect=<value>]
+            [--max-input-bytes <n>] [--max-lines <n>] <command> [options]
 
 get <file> <key>
 check [--format human|json|github] [--json] [--source] [-r|--recursive] [--exclude <path>] <path>...
@@ -25,7 +26,7 @@ fmt [--write|--check] [--sort] [-r|--recursive] [--exclude <path>] <path>...
 diff [--format human|matrix|json] [--json] [--mask] <baseline> <file>...
 example <file>
 load <directory> [mode]
-set <file> <key> <value>
+set [--max-output-bytes <n>] [--max-output-lines <n>] <file> <key> <value>
 run <directory> [mode] -- <program> [args...]
 ```
 
@@ -67,6 +68,18 @@ options are usage errors rather than paths, unless they follow `--`.
 | `docker` or `docker-raw` | `Dialect::DOCKER_RAW` |
 
 See [Dialects](dialects.md) for what each preset accepts.
+
+### Limits
+
+`--max-input-bytes <n>` and `--max-lines <n>` (or their `=` forms) are global
+options accepted in the same positions as `--dialect` and specified at most
+once. They forward `ParseOptions::with_max_input_bytes` and
+`ParseOptions::with_max_lines` to every file parse and cascade load. `check`
+reports limit violations as `dotenv.limit-exceeded` diagnostics (exit code 1);
+strict commands (`get`, `fmt`, `diff`, `load`, `set`, `run`) exit with code 2.
+
+`set` also accepts `--max-output-bytes <n>` and `--max-output-lines <n>` before
+`<file>` to bound the edited file through `EditOptions` before writing.
 
 ## Values in output
 
