@@ -530,8 +530,11 @@ overflow and popover bounds.
    Windows CI job but not by mutation runs on Linux.
 4. Every published crate in the workspace (`adotenv` core, `adotenv-process`,
    `adotenv-config`, `adotenv-figment`, `adotenv-lsp`, `adotenv-lint`, and
-   `adotenv-cli`) has completed sharded or full-file mutation runs on `kbench`
-   with 0 remaining genuine gaps. Only the optional `src/parser/decode.rs`
-   confirmation shard 1/2 rerun remains; run it on `kbench` after an idle-queue
-   check per [heavy validation](heavy-validation.md).
+   `adotenv-cli`) has completed sharded or full-file mutation runs on `kbench`,
+   including both confirmation shards (`0/2` and `1/2`) of
+   `src/parser/decode.rs`. Shard `1/2` confirmation (120 mutants, `--timeout
+   120`) verified **94 caught, 1 unviable, 8 infinite-loop timeouts and 17
+   missed** (14 defensive single-line `decode_tail`/custom-dialect `\r` guards,
+   1 custom `LineBreaks::Lf` + `normalize_newlines` boundary, and 2 equivalent
+   mutants in `decode_escape`), with 0 remaining genuine product gaps.
 
