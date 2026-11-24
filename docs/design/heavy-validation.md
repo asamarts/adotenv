@@ -137,6 +137,7 @@ one-worker / 8 GiB cap:
 - `1.6.0` core additions (`--in-diff`, 0/3 through 2/3): 259 mutants; 196 caught, 17 missed, 44 unviable, 2 timeouts; added regression tests for all 12 genuine survivors and confirmed 35 caught, 1 unviable, 0 missed and 0 timeouts across the 36-mutant confirmation rerun (208 caught, 5 equivalent/defensive survivors, 44 unviable, 2 timeouts in total).
 - `adotenv-lsp/src/lib.rs`: 146 mutants; 115 caught, 28 unviable, 0 timeouts, 3 equivalent survivors (0 genuine gaps) after adding 5 targeted regression assertions and 2-second transport test channel timeouts.
 - `adotenv-lint` library (`src/lib.rs` + `src/config.rs`): 170 mutants; 130 caught, 39 unviable, 0 timeouts, 1 equivalent survivor (0 genuine gaps) after adding 30 targeted regression assertions.
+- `adotenv-lsp/src/main.rs` (84 mutants) and `adotenv-lint/src/main.rs` (131 mutants): closed all 20 genuine gaps (11 LSP + 9 lint); confirmed 76 caught / 6 unviable / 1 timeout / 1 equivalent for `adotenv-lsp/src/main.rs` and 111 caught / 3 unviable / 2 timeouts / 10 Windows-only + 5 defensive/equivalent for `adotenv-lint/src/main.rs` (0 genuine gaps).
 
 Note on timeouts: a clean single-threaded `adotenv` package test pass takes
 about 73-75 seconds on `kbench`. Use `--timeout 120` (rather than `--timeout 60`)

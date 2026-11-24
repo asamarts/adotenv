@@ -580,11 +580,17 @@ mod tests {
         assert_eq!(cli.config, Some(PathBuf::from("policy.toml")));
         assert!(!cli.discover_lint_config);
 
+        let cli = parse_args_from(args(&["--config=policy.toml"])).unwrap();
+        assert_eq!(cli.config, Some(PathBuf::from("policy.toml")));
+
         let cli = parse_args_from(args(&["--config=policy.toml", "--discover-lint-config"]));
         assert!(cli.is_err());
 
         let cli = parse_args_from(args(&["--discover-lint-config"])).unwrap();
         assert!(cli.discover_lint_config);
+
+        assert_eq!(decoded_uri_path("/a%2"), PathBuf::from("/a%2"));
+        assert_eq!(decoded_uri_path("/%20"), PathBuf::from("/ "));
     }
 
     #[test]
@@ -745,7 +751,18 @@ mod tests {
             serde_json::json!({ "capabilities": {} }),
         );
         let result = init.response_result.unwrap();
-        assert_eq!(result["capabilities"]["renameProvider"], true);
+        let caps = &result["capabilities"];
+        assert_eq!(caps["textDocumentSync"], 2);
+        assert_eq!(
+            caps["completionProvider"]["triggerCharacters"],
+            serde_json::json!(["$", "{"])
+        );
+        assert_eq!(caps["definitionProvider"], true);
+        assert_eq!(caps["documentSymbolProvider"], true);
+        assert_eq!(caps["hoverProvider"], true);
+        assert_eq!(caps["workspaceSymbolProvider"], true);
+        assert_eq!(caps["referencesProvider"], true);
+        assert_eq!(caps["renameProvider"], true);
         client
             .sender
             .send(Message::Notification(Notification::new(

@@ -387,8 +387,27 @@ fn help_version_default_scan_multi_json_and_dir_without_recursive() {
     let default_scan = run_in(dir.path(), &["--format=json"]);
     assert_eq!(default_scan.status.code(), Some(1));
     let json = String::from_utf8(default_scan.stdout).unwrap();
-    assert!(json.starts_with('[') && json.trim_end().ends_with(']'));
+    assert!(json.starts_with("[{") && json.trim_end().ends_with("}]"));
     assert!(json.contains("},{"));
+
+    // Recursive walk enters normal directories and skips ignored directories.
+    let walk_dir = TempDir::new();
+    walk_dir.file_at("nested/.env", "A=1\nA=2\n");
+    walk_dir.file_at(".git/.env", "X=1\nX=2\n");
+    walk_dir.file_at("target/.env", "Y=1\nY=2\n");
+    let walk_out = run(&["--recursive", walk_dir.path().to_str().unwrap()]);
+    assert_eq!(walk_out.status.code(), Some(1));
+    let walk_text = String::from_utf8(walk_out.stdout).unwrap();
+    assert!(walk_text.contains("nested"));
+    assert!(!walk_text.contains(".git"));
+    assert!(!walk_text.contains("target"));
+
+    // --fix handles a >160-byte filename whose byte 160 falls inside a UTF-8 char.
+    let utf8_name = format!("{}é.env", "a".repeat(159));
+    let utf8_file = dir.file(&utf8_name, "B=2\nA=1\n");
+    let utf8_fix = run(&["--fix", "--key-order", utf8_file.to_str().unwrap()]);
+    assert_eq!(utf8_fix.status.code(), Some(0));
+    assert_eq!(fs::read_to_string(&utf8_file).unwrap(), "A=1\nB=2\n");
 
     // --fix respects --max-lines.
     let fix_limited = run(&["--fix", "--max-lines=2", file.to_str().unwrap()]);
