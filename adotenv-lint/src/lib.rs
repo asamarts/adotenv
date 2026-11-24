@@ -956,3 +956,92 @@ fn apply_batch_reports_no_change_for_a_noop_format() {
     assert!(result.is_empty());
     assert_eq!(result.output(), "A='one'\n");
 }
+
+#[test]
+fn mutation_regression_assertions_for_rules_whitespace_quotes_and_order() {
+    use adotenv::parse_strict;
+
+    // 1. Distinct Rule::index slots in LintOptions::with_severity.
+    let opts = LintOptions::new()
+        .with_severity(Rule::DuplicateKey, Severity::Error)
+        .with_severity(Rule::KeyOrder, Severity::Info)
+        .with_severity(Rule::KeyCase, Severity::Error)
+        .with_severity(Rule::QuoteStyle, Severity::Info)
+        .with_severity(Rule::Whitespace, Severity::Error);
+    assert_eq!(opts.severity_for_rule(Rule::DuplicateKey), Severity::Error);
+    assert_eq!(opts.severity_for_rule(Rule::KeyOrder), Severity::Info);
+    assert_eq!(opts.severity_for_rule(Rule::KeyCase), Severity::Error);
+    assert_eq!(opts.severity_for_rule(Rule::QuoteStyle), Severity::Info);
+    assert_eq!(opts.severity_for_rule(Rule::Whitespace), Severity::Error);
+
+    // 2. Finding::message, FixResult::edits, BatchResult::is_empty, LintError::fmt.
+    let dup_doc = parse_strict("A=1\nA=2\n").unwrap();
+    let dup_findings = lint(&dup_doc, LintOptions::default());
+    assert_eq!(dup_findings[0].message(), "key is declared more than once");
+
+    let rename_doc = parse_strict("a=1\n").unwrap();
+    let rename_fix = Fix::Rename {
+        entry: 0,
+        key: "A".to_owned(),
+    };
+    let fixed = apply_fix(&rename_doc, &rename_fix).unwrap();
+    assert_eq!(fixed.edits().len(), 1);
+    let batched = apply_batch(&rename_doc, &[rename_fix]).unwrap();
+    assert!(!batched.is_empty());
+    assert_eq!(
+        LintError::Conflict("conflict reason").to_string(),
+        "cannot combine fixes: conflict reason"
+    );
+
+    // 3. apply_fixes with standalone Fix::Sort and standalone Fix::Format.
+    let unsorted = parse_strict("B=2\nA=1\n").unwrap();
+    let sorted = apply_fixes(&unsorted, &[Fix::Sort]).unwrap();
+    assert_eq!(sorted.as_str(), "A=1\nB=2\n");
+
+    // 4. QuoteStyle::Single and QuoteStyle::Unquoted detection.
+    let quoted = parse_strict("A=\"one\"\n").unwrap();
+    let single_findings = lint(
+        &quoted,
+        LintOptions::new().with_quote_style(QuoteStyle::Single),
+    );
+    assert_eq!(single_findings.len(), 1);
+    assert_eq!(single_findings[0].rule(), Rule::QuoteStyle);
+    let unquoted_findings = lint(
+        &quoted,
+        LintOptions::new().with_quote_style(QuoteStyle::Unquoted),
+    );
+    assert_eq!(unquoted_findings.len(), 1);
+    assert_eq!(unquoted_findings[0].rule(), Rule::QuoteStyle);
+
+    // 5. whitespace_differs: EqualsSpacing::None / Spaces (before & after) and trailing space.
+    let eq_none = LintOptions::new().with_equals_spacing(EqualsSpacing::None);
+    assert_eq!(lint(&parse_strict("A=1\n").unwrap(), eq_none), Vec::new());
+    assert_eq!(lint(&parse_strict("A =1\n").unwrap(), eq_none).len(), 1);
+    assert_eq!(lint(&parse_strict("A= 1\n").unwrap(), eq_none).len(), 1);
+
+    let eq_spaces = LintOptions::new().with_equals_spacing(EqualsSpacing::Spaces);
+    assert_eq!(
+        lint(&parse_strict("A = 1\n").unwrap(), eq_spaces),
+        Vec::new()
+    );
+    assert_eq!(lint(&parse_strict("A= 1\n").unwrap(), eq_spaces).len(), 1);
+    assert_eq!(lint(&parse_strict("A =1\n").unwrap(), eq_spaces).len(), 1);
+
+    let trim_off = LintOptions::new().with_trim_trailing_whitespace(false);
+    let trim_on = LintOptions::new().with_trim_trailing_whitespace(true);
+    assert_eq!(lint(&parse_strict("A=1 \n").unwrap(), trim_off), Vec::new());
+    assert_eq!(lint(&parse_strict("A=1\n").unwrap(), trim_on), Vec::new());
+    assert_eq!(lint(&parse_strict("A=1 \n").unwrap(), trim_on).len(), 1);
+
+    // 6. key_order_findings: 3-entry group, duplicate-key skip, and line_of (> line 1).
+    let order_only = LintOptions::new()
+        .with_duplicate_keys(false)
+        .with_key_order(true);
+    let three = parse_strict("# header\n\nC=3\nB=2\nA=1\n").unwrap();
+    let three_findings = lint(&three, order_only);
+    assert_eq!(three_findings.len(), 1);
+    assert_eq!(three_findings[0].line(), 3);
+
+    let with_dups = parse_strict("B=2\nA=1\nA=3\n").unwrap();
+    assert_eq!(lint(&with_dups, order_only), Vec::new());
+}
