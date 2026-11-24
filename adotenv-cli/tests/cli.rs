@@ -2840,24 +2840,29 @@ fn parse_and_output_limit_flags_apply_across_cli_commands() {
         "very-long-value",
     ]);
     assert_eq!(set_out_bytes.status.code(), Some(2));
+    assert!(stderr(&set_out_bytes).contains("limit"));
     assert_eq!(fs::read_to_string(&file).unwrap(), "A=1\nB=2\nC=3\n");
 
     let set_out_lines = run(&[
         "set",
-        "--max-output-lines=3",
+        "--max-output-lines=2",
         file.to_str().unwrap(),
-        "D",
-        "4",
+        "A",
+        "line1\nline2",
     ]);
     assert_eq!(set_out_lines.status.code(), Some(2));
+    assert!(stderr(&set_out_lines).contains("limit"));
     assert_eq!(fs::read_to_string(&file).unwrap(), "A=1\nB=2\nC=3\n");
 
-    // set succeeds when within bounds and keeps --dialect= after file as literal value
+    // set succeeds with space-separated --max-output-bytes and --max-output-lines=
+    // plus --dialect after --max-output-bytes, and keeps --max-lines= after file literal
     let set_ok = run(&[
         "set",
-        "--max-output-bytes=64",
-        "--max-output-lines",
-        "4",
+        "--max-output-bytes",
+        "64",
+        "--max-output-lines=4",
+        "--dialect",
+        "portable",
         "--max-lines=3",
         file.to_str().unwrap(),
         "A",
@@ -2869,15 +2874,129 @@ fn parse_and_output_limit_flags_apply_across_cli_commands() {
         "A=--max-lines=99\nB=2\nC=3\n"
     );
 
+    let set_ok_alt = run(&[
+        "set",
+        "--max-output-bytes=64",
+        "--max-output-lines",
+        "4",
+        file.to_str().unwrap(),
+        "A",
+        "1",
+    ]);
+    assert_eq!(set_ok_alt.status.code(), Some(0), "{}", stderr(&set_ok_alt));
+    assert_eq!(fs::read_to_string(&file).unwrap(), "A=1\nB=2\nC=3\n");
+
     // Invalid and duplicate limit flags fail with exit code 2
     for bad in [
         &["--max-lines"][..],
         &["--max-input-bytes=abc"][..],
         &["--max-lines", "1", "--max-lines", "2", "get", "x", "A"][..],
+        &["set", "--max-output-bytes"][..],
         &["set", "--max-output-bytes=abc", "x", "A", "1"][..],
         &["set", "--max-output-lines"][..],
     ] {
         let out = run(bad);
         assert_eq!(out.status.code(), Some(2), "{bad:?}");
     }
+}
+
+#[test]
+fn cli_mutation_regression_assertions() {
+    let dir = TempDir::new();
+
+    // 1. check human summary counts: read failures, warnings, infos, BOM line-2 --source, carets.
+    let missing1 = dir.path().join("missing1.env");
+    let missing2 = dir.path().join("missing2.env");
+    let miss_out = run(&[
+        "check",
+        missing1.to_str().unwrap(),
+        missing2.to_str().unwrap(),
+    ]);
+    assert_eq!(miss_out.status.code(), Some(2));
+    assert!(stdout(&miss_out).contains("2 errors, 0 warnings, 0 info in 2 files"));
+
+    let warn_info = dir.file("warn_info.env", "\u{feff}A=1\nA=2\nBAD KEY=3\n");
+    let wi_out = run(&["check", "--source", warn_info.to_str().unwrap()]);
+    assert_eq!(wi_out.status.code(), Some(1));
+    let wi_stdout = stdout(&wi_out);
+    assert!(
+        wi_stdout.contains("1 error, 1 warning, 1 info in 1 file"),
+        "{wi_stdout}"
+    );
+    assert!(
+        wi_stdout.contains("3 | BAD KEY=3\n  | ^^^^^^^\n"),
+        "{wi_stdout}"
+    );
+
+    // 2. diff --format human, diff -- separator, and 3-file matrix column width.
+    let f1 = dir.file("f1.env", "A=1\nB=x\n");
+    let f2 = dir.file("f2.env", "A=22\nB=y\n");
+    dir.file("f3.env", "A=33333333333333333333\nB=z\n");
+    let diff_human = run(&[
+        "diff",
+        "--format",
+        "human",
+        "--",
+        f1.to_str().unwrap(),
+        f2.to_str().unwrap(),
+    ]);
+    assert_eq!(diff_human.status.code(), Some(1));
+    assert!(stdout(&diff_human).contains("~ A: 1 -> 22"));
+
+    let diff_matrix3 = run_in(
+        dir.path(),
+        &["diff", "--format", "matrix", "f1.env", "f2.env", "f3.env"],
+    );
+    assert_eq!(diff_matrix3.status.code(), Some(1));
+    let m_out = stdout(&diff_matrix3);
+    assert!(
+        m_out.contains("f1.env | f2.env | f3.env              \n"),
+        "{m_out}"
+    );
+    assert!(m_out.contains("| z                   \n"), "{m_out}");
+
+    // 3. load with explicit mode (2 args), load -- with dash mode, and run with explicit mode.
+    let load_dir = TempDir::new();
+    load_dir.file(".env", "A=base\n");
+    load_dir.file(".env.dev", "A=dev\n");
+    let load_mode = run(&["load", load_dir.path().to_str().unwrap(), "dev"]);
+    assert_eq!(load_mode.status.code(), Some(0), "{}", stderr(&load_mode));
+    assert_eq!(stdout(&load_mode), "A=dev\n");
+
+    let load_dash_mode = run(&["load", "--", load_dir.path().to_str().unwrap(), "-dev"]);
+    assert_eq!(
+        load_dash_mode.status.code(),
+        Some(0),
+        "{}",
+        stderr(&load_dash_mode)
+    );
+    let load_dash_rejected = run(&["load", load_dir.path().to_str().unwrap(), "-dev"]);
+    assert_eq!(load_dash_rejected.status.code(), Some(2));
+    assert!(stderr(&load_dash_rejected).contains("unknown option"));
+
+    let run_mode = run(&[
+        "run",
+        load_dir.path().to_str().unwrap(),
+        "dev",
+        "--",
+        env!("CARGO_BIN_EXE_adotenv-cli"),
+        "--version",
+    ]);
+    assert_eq!(run_mode.status.code(), Some(0), "{}", stderr(&run_mode));
+
+    // 4. render_portable rejects a key that re-parses as a single different Portable entry.
+    let python_dir = TempDir::new();
+    python_dir.file(".env", "'export A'=1\n");
+    let python_load = run(&[
+        "--dialect",
+        "python",
+        "load",
+        python_dir.path().to_str().unwrap(),
+    ]);
+    assert_eq!(python_load.status.code(), Some(2));
+    assert!(
+        stderr(&python_load).contains("not a Portable key"),
+        "{}",
+        stderr(&python_load)
+    );
 }
