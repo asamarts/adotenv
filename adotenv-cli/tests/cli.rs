@@ -2955,6 +2955,23 @@ fn cli_mutation_regression_assertions() {
     );
     assert!(m_out.contains("| z                   \n"), "{m_out}");
 
+    // 3-file matrix where the 3rd header is wider than its values (tests print_matrix header width).
+    dir.file("f3_wide_header.env", "A=3\nB=z\n");
+    let diff_matrix_hdr = run_in(
+        dir.path(),
+        &[
+            "diff",
+            "--format",
+            "matrix",
+            "f1.env",
+            "f2.env",
+            "f3_wide_header.env",
+        ],
+    );
+    assert_eq!(diff_matrix_hdr.status.code(), Some(1));
+    let hdr_out = stdout(&diff_matrix_hdr);
+    assert!(hdr_out.contains("| z                 \n"), "{hdr_out}");
+
     // 3. load with explicit mode (2 args), load -- with dash mode, and run with explicit mode.
     let load_dir = TempDir::new();
     load_dir.file(".env", "A=base\n");
