@@ -479,6 +479,18 @@ in `lint`, where `group.iter().skip(1)` already yields nothing for length 1).
   `Severity::Warning` output helpers closed all genuine gaps (confirmed on
   `kbench`: **111 caught, 3 unviable, 2 infinite-loop timeouts, 10
   Windows-only + 5 defensive/equivalent survivors, 0 genuine gaps**).
+- `adotenv-cli/src/main.rs` (**506 mutants** across shards `0/2` and `1/2`):
+  initially 416 caught, 13 unviable, 9 infinite-loop timeouts and 68 missed
+  (19 Windows-only `#[cfg(windows)]` / `#[cfg(not(unix))]` branches, 26
+  defensive/OS-ownership/fsync/equivalent guards, and 23 genuine gaps).
+  Adding targeted regression tests in `adotenv-cli/tests/cli.rs` (human
+  `check` summary counts for read errors/warnings/infos, BOM line-2 `--source`
+  and non-tab caret width, `diff --format human`, `diff --`, 3-file matrix
+  column alignment, `load`/`run` explicit mode and `load -- -mode`, Python
+  quoted-key `render_portable` rejection, and all four `set` output-limit flag
+  spellings with error-message checks) closed all 23 genuine gaps (bringing
+  `adotenv-cli/src/main.rs` to **439 caught, 13 unviable, 9 timeouts, 19
+  Windows-only + 26 defensive/equivalent survivors, 0 genuine gaps**).
 
 ## Mutation policy
 
@@ -516,11 +528,10 @@ overflow and popover bounds.
    list is 5,502 mutants, and the partial full campaign plus file shards are
    recorded above. Windows-only validation branches are exercised by the
    Windows CI job but not by mutation runs on Linux.
-4. All core crate source files, all three adapter crates (`adotenv-process`,
-   `adotenv-config`, `adotenv-figment`), `adotenv-lsp` (`lib.rs` + `main.rs`)
-   and `adotenv-lint` (`lib.rs` + `config.rs` + `main.rs`) have completed
-   sharded or full-file mutation runs. Optional remaining sweeps are
-   `adotenv-cli/src/main.rs` and the optional `parser/decode` confirmation
-   shard 1/2 rerun. Run them on kbench one shard at a time after an idle-queue
-   check; see [heavy validation](heavy-validation.md).
+4. Every published crate in the workspace (`adotenv` core, `adotenv-process`,
+   `adotenv-config`, `adotenv-figment`, `adotenv-lsp`, `adotenv-lint`, and
+   `adotenv-cli`) has completed sharded or full-file mutation runs on `kbench`
+   with 0 remaining genuine gaps. Only the optional `src/parser/decode.rs`
+   confirmation shard 1/2 rerun remains; run it on `kbench` after an idle-queue
+   check per [heavy validation](heavy-validation.md).
 
