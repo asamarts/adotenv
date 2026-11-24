@@ -443,6 +443,22 @@ to `index * 1` in `completion_with_options` where `trim_start()` strips the
 leading newline, and two `bom_chars > 0` to `>= 0` guards around `+ 0` / `- 0`
 in `Mapped::offset` and `Mapped::position`).
 
+### `adotenv-lint` library sweep (`2026-11-24`)
+
+Full-file `kbench` sweeps of `adotenv-lint/src/lib.rs` (96 mutants) and
+`adotenv-lint/src/config.rs` (74 mutants) under one `--in-place` worker, 8 GiB
+cap and 60-second timeout initially recorded 100 caught, 39 unviable, 0
+timeouts and 31 missed mutants (30 genuine test gaps + 1 equivalent mutant).
+Adding targeted unit tests in `adotenv-lint/src/lib.rs` (`Rule::index` slots,
+`Finding::message`, `FixResult::edits`, `BatchResult::is_empty`,
+`LintError::fmt`, standalone `apply_fixes` sort, `QuoteStyle::{Single,Unquoted}`,
+all `whitespace_differs` branches, 3-entry `key_order_findings`, duplicate-key
+skip and `line_of` > 1) and `adotenv-lint/src/config.rs` (`!explicit.key_order`
+guard and `IgnoredPaths::is_ignored` negative case) closed all 30 genuine gaps.
+The combined confirmation sweep (**170 mutants**) verified **130 caught, 39
+unviable, 0 timeouts and 1 equivalent survivor** (`group.len() > 1` to `>= 1`
+in `lint`, where `group.iter().skip(1)` already yields nothing for length 1).
+
 ## Mutation policy
 
 A surviving mutant is a test-coverage question, not automatically a product
@@ -480,10 +496,11 @@ overflow and popover bounds.
    recorded above. Windows-only validation branches are exercised by the
    Windows CI job but not by mutation runs on Linux.
 4. All core crate source files, all three adapter crates (`adotenv-process`,
-   `adotenv-config`, `adotenv-figment`) and `adotenv-lsp/src/lib.rs` have
-   completed sharded or full-file mutation runs. Optional remaining companion
-   sweeps are `adotenv-lsp/src/main.rs`, `adotenv-lint`, `adotenv-cli`, and the
-   optional `parser/decode` confirmation shard 1/2 rerun. Run them on kbench
-   one shard at a time after an idle-queue check; see
-   [heavy validation](heavy-validation.md).
+   `adotenv-config`, `adotenv-figment`), `adotenv-lsp/src/lib.rs` and the
+   `adotenv-lint` library (`src/lib.rs`, `src/config.rs`) have completed
+   sharded or full-file mutation runs. Optional remaining companion binary
+   sweeps are `adotenv-lsp/src/main.rs`, `adotenv-lint/src/main.rs`,
+   `adotenv-cli`, and the optional `parser/decode` confirmation shard 1/2
+   rerun. Run them on kbench one shard at a time after an idle-queue check;
+   see [heavy validation](heavy-validation.md).
 

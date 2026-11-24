@@ -943,5 +943,25 @@ mod tests {
         };
         assert_eq!(no_path.path(), None);
         assert_eq!(no_path.to_string(), "plain error");
+
+        // Explicit key_order is not overridden by [rules] key-order = "off".
+        let mut explicit_policy = LintPolicy {
+            lint: LintOptions::new().with_key_order(true),
+            ..LintPolicy::default()
+        };
+        let off_order =
+            LintConfig::from_toml("[rules]\nkey-order = \"off\"\n", Path::new("off.toml")).unwrap();
+        off_order.apply(
+            &mut explicit_policy,
+            ConfigExplicit {
+                key_order: true,
+                ..ConfigExplicit::default()
+            },
+        );
+        assert!(explicit_policy.lint.key_order);
+
+        // IgnoredPaths::is_ignored returns false for non-matching paths.
+        let ignores = IgnoredPaths::new(&[".env.skip".to_owned()]).unwrap();
+        assert!(!ignores.is_ignored(Path::new("/repo/.env.keep")));
     }
 }
