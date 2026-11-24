@@ -704,14 +704,22 @@ mod tests {
                 params,
             )))
             .unwrap();
-        match client.receiver.recv().unwrap() {
+        match client
+            .receiver
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap()
+        {
             Message::Response(response) => response,
             other => panic!("expected response for {method}, got {other:?}"),
         }
     }
 
     fn recv_diagnostics(client: &Connection) -> PublishDiagnosticsParams {
-        match client.receiver.recv().unwrap() {
+        match client
+            .receiver
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap()
+        {
             Message::Notification(notification)
                 if notification.method == "textDocument/publishDiagnostics" =>
             {

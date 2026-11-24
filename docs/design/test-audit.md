@@ -427,6 +427,22 @@ and 2 timeouts**:
   `at *= 1` in `exceeds_line_limit`) are nonterminating zero-multiplication
   loop mutations.
 
+### `adotenv-lsp/src/lib.rs` sweep (`2026-11-23`)
+
+A full-file `kbench` sweep of `adotenv-lsp/src/lib.rs` (**146 mutants**, one
+`--in-place` worker, 8 GiB cap, 60-second timeout) initially recorded 105
+caught, 28 unviable, 5 timeouts (from unbounded channel waits in the in-process
+transport test) and 8 missed mutants (5 genuine test gaps and 3 equivalent
+mutants). Adding targeted regression tests in `adotenv-lsp/tests/lsp.rs` (line-1
+key-start completion, zero-width `apply_change` insertion, line-1 BOM-free
+editing, zero-width non-BOM diagnostic range, and BOM-prefixed limit diagnostic
+range) plus 2-second `recv_timeout` bounds in `adotenv-lsp/src/main.rs` closed
+all 5 genuine gaps and eliminated all 5 timeouts. The confirmation run verified
+**115 caught, 28 unviable, 0 timeouts and 3 equivalent survivors** (`index + 1`
+to `index * 1` in `completion_with_options` where `trim_start()` strips the
+leading newline, and two `bom_chars > 0` to `>= 0` guards around `+ 0` / `- 0`
+in `Mapped::offset` and `Mapped::position`).
+
 ## Mutation policy
 
 A surviving mutant is a test-coverage question, not automatically a product
@@ -463,12 +479,11 @@ overflow and popover bounds.
    list is 5,502 mutants, and the partial full campaign plus file shards are
    recorded above. Windows-only validation branches are exercised by the
    Windows CI job but not by mutation runs on Linux.
-4. All core crate source files and all three adapter crates
-   (`adotenv-process`, `adotenv-config`, `adotenv-figment`) have completed
-   sharded mutation runs. Optional full-crate sweeps beyond the focused
-   CLI/LSP campaigns remain for the three companion tools (`adotenv-lsp` 204
-   mutants, `adotenv-lint` 291, `adotenv-cli` 467), along with the optional
-   `parser/decode` confirmation shard 1/2 rerun. Run them on kbench one shard
-   at a time after an idle-queue check; see
+4. All core crate source files, all three adapter crates (`adotenv-process`,
+   `adotenv-config`, `adotenv-figment`) and `adotenv-lsp/src/lib.rs` have
+   completed sharded or full-file mutation runs. Optional remaining companion
+   sweeps are `adotenv-lsp/src/main.rs`, `adotenv-lint`, `adotenv-cli`, and the
+   optional `parser/decode` confirmation shard 1/2 rerun. Run them on kbench
+   one shard at a time after an idle-queue check; see
    [heavy validation](heavy-validation.md).
 
