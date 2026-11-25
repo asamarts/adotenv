@@ -3017,3 +3017,58 @@ fn cli_mutation_regression_assertions() {
         stderr(&python_load)
     );
 }
+
+#[test]
+fn fmt_and_check_enforce_byte_and_line_limits_on_single_line_invalid_and_oversized_inputs() {
+    let dir = TempDir::new();
+    // Single-line invalid file exceeding --max-input-bytes: fmt must exit 2
+    // without formatting or printing the source to stdout.
+    let bad = dir.file(".env.invalid", "BAD KEY=value-that-is-long\n");
+    let fmt_out = run(&["--max-input-bytes=8", "fmt", bad.to_str().unwrap()]);
+    assert_eq!(fmt_out.status.code(), Some(2), "{}", stderr(&fmt_out));
+    assert_eq!(stdout(&fmt_out), "");
+    assert!(stderr(&fmt_out).contains("limit"), "{}", stderr(&fmt_out));
+
+    // Single-line invalid file exceeding --max-lines=0: fmt must also exit 2.
+    let fmt_lines = run(&["--max-lines=0", "fmt", bad.to_str().unwrap()]);
+    assert_eq!(fmt_lines.status.code(), Some(2), "{}", stderr(&fmt_lines));
+    assert_eq!(stdout(&fmt_lines), "");
+    assert!(
+        stderr(&fmt_lines).contains("limit"),
+        "{}",
+        stderr(&fmt_lines)
+    );
+
+    // check --json reports dotenv.limit-exceeded with exit code 1 under --max-input-bytes.
+    let check_bytes = run(&[
+        "--max-input-bytes=8",
+        "check",
+        "--json",
+        bad.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        check_bytes.status.code(),
+        Some(1),
+        "{}",
+        stderr(&check_bytes)
+    );
+    assert!(
+        stdout(&check_bytes).contains("dotenv.limit-exceeded"),
+        "{}",
+        stdout(&check_bytes)
+    );
+
+    // check human & github formats under --max-input-bytes also exit 1.
+    let check_human = run(&["--max-input-bytes=8", "check", bad.to_str().unwrap()]);
+    assert_eq!(check_human.status.code(), Some(1));
+    assert!(stdout(&check_human).contains("dotenv.limit-exceeded"));
+
+    let check_gh = run(&[
+        "--max-input-bytes=8",
+        "check",
+        "--format=github",
+        bad.to_str().unwrap(),
+    ]);
+    assert_eq!(check_gh.status.code(), Some(1));
+    assert!(stdout(&check_gh).contains("title=dotenv.limit-exceeded"));
+}

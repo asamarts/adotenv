@@ -43,6 +43,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `adotenv::parser`, `adotenv::compact`: enforced `max_items(0)` on BOM-only
   errors, hardened `verify_original_region` span arithmetic, and shrank merged
   `CompactValues` capacity after key overrides.
+- `adotenv-cli`: aborted `fmt` with exit code 2 before formatting when
+  `--max-input-bytes` / `--max-lines` limits trigger, bounded file and stdin
+  reads to `max_input_bytes + 1` bytes, aligned line-1 BOM column handling with
+  `BomPolicy`, and bounded Windows backup temp filenames.
+- `adotenv-lint`: reported all per-file errors instead of overwriting earlier
+  ones, bounded file reads to `max_input_bytes + 1`, handled stdout
+  `BrokenPipe` without panicking, fixed `--help`/`--version` handling when
+  passed as option values, refused explicit symlinked directory roots, and
+  deduplicated canonical file paths.
+- `adotenv-lsp`: relaxed exact `serde_json` dependency pin to `"1"`, escaped
+  backticks and multiline values in Markdown hover output, and suppressed
+  completion inside BOM-prefixed comments.
+- `adotenv-xtask`: aligned `rust-version` with `adotenv-bench` (`1.88`) and
+  fixed Markdown table alignment/column separators in `report` and `compare`.
 
 ## [1.6.1] - 2026-11-24
 

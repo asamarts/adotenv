@@ -716,3 +716,34 @@ fn parse_options_and_strip_all_bom_apply_across_lsp_operations() {
         lsp_types::Range::new(position(0, 0), position(1, 0))
     );
 }
+
+#[test]
+fn bom_comment_suppresses_completion_and_hover_escapes_backticks_and_newlines() {
+    // Leading BOM before a comment line must not trigger completion.
+    let bom_comment = "\u{feff}# $HOST\nHOST=localhost\n";
+    let items = completion_with_options(bom_comment, position(0, 7), &LspOptions::new());
+    match items {
+        lsp_types::CompletionResponse::Array(list) => assert_eq!(list.len(), 0),
+        lsp_types::CompletionResponse::List(list) => {
+            panic!("expected empty completion array, got {list:?}")
+        }
+    }
+
+    // Hover escapes backticks and renders multiline values inside fenced blocks.
+    let backtick_doc = "CMD=\"echo `hi`\"\nMULTI=\"line1\\nline2\"\n";
+    let tick_hover = adotenv_lsp::hover(backtick_doc, position(0, 1), &LspOptions::new()).unwrap();
+    let lsp_types::HoverContents::Markup(markup) = tick_hover.contents else {
+        panic!("expected markdown hover");
+    };
+    assert!(markup.value.contains("`` echo `hi` ``"), "{}", markup.value);
+
+    let multi_hover = adotenv_lsp::hover(backtick_doc, position(1, 1), &LspOptions::new()).unwrap();
+    let lsp_types::HoverContents::Markup(markup) = multi_hover.contents else {
+        panic!("expected markdown hover");
+    };
+    assert!(
+        markup.value.contains("```text\nline1\nline2\n```"),
+        "{}",
+        markup.value
+    );
+}

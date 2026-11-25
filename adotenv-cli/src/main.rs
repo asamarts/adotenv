@@ -344,7 +344,7 @@ fn get(args: &[String], global: GlobalOptions) -> u8 {
             return FAILURE;
         }
     }
-    let source = match read_text(path) {
+    let source = match read_text_limited(path, global.parse_options.max_input_bytes) {
         Ok(source) => source,
         Err(error) => return fail(error),
     };
@@ -776,9 +776,33 @@ fn check(args: &[String], global: GlobalOptions) -> u8 {
     let mut affected_files = 0usize;
     for path in &paths {
         let path_label = path.to_string_lossy();
-        let source = match read_text(path) {
+        let source = match read_text_with_limit(path, global.parse_options.max_input_bytes) {
             Ok(source) => source,
-            Err(error) => {
+            Err(ReadTextError::InputTooLarge { limit, observed }) => {
+                code = code.max(FINDINGS);
+                errors += 1;
+                affected_files += 1;
+                let message = format!("input exceeds max_input_bytes limit ({limit} bytes)");
+                match format {
+                    CheckFormat::Json => files.push(format!(
+                        "{{\"path\":{},\"ok\":false,\"diagnostics\":[{{\"line\":1,\"severity\":\"error\",\"code\":\"dotenv.limit-exceeded\",\"message\":{},\"span\":{{\"start\":0,\"end\":{observed}}},\"secondary_span\":null}}]}}",
+                        json_string(&path_label),
+                        json_string(&message)
+                    )),
+                    CheckFormat::Human => {
+                        outln!("{path_label}:1:1: error[dotenv.limit-exceeded]: {message}");
+                    }
+                    CheckFormat::Github => {
+                        outln!(
+                            "::error file={},line=1,col=1,title=dotenv.limit-exceeded::{}",
+                            github_escape_property(&path_label),
+                            github_escape_data(&message)
+                        );
+                    }
+                }
+                continue;
+            }
+            Err(ReadTextError::Message(error)) => {
                 code = code.max(FAILURE);
                 errors += 1;
                 affected_files += 1;
@@ -813,11 +837,20 @@ fn check(args: &[String], global: GlobalOptions) -> u8 {
                 CheckFormat::Human => {
                     outln!(
                         "{}",
-                        render_human(&path_label, &source, diagnostic, show_source)
+                        render_human(
+                            &path_label,
+                            &source,
+                            diagnostic,
+                            show_source,
+                            global.dialect
+                        )
                     );
                 }
                 CheckFormat::Github => {
-                    outln!("{}", github_annotation(&path_label, &source, diagnostic));
+                    outln!(
+                        "{}",
+                        github_annotation(&path_label, &source, diagnostic, global.dialect)
+                    );
                 }
             }
         }
@@ -871,10 +904,16 @@ fn render_json_diagnostic(diagnostic: &Diagnostic) -> String {
     )
 }
 
-fn render_human(path: &str, source: &str, diagnostic: &Diagnostic, show_source: bool) -> String {
+fn render_human(
+    path: &str,
+    source: &str,
+    diagnostic: &Diagnostic,
+    show_source: bool,
+    dialect: Dialect,
+) -> String {
     let span = diagnostic.span();
     let (line_start, line_end) = line_bounds(source, span.start);
-    let column = source_column(source, line_start, span.start);
+    let column = source_column(source, line_start, span.start, dialect);
     let mut output = format!(
         "{}:{}:{}: {}[{}]: {}",
         path,
@@ -885,7 +924,7 @@ fn render_human(path: &str, source: &str, diagnostic: &Diagnostic, show_source: 
         diagnostic.message()
     );
     if show_source {
-        let content_start = line_content_start(source, line_start);
+        let content_start = line_content_start(source, line_start, dialect);
         let line_text = expand_tabs(&source[content_start..line_end]);
         let caret_start = floor_char_boundary(source, span.start.clamp(content_start, line_end));
         let caret_end = floor_char_boundary(source, span.end.clamp(caret_start, line_end));
@@ -927,16 +966,29 @@ fn line_bounds(source: &str, offset: usize) -> (usize, usize) {
     (line_start, line_end)
 }
 
-fn line_content_start(source: &str, line_start: usize) -> usize {
-    if line_start == 0 && source.starts_with('\u{feff}') {
-        line_start + '\u{feff}'.len_utf8()
+fn line_content_start(source: &str, line_start: usize, dialect: Dialect) -> usize {
+    if line_start == 0 {
+        match dialect.bom {
+            adotenv::BomPolicy::Strip => {
+                if source.starts_with('\u{feff}') {
+                    '\u{feff}'.len_utf8()
+                } else {
+                    0
+                }
+            }
+            adotenv::BomPolicy::StripAll => {
+                source.len() - source.trim_start_matches('\u{feff}').len()
+            }
+            adotenv::BomPolicy::Keep | adotenv::BomPolicy::Error => 0,
+            _ => 0,
+        }
     } else {
         line_start
     }
 }
 
-fn source_column(source: &str, line_start: usize, offset: usize) -> usize {
-    let content_start = line_content_start(source, line_start);
+fn source_column(source: &str, line_start: usize, offset: usize, dialect: Dialect) -> usize {
+    let content_start = line_content_start(source, line_start, dialect);
     let offset = floor_char_boundary(source, offset.max(content_start).min(source.len()));
     source[content_start..offset].chars().count() + 1
 }
@@ -977,10 +1029,15 @@ fn display_carets(value: &str) -> String {
     output
 }
 
-fn github_annotation(path: &str, source: &str, diagnostic: &Diagnostic) -> String {
+fn github_annotation(
+    path: &str,
+    source: &str,
+    diagnostic: &Diagnostic,
+    dialect: Dialect,
+) -> String {
     let span = diagnostic.span();
     let (line_start, _) = line_bounds(source, span.start);
-    let column = source_column(source, line_start, span.start);
+    let column = source_column(source, line_start, span.start, dialect);
     format!(
         "::{} file={},line={},col={},title={}::{}",
         github_severity(diagnostic.severity()),
@@ -1133,7 +1190,7 @@ fn fmt(args: &[String], global: GlobalOptions) -> u8 {
         let read_path = write_target
             .as_ref()
             .map_or_else(|| path.as_path(), |(target, _)| target.as_path());
-        let source = match read_text(read_path) {
+        let source = match read_text_limited(read_path, global.parse_options.max_input_bytes) {
             Ok(source) => source,
             Err(error) => {
                 code = code.max(fail(error));
@@ -1141,11 +1198,18 @@ fn fmt(args: &[String], global: GlobalOptions) -> u8 {
             }
         };
         let (doc, diagnostics) = parse_with_options(&source, global.dialect, global.parse_options);
+        let has_limit = diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.limit().is_some());
         let has_errors = diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity() == Severity::Error);
         for diagnostic in diagnostics {
             errln!("{}: {diagnostic}", path.display());
+        }
+        if has_limit {
+            code = code.max(FAILURE);
+            continue;
         }
         let formatting_source;
         let formatting_doc;
@@ -1302,7 +1366,7 @@ fn diff(args: &[String], global: GlobalOptions) -> u8 {
 }
 
 fn diff_streaming(paths: &[String], format: DiffFormat, global: GlobalOptions, mask: bool) -> u8 {
-    let baseline_source = match read_text(&paths[0]) {
+    let baseline_source = match read_text_limited(&paths[0], global.parse_options.max_input_bytes) {
         Ok(source) => source,
         Err(error) => return fail(error),
     };
@@ -1324,7 +1388,7 @@ fn diff_streaming(paths: &[String], format: DiffFormat, global: GlobalOptions, m
 
     let mut differs = false;
     for (index, path) in paths.iter().enumerate().skip(1) {
-        let source = match read_text(path) {
+        let source = match read_text_limited(path, global.parse_options.max_input_bytes) {
             Ok(source) => source,
             Err(error) => return fail(error),
         };
@@ -1415,7 +1479,7 @@ impl MatrixRows {
 }
 
 fn diff_matrix_files(paths: &[String], global: GlobalOptions, mask: bool) -> u8 {
-    let baseline_source = match read_text(&paths[0]) {
+    let baseline_source = match read_text_limited(&paths[0], global.parse_options.max_input_bytes) {
         Ok(source) => source,
         Err(error) => return fail(error),
     };
@@ -1429,7 +1493,7 @@ fn diff_matrix_files(paths: &[String], global: GlobalOptions, mask: bool) -> u8 
 
     let mut differs = false;
     for path in paths.iter().skip(1) {
-        let source = match read_text(path) {
+        let source = match read_text_limited(path, global.parse_options.max_input_bytes) {
             Ok(source) => source,
             Err(error) => return fail(error),
         };
@@ -1626,7 +1690,7 @@ fn example(args: &[String], global: GlobalOptions) -> u8 {
             return FAILURE;
         }
     }
-    let source = match read_text(&args[0]) {
+    let source = match read_text_limited(&args[0], global.parse_options.max_input_bytes) {
         Ok(source) => source,
         Err(error) => return fail(error),
     };
@@ -1805,7 +1869,7 @@ fn set(args: &[String], global: GlobalOptions) -> u8 {
         Ok(target) => target,
         Err(error) => return fail(format!("{}: {error}", args[0])),
     };
-    let source = match read_text(&target) {
+    let source = match read_text_limited(&target, global.parse_options.max_input_bytes) {
         Ok(source) => source,
         Err(error) => return fail(error),
     };
@@ -2313,13 +2377,18 @@ fn backup_existing(path: &Path) -> io::Result<Option<PathBuf>> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let name = path
         .file_name()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?
+        .to_string_lossy();
+    let mut stem_end = name.len().min(TEMP_STEM_BYTES);
+    while !name.is_char_boundary(stem_end) {
+        stem_end -= 1;
+    }
+    let name = &name[..stem_end];
     for _ in 0..16 {
         let candidate = parent.join(format!(
-            ".adotenv-backup-{}-{}-{}",
+            ".adotenv-backup-{}-{}-{name}",
             std::process::id(),
-            NEXT_TEMP.fetch_add(1, Ordering::Relaxed),
-            name.to_string_lossy()
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
         ));
         match fs::rename(path, &candidate) {
             Ok(()) => return Ok(Some(candidate)),
@@ -2369,23 +2438,97 @@ fn is_stdin_path(path: &Path) -> bool {
     path == Path::new("-") || path == Path::new("--stdin")
 }
 
-fn read_text<P: AsRef<Path>>(path: P) -> Result<String, String> {
+enum ReadTextError {
+    Message(String),
+    InputTooLarge { limit: usize, observed: usize },
+}
+
+fn read_text_with_limit<P: AsRef<Path>>(
+    path: P,
+    max_input_bytes: Option<usize>,
+) -> Result<String, ReadTextError> {
     let path = path.as_ref();
     let bytes = if is_stdin_path(path) {
         let mut bytes = Vec::new();
-        io::stdin()
-            .read_to_end(&mut bytes)
-            .map_err(|error| format!("-: {error}"))?;
+        let read_result = match max_input_bytes {
+            Some(limit) => io::stdin()
+                .take(limit.saturating_add(1) as u64)
+                .read_to_end(&mut bytes),
+            None => io::stdin().read_to_end(&mut bytes),
+        };
+        read_result.map_err(|error| ReadTextError::Message(format!("-: {error}")))?;
+        if let Some(limit) = max_input_bytes {
+            if bytes.len() > limit {
+                return Err(ReadTextError::InputTooLarge {
+                    limit,
+                    observed: bytes.len(),
+                });
+            }
+        }
         bytes
     } else {
-        let metadata =
-            fs::metadata(path).map_err(|error| format!("{}: {error}", path.display()))?;
+        let file = fs::File::open(path)
+            .map_err(|error| ReadTextError::Message(format!("{}: {error}", path.display())))?;
+        let metadata = file
+            .metadata()
+            .map_err(|error| ReadTextError::Message(format!("{}: {error}", path.display())))?;
         if !metadata.is_file() {
-            return Err(format!("{}: path is not a regular file", path.display()));
+            return Err(ReadTextError::Message(format!(
+                "{}: path is not a regular file",
+                path.display()
+            )));
         }
-        fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?
+        if let Some(limit) = max_input_bytes {
+            let observed = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
+            if observed > limit {
+                return Err(ReadTextError::InputTooLarge { limit, observed });
+            }
+        }
+        let mut bytes = Vec::new();
+        let read_result = match max_input_bytes {
+            Some(limit) => file
+                .take(limit.saturating_add(1) as u64)
+                .read_to_end(&mut bytes),
+            None => {
+                let mut file = file;
+                file.read_to_end(&mut bytes)
+            }
+        };
+        read_result
+            .map_err(|error| ReadTextError::Message(format!("{}: {error}", path.display())))?;
+        if let Some(limit) = max_input_bytes {
+            if bytes.len() > limit {
+                return Err(ReadTextError::InputTooLarge {
+                    limit,
+                    observed: bytes.len(),
+                });
+            }
+        }
+        bytes
     };
-    String::from_utf8(bytes).map_err(|_| format!("{}: invalid UTF-8", path.display()))
+    String::from_utf8(bytes)
+        .map_err(|_| ReadTextError::Message(format!("{}: invalid UTF-8", path.display())))
+}
+
+fn read_text_limited<P: AsRef<Path>>(
+    path: P,
+    max_input_bytes: Option<usize>,
+) -> Result<String, String> {
+    let path = path.as_ref();
+    read_text_with_limit(path, max_input_bytes).map_err(|error| match error {
+        ReadTextError::Message(message) => message,
+        ReadTextError::InputTooLarge { limit, .. } => {
+            format!(
+                "{}: input exceeds max_input_bytes limit ({limit} bytes)",
+                path.display()
+            )
+        }
+    })
+}
+
+#[cfg(test)]
+fn read_text<P: AsRef<Path>>(path: P) -> Result<String, String> {
+    read_text_limited(path, None)
 }
 
 /// Report an error and return [`FAILURE`].

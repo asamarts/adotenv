@@ -412,4 +412,28 @@ fn help_version_default_scan_multi_json_and_dir_without_recursive() {
     // --fix respects --max-lines.
     let fix_limited = run(&["--fix", "--max-lines=2", file.to_str().unwrap()]);
     assert_eq!(fix_limited.status.code(), Some(2));
+
+    // Multiple failing files report every error instead of overwriting earlier ones.
+    let bad1 = dir.file("bad1.env", "BAD KEY=1\n");
+    let bad2 = dir.file("bad2.env", "ALSO BAD=2\n");
+    let multi = run(&[bad1.to_str().unwrap(), bad2.to_str().unwrap()]);
+    assert_eq!(multi.status.code(), Some(2));
+    let multi_err = String::from_utf8(multi.stderr).unwrap();
+    assert!(multi_err.contains("bad1.env"), "{multi_err}");
+    assert!(multi_err.contains("bad2.env"), "{multi_err}");
+
+    // --config --help passes "--help" as the config path instead of printing help.
+    let opt_help = run(&["--config", "--help", file.to_str().unwrap()]);
+    assert_eq!(opt_help.status.code(), Some(2));
+    let opt_err = String::from_utf8(opt_help.stderr).unwrap();
+    assert!(opt_err.contains("--help"), "{opt_err}");
+
+    // Duplicate path spellings (.env and ./subdir/../.env) are deduplicated.
+    let dedup_dir = TempDir::new();
+    let target = dedup_dir.file(".env", "A=1\nA=2\n");
+    let alt = dedup_dir.path().join(".").join(".env");
+    let dedup = run(&[target.to_str().unwrap(), alt.to_str().unwrap()]);
+    assert_eq!(dedup.status.code(), Some(1));
+    let dedup_out = String::from_utf8(dedup.stdout).unwrap();
+    assert_eq!(dedup_out.lines().count(), 1, "{dedup_out}");
 }
