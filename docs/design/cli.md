@@ -76,7 +76,7 @@ options accepted in the same positions as `--dialect` and specified at most
 once. They forward `ParseOptions::with_max_input_bytes` and
 `ParseOptions::with_max_lines` to every file parse and cascade load. `check`
 reports limit violations as `dotenv.limit-exceeded` diagnostics (exit code 1);
-strict commands (`get`, `fmt`, `diff`, `load`, `set`, `run`) exit with code 2.
+strict commands (`get`, `fmt`, `diff`, `example`, `load`, `set`, `run`) exit with code 2.
 
 `set` also accepts `--max-output-bytes <n>` and `--max-output-lines <n>` before
 `<file>` to bound the edited file through `EditOptions` before writing.
@@ -419,7 +419,8 @@ Every command except `run` exits with one of these codes:
 that fails takes precedence over findings in other files.
 
 Warning and info diagnostics do not change the exit code. `example` reports
-diagnostics on standard error and exits `0`.
+non-limit diagnostics on standard error and exits `0`, or exits `2` without
+output when a parse limit is exceeded.
 
 `run` exits `2` for a usage error, when it cannot load the cascade, when a
 loaded key or value cannot be passed to a child, or when the program cannot be

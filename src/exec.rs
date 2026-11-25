@@ -214,6 +214,7 @@ impl Shell {
     ///   message includes its standard error;
     /// - its standard output exceeds [`Shell::with_max_output_bytes`];
     /// - it runs longer than [`Shell::with_timeout`];
+    /// - on Windows, the command contains `\r` or `\n`;
     /// - its standard output is not valid UTF-8.
     ///
     /// # Examples
@@ -458,6 +459,12 @@ mod windows_tests {
 
         let slash = shell.run(&context(r#"echo foo\"#)).unwrap();
         assert_eq!(slash, r#"foo\"#);
+
+        let empty = shell.run(&context("")).unwrap();
+        assert_eq!(empty, "");
+
+        let chained = shell.run(&context("echo one& echo two")).unwrap();
+        assert_eq!(chained.replace("\r\n", "\n"), "one\ntwo");
     }
 
     #[test]

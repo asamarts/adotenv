@@ -746,4 +746,17 @@ fn bom_comment_suppresses_completion_and_hover_escapes_backticks_and_newlines() 
         "{}",
         markup.value
     );
+
+    // Reference hover also escapes backticks in the referenced key name.
+    let ref_doc = "'K`1'=ok\nUSE=${K`1}\n";
+    let ref_opts = LspOptions::new().with_dialect(adotenv::Dialect::PYTHON_DOTENV);
+    let ref_hover = adotenv_lsp::hover(ref_doc, position(1, 7), &ref_opts).unwrap();
+    let lsp_types::HoverContents::Markup(markup) = ref_hover.contents else {
+        panic!("expected markdown hover");
+    };
+    assert!(
+        markup.value.contains("``${K`1}``; declared on line 1"),
+        "{}",
+        markup.value
+    );
 }

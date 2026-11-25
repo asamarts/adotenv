@@ -2092,6 +2092,14 @@ fn read_load_path(
     skip_missing: bool,
     max_input_bytes: Option<usize>,
 ) -> Result<Option<Vec<u8>>, LoadError> {
+    if let Ok(metadata) = fs::metadata(path) {
+        if !metadata.is_file() {
+            return Err(LoadError::Io {
+                path: path.to_path_buf(),
+                source: io::Error::new(io::ErrorKind::InvalidInput, "path is not a regular file"),
+            });
+        }
+    }
     let mut file = match fs::File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound && skip_missing => {

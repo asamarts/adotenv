@@ -436,4 +436,36 @@ fn help_version_default_scan_multi_json_and_dir_without_recursive() {
     assert_eq!(dedup.status.code(), Some(1));
     let dedup_out = String::from_utf8(dedup.stdout).unwrap();
     assert_eq!(dedup_out.lines().count(), 1, "{dedup_out}");
+
+    // --max-input-bytes rejects oversized files on both lint and --fix.
+    let bytes_lint = run(&["--max-input-bytes=4", file.to_str().unwrap()]);
+    assert_eq!(bytes_lint.status.code(), Some(2));
+    assert!(String::from_utf8(bytes_lint.stderr)
+        .unwrap()
+        .contains("limit"));
+    let bytes_fix = run(&["--fix", "--max-input-bytes=4", file.to_str().unwrap()]);
+    assert_eq!(bytes_fix.status.code(), Some(2));
+
+    // Explicit symlinked directory roots (with and without trailing slash) are refused.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        let sym_root = TempDir::new();
+        let outside = TempDir::new();
+        outside.file(".env", "A=1\nA=2\n");
+        let link = sym_root.path().join("linked");
+        symlink(outside.path(), &link).unwrap();
+
+        let no_slash = run(&["--recursive", link.to_str().unwrap()]);
+        assert_eq!(no_slash.status.code(), Some(2));
+        assert!(String::from_utf8(no_slash.stderr)
+            .unwrap()
+            .contains("symbolic link directory"));
+
+        let with_slash = run(&["--recursive", &format!("{}/", link.display())]);
+        assert_eq!(with_slash.status.code(), Some(2));
+        assert!(String::from_utf8(with_slash.stderr)
+            .unwrap()
+            .contains("symbolic link directory"));
+    }
 }
