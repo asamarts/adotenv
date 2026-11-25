@@ -6,12 +6,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-11-24
+
+No behavior changes in `adotenv` or `adotenv-process` relative to `1.6.0`;
+this lockstep patch publishes the `adotenv-cli` limit flags and workspace
+verification updates.
+
 ### Added
 
 - `adotenv-cli`: added global `--max-input-bytes <n>` and `--max-lines <n>`
   parse-limit flags across all commands, plus `--max-output-bytes <n>` and
   `--max-output-lines <n>` on `set` (backed by `adotenv` 1.6.0 `ParseOptions`
   and `EditOptions`).
+
+### Tests
+
+- Completed full-workspace `cargo-mutants` sweeps across `adotenv-cli`,
+  `adotenv-lint`, `adotenv-lsp` and `src/parser/decode.rs` confirmation
+  shards, raising combined 7-published-crate line coverage to `96.0%`
+  (`14,853/15,471` lines) with zero unresolved genuine test gaps.
 
 ## [adotenv-lint 0.2.2] - 2026-11-23
 
