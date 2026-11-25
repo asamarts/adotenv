@@ -775,3 +775,64 @@ fn bom_comment_suppresses_completion_and_hover_escapes_backticks_and_newlines() 
     assert!(hover_md(2).contains("Value: `x `"), "{}", hover_md(2));
     assert!(hover_md(3).contains("Value: `  `"), "{}", hover_md(3));
 }
+
+#[test]
+fn rename_with_options_enforces_parse_limits_on_planned_output() {
+    use adotenv_lsp::{LimitKind, ParseOptions};
+
+    // Input fits within 24 bytes ("A=1\nX=$A\nY=$A\n" = 14 bytes),
+    // but growing rename ("VERY_LONG_HOST_NAME=1\nX=$VERY_LONG_HOST_NAME\nY=$VERY_LONG_HOST_NAME\n")
+    // exceeds max_input_bytes and fails with LimitKind::InputBytes.
+    let bounded =
+        LspOptions::new().with_parse_options(ParseOptions::new().with_max_input_bytes(24));
+    let grow_err = adotenv_lsp::rename_with_options(
+        "A=1\nX=$A\nY=$A\n",
+        &uri(),
+        position(0, 0),
+        "VERY_LONG_HOST_NAME",
+        &bounded,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(grow_err, RenameError::Edit(EditError::Limit(limit)) if limit.kind() == LimitKind::InputBytes),
+        "{grow_err:?}"
+    );
+
+    // Growing rename that fits exactly within max_input_bytes succeeds.
+    let fit = LspOptions::new().with_parse_options(ParseOptions::new().with_max_input_bytes(23));
+    let ok =
+        adotenv_lsp::rename_with_options("A=1\nX=$A\nY=$A\n", &uri(), position(0, 0), "HOST", &fit)
+            .unwrap();
+    assert_eq!(ok.changes.unwrap().into_values().next().unwrap().len(), 3);
+
+    // Shrinking rename fits cleanly within max_input_bytes.
+    let shrink_opts =
+        LspOptions::new().with_parse_options(ParseOptions::new().with_max_input_bytes(24));
+    let shrunk = adotenv_lsp::rename_with_options(
+        "LONG_KEY=1\nX=$LONG_KEY\n",
+        &uri(),
+        position(0, 0),
+        "A",
+        &shrink_opts,
+    )
+    .unwrap();
+    assert_eq!(
+        shrunk.changes.unwrap().into_values().next().unwrap().len(),
+        2
+    );
+
+    // max_items is enforced cleanly when exceeded on input or rename verification.
+    let item_opts = LspOptions::new().with_parse_options(ParseOptions::new().with_max_items(2));
+    let item_err = adotenv_lsp::rename_with_options(
+        "A=1\nX=$A\nY=$A\n",
+        &uri(),
+        position(0, 0),
+        "B",
+        &item_opts,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(item_err, RenameError::Edit(EditError::Limit(limit)) if limit.kind() == LimitKind::Items),
+        "{item_err:?}"
+    );
+}

@@ -1,9 +1,9 @@
 # adotenv-lsp
 
 An optional Language Server Protocol companion for `adotenv` documents.
-Version 0.5.0 is an unstable prototype with explicit lint configuration,
-configurable parser dialect, opt-in parse limits and multi-BOM support.
-Breaking changes may occur within the 0.x line.
+Version 0.5.1 is an unstable prototype with explicit lint configuration,
+configurable parser dialect, opt-in parse and rename output limits, and
+multi-BOM support. Breaking changes may occur within the 0.x line.
 
 It supports:
 
@@ -80,8 +80,9 @@ let options = LspOptions::new().with_lint_options(
 let diagnostics = diagnostics("A=1\nBAD KEY=2\n", &uri, &options);
 ```
 
-Rename uses `Document::rename_with_references`, so the declaration and every
-matching `$VAR`/`${VAR}` name change together. Definition, references and
+Rename uses `Document::rename_with_references_with_options`, so the declaration
+and every matching `$VAR`/`${VAR}` name change together under the configured
+parse limits. Definition, references and
 rename follow every reference candidate the parser reports, including escaped
 and single-quoted candidates that Portable resolution would not expand. This
 keeps rename complete when a quote-style or dialect change later makes a

@@ -136,4 +136,6 @@ CLI and language server. Version 0.2.1 fixes rooted ignore matching, severity
 output and explicit whitespace-option precedence, and reports unsortable
 key-order groups without a fix. Version 0.2.2 adopts `adotenv` 1.6.0 and adds
 `--max-input-bytes` and `--max-lines` parse-limit flags across lint and `--fix`
-runs.
+runs. Version 0.2.3 adopts `adotenv` 1.7.0 and hardens multi-file error
+reporting, bounded file reads, stdout error handling, explicit symlinked root
+rejection and canonical path deduplication.
