@@ -89,10 +89,13 @@ Criterion wall time is publication evidence; it is not a PR gate.
 `adotenv-bench`'s `memory` binary measures **one case in a fresh process**. A
 counting global allocator records:
 
-- `peak_heap_bytes`: maximum live heap above the pre-operation baseline;
+- `peak_heap_bytes`: maximum live heap above the pre-operation baseline
+  (using deterministic logical live-byte deltas on `realloc`);
 - `retained_heap_bytes`: live heap while the result is held;
 - `heap_after_drop_bytes`: live heap after dropping the result;
-- `allocations`: allocation calls above the baseline;
+- `allocations`: successful `alloc`, `alloc_zeroed` and `realloc` calls above
+  the baseline (counted once per call; historical snapshots through 1.6.0
+  predate the `realloc` double-counting fix);
 - `rss_before_bytes`, `rss_peak_bytes`, `rss_after_bytes`: Linux RSS where
   available.
 
@@ -110,21 +113,23 @@ The source-level deterministic memory gate compares a fresh run with
 
 - allocations must match exactly;
 - peak and retained heap may grow by at most the larger of 5% or 64 bytes;
-- a changed fixture SHA-256 fails the gate.
+- `heap_after_drop_bytes` must not exceed the baseline (zero leak);
+- a changed or missing fixture SHA-256 fails the gate.
 
 Both baselines are updated only for an intentional, reviewed code change with
 fresh fingerprints. Do not update them merely to make a failing gate pass.
 Refresh the map and compact memory matrices from the same code SHA, update both
-JSONL/Markdown/fingerprint sets, and verify both gates. CI runs the same gate
-against `compact-memory.jsonl` with `--implementation adotenv-compact`; empty
-compact cells are zero-byte ties and allocation counts must still match
-exactly.
+JSONL/Markdown/fingerprint sets, and verify all gates. CI runs the same gate
+against `compact-memory.jsonl` for both `--implementation adotenv-compact` and
+`--implementation adotenv-compact-entries`; empty compact cells are zero-byte
+ties and allocation counts must still match exactly.
 
 ## Deterministic internal gate
 
 `adotenv-bench/benches/det_parse.rs` runs four map-parsing cells, four compact
-parsing cells and two compact-loading cells under Valgrind Callgrind through
-gungraun. The gate compares a freshly built merge
+values parsing cells, four compact entries parsing cells and two
+compact-loading cells under Valgrind Callgrind through gungraun. The gate
+compares a freshly built merge
 base with the PR in the same run and fails on `Ir` above +2% or estimated
 cycles above +5%. Branch counters are diagnostic only. This is the load-immune
 CI gate; Criterion is not used for PR pass/fail.

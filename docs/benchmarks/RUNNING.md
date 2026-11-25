@@ -100,14 +100,20 @@ cargo run --release -p adotenv-xtask -- gate \
   --baseline docs/benchmarks/compact-memory.jsonl \
   --current ~/.tmp/adotenv-bench/compact-memory.jsonl \
   --implementation adotenv-compact
+
+cargo run --release -p adotenv-xtask -- gate \
+  --baseline docs/benchmarks/compact-memory.jsonl \
+  --current ~/.tmp/adotenv-bench/compact-memory.jsonl \
+  --implementation adotenv-compact-entries
 ```
 
 ## Baseline maintenance
 
 The committed memory baselines are `memory.jsonl` for the map API and
-`compact-memory.jsonl` for `adotenv-compact`. Normal PRs do not update either
-baseline. When an intentional allocation change lands, regenerate both matrices
-from the same commit, update their rendered Markdown and fingerprints, and run:
+`compact-memory.jsonl` for `adotenv-compact` and `adotenv-compact-entries`.
+Normal PRs do not update either baseline. When an intentional allocation change
+lands, regenerate both matrices from the same commit, update their rendered
+Markdown and fingerprints, and run:
 
 ```console
 cargo run --release -p adotenv-xtask -- gate \
@@ -118,6 +124,11 @@ cargo run --release -p adotenv-xtask -- gate \
   --baseline docs/benchmarks/compact-memory.jsonl \
   --current ~/.tmp/adotenv-bench/compact-memory.jsonl \
   --implementation adotenv-compact
+
+cargo run --release -p adotenv-xtask -- gate \
+  --baseline docs/benchmarks/compact-memory.jsonl \
+  --current ~/.tmp/adotenv-bench/compact-memory.jsonl \
+  --implementation adotenv-compact-entries
 ```
 
 Publication speed files, including `speed.txt`, `speed-1.5.0.txt` and
@@ -158,9 +169,9 @@ bash scripts/det-perf-gate.sh
 
 The script installs/checks `valgrind` and the exact `gungraun-runner` version,
 builds the merge base and head with isolated target directories, runs the
-`det_parse` map/compact parsing and compact-loading benches, and lets
-gungraun's +2% Ir / +5% cycle soft limits fail the job. A deliberate duplicated parse is a useful manual check when changing the
-gate.
+`det_parse` map, compact values, compact entries and compact-loading benches,
+and lets gungraun's +2% Ir / +5% cycle soft limits fail the job. A deliberate
+duplicated parse is a useful manual check when changing the gate.
 
 ## Publication checklist
 

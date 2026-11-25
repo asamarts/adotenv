@@ -48,7 +48,11 @@ evidence:
 Both runs used `kbench`, Intel Core i7-6700HQ (8 logical CPUs), Linux
 7.1.3-arch1-2, Rust 1.97.1, and the serialized `benchq` `bench` group with one
 slot. Both runs are from the same clean commit with zero Rust code changes
-between the measured commit and the release commit.
+between the measured commit and the release commit. This historical 1.6.0
+memory snapshot was recorded before `CountingAllocator::realloc` stopped
+double-counting growing reallocations; heap byte metrics and speed timings are
+unaffected, and the current post-fix CI compact baseline is in
+[compact-memory.md](compact-memory.md).
 
 ## Claim
 

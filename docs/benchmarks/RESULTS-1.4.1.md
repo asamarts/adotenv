@@ -13,16 +13,16 @@ Re-run this complete matrix if the benchmark code or baseline changes.
 </div>
 
 <p class="bench-callouts">
-<a class="bench-callout" href="memory.html"><strong>Memory chart</strong><span>Explore map-based peak, retained heap and allocations.</span></a>
+<a class="bench-callout" href="memory-1.4.1.html"><strong>Memory chart</strong><span>Explore map-based peak, retained heap and allocations.</span></a>
 <a class="bench-callout" href="speed.html"><strong>Speed chart</strong><span>Explore map-based values and load timings.</span></a>
 </p>
 
 This page uses the [methodology](METHODOLOGY.md), [scenario catalogue](SCENARIOS.md)
 and [result schema](SCHEMA.md). Raw evidence:
 
-- [Memory JSONL](memory.jsonl) -- 165 cases
-- [Memory table](memory.md)
-- [Memory fingerprint](memory.fingerprint.json)
+- [Memory JSONL](memory-1.4.1.jsonl) -- 165 cases
+- [Memory table](memory-1.4.1.md)
+- [Memory fingerprint](memory-1.4.1.fingerprint.json)
 - [Speed raw bencher output](speed.txt) -- 115 benchmark results
 - [Speed table](speed.md)
 - [Speed fingerprint](speed.fingerprint.json)
@@ -43,7 +43,11 @@ and [result schema](SCHEMA.md). Raw evidence:
 The two runs share the same source SHA. The memory fingerprint records a
 lower one-minute load than the Criterion run (`0.25` versus `0.46`). The
 deterministic allocator metrics do not depend on wall-clock scheduling, so the
-load is retained for audit rather than used to filter the run.
+load is retained for audit rather than used to filter the run. This historical
+1.4.1 memory snapshot was recorded before `CountingAllocator::realloc` stopped
+double-counting growing reallocations; heap byte metrics and speed timings are
+unaffected, and the current post-fix CI map baseline is in
+[memory.md](memory.md).
 
 ## Claim
 
@@ -77,7 +81,8 @@ cargo run --release -p adotenv-xtask -- memory \
 ```
 
 Find the matching `size`, `shape`, `mode` and `implementation` rows in
-[memory.jsonl](memory.jsonl); the `fixture_sha256` must match the
+[memory-1.4.1.jsonl](memory-1.4.1.jsonl) (or the current baseline in
+[memory.jsonl](memory.jsonl)); the `fixture_sha256` must match the
 [`plain-128` hash](SCENARIOS.md#comparable-fixture-hashes).
 
 Speed:

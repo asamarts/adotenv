@@ -331,6 +331,9 @@ jobs:
           cargo run --release --locked -p adotenv-xtask -- gate \
             --baseline docs/benchmarks/compact-memory.jsonl \
             --current target/compact-memory-current.jsonl --implementation adotenv-compact
+          cargo run --release --locked -p adotenv-xtask -- gate \
+            --baseline docs/benchmarks/compact-memory.jsonl \
+            --current target/compact-memory-current.jsonl --implementation adotenv-compact-entries
 
   det-perf:
     name: deterministic perf

@@ -43,22 +43,30 @@ cells. Retained heap is a tie in all 30 map-based cells and a loss in none.
 
 The rendered tables are also available directly:
 
+- [Current CI compact memory baseline](compact-memory.md) and
+  [raw JSONL](compact-memory.jsonl) (180 cases: `adotenv`, `adotenv-compact`,
+  `adotenv-compact-entries` and pinned competitors, post-realloc fix)
+- [Current CI map memory baseline](memory.md) and
+  [raw JSONL](memory.jsonl) (165 cases, post-realloc fix)
 - [1.6.0 compact memory results](compact-memory-1.6.0.md) and
   [raw JSONL](compact-memory-1.6.0.jsonl)
 - [1.6.0 speed results](speed-1.6.0.md) and
   [raw bencher output](speed-1.6.0.txt)
-- [1.5.0 compact memory results](compact-memory.md) and
-  [raw JSONL](compact-memory.jsonl)
+- [1.5.0 compact memory results](compact-memory-1.5.0.md) and
+  [raw JSONL](compact-memory-1.5.0.jsonl)
 - [1.5.0 compact speed results](speed-1.5.0.md) and
   [raw bencher output](speed-1.5.0.txt)
-- [1.4.1 map memory results](memory.md) and [raw JSONL](memory.jsonl)
+- [1.4.1 map memory results](memory-1.4.1.md) and
+  [raw JSONL](memory-1.4.1.jsonl)
 - [1.4.1 speed results](speed.md) and [raw bencher output](speed.txt)
 - Fingerprints:
+  [current compact memory](compact-memory.fingerprint.json),
+  [current map memory](memory.fingerprint.json),
   [1.6.0 memory](compact-memory-1.6.0.fingerprint.json),
   [1.6.0 speed](speed-1.6.0.fingerprint.json),
-  [1.5.0 compact memory](compact-memory.fingerprint.json),
+  [1.5.0 compact memory](compact-memory-1.5.0.fingerprint.json),
   [1.5.0 compact speed](speed-1.5.0.fingerprint.json),
-  [1.4.1 memory](memory.fingerprint.json) and
+  [1.4.1 memory](memory-1.4.1.fingerprint.json) and
   [1.4.1 speed](speed.fingerprint.json)
 
 ## Reproduce one cell
