@@ -2,7 +2,8 @@
 
 //! Deterministic instruction and cycle gate for adotenv's values parsers.
 //!
-//! These benches cover map-based parsing, compact parsing and compact loading.
+//! These benches cover map-based parsing, compact values parsing,
+//! compact entries parsing and compact loading.
 //! They run under Valgrind Callgrind through gungraun, so their counts do not
 //! depend on host load. The CI gate compares them against a freshly built base
 //! and enforces the soft limits declared below.

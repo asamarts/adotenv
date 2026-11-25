@@ -22,28 +22,45 @@ fn main() -> ExitCode {
 
 fn run_cli() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args
-        .iter()
-        .any(|argument| argument == "--help" || argument == "-h")
-    {
-        println!(
-            "usage: memory --mode <values|document|load|resolve> \
-             --implementation <name> --size <8|128|1k|10k|100k> \
-             --shape <shape> [--format <json|markdown>]"
-        );
-        return Ok(());
-    }
-    let mode = argument(&args, "--mode")?;
-    let implementation = argument(&args, "--implementation")?;
-    let size = argument(&args, "--size")?;
-    let shape = argument(&args, "--shape")?;
-    let format = match optional_argument(&args, "--format") {
-        Some(value) => value,
-        None if args.iter().any(|argument| argument == "--format") => {
-            return Err("missing value for --format".to_owned())
+    let mut mode = None;
+    let mut implementation = None;
+    let mut size = None;
+    let mut shape = None;
+    let mut format = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--help" | "-h" => {
+                println!(
+                    "usage: memory --mode <values|document|load|resolve> \
+                     --implementation <name> --size <8|128|1k|10k|100k> \
+                     --shape <shape> [--format <json|markdown>]"
+                );
+                return Ok(());
+            }
+            flag @ ("--mode" | "--implementation" | "--size" | "--shape" | "--format") => {
+                let value = args
+                    .get(index + 1)
+                    .map(String::as_str)
+                    .ok_or_else(|| format!("missing value for {flag}"))?;
+                match flag {
+                    "--mode" => mode = Some(value),
+                    "--implementation" => implementation = Some(value),
+                    "--size" => size = Some(value),
+                    "--shape" => shape = Some(value),
+                    "--format" => format = Some(value),
+                    _ => unreachable!(),
+                }
+                index += 2;
+            }
+            other => return Err(format!("unknown argument: {other}")),
         }
-        None => "json",
-    };
+    }
+    let mode = mode.ok_or("missing --mode")?;
+    let implementation = implementation.ok_or("missing --implementation")?;
+    let size = size.ok_or("missing --size")?;
+    let shape = shape.ok_or("missing --shape")?;
+    let format = format.unwrap_or("json");
     let mode = Mode::from_label(mode).ok_or_else(|| format!("unknown mode: {mode}"))?;
     let implementation = Implementation::from_label(implementation)
         .ok_or_else(|| format!("unknown implementation: {implementation}"))?;
@@ -56,13 +73,4 @@ fn run_cli() -> Result<(), String> {
         other => return Err(format!("unknown format: {other}")),
     }
     Ok(())
-}
-
-fn argument<'a>(args: &'a [String], name: &str) -> Result<&'a str, String> {
-    optional_argument(args, name).ok_or_else(|| format!("missing {name}"))
-}
-
-fn optional_argument<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
-    let index = args.iter().position(|argument| argument == name)?;
-    args.get(index + 1).map(String::as_str)
 }

@@ -20,6 +20,11 @@ use crate::competitors::{load_values, parse_values, Competitor};
 use crate::{fixture, Shape, Size};
 
 /// Allocation counters installed by the memory binary.
+///
+/// The counters use `Ordering::Relaxed` and update `current` and `peak`
+/// sequentially; measurements are exact in the single-threaded isolated
+/// `memory` binary. `realloc` tracks deterministic logical live-byte deltas
+/// rather than allocator-dependent relocation transients.
 pub struct Counters {
     current: AtomicUsize,
     peak: AtomicUsize,
@@ -39,13 +44,40 @@ impl Counters {
     }
 
     fn allocated(&self, bytes: usize) {
-        let current = self.current.fetch_add(bytes, Ordering::Relaxed) + bytes;
+        let current = self
+            .current
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                Some(current.saturating_add(bytes))
+            })
+            .unwrap_or(0)
+            .saturating_add(bytes);
         self.peak.fetch_max(current, Ordering::Relaxed);
         self.allocations.fetch_add(1, Ordering::Relaxed);
     }
 
     fn freed(&self, bytes: usize) {
-        self.current.fetch_sub(bytes, Ordering::Relaxed);
+        let _ = self
+            .current
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                Some(current.saturating_sub(bytes))
+            });
+    }
+
+    fn reallocated(&self, old_size: usize, new_size: usize) {
+        if new_size >= old_size {
+            let delta = new_size - old_size;
+            let current = self
+                .current
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                    Some(current.saturating_add(delta))
+                })
+                .unwrap_or(0)
+                .saturating_add(delta);
+            self.peak.fetch_max(current, Ordering::Relaxed);
+        } else {
+            self.freed(old_size - new_size);
+        }
+        self.allocations.fetch_add(1, Ordering::Relaxed);
     }
 
     fn current(&self) -> usize {
@@ -60,8 +92,8 @@ impl Counters {
         self.allocations.load(Ordering::Relaxed)
     }
 
-    fn reset_peak(&self) {
-        self.peak.store(self.current(), Ordering::Relaxed);
+    fn reset_peak_to(&self, baseline: usize) {
+        self.peak.store(baseline, Ordering::Relaxed);
     }
 }
 
@@ -95,12 +127,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         let new_pointer = unsafe { System.realloc(pointer, layout, new_size) };
         if !new_pointer.is_null() {
-            if new_size >= layout.size() {
-                COUNTERS.allocated(new_size - layout.size());
-            } else {
-                COUNTERS.freed(layout.size() - new_size);
-            }
-            COUNTERS.allocations.fetch_add(1, Ordering::Relaxed);
+            COUNTERS.reallocated(layout.size(), new_size);
         }
         new_pointer
     }
@@ -316,38 +343,32 @@ pub fn run(
         ));
     }
     let fixture = fixture(size, shape);
-    let path = if mode == Mode::Load {
+    let temp_file = if mode == Mode::Load {
         let path = temporary_path();
         fs::write(&path, fixture.source()).map_err(|error| error.to_string())?;
-        Some(path)
+        Some(TempFile(path))
     } else {
         None
     };
     let rss_before = rss_bytes();
     let baseline = COUNTERS.current();
     let allocations_before = COUNTERS.allocations();
-    COUNTERS.reset_peak();
+    COUNTERS.reset_peak_to(baseline);
 
-    let result = match execute(&fixture, mode, implementation, path.as_deref()) {
-        Ok(result) => result,
-        Err(error) => {
-            if let Some(path) = &path {
-                let _ = fs::remove_file(path);
-            }
-            return Err(error);
-        }
-    };
+    let result = execute(
+        &fixture,
+        mode,
+        implementation,
+        temp_file.as_ref().map(|file| file.0.as_path()),
+    )?;
     let peak_heap_bytes = COUNTERS.peak().saturating_sub(baseline);
     let allocations = COUNTERS.allocations().saturating_sub(allocations_before);
-    let rss_peak_bytes = rss_peak_bytes();
     let retained_heap_bytes = COUNTERS.current().saturating_sub(baseline);
     drop(result);
     let heap_after_drop_bytes = COUNTERS.current().saturating_sub(baseline);
+    let rss_peak_bytes = rss_peak_bytes();
     let rss_after_bytes = rss_bytes();
-
-    if let Some(path) = path {
-        let _ = fs::remove_file(path);
-    }
+    drop(temp_file);
     Ok(MemoryReport {
         size: size.label(),
         shape: shape.label(),
@@ -431,6 +452,14 @@ fn execute<'a>(
             implementation.label(),
             mode.label()
         )),
+    }
+}
+
+struct TempFile(PathBuf);
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
     }
 }
 
@@ -543,5 +572,94 @@ mod tests {
             report.json(),
             "{\"size\":\"8\",\"shape\":\"plain\",\"mode\":\"values\",\"implementation\":\"adotenv\",\"entries\":8,\"source_bytes\":64,\"fixture_sha256\":\"abc123\",\"peak_heap_bytes\":128,\"retained_heap_bytes\":64,\"heap_after_drop_bytes\":0,\"allocations\":4,\"rss_before_bytes\":null,\"rss_peak_bytes\":null,\"rss_after_bytes\":null}"
         );
+    }
+
+    #[test]
+    fn counters_track_alloc_realloc_grow_same_shrink_free_and_underflow() {
+        let counters = Counters::new();
+        counters.allocated(32);
+        assert_eq!(counters.current(), 32);
+        assert_eq!(counters.peak(), 32);
+        assert_eq!(counters.allocations(), 1);
+
+        // Growing realloc increments allocations once and raises peak by logical delta.
+        counters.reallocated(32, 128);
+        assert_eq!(counters.current(), 128);
+        assert_eq!(counters.peak(), 128);
+        assert_eq!(counters.allocations(), 2);
+
+        // Same-size realloc increments allocations once without changing current or peak.
+        counters.reallocated(128, 128);
+        assert_eq!(counters.current(), 128);
+        assert_eq!(counters.peak(), 128);
+        assert_eq!(counters.allocations(), 3);
+
+        // Shrinking realloc increments allocations once and lowers current while keeping peak.
+        counters.reallocated(128, 48);
+        assert_eq!(counters.current(), 48);
+        assert_eq!(counters.peak(), 128);
+        assert_eq!(counters.allocations(), 4);
+
+        counters.reset_peak_to(counters.current());
+        assert_eq!(counters.peak(), 48);
+
+        // Underflow saturates to zero without poisoning peak.
+        counters.freed(100);
+        assert_eq!(counters.current(), 0);
+        assert_eq!(counters.peak(), 48);
+        assert_eq!(counters.allocations(), 4);
+    }
+
+    #[test]
+    fn counting_allocator_counts_alloc_zeroed_realloc_and_dealloc_once() {
+        let allocator = CountingAllocator;
+        let baseline_current = COUNTERS.current();
+        let baseline_allocs = COUNTERS.allocations();
+        COUNTERS.reset_peak_to(baseline_current);
+
+        let initial = Layout::from_size_align(32, 8).unwrap();
+        let grown = Layout::from_size_align(128, 8).unwrap();
+        let shrunk = Layout::from_size_align(48, 8).unwrap();
+        let zeroed_layout = Layout::from_size_align(64, 8).unwrap();
+
+        // SAFETY: all layouts have non-zero size and every pointer is freed with its active layout.
+        unsafe {
+            let ptr = allocator.alloc(initial);
+            assert!(!ptr.is_null());
+            assert_eq!(COUNTERS.current() - baseline_current, 32);
+            assert_eq!(COUNTERS.allocations() - baseline_allocs, 1);
+
+            let ptr = allocator.realloc(ptr, initial, grown.size());
+            assert!(!ptr.is_null());
+            assert_eq!(COUNTERS.current() - baseline_current, 128);
+            assert_eq!(COUNTERS.peak() - baseline_current, 128);
+            assert_eq!(COUNTERS.allocations() - baseline_allocs, 2);
+
+            let ptr = allocator.realloc(ptr, grown, grown.size());
+            assert!(!ptr.is_null());
+            assert_eq!(COUNTERS.current() - baseline_current, 128);
+            assert_eq!(COUNTERS.allocations() - baseline_allocs, 3);
+
+            let ptr = allocator.realloc(ptr, grown, shrunk.size());
+            assert!(!ptr.is_null());
+            assert_eq!(COUNTERS.current() - baseline_current, 48);
+            assert_eq!(COUNTERS.peak() - baseline_current, 128);
+            assert_eq!(COUNTERS.allocations() - baseline_allocs, 4);
+
+            allocator.dealloc(ptr, shrunk);
+            assert_eq!(COUNTERS.current() - baseline_current, 0);
+            assert_eq!(COUNTERS.allocations() - baseline_allocs, 4);
+
+            let zptr = allocator.alloc_zeroed(zeroed_layout);
+            assert!(!zptr.is_null());
+            let slice = std::slice::from_raw_parts(zptr, zeroed_layout.size());
+            assert!(slice.iter().all(|&b| b == 0));
+            assert_eq!(COUNTERS.current() - baseline_current, 64);
+            assert_eq!(COUNTERS.allocations() - baseline_allocs, 5);
+
+            allocator.dealloc(zptr, zeroed_layout);
+            assert_eq!(COUNTERS.current() - baseline_current, 0);
+            assert_eq!(COUNTERS.allocations() - baseline_allocs, 5);
+        }
     }
 }
