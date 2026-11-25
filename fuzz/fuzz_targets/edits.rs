@@ -27,7 +27,11 @@ fn meanings(document: &Document<'_>) -> Vec<Meaning> {
         .collect()
 }
 
-fn map_offset(offset: usize, verified: &VerifiedEdits, include_insertions_at_boundary: bool) -> usize {
+fn map_offset(
+    offset: usize,
+    verified: &VerifiedEdits,
+    include_insertions_at_boundary: bool,
+) -> usize {
     verified.edits().iter().fold(offset, |mapped, edit| {
         let before = edit.range.end < offset
             || (edit.range.end == offset
@@ -532,10 +536,17 @@ fn check_rename_with_references(source: &str, value: &str, selector: u8, dialect
         let mut had_matching_ref = false;
         for (br, ar) in before_refs.iter().zip(after_refs.iter()) {
             let orig_name = br.name.as_ref().and_then(|s| source.get(s.clone()));
-            let new_name = ar.name.as_ref().and_then(|s| renamed.as_str().get(s.clone()));
+            let new_name = ar
+                .name
+                .as_ref()
+                .and_then(|s| renamed.as_str().get(s.clone()));
             let was_renamed = orig_name == Some(entry.key());
             had_matching_ref |= was_renamed;
-            let expected_name = if was_renamed { Some(ref_key) } else { orig_name };
+            let expected_name = if was_renamed {
+                Some(ref_key)
+            } else {
+                orig_name
+            };
             assert_eq!(br.kind, ar.kind);
             assert_eq!(br.closed, ar.closed);
             assert_eq!(br.escaped, ar.escaped);
@@ -558,9 +569,7 @@ fn check_rename_with_references(source: &str, value: &str, selector: u8, dialect
             );
             assert_eq!(
                 ar.argument,
-                br.argument
-                    .clone()
-                    .map(|r| mapped_range_after(r, &renamed))
+                br.argument.clone().map(|r| mapped_range_after(r, &renamed))
             );
             if br.braced == ar.braced {
                 assert_eq!(ar.name, br.name.clone().map(|r| mapped_range(r, &renamed)));
