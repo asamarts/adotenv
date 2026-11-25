@@ -438,7 +438,8 @@ let loaded = load_cascade("/srv/my-app", "production")?;
 unsafe { apply(&loaded)? };
 ```
 
-`validate` runs the same checks without changing anything. Prefer passing
+`validate` runs the same checks without changing anything, and
+`validate_compact` / `apply_compact` accept `CompactValues`. Prefer passing
 `LoadedEnvironment::values()` to a child process or reading them directly when
 mutation is not required.
 
@@ -471,7 +472,7 @@ include the value.
 `cargo install adotenv-cli --locked` installs the `adotenv-cli` binary:
 
 ```text
-adotenv-cli [--dialect <portable|node|python|compose|docker>] [--dialect=<value>] <command> [options]
+adotenv-cli [--dialect <portable|node|python|compose|docker>] [--max-input-bytes <n>] [--max-lines <n>] <command> [options]
 
 get <file> <key>
 check [--format human|json|github] [--json] [--source] [-r|--recursive] [--exclude <path>] <path>...
@@ -479,7 +480,7 @@ fmt [--write|--check] [--sort] [-r|--recursive] [--exclude <path>] <path>...
 diff [--format human|matrix|json] [--json] [--mask] <baseline> <file>...
 example <file>
 load <directory> [mode]
-set <file> <key> <value>
+set [--max-output-bytes <n>] [--max-output-lines <n>] <file> <key> <value>
 run <directory> [mode] -- <program> [args...]
 ```
 
@@ -533,8 +534,9 @@ See the [language server guide](https://asamarts.github.io/adotenv/design/lsp.ht
 ## Adapters
 
 `adotenv-config` exposes literal values as a `config` source. `adotenv-figment`
-exposes a Figment dictionary. Both support loaded environments through their
-`load` feature.
+exposes a Figment dictionary. Both accept `Document`, `CompactValues`,
+`CompactEntries`, explicit maps, and (with their `load` feature)
+`LoadedEnvironment`.
 
 ```rust,ignore
 use adotenv::parse_strict;

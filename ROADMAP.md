@@ -134,5 +134,11 @@ All met for 1.0.0:
 | [lsp.md](docs/design/lsp.md) | Language server prototype and limitations |
 | [1.0-readiness.md](docs/design/1.0-readiness.md) | Release evidence checklist |
 | [1.0-fix-round.md](docs/design/1.0-fix-round.md) | Pre-1.0 audit fixes and decisions |
+| [1.1-audit.md](docs/design/1.1-audit.md) | 1.1 audit findings and fixes |
+| [1.4.1-plan.md](docs/design/1.4.1-plan.md) | 1.4.1 benchmark and hardening plan |
+| [1.5.0-plan.md](docs/design/1.5.0-plan.md) | 1.5.0 compact values plan |
+| [1.6.0-plan.md](docs/design/1.6.0-plan.md) | 1.6.0 limits, edits and compact entries plan |
+| [releases.md](docs/design/releases.md) | Release history and plan links |
+| [heavy-validation.md](docs/design/heavy-validation.md) | Resource policy for heavy validation runs |
 
 Published site: <https://asamarts.github.io/adotenv/>

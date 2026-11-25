@@ -14,8 +14,13 @@ FILES = [
     ROOT / "README.md",
     ROOT / "ROADMAP.md",
     ROOT / "RELEASING.md",
+    ROOT / "xtask" / "README.md",
+    ROOT / "tests" / "vectors" / "README.md",
     *sorted(ROOT.glob("adotenv-*/README.md")),
     *sorted(DOCS.rglob("*.md")),
+]
+LINK_ONLY_FILES = [
+    ROOT / "CHANGELOG.md",
 ]
 SMART = "—–’“”…•"
 BANNED = re.compile(
@@ -67,6 +72,19 @@ for file in FILES:
             errors.append(f"{file}: missing link target {target!r}")
         elif DOCS in file.parents and DOCS not in resolved.parents:
             errors.append(f"{file}: link target {target!r} is outside the book")
+
+for file in LINK_ONLY_FILES:
+    text = file.read_text()
+    for match in re.finditer(r"\[[^\]]*\]\(([^)]+)\)", text):
+        target = match.group(1).strip()
+        if target.startswith(("http://", "https://", "#", "mailto:")):
+            continue
+        target = target.split("#", 1)[0]
+        if not target:
+            continue
+        resolved = (file.parent / target).resolve()
+        if not resolved.exists():
+            errors.append(f"{file}: missing link target {target!r}")
 
 summary = (DOCS / "SUMMARY.md").read_text()
 listed = {

@@ -427,7 +427,7 @@ started. Otherwise it exits with the child's exit code. On Unix, a child ended
 by signal `N` exits `128 + N`, as in POSIX shells. A child exit code outside
 `0` to `255`, such as a Windows `NTSTATUS` crash code, exits `255`.
 
-## Limits
+## Scope boundaries
 
 The CLI never runs command substitutions from loaded files. To run them, use
 the library: `Document::resolve_with_commands` with a callback, or

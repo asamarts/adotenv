@@ -49,10 +49,10 @@ regions and 94.8 percent of lines on 2026-11-04) predates `compact.rs`,
 
 ### Published companion crates
 
-Line coverage from the workspace `lcov.info` artifact (CI run `45294775181` at
-commit `f623bce`, including the `adotenv-lsp 0.5.0` transport/library tests and
-the `adotenv-lint 0.2.2` config/CLI coverage pass; production source files
-across all seven published crates, excluding tests and benchmarks):
+Line coverage from the workspace `lcov.info` artifact (CI run `45341434718` at
+commit `9d852ec`, following the `adotenv-lsp 0.5.0`, `adotenv-lint 0.2.2`, and
+mutation-sweep coverage passes; production source files across all seven
+published crates, excluding tests and benchmarks):
 
 | Scope | Lines |
 |---|---:|
@@ -524,10 +524,11 @@ overflow and popover bounds.
 2. Coverage figures come from the CI `coverage` workflow artifact
    (`coverage-summary.txt` and `lcov.info`). CI uploads the artifact and prints
    the core summary, but does not enforce a threshold.
-3. Mutation testing is focused rather than exhaustive; the current workspace
-   list is 5,502 mutants, and the partial full campaign plus file shards are
-   recorded above. Windows-only validation branches are exercised by the
-   Windows CI job but not by mutation runs on Linux.
+3. Mutation testing is focused/sharded rather than run as one unsharded whole-workspace
+   campaign; the 1.5.4 baseline listed 5,502 workspace mutants, and the
+   subsequent 1.6.0/1.6.1 per-crate and confirmation shards are recorded above.
+   Windows-only validation branches are exercised by the Windows CI job rather
+   than Linux mutation runs.
 4. Every published crate in the workspace (`adotenv` core, `adotenv-process`,
    `adotenv-config`, `adotenv-figment`, `adotenv-lsp`, `adotenv-lint`, and
    `adotenv-cli`) has completed sharded or full-file mutation runs on `kbench`,
