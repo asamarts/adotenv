@@ -18,7 +18,11 @@ The current release provides:
 
 ## Current status
 
-`adotenv`, `adotenv-process` and `adotenv-cli` 1.6.1 were published on
+`adotenv`, `adotenv-process` and `adotenv-cli` 1.7.0 were published on
+2026-11-25 with `Document::rename_with_references_with_options`,
+`CompactValues` `PartialEq`/`Eq`, `adotenv-process::{validate_compact, apply_compact}`,
+and the remaining post-1.0 and core/CLI audit fixes. `adotenv`,
+`adotenv-process` and `adotenv-cli` 1.6.1 were published on
 2026-11-24 with `adotenv-cli` parse/output limit flags (`--max-input-bytes`,
 `--max-lines`, `set --max-output-bytes`, `set --max-output-lines`) and
 full-workspace mutation verification (with no core library behavior changes
@@ -62,8 +66,9 @@ companion work are recorded there.
    builders.
 2. Keep the completed [1.1 audit](docs/design/1.1-audit.md) fixes and their
    regression coverage intact.
-3. Track the remaining "After 1.0" items in
-   [1.0-fix-round.md](docs/design/1.0-fix-round.md).
+3. Keep the completed "After 1.0" fixes in
+   [1.0-fix-round.md](docs/design/1.0-fix-round.md) and their regression
+   coverage intact.
 4. The optional `adotenv-lint` 0.1.0 policy companion was published on
    2026-11-06, followed by 0.1.1 through crates.io Trusted Publishing. The
    `adotenv-lsp` 0.1.0 was published on 2026-11-07, followed by 0.2.0,

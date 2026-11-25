@@ -2,6 +2,7 @@
 
 | Version | Date | Focus |
 |---|---|---|
+| 1.7.0 | 2026-11-25 | `Document::rename_with_references_with_options`, `CompactValues` equality and process support, and post-1.0/audit fixes |
 | adotenv-config 0.12.1 | 2026-11-25 | `CompactValues` and `CompactEntries` constructors (`adotenv` 1.6.1) |
 | adotenv-figment 0.12.2 | 2026-11-25 | `CompactValues` and `CompactEntries` constructors (`adotenv` 1.6.1) |
 | 1.6.1 | 2026-11-24 | CLI parse/output limit flags and full-workspace mutation verification; no core library behavior change |

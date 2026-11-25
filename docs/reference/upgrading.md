@@ -140,11 +140,18 @@ Releases within 1.x keep the API. These fixes change results:
   preserves winning bare declarations in single-buffer storage.
 - 1.6.1: `adotenv-cli` adds global `--max-input-bytes` / `--max-lines` and
   `set --max-output-bytes` / `--max-output-lines` flags.
-- Unreleased (next minor): Serde key-conversion errors report the offending key
-  name (`Some(key)`) instead of `Some("")`; delimiter-nesting depth overflows
-  during resolution report `ResolveError::DepthExceeded` rather than
-  `ResolveError::TooManyReferences`; Windows `exec::Shell` runs commands via
-  `cmd /S /C` with raw argument quoting and rejects embedded line breaks.
+- 1.7.0: `Document::rename_with_references_with_options` bounds reference-aware
+  renames with `EditOptions`, `CompactValues` implements `PartialEq` and `Eq`,
+  and `adotenv-process` adds `validate_compact` and `apply_compact`.
+  Serde key-conversion errors now report the offending key name (`Some(key)`)
+  instead of `Some("")`; delimiter-nesting depth overflows during resolution
+  report `ResolveError::DepthExceeded` rather than
+  `ResolveError::TooManyReferences`; `Document::rename_with_references` braces
+  digit-leading keys, rejects escape/quote-breaking keys and shell-quote breaks
+  inside `$(...)` commands, and verifies reference structure; Windows
+  `exec::Shell` runs commands via `cmd /S /C` with raw argument quoting and
+  rejects embedded line breaks; and `adotenv-cli` aborts `fmt`/`example` before
+  output when `--max-input-bytes`/`--max-lines` limits trigger.
 
 ## From 0.11
 

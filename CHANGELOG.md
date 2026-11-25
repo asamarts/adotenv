@@ -6,6 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `adotenv-lint`: reported all per-file errors instead of overwriting earlier
+  ones, bounded file reads to `max_input_bytes + 1`, handled stdout errors and
+  `BrokenPipe` cleanly, fixed `--help`/`--version` handling when passed as
+  option values, refused explicit symlinked directory roots (including trailing
+  slashes), narrowed `write_fixed` metadata checks to `symlink_metadata`, and
+  deduplicated canonical file paths.
+- `adotenv-lsp`: relaxed exact `serde_json` dependency pin to `"1"`, escaped
+  backticks and multiline values in entry and reference Markdown hover output,
+  and suppressed completion inside BOM-prefixed comments.
+
+## [1.7.0] - 2026-11-25
+
 ### Added
 
 - `adotenv`: added `Document::rename_with_references_with_options` so
@@ -47,15 +61,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stdin reads to `max_input_bytes + 1` bytes (without blocking on non-regular
   files), aligned line-1 BOM column handling with `BomPolicy`, and bounded
   Windows backup temp filenames.
-- `adotenv-lint`: reported all per-file errors instead of overwriting earlier
-  ones, bounded file reads to `max_input_bytes + 1`, handled stdout errors and
-  `BrokenPipe` cleanly, fixed `--help`/`--version` handling when passed as
-  option values, refused explicit symlinked directory roots (including trailing
-  slashes), narrowed `write_fixed` metadata checks to `symlink_metadata`, and
-  deduplicated canonical file paths.
-- `adotenv-lsp`: relaxed exact `serde_json` dependency pin to `"1"`, escaped
-  backticks and multiline values in entry and reference Markdown hover output,
-  and suppressed completion inside BOM-prefixed comments.
 - `adotenv-xtask`: aligned `rust-version` with `adotenv-bench` (`1.88`) and
   fixed Markdown table alignment/column separators in `report` and `compare`.
 
