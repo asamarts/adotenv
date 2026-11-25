@@ -14,7 +14,7 @@ evidence; neither replaces the historical 1.4.1 map-based claim.
 </div>
 
 <p class="bench-callouts">
-<a class="bench-callout" href="compact-memory.html"><strong>Memory chart</strong><span>Explore retained heap, peak heap and allocations by size, shape and mode.</span></a>
+<a class="bench-callout" href="compact-memory-1.5.0.html"><strong>Memory chart</strong><span>Explore retained heap, peak heap and allocations by size, shape and mode.</span></a>
 <a class="bench-callout" href="speed-1.5.0.html"><strong>Speed chart</strong><span>Explore values and load timings by size, shape and mode.</span></a>
 </p>
 
@@ -24,9 +24,9 @@ comparable values/load modes as the [1.4.1 results](RESULTS-1.4.1.md). Version
 1.5.0 was tagged at `70f9762`. The memory source is the release candidate;
 the speed source is a later benchmark-only commit. Raw evidence:
 
-- [Compact memory JSONL](compact-memory.jsonl) -- 165 cases
-- [Compact memory table](compact-memory.md)
-- [Compact memory fingerprint](compact-memory.fingerprint.json)
+- [Compact memory JSONL](compact-memory-1.5.0.jsonl) -- 165 cases
+- [Compact memory table](compact-memory-1.5.0.md)
+- [Compact memory fingerprint](compact-memory-1.5.0.fingerprint.json)
 - [Compact speed bencher output](speed-1.5.0.txt) -- 140 cells
 - [Compact speed table](speed-1.5.0.md)
 - [Compact speed fingerprint](speed-1.5.0.fingerprint.json)
@@ -40,6 +40,11 @@ the speed source is a later benchmark-only commit. Raw evidence:
 
 Both runs used `kbench`, Intel Core i7-6700HQ (8 logical CPUs), Linux
 7.1.3-arch1-2, Rust 1.97.1, and the benchq/pueue `bench` group with one slot.
+This historical 1.5.0 memory snapshot was recorded before
+`CountingAllocator::realloc` stopped double-counting growing reallocations;
+heap byte metrics and speed timings are unaffected, and the current post-fix CI
+compact baseline (including `adotenv-compact-entries`) is in
+[compact-memory.md](compact-memory.md).
 
 ## Claim
 

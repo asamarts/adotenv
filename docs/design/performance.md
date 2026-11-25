@@ -174,17 +174,18 @@ adotenv holds.
 CI separates deterministic internal gates from publication wall-time evidence:
 
 - `scripts/det-perf-gate.sh` builds the merge base and the PR in one session and
-  runs the map and compact `adotenv-bench/benches/det_parse.rs` cases under
-  Valgrind Callgrind. The gungraun soft limits are `Ir` +2% and
-  `EstimatedCycles` +5%; branch counters
+  runs the map, compact values, compact entries and compact loading
+  `adotenv-bench/benches/det_parse.rs` cases under Valgrind Callgrind. The
+  gungraun soft limits are `Ir` +2% and `EstimatedCycles` +5%; branch counters
   are diagnostic only. The comparison uses only instruction simulation, so
   hosted-runner load cannot fail it. The gate skips its first PR when the base
   predates `det_parse`, then gates subsequent changes.
 - `adotenv-xtask gate` compares a fresh release memory JSONL against
   `docs/benchmarks/memory.jsonl` for every map-based adotenv case, and against
-  `docs/benchmarks/compact-memory.jsonl` for every `adotenv-compact` case.
-  Allocation counts must match exactly; peak and retained heap may grow by at
-  most the larger of 5% or 64 bytes.
+  `docs/benchmarks/compact-memory.jsonl` for both `adotenv-compact` and
+  `adotenv-compact-entries`. Allocation counts must match exactly,
+  `heap_after_drop_bytes` must not exceed baseline, and peak and retained heap
+  may grow by at most the larger of 5% or 64 bytes.
 - `bench-smoke` compiles and exercises the deterministic harness and runs both
   the map and compact memory gates on every PR. The harness smoke is
   non-gating; the memory gates are gating. The deterministic `Ir`/cycle gate
@@ -201,7 +202,7 @@ CI separates deterministic internal gates from publication wall-time evidence:
 The comparable matrix on `kbench` (five sizes, `plain`/`long-line`/`empty`,
 values and load) is recorded in
 [`docs/benchmarks/speed.md`](../benchmarks/speed.md) and
-[`docs/benchmarks/memory.md`](../benchmarks/memory.md). The speed and memory
+[`docs/benchmarks/memory-1.4.1.md`](../benchmarks/memory-1.4.1.md). The speed and memory
 snapshots share the final 1.4.1 baseline SHA `0649096`. Against the best
 competitor in each cell:
 

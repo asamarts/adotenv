@@ -94,10 +94,10 @@ fn loads(c: &mut Criterion) {
         for shape in COMPARABLE_LOAD_SHAPES {
             let fixture = fixture(size, shape);
             let parameter = format!("{}/{}", shape.label(), size.label());
-            let path = temporary_path();
-            fs::write(&path, fixture.source()).expect("write benchmark fixture");
+            let temp = TempFixture::new(fixture.source());
+            let path = temp.0.as_path();
             let expected = adotenv_load_values(fixture.source()).expect("fixture loads");
-            let compact_expected = load_adotenv_compact(&path)
+            let compact_expected = load_adotenv_compact(path)
                 .expect("fixture loads")
                 .into_btreemap();
             assert_eq!(
@@ -108,16 +108,16 @@ fn loads(c: &mut Criterion) {
             );
             group.throughput(Throughput::Bytes(fixture.bytes() as u64));
             group.bench_function(BenchmarkId::new("adotenv", &parameter), |b| {
-                b.iter(|| black_box(load_adotenv(black_box(&path))));
+                b.iter(|| black_box(load_adotenv(black_box(path))));
             });
             group.bench_function(BenchmarkId::new("adotenv-compact", &parameter), |b| {
-                b.iter(|| black_box(load_adotenv_compact(black_box(&path))));
+                b.iter(|| black_box(load_adotenv_compact(black_box(path))));
             });
             for competitor in Competitor::ALL
                 .into_iter()
                 .filter(|competitor| competitor.supports_load())
             {
-                let actual = load_values(competitor, &path).unwrap_or_else(|error| {
+                let actual = load_values(competitor, path).unwrap_or_else(|error| {
                     panic!("{} {}: {error}", competitor.label(), fixture.name())
                 });
                 assert_eq!(
@@ -128,10 +128,10 @@ fn loads(c: &mut Criterion) {
                     fixture.name()
                 );
                 group.bench_function(BenchmarkId::new(competitor.label(), &parameter), |b| {
-                    b.iter(|| black_box(load_values(competitor, black_box(&path))));
+                    b.iter(|| black_box(load_values(competitor, black_box(path))));
                 });
             }
-            let _ = fs::remove_file(path);
+            drop(temp);
         }
     }
     group.finish();
@@ -145,6 +145,22 @@ fn load_adotenv(path: &Path) -> Result<BTreeMap<String, String>, String> {
 
 fn load_adotenv_compact(path: &Path) -> Result<CompactValues, String> {
     adotenv::load::load_values_compact([path], Dialect::PORTABLE).map_err(|error| error.to_string())
+}
+
+struct TempFixture(PathBuf);
+
+impl TempFixture {
+    fn new(contents: &str) -> Self {
+        let path = temporary_path();
+        fs::write(&path, contents).expect("write benchmark fixture");
+        Self(path)
+    }
+}
+
+impl Drop for TempFixture {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
 }
 
 fn temporary_path() -> PathBuf {

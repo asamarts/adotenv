@@ -159,13 +159,10 @@ pub fn load_values(
 ///
 /// Returns an error when the source cannot be loaded with the portable dialect.
 pub fn adotenv_load_values(source: &str) -> Result<BTreeMap<String, String>, String> {
-    let path = temporary_path();
-    fs::write(&path, source).map_err(|error| error.to_string())?;
-    let result = adotenv::load::load_values([path.as_path()], adotenv::Dialect::PORTABLE)
+    let temp = TempFile::new(source)?;
+    adotenv::load::load_values([temp.0.as_path()], adotenv::Dialect::PORTABLE)
         .map(adotenv::load::LoadedValues::into_values)
-        .map_err(|error| error.to_string());
-    let _ = fs::remove_file(path);
-    result
+        .map_err(|error| error.to_string())
 }
 
 /// Returns the pin/version string for a competitor.
@@ -230,6 +227,22 @@ pub fn unsupported_cells() -> Vec<Unsupported> {
     cells
 }
 
+struct TempFile(PathBuf);
+
+impl TempFile {
+    fn new(contents: &str) -> Result<Self, String> {
+        let path = temporary_path();
+        fs::write(&path, contents).map_err(|error| error.to_string())?;
+        Ok(Self(path))
+    }
+}
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
 fn temporary_path() -> PathBuf {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     std::env::temp_dir().join(format!(
@@ -267,14 +280,12 @@ mod tests {
         for shape in COMPARABLE_LOAD_SHAPES {
             let source = fixture_source(shape);
             let expected = adotenv_load_values(&source).expect("fixture loads");
-            let path = temporary_path();
-            fs::write(&path, &source).expect("write fixture");
+            let temp = TempFile::new(&source).expect("write fixture");
             for competitor in Competitor::ALL.into_iter().filter(|c| c.supports_load()) {
-                let actual = load_values(competitor, &path)
+                let actual = load_values(competitor, &temp.0)
                     .unwrap_or_else(|error| panic!("{} {shape:?}: {error}", competitor.label()));
                 assert_eq!(actual, expected, "{} {shape:?}", competitor.label());
             }
-            let _ = fs::remove_file(path);
         }
     }
 

@@ -34,7 +34,7 @@ fn run() -> Result<()> {
         Some("report") => command_report(&args[1..]),
         Some("compare") => command_compare(&args[1..]),
         Some("gate") => command_gate(&args[1..]),
-        Some("fingerprint") => command_fingerprint(),
+        Some("fingerprint") => command_fingerprint(&args[1..]),
         Some("queue") => command_queue(&args[1..]),
         Some("queue-speed") => command_queue_speed(&args[1..]),
         Some("help" | "--help" | "-h") | None => {
@@ -64,8 +64,8 @@ queue-speed --remote-root <path> [--out <path>] [--remote-out <path>]
         [--bench competitors] [--filter <text>] [--quick] [--sample-size N]
         [--warm-up-time SECS] [--measurement-time SECS] [--sync] [--dry-run]";
 
-#[allow(clippy::unnecessary_wraps)]
-fn command_fixtures(_args: &[String]) -> Result<()> {
+fn command_fixtures(args: &[String]) -> Result<()> {
+    let _ = ParsedArgs::parse(args, &[], &[])?;
     for fixture in fixtures() {
         println!(
             "{}\t{}\t{}\t{}",
@@ -79,15 +79,22 @@ fn command_fixtures(_args: &[String]) -> Result<()> {
 }
 
 fn command_memory(args: &[String]) -> Result<()> {
-    let compact = has_flag(args, "--compact");
-    let out = option(args, "--out").unwrap_or(if compact {
+    let parsed = ParsedArgs::parse(
+        args,
+        &["--out", "--sizes", "--shapes", "--modes"],
+        &["--compact"],
+    )?;
+    let compact = parsed.has("--compact");
+    let out = parsed.get("--out").unwrap_or(if compact {
         "docs/benchmarks/compact-memory.jsonl"
     } else {
         "docs/benchmarks/memory.jsonl"
     });
-    let sizes = option(args, "--sizes").unwrap_or("8,128");
-    let shapes = option(args, "--shapes").unwrap_or("plain");
-    let modes = option(args, "--modes").unwrap_or("values,load,document,resolve");
+    let sizes = parsed.get("--sizes").unwrap_or("8,128");
+    let shapes = parsed.get("--shapes").unwrap_or("plain");
+    let modes = parsed
+        .get("--modes")
+        .unwrap_or("values,load,document,resolve");
     let out = PathBuf::from(out);
     ensure_parent(&out)?;
     let sizes = parse_sizes(sizes)?;
@@ -139,10 +146,11 @@ fn command_memory(args: &[String]) -> Result<()> {
 }
 
 fn command_micro(args: &[String]) -> Result<()> {
-    let bench = option(args, "--bench").unwrap_or("fixtures");
+    let parsed = ParsedArgs::parse(args, &["--bench"], &["--quick"])?;
+    let bench = parsed.get("--bench").unwrap_or("fixtures");
     let mut command = Command::new(cargo());
     command.args(["bench", "-p", "adotenv-bench", "--bench", bench, "--locked"]);
-    if has_flag(args, "--quick") {
+    if parsed.has("--quick") {
         command.args(["--", "--quick"]);
     }
     let status = command.status().map_err(|error| error.to_string())?;
@@ -154,16 +162,17 @@ fn command_micro(args: &[String]) -> Result<()> {
 }
 
 fn command_speed(args: &[String]) -> Result<()> {
-    let out = PathBuf::from(option(args, "--out").unwrap_or("docs/benchmarks/speed.txt"));
-    let bench = option(args, "--bench").unwrap_or("competitors");
+    let parsed = ParsedArgs::parse(args, &["--out", "--bench", "--filter"], &["--quick"])?;
+    let out = PathBuf::from(parsed.get("--out").unwrap_or("docs/benchmarks/speed.txt"));
+    let bench = parsed.get("--bench").unwrap_or("competitors");
     ensure_parent(&out)?;
     let binary = build_bench_binary(bench)?;
     let mut command = Command::new(binary);
     command.args(["--bench", "--output-format", "bencher", "--noplot"]);
-    if has_flag(args, "--quick") {
+    if parsed.has("--quick") {
         command.arg("--quick");
     }
-    if let Some(filter) = option(args, "--filter") {
+    if let Some(filter) = parsed.get("--filter") {
         command.arg(filter);
     }
     let output = command.output().map_err(|error| error.to_string())?;
@@ -218,10 +227,11 @@ fn write_speed_markdown(path: &Path) -> Result<()> {
 }
 
 fn command_cli(args: &[String]) -> Result<()> {
-    let out = PathBuf::from(option(args, "--out").unwrap_or("docs/benchmarks/cli.json"));
-    let size = Size::from_label(option(args, "--size").unwrap_or("128")).ok_or("unknown size")?;
+    let parsed = ParsedArgs::parse(args, &["--out", "--size", "--shape"], &[])?;
+    let out = PathBuf::from(parsed.get("--out").unwrap_or("docs/benchmarks/cli.json"));
+    let size = Size::from_label(parsed.get("--size").unwrap_or("128")).ok_or("unknown size")?;
     let shape =
-        Shape::from_label(option(args, "--shape").unwrap_or("plain")).ok_or("unknown shape")?;
+        Shape::from_label(parsed.get("--shape").unwrap_or("plain")).ok_or("unknown shape")?;
     ensure_parent(&out)?;
     let status = Command::new(cargo())
         .args(["build", "--release", "-p", "adotenv-cli", "--locked"])
@@ -262,8 +272,9 @@ fn command_cli(args: &[String]) -> Result<()> {
 }
 
 fn command_report(args: &[String]) -> Result<()> {
-    let input = option(args, "--input").ok_or("missing --input")?;
-    let output = option(args, "--out");
+    let parsed = ParsedArgs::parse(args, &["--input", "--out"], &[])?;
+    let input = parsed.get("--input").ok_or("missing --input")?;
+    let output = parsed.get("--out");
     let text = fs::read_to_string(input).map_err(|error| error.to_string())?;
     let mut rows = Vec::new();
     for line in text.lines().filter(|line| !line.trim().is_empty()) {
@@ -316,16 +327,19 @@ fn command_report(args: &[String]) -> Result<()> {
 }
 
 fn command_compare(args: &[String]) -> Result<()> {
-    let baseline = option(args, "--baseline").ok_or("missing --baseline")?;
-    let current = option(args, "--current").ok_or("missing --current")?;
+    let parsed = ParsedArgs::parse(args, &["--baseline", "--current", "--out"], &[])?;
+    let baseline = parsed.get("--baseline").ok_or("missing --baseline")?;
+    let current = parsed.get("--current").ok_or("missing --current")?;
     let baseline = read_rows(baseline)?;
     let current = read_rows(current)?;
     let mut report = String::from(
         "| size | shape | mode | implementation | metric | baseline | current | delta |\n\
          |---|---|---|---|---|---:|---:|---:|\n",
     );
+    let mut only_current = 0usize;
     for (key, row) in &current {
         let Some(base) = baseline.get(key) else {
+            only_current += 1;
             continue;
         };
         for metric in [
@@ -341,7 +355,11 @@ fn command_compare(args: &[String]) -> Result<()> {
                 continue;
             };
             let delta = if base_value == 0.0 {
-                "n/a".to_owned()
+                if current_value == 0.0 {
+                    "0.00%".to_owned()
+                } else {
+                    "+inf".to_owned()
+                }
             } else {
                 format!("{:+.2}%", (current_value - base_value) / base_value * 100.0)
             };
@@ -360,7 +378,16 @@ fn command_compare(args: &[String]) -> Result<()> {
             .expect("writing to String cannot fail");
         }
     }
-    if let Some(output) = option(args, "--out") {
+    let only_baseline = baseline
+        .keys()
+        .filter(|key| !current.contains_key(*key))
+        .count();
+    if only_baseline > 0 || only_current > 0 {
+        eprintln!(
+            "compare: skipped {only_baseline} baseline-only and {only_current} current-only case(s)"
+        );
+    }
+    if let Some(output) = parsed.get("--out") {
         let output = Path::new(output);
         ensure_parent(output)?;
         fs::write(output, report).map_err(|error| error.to_string())?;
@@ -372,18 +399,33 @@ fn command_compare(args: &[String]) -> Result<()> {
 }
 
 fn command_gate(args: &[String]) -> Result<()> {
-    let baseline = option(args, "--baseline").ok_or("missing --baseline")?;
-    let current = option(args, "--current").ok_or("missing --current")?;
-    let implementation = option(args, "--implementation").unwrap_or("adotenv");
-    let max_heap_percent = option(args, "--max-heap-percent")
+    let parsed = ParsedArgs::parse(
+        args,
+        &[
+            "--baseline",
+            "--current",
+            "--implementation",
+            "--max-heap-percent",
+            "--max-heap-bytes",
+            "--max-allocation-delta",
+        ],
+        &[],
+    )?;
+    let baseline = parsed.get("--baseline").ok_or("missing --baseline")?;
+    let current = parsed.get("--current").ok_or("missing --current")?;
+    let implementation = parsed.get("--implementation").unwrap_or("adotenv");
+    let max_heap_percent = parsed
+        .get("--max-heap-percent")
         .unwrap_or("5")
         .parse::<u64>()
         .map_err(|error| format!("invalid --max-heap-percent: {error}"))?;
-    let max_heap_bytes = option(args, "--max-heap-bytes")
+    let max_heap_bytes = parsed
+        .get("--max-heap-bytes")
         .unwrap_or("64")
         .parse::<u64>()
         .map_err(|error| format!("invalid --max-heap-bytes: {error}"))?;
-    let max_allocation_delta = option(args, "--max-allocation-delta")
+    let max_allocation_delta = parsed
+        .get("--max-allocation-delta")
         .unwrap_or("0")
         .parse::<u64>()
         .map_err(|error| format!("invalid --max-allocation-delta: {error}"))?;
@@ -437,16 +479,19 @@ fn check_memory_gate(
             violations.push(format!("{key}: missing current case"));
             continue;
         };
-        if let (Some(base_hash), Some(cur_hash)) = (
-            base.get("fixture_sha256")
-                .and_then(serde_json::Value::as_str),
-            cur.get("fixture_sha256")
-                .and_then(serde_json::Value::as_str),
-        ) {
-            if base_hash != cur_hash {
-                violations.push(format!(
+        if let Some(base_hash) = base
+            .get("fixture_sha256")
+            .and_then(serde_json::Value::as_str)
+        {
+            match cur
+                .get("fixture_sha256")
+                .and_then(serde_json::Value::as_str)
+            {
+                Some(cur_hash) if cur_hash == base_hash => {}
+                Some(cur_hash) => violations.push(format!(
                     "{key}: fixture hash changed ({base_hash} -> {cur_hash})"
-                ));
+                )),
+                None => violations.push(format!("{key}: missing current fixture_sha256")),
             }
         }
         for metric in ["peak_heap_bytes", "retained_heap_bytes"] {
@@ -467,14 +512,26 @@ fn check_memory_gate(
                 ));
             }
         }
-        if let (Some(base_value), Some(cur_value)) =
-            (unsigned(base, "allocations"), unsigned(cur, "allocations"))
-        {
-            let allowed = base_value.saturating_add(max_allocation_delta);
-            if cur_value > allowed {
-                violations.push(format!(
-                    "{key}: allocations {cur_value} > allowed {allowed} (baseline {base_value}, +{max_allocation_delta})"
-                ));
+        if let Some(base_value) = unsigned(base, "heap_after_drop_bytes") {
+            match unsigned(cur, "heap_after_drop_bytes") {
+                Some(cur_value) if cur_value <= base_value => {}
+                Some(cur_value) => violations.push(format!(
+                    "{key}: heap_after_drop_bytes {cur_value} > baseline {base_value}"
+                )),
+                None => violations.push(format!("{key}: missing current heap_after_drop_bytes")),
+            }
+        }
+        if let Some(base_value) = unsigned(base, "allocations") {
+            match unsigned(cur, "allocations") {
+                Some(cur_value) => {
+                    let allowed = base_value.saturating_add(max_allocation_delta);
+                    if cur_value > allowed {
+                        violations.push(format!(
+                            "{key}: allocations {cur_value} > allowed {allowed} (baseline {base_value}, +{max_allocation_delta})"
+                        ));
+                    }
+                }
+                None => violations.push(format!("{key}: missing current allocations")),
             }
         }
     }
@@ -483,6 +540,10 @@ fn check_memory_gate(
 
 fn read_rows(path: &str) -> Result<BTreeMap<String, serde_json::Value>> {
     let text = fs::read_to_string(path).map_err(|error| error.to_string())?;
+    parse_rows(&text, path)
+}
+
+fn parse_rows(text: &str, source: &str) -> Result<BTreeMap<String, serde_json::Value>> {
     let mut rows = BTreeMap::new();
     for line in text.lines().filter(|line| !line.trim().is_empty()) {
         let value: serde_json::Value =
@@ -494,7 +555,9 @@ fn read_rows(path: &str) -> Result<BTreeMap<String, serde_json::Value>> {
             field(&value, "mode"),
             field(&value, "implementation")
         );
-        rows.insert(key, value);
+        if rows.insert(key.clone(), value).is_some() {
+            return Err(format!("duplicate benchmark row for {key} in {source}"));
+        }
     }
     Ok(rows)
 }
@@ -515,8 +578,8 @@ fn unsigned(row: &serde_json::Value, name: &str) -> Option<u64> {
     row.get(name).and_then(serde_json::Value::as_u64)
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn command_fingerprint() -> Result<()> {
+fn command_fingerprint(args: &[String]) -> Result<()> {
+    let _ = ParsedArgs::parse(args, &[], &[])?;
     println!("{}", fingerprint_json());
     Ok(())
 }
@@ -578,28 +641,121 @@ fn command_output(program: &str, arguments: &[&str]) -> String {
         )
 }
 
+fn require_command_output(program: &str, arguments: &[&str]) -> Result<String> {
+    let output = Command::new(program)
+        .args(arguments)
+        .output()
+        .map_err(|error| format!("running {program}: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "{program} {} exited with {}: {}",
+            arguments.join(" "),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if text.is_empty() {
+        return Err(format!(
+            "{program} {} returned empty output",
+            arguments.join(" ")
+        ));
+    }
+    Ok(text)
+}
+
+fn submit_and_fetch_remote_task(
+    remote_root: &str,
+    remote_out: &str,
+    local_out: &str,
+    label: &str,
+    remote_command: &str,
+    dry_run: bool,
+) -> Result<()> {
+    let queue_command = format!(
+        "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add --group bench --working-directory {} --label {} --print-task-id -- {}",
+        shell_quote(remote_root),
+        shell_quote(label),
+        shell_quote(remote_command)
+    );
+    if dry_run {
+        println!("ssh kbench {queue_command}");
+        return Ok(());
+    }
+    let task = ssh(&queue_command)?;
+    let task = task.trim();
+    if task.is_empty() {
+        return Err("pueue did not return a task id".to_owned());
+    }
+    println!("queued kbench task {task}");
+    ssh(&format!(
+        "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue wait {task}"
+    ))?;
+    ensure_task_succeeded(task)?;
+    ensure_parent(Path::new(local_out))?;
+    let status = Command::new("scp")
+        .arg(format!("kbench:{remote_root}/{remote_out}"))
+        .arg(local_out)
+        .status()
+        .map_err(|error| error.to_string())?;
+    if !status.success() {
+        return Err(format!("scp exited with {status}"));
+    }
+    let local_fingerprint = Path::new(local_out).with_extension("fingerprint.json");
+    let remote_fingerprint = Path::new(remote_out).with_extension("fingerprint.json");
+    let status = Command::new("scp")
+        .arg(format!(
+            "kbench:{remote_root}/{}",
+            remote_fingerprint.display()
+        ))
+        .arg(&local_fingerprint)
+        .status()
+        .map_err(|error| error.to_string())?;
+    if !status.success() {
+        return Err(format!("copying fingerprint exited with {status}"));
+    }
+    println!("copied {local_out} and {}", local_fingerprint.display());
+    Ok(())
+}
+
 fn command_queue(args: &[String]) -> Result<()> {
-    let remote_root = option(args, "--remote-root").ok_or("missing --remote-root")?;
+    let parsed = ParsedArgs::parse(
+        args,
+        &[
+            "--remote-root",
+            "--out",
+            "--remote-out",
+            "--sizes",
+            "--shapes",
+            "--modes",
+        ],
+        &["--compact", "--sync", "--dry-run"],
+    )?;
+    let remote_root = parsed.get("--remote-root").ok_or("missing --remote-root")?;
     validate_remote_root(remote_root)?;
-    let compact = has_flag(args, "--compact");
-    let local_out = option(args, "--out").unwrap_or(if compact {
+    let compact = parsed.has("--compact");
+    let local_out = parsed.get("--out").unwrap_or(if compact {
         "docs/benchmarks/compact-memory.jsonl"
     } else {
         "docs/benchmarks/memory.jsonl"
     });
-    let remote_out = option(args, "--remote-out").unwrap_or(if compact {
+    let remote_out = parsed.get("--remote-out").unwrap_or(if compact {
         "bench-compact-memory.jsonl"
     } else {
         "bench-memory.jsonl"
     });
-    let sizes = option(args, "--sizes").unwrap_or("8,128");
-    let shapes = option(args, "--shapes").unwrap_or("plain");
-    let modes = option(args, "--modes").unwrap_or("values,load,document,resolve");
-    if has_flag(args, "--sync") && !has_flag(args, "--dry-run") {
+    validate_remote_out(remote_out)?;
+    let sizes = parsed.get("--sizes").unwrap_or("8,128");
+    let shapes = parsed.get("--shapes").unwrap_or("plain");
+    let modes = parsed
+        .get("--modes")
+        .unwrap_or("values,load,document,resolve");
+    let dry_run = parsed.has("--dry-run");
+    if parsed.has("--sync") && !dry_run {
         sync_binaries(remote_root)?;
     }
-    let git_sha = command_output("git", &["rev-parse", "HEAD"]);
-    let rustc = command_output("rustc", &["--version"]);
+    let git_sha = require_command_output("git", &["rev-parse", "HEAD"])?;
+    let rustc = require_command_output("rustc", &["--version"])?;
     let remote_fingerprint = Path::new(remote_out).with_extension("fingerprint.json");
     let mut memory_commands = Vec::new();
     for size in parse_sizes(sizes)? {
@@ -629,74 +785,55 @@ fn command_queue(args: &[String]) -> Result<()> {
         memory_commands.join(" && "),
         shell_quote(remote_out)
     );
-    let queue_command = format!(
-        "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add --group bench --working-directory {} --label adotenv-bench --print-task-id -- {}",
-        shell_quote(remote_root),
-        shell_quote(&remote_command)
-    );
-    if has_flag(args, "--dry-run") {
-        println!("ssh kbench {queue_command}");
-        return Ok(());
-    }
-    let task = ssh(&queue_command)?;
-    let task = task.trim();
-    if task.is_empty() {
-        return Err("pueue did not return a task id".to_owned());
-    }
-    println!("queued kbench task {task}");
-    ssh(&format!(
-        "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue wait {task}"
-    ))?;
-    ensure_task_succeeded(task)?;
-    ensure_parent(Path::new(local_out))?;
-    let status = Command::new("scp")
-        .arg(format!("kbench:{remote_root}/{remote_out}"))
-        .arg(local_out)
-        .status()
-        .map_err(|error| error.to_string())?;
-    if !status.success() {
-        return Err(format!("scp exited with {status}"));
-    }
-    let local_fingerprint = Path::new(local_out).with_extension("fingerprint.json");
-    let remote_fingerprint = Path::new(remote_out).with_extension("fingerprint.json");
-    let status = Command::new("scp")
-        .arg(format!(
-            "kbench:{remote_root}/{}",
-            remote_fingerprint.display()
-        ))
-        .arg(&local_fingerprint)
-        .status()
-        .map_err(|error| error.to_string())?;
-    if !status.success() {
-        return Err(format!("copying fingerprint exited with {status}"));
-    }
-    println!("copied {local_out} and {}", local_fingerprint.display());
-    Ok(())
+    submit_and_fetch_remote_task(
+        remote_root,
+        remote_out,
+        local_out,
+        "adotenv-bench",
+        &remote_command,
+        dry_run,
+    )
 }
 
 fn command_queue_speed(args: &[String]) -> Result<()> {
-    let remote_root = option(args, "--remote-root").ok_or("missing --remote-root")?;
+    let parsed = ParsedArgs::parse(
+        args,
+        &[
+            "--remote-root",
+            "--out",
+            "--remote-out",
+            "--bench",
+            "--filter",
+            "--sample-size",
+            "--warm-up-time",
+            "--measurement-time",
+        ],
+        &["--quick", "--sync", "--dry-run"],
+    )?;
+    let remote_root = parsed.get("--remote-root").ok_or("missing --remote-root")?;
     validate_remote_root(remote_root)?;
-    let local_out = option(args, "--out").unwrap_or("docs/benchmarks/speed.txt");
-    let remote_out = option(args, "--remote-out").unwrap_or("bench-speed.txt");
-    let bench = option(args, "--bench").unwrap_or("competitors");
+    let local_out = parsed.get("--out").unwrap_or("docs/benchmarks/speed.txt");
+    let remote_out = parsed.get("--remote-out").unwrap_or("bench-speed.txt");
+    validate_remote_out(remote_out)?;
+    let bench = parsed.get("--bench").unwrap_or("competitors");
     if !bench
         .bytes()
         .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
     {
         return Err("--bench must be a simple target name".to_owned());
     }
-    if has_flag(args, "--sync") && !has_flag(args, "--dry-run") {
+    let dry_run = parsed.has("--dry-run");
+    if parsed.has("--sync") && !dry_run {
         sync_speed_binaries(remote_root, bench)?;
     }
-    let git_sha = command_output("git", &["rev-parse", "HEAD"]);
-    let rustc = command_output("rustc", &["--version"]);
+    let git_sha = require_command_output("git", &["rev-parse", "HEAD"])?;
+    let rustc = require_command_output("rustc", &["--version"])?;
     let remote_fingerprint = Path::new(remote_out).with_extension("fingerprint.json");
     let mut bench_args = vec!["--bench", "--output-format", "bencher", "--noplot"];
-    if has_flag(args, "--quick") {
+    if parsed.has("--quick") {
         bench_args.push("--quick");
     }
-    if let Some(filter) = option(args, "--filter") {
+    if let Some(filter) = parsed.get("--filter") {
         bench_args.push(filter);
     }
     for (name, flag) in [
@@ -704,7 +841,7 @@ fn command_queue_speed(args: &[String]) -> Result<()> {
         ("--warm-up-time", "--warm-up-time"),
         ("--measurement-time", "--measurement-time"),
     ] {
-        if let Some(value) = option(args, name) {
+        if let Some(value) = parsed.get(name) {
             bench_args.push(flag);
             bench_args.push(value);
         }
@@ -724,58 +861,36 @@ fn command_queue_speed(args: &[String]) -> Result<()> {
         bench_args,
         shell_quote(remote_out)
     );
-    let queue_command = format!(
-        "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add --group bench --working-directory {} --label adotenv-speed --print-task-id -- {}",
-        shell_quote(remote_root),
-        shell_quote(&remote_command)
-    );
-    if has_flag(args, "--dry-run") {
-        println!("ssh kbench {queue_command}");
-        return Ok(());
+    submit_and_fetch_remote_task(
+        remote_root,
+        remote_out,
+        local_out,
+        "adotenv-speed",
+        &remote_command,
+        dry_run,
+    )?;
+    if !dry_run {
+        write_speed_markdown(Path::new(local_out))?;
     }
-    let task = ssh(&queue_command)?;
-    let task = task.trim();
-    if task.is_empty() {
-        return Err("pueue did not return a task id".to_owned());
+    Ok(())
+}
+
+fn ensure_clean_worktree() -> Result<()> {
+    let output = Command::new("git")
+        .args(["status", "--porcelain"])
+        .output()
+        .map_err(|error| format!("running git status: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("git status exited with {}", output.status));
     }
-    println!("queued kbench task {task}");
-    ssh(&format!(
-        "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue wait {task}"
-    ))?;
-    ensure_task_succeeded(task)?;
-    ensure_parent(Path::new(local_out))?;
-    let status = Command::new("scp")
-        .arg(format!("kbench:{remote_root}/{remote_out}"))
-        .arg(local_out)
-        .status()
-        .map_err(|error| error.to_string())?;
-    if !status.success() {
-        return Err(format!("scp exited with {status}"));
+    if !String::from_utf8_lossy(&output.stdout).trim().is_empty() {
+        return Err("--sync requires a clean working tree".to_owned());
     }
-    let local_fingerprint = Path::new(local_out).with_extension("fingerprint.json");
-    let status = Command::new("scp")
-        .arg(format!(
-            "kbench:{remote_root}/{}",
-            remote_fingerprint.display()
-        ))
-        .arg(&local_fingerprint)
-        .status()
-        .map_err(|error| error.to_string())?;
-    if !status.success() {
-        return Err(format!("copying fingerprint exited with {status}"));
-    }
-    write_speed_markdown(Path::new(local_out))?;
-    println!("copied {local_out} and {}", local_fingerprint.display());
     Ok(())
 }
 
 fn sync_speed_binaries(remote_root: &str, bench: &str) -> Result<()> {
-    if !command_output("git", &["status", "--porcelain"])
-        .trim()
-        .is_empty()
-    {
-        return Err("--sync requires a clean working tree".to_owned());
-    }
+    ensure_clean_worktree()?;
     let bench_binary = build_bench_binary(bench)?;
     let xtask = build_xtask_binary()?;
     prepare_remote_root(remote_root)?;
@@ -791,6 +906,20 @@ fn validate_remote_root(remote_root: &str) -> Result<()> {
         || remote_root.contains('~')
     {
         return Err("--remote-root must be an absolute, non-root, non-home path".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_remote_out(remote_out: &str) -> Result<()> {
+    if remote_out.is_empty()
+        || remote_out == "."
+        || remote_out == ".."
+        || remote_out.contains("..")
+        || !remote_out
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+    {
+        return Err("--remote-out must be a simple filename".to_owned());
     }
     Ok(())
 }
@@ -886,59 +1015,12 @@ fn build_xtask_binary() -> Result<PathBuf> {
 }
 
 fn sync_binaries(remote_root: &str) -> Result<()> {
-    if !command_output("git", &["status", "--porcelain"])
-        .trim()
-        .is_empty()
-    {
-        return Err("--sync requires a clean working tree".to_owned());
-    }
+    ensure_clean_worktree()?;
     let memory = build_memory_binary()?;
-    let status = Command::new(cargo())
-        .args([
-            "build",
-            "--release",
-            "-p",
-            "adotenv-xtask",
-            "--bin",
-            "adotenv-xtask",
-            "--locked",
-        ])
-        .status()
-        .map_err(|error| error.to_string())?;
-    if !status.success() {
-        return Err(format!("building adotenv-xtask exited with {status}"));
-    }
-    let root = workspace_root()?;
-    let xtask = root.join("target").join("release").join(if cfg!(windows) {
-        "adotenv-xtask.exe"
-    } else {
-        "adotenv-xtask"
-    });
-    ssh(&format!(
-        "sudo -n -u benchq mkdir -p {} && sudo -n -u benchq chmod 750 {}",
-        shell_quote(remote_root),
-        shell_quote(remote_root)
-    ))?;
-    for binary in [memory, xtask] {
-        let name = binary.file_name().ok_or("binary has no name")?;
-        let name = name.to_string_lossy();
-        let staging = format!("/var/tmp/adotenv-{}-{name}", std::process::id());
-        let status = Command::new("scp")
-            .arg(&binary)
-            .arg(format!("kbench:{staging}"))
-            .status()
-            .map_err(|error| error.to_string())?;
-        if !status.success() {
-            return Err(format!("scp {} exited with {status}", binary.display()));
-        }
-        let destination = format!("{remote_root}/{name}");
-        ssh(&format!(
-            "sudo -n -u benchq install -m 755 {} {}; status=$?; rm -f {}; exit $status",
-            shell_quote(&staging),
-            shell_quote(&destination),
-            shell_quote(&staging)
-        ))?;
-    }
+    let xtask = build_xtask_binary()?;
+    prepare_remote_root(remote_root)?;
+    copy_binary(remote_root, &memory, "memory")?;
+    copy_binary(remote_root, &xtask, "adotenv-xtask")?;
     Ok(())
 }
 
@@ -1037,15 +1119,42 @@ fn parse_modes(value: &str) -> Result<Vec<Mode>> {
         .collect()
 }
 
-fn option<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
-    args.iter()
-        .position(|argument| argument == name)
-        .and_then(|index| args.get(index + 1))
-        .map(String::as_str)
+struct ParsedArgs<'a> {
+    values: BTreeMap<&'a str, &'a str>,
+    flags: BTreeMap<&'a str, bool>,
 }
 
-fn has_flag(args: &[String], name: &str) -> bool {
-    args.iter().any(|argument| argument == name)
+impl<'a> ParsedArgs<'a> {
+    fn parse(args: &'a [String], value_flags: &[&str], bool_flags: &[&str]) -> Result<Self> {
+        let mut values = BTreeMap::new();
+        let mut flags = BTreeMap::new();
+        let mut index = 0;
+        while index < args.len() {
+            let argument = args[index].as_str();
+            if value_flags.contains(&argument) {
+                let value = args
+                    .get(index + 1)
+                    .map(String::as_str)
+                    .ok_or_else(|| format!("missing value for {argument}"))?;
+                values.insert(argument, value);
+                index += 2;
+            } else if bool_flags.contains(&argument) {
+                flags.insert(argument, true);
+                index += 1;
+            } else {
+                return Err(format!("unknown argument: {argument}"));
+            }
+        }
+        Ok(Self { values, flags })
+    }
+
+    fn get(&self, name: &str) -> Option<&'a str> {
+        self.values.get(name).copied()
+    }
+
+    fn has(&self, name: &str) -> bool {
+        self.flags.get(name).copied().unwrap_or(false)
+    }
 }
 
 fn cargo() -> String {
@@ -1175,5 +1284,69 @@ mod tests {
         assert!(compact.contains(&Implementation::Adotenv));
         assert!(compact.contains(&Implementation::AdotenvCompact));
         assert!(compact.contains(&Implementation::AdotenvCompactEntries));
+    }
+
+    #[test]
+    fn parsed_args_rejects_unknown_flags_and_missing_values() {
+        let args = |items: &[&str]| items.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        let valid = args(&["--implementation", "adotenv-compact-entries", "--compact"]);
+        let ok = ParsedArgs::parse(&valid, &["--implementation"], &["--compact"]).unwrap();
+        assert_eq!(ok.get("--implementation"), Some("adotenv-compact-entries"));
+        assert!(ok.has("--compact"));
+
+        let typo = args(&["--implementations", "adotenv-compact-entries"]);
+        assert!(ParsedArgs::parse(&typo, &["--implementation"], &[]).is_err());
+        let missing = args(&["--implementation"]);
+        assert!(ParsedArgs::parse(&missing, &["--implementation"], &[]).is_err());
+    }
+
+    #[test]
+    fn memory_gate_checks_missing_fields_leaks_and_compact_entries() {
+        let key = "8|plain|values|adotenv-compact-entries";
+        let base = serde_json::json!({
+            "size": "8", "shape": "plain", "mode": "values",
+            "implementation": "adotenv-compact-entries",
+            "fixture_sha256": "abc",
+            "peak_heap_bytes": 500,
+            "retained_heap_bytes": 400,
+            "heap_after_drop_bytes": 0,
+            "allocations": 5
+        });
+        let mut baseline = BTreeMap::new();
+        baseline.insert(key.to_owned(), base.clone());
+
+        // Missing fixture_sha256, heap_after_drop_bytes, and allocations must fail.
+        let incomplete = serde_json::json!({
+            "size": "8", "shape": "plain", "mode": "values",
+            "implementation": "adotenv-compact-entries",
+            "peak_heap_bytes": 500,
+            "retained_heap_bytes": 400
+        });
+        let mut current = BTreeMap::new();
+        current.insert(key.to_owned(), incomplete);
+        let violations =
+            check_memory_gate(&baseline, &current, "adotenv-compact-entries", 5, 64, 0);
+        assert_eq!(violations.len(), 3, "{violations:?}");
+
+        // Non-zero heap_after_drop_bytes leak must fail.
+        let mut leaked = base;
+        leaked["heap_after_drop_bytes"] = serde_json::json!(16);
+        current.insert(key.to_owned(), leaked);
+        let leak_violations =
+            check_memory_gate(&baseline, &current, "adotenv-compact-entries", 5, 64, 0);
+        assert_eq!(leak_violations.len(), 1, "{leak_violations:?}");
+        assert!(leak_violations[0].contains("heap_after_drop_bytes"));
+    }
+
+    #[test]
+    fn parse_rows_rejects_duplicates_and_validate_remote_out_enforces_simple_names() {
+        let row = "{\"size\":\"8\",\"shape\":\"plain\",\"mode\":\"values\",\"implementation\":\"adotenv\"}";
+        assert!(parse_rows(row, "single").is_ok());
+        assert!(parse_rows(&format!("{row}\n{row}\n"), "dup").is_err());
+
+        assert!(validate_remote_out("bench-compact-memory.jsonl").is_ok());
+        assert!(validate_remote_out("").is_err());
+        assert!(validate_remote_out("../evil.jsonl").is_err());
+        assert!(validate_remote_out("bad name.jsonl").is_err());
     }
 }

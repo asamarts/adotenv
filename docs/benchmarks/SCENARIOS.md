@@ -64,13 +64,17 @@ hashes are recorded in every memory JSONL row.
 | `long-line-100k` | 100k | long-line | 100000 | 7600000 | `8b971bc0fb16dcf52b7917fae7a0c6cce691a91bc67b888f4a6937009fb4bd8b` |
 | `empty-100k` | 100k | empty | 0 | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
 
-The memory output contains 165 rows: 60 adotenv rows (15 size/shape
+The map memory output contains 165 rows: 60 adotenv rows (15 size/shape
 combinations × 4 modes), 45 competitor values rows and 60 competitor load rows.
-The 1.4.1 speed output contains 115 cells: 40 values and 75 load lines. The
-1.5.0 compact speed output contains 140 cells: 50 values (5 sizes × 2 non-empty
-shapes × 5 implementations) and 90 load lines (5 sizes × 3 shapes × 6
-implementations). Empty values are skipped by the Criterion values target
-because there is no non-empty parse workload.
+The compact memory output contains 180 rows: 30 `adotenv` rows, 30
+`adotenv-compact` rows, 15 `adotenv-compact-entries` values rows, 45 competitor
+values rows and 60 competitor load rows. The 1.4.1 speed output contains 115
+cells: 40 values and 75 load lines. The 1.5.0 compact speed output contains 140
+cells: 50 values (5 sizes × 2 non-empty shapes × 5 implementations) and 90 load
+lines (5 sizes × 3 shapes × 6 implementations). The 1.6.0 speed output adds
+`adotenv-compact-entries` for 150 cells (60 values and 90 load lines). Empty
+values are skipped by the Criterion values target because there is no non-empty
+parse workload.
 
 ## Fixture generation
 

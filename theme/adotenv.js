@@ -476,7 +476,7 @@
         }
         viewOptions.push("Best competitor");
         const view = makeSelect("Libraries", viewOptions, "All libraries",
-            "All libraries shows compact, map and every available pinned competitor. Compact vs map isolates the two adotenv APIs. Best competitor shows only the strongest competitor in each cell.");
+            "All libraries shows compact, map and every available pinned competitor. Compact vs map isolates the adotenv APIs. Best competitor shows only the strongest competitor in each cell.");
         const controls = [];
         if (metric) controls.push(metric.wrapper);
         controls.push(view.wrapper, mode.wrapper, shape.wrapper, scale.wrapper);

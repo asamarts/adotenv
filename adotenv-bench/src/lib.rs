@@ -436,9 +436,17 @@ mod tests {
                 Shape::Empty,
             ] {
                 let fixture = fixture(size, shape);
-                if shape != Shape::Empty {
-                    assert!(parse_values(fixture.source()).is_ok(), "{}", fixture.name());
-                }
+                assert!(parse_values(fixture.source()).is_ok(), "{}", fixture.name());
+                assert!(
+                    adotenv::parse_values_compact(fixture.source()).is_ok(),
+                    "{}",
+                    fixture.name()
+                );
+                assert!(
+                    adotenv::parse_entries_compact(fixture.source()).is_ok(),
+                    "{}",
+                    fixture.name()
+                );
             }
         }
     }

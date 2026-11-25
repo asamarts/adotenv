@@ -17,7 +17,7 @@ consumers must ignore unknown fields added in a later release.
 | `peak_heap_bytes` | integer | Peak live heap above the pre-operation baseline |
 | `retained_heap_bytes` | integer | Live heap while the result is held |
 | `heap_after_drop_bytes` | integer | Live heap after dropping the result |
-| `allocations` | integer | Allocation calls above the baseline |
+| `allocations` | integer | Successful `alloc`, `alloc_zeroed` and `realloc` calls above the baseline (counted once per call) |
 | `rss_before_bytes` | integer or null | RSS before the operation |
 | `rss_peak_bytes` | integer or null | Peak RSS after the operation |
 | `rss_after_bytes` | integer or null | RSS after dropping the result |
@@ -88,8 +88,9 @@ benchmark run is traceable even when the host is reached over SSH.
 ## Baseline and gate files
 
 - `memory.jsonl` is the committed map-API memory baseline used by
-  `adotenv-xtask gate`; `compact-memory.jsonl` is the compact-values baseline
-  used with `--implementation adotenv-compact`.
+  `adotenv-xtask gate`; `compact-memory.jsonl` is the compact baseline used
+  with both `--implementation adotenv-compact` and
+  `--implementation adotenv-compact-entries`.
 - The memory and speed fingerprint files are provenance, not inputs to the
   correctness gate.
 - The deterministic gungraun gate has no committed baseline; it always compares
