@@ -6,17 +6,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [adotenv-lint 0.2.3] - 2026-11-25
+
 ### Fixed
 
-- `adotenv-lint`: reported all per-file errors instead of overwriting earlier
-  ones, bounded file reads to `max_input_bytes + 1`, handled stdout errors and
-  `BrokenPipe` cleanly, fixed `--help`/`--version` handling when passed as
-  option values, refused explicit symlinked directory roots (including trailing
-  slashes), narrowed `write_fixed` metadata checks to `symlink_metadata`, and
-  deduplicated canonical file paths.
-- `adotenv-lsp`: relaxed exact `serde_json` dependency pin to `"1"`, escaped
-  backticks and multiline values in entry and reference Markdown hover output,
-  and suppressed completion inside BOM-prefixed comments.
+- Raised the `adotenv` dependency to `1.7.0`.
+- Reported all per-file errors instead of overwriting earlier ones, bounded
+  file reads to `max_input_bytes + 1` (without blocking on non-regular files),
+  handled stdout errors and `BrokenPipe` cleanly, fixed `--help`/`--version`
+  handling when passed as option values, refused explicit symlinked directory
+  roots (including trailing slashes), narrowed `write_fixed` metadata checks to
+  `symlink_metadata`, and deduplicated canonical file paths.
+
+## [adotenv-lsp 0.5.1] - 2026-11-25
+
+### Fixed
+
+- Raised the `adotenv` dependency to `1.7.0` and wired `rename_with_options`
+  to `Document::rename_with_references_with_options` so `LspOptions::parse_options`
+  bounds planned rename output as well as input parsing.
+- Relaxed exact `serde_json` dependency pin to `"1"`, escaped backticks and
+  multiline values in entry and reference Markdown hover output, and suppressed
+  completion inside BOM-prefixed comments.
 
 ## [1.7.0] - 2026-11-25
 

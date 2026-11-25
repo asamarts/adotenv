@@ -2,6 +2,8 @@
 
 | Version | Date | Focus |
 |---|---|---|
+| adotenv-lint 0.2.3 | 2026-11-25 | `adotenv` 1.7.0 adoption, multi-file error reporting, bounded reads, stdout error handling, and symlink/dedup hardening |
+| adotenv-lsp 0.5.1 | 2026-11-25 | `adotenv` 1.7.0 `rename_with_references_with_options` bounds, Markdown hover escaping, BOM comment completion fix, and `serde_json` `"1"` |
 | 1.7.0 | 2026-11-25 | `Document::rename_with_references_with_options`, `CompactValues` equality and process support, and post-1.0/audit fixes |
 | adotenv-config 0.12.1 | 2026-11-25 | `CompactValues` and `CompactEntries` constructors (`adotenv` 1.6.1) |
 | adotenv-figment 0.12.2 | 2026-11-25 | `CompactValues` and `CompactEntries` constructors (`adotenv` 1.6.1) |

@@ -21,8 +21,8 @@ The prototype offers:
 - document-symbol outlines of declared keys;
 - workspace symbols across currently open documents;
 - rename of a key declaration and its literal references, selected from either
-  a declaration or a reference, through `Document::rename_with_references` and
-  its `VerifiedEdits`.
+  a declaration or a reference, through
+  `Document::rename_with_references_with_options` and its `VerifiedEdits`.
 
 Rename follows matching `$VAR`/`${VAR}` names. Definition, references and
 rename use the parser's candidate list, including escaped and single-quoted

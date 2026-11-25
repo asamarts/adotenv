@@ -5,11 +5,12 @@
 //! functions to stdio using `lsp-server`.
 //!
 //! The operations are conservative. Definition follows keys and literal
-//! `$VAR`/`${VAR}` references; rename uses `Document::rename_with_references`
-//! so the declaration and its literal references change together. Hover values
-//! can be masked with [`LspOptions::with_mask_values`], the parser dialect can
-//! be selected with [`LspOptions::with_dialect`], and linter findings can be
-//! enabled with [`LspOptions::with_lint_options`].
+//! `$VAR`/`${VAR}` references; rename uses
+//! `Document::rename_with_references_with_options` so the declaration and its
+//! literal references change together under the configured parse limits. Hover
+//! values can be masked with [`LspOptions::with_mask_values`], the parser
+//! dialect can be selected with [`LspOptions::with_dialect`], and linter
+//! findings can be enabled with [`LspOptions::with_lint_options`].
 
 use std::{
     collections::{BTreeSet, HashMap},
@@ -18,7 +19,7 @@ use std::{
 
 use adotenv::{
     parse_strict_with_options, parse_with_options, BomPolicy, ColumnEncoding, Document, EditError,
-    Entry, InlineComments, LineIndex, Position as ParserPosition, Reference,
+    EditOptions, Entry, InlineComments, LineIndex, Position as ParserPosition, Reference,
 };
 pub use adotenv::{
     Dialect, EqualsSpacing, LimitExceeded, LimitKind, ParseOptions, QuoteStyle, Severity,
@@ -619,7 +620,7 @@ pub fn references_with_options(
 ///
 /// The symbol may be selected from a declaration key or from a `$VAR`/`${VAR}`
 /// reference. The result uses the verified text edits returned by
-/// `Document::rename_with_references`.
+/// `Document::rename_with_references_with_options`.
 ///
 /// # Errors
 ///
@@ -665,7 +666,8 @@ pub fn rename_with_options(
     let old_name = name_at(&document, offset)
         .ok_or(RenameError::NoSymbol)?
         .to_owned();
-    let edits = document.rename_with_references(&old_name, new_name)?;
+    let edit_options = EditOptions::new().with_parse_limits(options.parse_options);
+    let edits = document.rename_with_references_with_options(&old_name, new_name, edit_options)?;
     let changes = edits
         .edits()
         .iter()

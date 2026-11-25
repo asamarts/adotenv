@@ -21,7 +21,9 @@ The current release provides:
 `adotenv`, `adotenv-process` and `adotenv-cli` 1.7.0 were published on
 2026-11-25 with `Document::rename_with_references_with_options`,
 `CompactValues` `PartialEq`/`Eq`, `adotenv-process::{validate_compact, apply_compact}`,
-and the remaining post-1.0 and core/CLI audit fixes. `adotenv`,
+and the remaining post-1.0 and core/CLI audit fixes, alongside `adotenv-lint`
+0.2.3 and `adotenv-lsp` 0.5.1 adopting `adotenv` 1.7.0 and companion audit
+hardening. `adotenv`,
 `adotenv-process` and `adotenv-cli` 1.6.1 were published on
 2026-11-24 with `adotenv-cli` parse/output limit flags (`--max-input-bytes`,
 `--max-lines`, `set --max-output-bytes`, `set --max-output-lines`) and
@@ -75,8 +77,10 @@ companion work are recorded there.
    0.2.1 and 0.3.0 on 2026-11-08. The 0.3 line adds workspace symbols for open
    documents; linter 0.2.0 and LSP 0.4.0 were published on 2026-11-11 with
    shared configuration policy, followed by linter 0.2.1 and LSP 0.4.1 on
-   2026-11-15, LSP 0.4.2 the same day, and LSP 0.5.0 and linter 0.2.2 on
-   2026-11-23 with `adotenv` 1.6.0 parse limits. See
+   2026-11-15, LSP 0.4.2 the same day, LSP 0.5.0 and linter 0.2.2 on
+   2026-11-23 with `adotenv` 1.6.0 parse limits, and LSP 0.5.1 and linter 0.2.3
+   on 2026-11-25 with `adotenv` 1.7.0 bounded reference renames and companion
+   hardening. See
    [#14](https://github.com/asamarts/adotenv/issues/14).
 5. Expand conformance cases only when a real upstream behavior is pinned and
    reproducible.
