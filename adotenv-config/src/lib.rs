@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 
 #[cfg(feature = "load")]
 use adotenv::load::LoadedEnvironment;
-use adotenv::Document;
+use adotenv::{CompactEntries, CompactValues, Document};
 use config::{Map, Source, Value};
 
 /// A `config` source containing the adapter's effective string values.
@@ -65,6 +65,35 @@ impl AdotenvSource {
             .map(|entry| (entry.key().to_string(), entry.value().to_string()))
             .collect();
         Self { values }
+    }
+
+    /// Build a source from compact effective literal values.
+    ///
+    /// Accepts the output of `parse_values_compact*`, `load_values_compact*`,
+    /// or `load_cascade_values_compact*`.
+    #[must_use]
+    pub fn from_compact_values(values: &CompactValues) -> Self {
+        Self {
+            values: values
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect(),
+        }
+    }
+
+    /// Build a source from compact winning entries.
+    ///
+    /// Bare declarations retained as `None` under `BareKeys::Preserve` are
+    /// omitted; bare declarations converted to `""` under `BareKeys::Empty`
+    /// are included.
+    #[must_use]
+    pub fn from_compact_entries(entries: &CompactEntries) -> Self {
+        Self {
+            values: entries
+                .iter()
+                .filter_map(|(key, value)| value.map(|val| (key.to_string(), val.to_string())))
+                .collect(),
+        }
     }
 
     /// The effective values exposed by this source.
@@ -266,5 +295,61 @@ mod tests {
         assert_eq!(source.values().get("A").map(String::as_str), Some("final"));
         assert_eq!(source.values().get("B").map(String::as_str), Some("two"));
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn compact_values_and_entries_sources_match_document_rules() {
+        let compact = adotenv::parse_values_compact("host=localhost\nport=8080\nBARE\n").unwrap();
+        let source = AdotenvSource::from_compact_values(&compact);
+        assert_eq!(source.values().len(), 2);
+        assert!(!source.values().contains_key("BARE"));
+        let config = Config::builder().add_source(source).build().unwrap();
+        let typed: TypedConfig = config.try_deserialize().unwrap();
+        assert_eq!(
+            typed,
+            TypedConfig {
+                host: "localhost".to_string(),
+                port: 8080,
+            }
+        );
+
+        let entries = adotenv::parse_entries_compact("A=1\nBARE\nEMPTY=\n").unwrap();
+        let source = AdotenvSource::from_compact_entries(&entries);
+        assert_eq!(source.values().get("A").map(String::as_str), Some("1"));
+        assert_eq!(source.values().get("EMPTY").map(String::as_str), Some(""));
+        assert!(!source.values().contains_key("BARE"));
+
+        let empty_dialect = Dialect::PORTABLE.with_bare_keys(BareKeys::Empty);
+        let entries =
+            adotenv::parse_entries_compact_with("A=first\nA\nB\n", empty_dialect).unwrap();
+        let source = AdotenvSource::from_compact_entries(&entries);
+        assert_eq!(source.values().get("A").map(String::as_str), Some(""));
+        assert_eq!(source.values().get("B").map(String::as_str), Some(""));
+    }
+
+    #[cfg(feature = "load")]
+    #[test]
+    fn compact_cascade_drives_typed_config() {
+        let dir = std::env::temp_dir().join(format!(
+            "adotenv-config-compact-cascade-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(".env"), "host=localhost\nport=8080\n").unwrap();
+        std::fs::write(dir.join(".env.local"), "port=9090\n").unwrap();
+        let compact = adotenv::load::load_cascade_values_compact(&dir, "").unwrap();
+        let config = Config::builder()
+            .add_source(AdotenvSource::from_compact_values(&compact))
+            .build()
+            .unwrap();
+        let typed: TypedConfig = config.try_deserialize().unwrap();
+        assert_eq!(
+            typed,
+            TypedConfig {
+                host: "localhost".to_string(),
+                port: 9090,
+            }
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -19,7 +19,7 @@ load = ["adotenv/load"]
 all-features = true
 
 [dependencies]
-adotenv = { path = "..", version = "1.0.0" }
+adotenv = { path = "..", version = "1.6.1" }
 config = { version = "0.15", default-features = false }
 
 [dev-dependencies]

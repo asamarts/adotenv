@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `adotenv-config`: added `AdotenvSource::from_compact_values` and
+  `AdotenvSource::from_compact_entries` (raising the `adotenv` dependency to
+  `1.6.1`).
+- `adotenv-figment`: added `AdotenvProvider::from_compact_values` and
+  `AdotenvProvider::from_compact_entries` (raising the `adotenv` dependency to
+  `1.6.1`).
+- `adotenv-process`: added `validate_compact` and `apply_compact` for
+  `CompactValues` (including compact cascade and file loader outputs).
+
 ## [1.6.1] - 2026-11-24
 
 No behavior changes in `adotenv` or `adotenv-process` relative to `1.6.0`;
