@@ -475,6 +475,103 @@ fn check_selected(source: &str, value: &str, operation: u8, selector: u8, dialec
     assert_eq!(records(&after, after_item, Some(&selected)), before_records);
 }
 
+fn check_rename_with_references(source: &str, value: &str, selector: u8, dialect: Dialect) {
+    let (document, _) = parse_with(source, dialect);
+    let Some(entry) = document.entry(usize::from(selector) % document.entries().len().max(1))
+    else {
+        return;
+    };
+    let ref_key = if selector & 0x80 == 0 {
+        "FUZZ_REF_KEY"
+    } else {
+        value
+    };
+    let Ok(renamed) = document.rename_with_references(entry.key(), ref_key) else {
+        return;
+    };
+    check_replay(source, &renamed);
+    let exact_bytes = document.rename_with_references_with_options(
+        entry.key(),
+        ref_key,
+        EditOptions::new().with_max_output_bytes(renamed.as_str().len()),
+    );
+    assert_eq!(exact_bytes, Ok(renamed.clone()));
+    if !renamed.as_str().is_empty() {
+        let too_small = document.rename_with_references_with_options(
+            entry.key(),
+            ref_key,
+            EditOptions::new().with_max_output_bytes(renamed.as_str().len() - 1),
+        );
+        assert!(matches!(
+            too_small,
+            Err(EditError::Limit(limit)) if limit.kind() == LimitKind::OutputBytes
+        ));
+    }
+    let (after, _) = parse_with(renamed.as_str(), dialect);
+    let mut expected_meanings = meanings(&document);
+    expected_meanings[entry.id()].key = ref_key.to_owned();
+    let actual_meanings = meanings(&after);
+    assert_eq!(actual_meanings.len(), expected_meanings.len());
+    for ((before_entry, after_entry), expected) in document
+        .entries()
+        .zip(after.entries())
+        .zip(expected_meanings.iter())
+    {
+        assert_eq!(after_entry.key(), expected.key);
+        assert_eq!(after_entry.exported(), expected.exported);
+        let before_refs = before_entry.references();
+        let after_refs = after_entry.references();
+        assert_eq!(before_refs.len(), after_refs.len());
+        for (br, ar) in before_refs.iter().zip(after_refs.iter()) {
+            assert_eq!(br.kind, ar.kind);
+            assert_eq!(br.closed, ar.closed);
+            assert_eq!(br.escaped, ar.escaped);
+            assert_eq!(br.operator, ar.operator);
+            assert_eq!(br.depth, ar.depth);
+            assert_eq!(br.parent, ar.parent);
+        }
+    }
+    let mut line_count = 0usize;
+    let mut pending_break = false;
+    let mut pending_cr = false;
+    for &byte in renamed.as_str().as_bytes() {
+        if pending_cr {
+            pending_cr = false;
+            if byte == b'\n' {
+                pending_break = true;
+                continue;
+            }
+        }
+        if line_count == 0 || pending_break {
+            pending_break = false;
+            line_count += 1;
+        }
+        if byte == b'\n' {
+            pending_break = true;
+        } else if byte == b'\r' && dialect.line_breaks == adotenv::LineBreaks::Universal {
+            pending_cr = true;
+            pending_break = true;
+        }
+    }
+    let exact_lines = document.rename_with_references_with_options(
+        entry.key(),
+        ref_key,
+        EditOptions::new().with_max_output_lines(line_count),
+    );
+    assert_eq!(exact_lines, Ok(renamed.clone()));
+    if line_count > 0 {
+        let too_few_lines = document.rename_with_references_with_options(
+            entry.key(),
+            ref_key,
+            EditOptions::new().with_max_output_lines(line_count - 1),
+        );
+        assert!(matches!(
+            too_few_lines,
+            Err(EditError::Limit(limit)) if limit.kind() == LimitKind::Lines
+        ));
+    }
+}
+
 fuzz_target!(|bytes: &[u8]| {
     // Header: operation byte, selector byte, UTF-8 source, NUL, UTF-8 value/key.
     let Some((&operation, rest)) = bytes.split_first() else {
@@ -503,6 +600,7 @@ fuzz_target!(|bytes: &[u8]| {
         Dialect::DOCKER_RAW,
     ] {
         check_selected(source, value, operation, selector, dialect);
+        check_rename_with_references(source, value, selector, dialect);
         if operation % 5 == 4 {
             check_comment_restore(source, selector, dialect);
         }
@@ -513,34 +611,15 @@ fuzz_target!(|bytes: &[u8]| {
             .with_raw_values(false);
         check_selected(source, value, operation, selector, custom);
     }
+    check_rename_with_references(
+        source,
+        value,
+        selector,
+        Dialect::PORTABLE
+            .with_quoted_tail(adotenv::QuotedTail::Append)
+            .with_bom(adotenv::BomPolicy::StripAll),
+    );
     let (document, _) = parse(source);
-    if let Some(entry) = document.entry(usize::from(selector) % document.entries().len().max(1)) {
-        let ref_key = if selector & 0x80 == 0 {
-            "FUZZ_REF_KEY"
-        } else {
-            value
-        };
-        if let Ok(renamed) = document.rename_with_references(entry.key(), ref_key) {
-            check_replay(source, &renamed);
-            let exact = document.rename_with_references_with_options(
-                entry.key(),
-                ref_key,
-                EditOptions::new().with_max_output_bytes(renamed.as_str().len()),
-            );
-            assert_eq!(exact, Ok(renamed.clone()));
-            if !renamed.as_str().is_empty() {
-                let too_small = document.rename_with_references_with_options(
-                    entry.key(),
-                    ref_key,
-                    EditOptions::new().with_max_output_bytes(renamed.as_str().len() - 1),
-                );
-                assert!(matches!(
-                    too_small,
-                    Err(EditError::Limit(limit)) if limit.kind() == LimitKind::OutputBytes
-                ));
-            }
-        }
-    }
     let before = meanings(&document);
     let mut expected = before.clone();
     let target = if selector & 0x40 != 0 {

@@ -9,9 +9,9 @@ name: Release
 # See RELEASING.md for the one-time bootstrap and verification steps.
 #
 # `adotenv`, `adotenv-process` and `adotenv-cli` share one version, which must
-# match the tag. `adotenv-lint` starts at 0.1.0, and `adotenv-config` and
-# `adotenv-figment` keep their own 0.x versions; each independent crate is
-# published when its declared version is not on crates.io yet.
+# match the tag. `adotenv-lint`, `adotenv-config` and `adotenv-figment` keep
+# their own 0.x versions; each independent crate is published when its declared
+# version is not on crates.io yet.
 #
 # Manual dispatch runs the CI quality gate. The `publish_linter`, `publish_lsp`,
 # `publish_config` and `publish_figment` inputs can additionally publish those
@@ -130,14 +130,14 @@ jobs:
           new_packages=""
           for package in $packages; do
             version="$(package_version "$package")"
-            code="$(curl -sS -o /dev/null -w '%{http_code}' -H 'User-Agent: adotenv-release' \
+            code="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' -H 'User-Agent: adotenv-release' \
               "https://crates.io/api/v1/crates/$package/$version")"
             case "$code" in
               200)
                 echo "::notice::$package $version is already published"
                 ;;
               404)
-                crate_code="$(curl -sS -o /dev/null -w '%{http_code}' -H 'User-Agent: adotenv-release' \
+                crate_code="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' -H 'User-Agent: adotenv-release' \
                   "https://crates.io/api/v1/crates/$package")"
                 case "$crate_code" in
                   200)
@@ -350,7 +350,7 @@ jobs:
             cargo metadata --no-deps --format-version 1 |
               python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "adotenv-lint"))'
           )"
-          code="$(curl -sS -o /dev/null -w '%{http_code}' \
+          code="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \
             -H 'User-Agent: adotenv-release' \
             "https://crates.io/api/v1/crates/adotenv-lint/$version")"
           if [[ "$code" == "200" ]]; then
@@ -410,7 +410,7 @@ jobs:
             cargo metadata --no-deps --format-version 1 |
               python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "adotenv-lsp"))'
           )"
-          code="$(curl -sS -o /dev/null -w '%{http_code}' \
+          code="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \
             -H 'User-Agent: adotenv-release' \
             "https://crates.io/api/v1/crates/adotenv-lsp/$version")"
           if [[ "$code" == "200" ]]; then
@@ -465,7 +465,7 @@ jobs:
             cargo metadata --no-deps --format-version 1 |
               python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "adotenv-config"))'
           )"
-          code="$(curl -sS -o /dev/null -w '%{http_code}' \
+          code="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \
             -H 'User-Agent: adotenv-release' \
             "https://crates.io/api/v1/crates/adotenv-config/$version")"
           if [[ "$code" == "200" ]]; then
@@ -520,7 +520,7 @@ jobs:
             cargo metadata --no-deps --format-version 1 |
               python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "adotenv-figment"))'
           )"
-          code="$(curl -sS -o /dev/null -w '%{http_code}' \
+          code="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \
             -H 'User-Agent: adotenv-release' \
             "https://crates.io/api/v1/crates/adotenv-figment/$version")"
           if [[ "$code" == "200" ]]; then

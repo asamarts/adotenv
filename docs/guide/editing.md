@@ -160,7 +160,7 @@ them.
 | `EditError` | Meaning |
 |---|---|
 | `Missing` | No declaration has the key. |
-| `Duplicate(n)` | The key selects `n` declarations, or an insert or rename would leave `n` declarations of its key. |
+| `Duplicate(n)` | The key selects `n` declarations, or an insert, rename or uncomment would leave `n` declarations of its key. |
 | `InvalidTarget` | An ID is out of range or names the wrong kind of item. |
 | `InvalidKey` | The dialect cannot spell the key. |
 | `InvalidReferenceKey` | The new key cannot be written as a variable reference. |

@@ -1012,13 +1012,20 @@ mod tests {
 
     #[test]
     fn read_file_bounded_and_write_fixed_enforce_boundaries() {
-        let dir = env::temp_dir().join(format!(
+        struct TempGuard(PathBuf);
+        impl Drop for TempGuard {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+
+        let dir = TempGuard(env::temp_dir().join(format!(
             "adotenv-lint-unit-{}-{}",
             std::process::id(),
             NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        let file = dir.join(".env");
+        )));
+        fs::create_dir_all(&dir.0).unwrap();
+        let file = dir.0.join(".env");
         fs::write(&file, "A=1\n").unwrap();
 
         assert_eq!(read_file_bounded(&file, Some(4)).unwrap(), "A=1\n");
@@ -1028,20 +1035,28 @@ mod tests {
             .contains("max_input_bytes"));
 
         let expected = file_identity(&file).unwrap();
-        let sub = dir.join("subdir");
+        let sub = dir.0.join("subdir");
         fs::create_dir(&sub).unwrap();
         assert!(write_fixed(&sub, "A=2\n", expected)
             .unwrap_err()
             .contains("changed after it was read"));
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn trim_trailing_separators_preserves_root() {
+        assert_eq!(trim_trailing_separators(""), PathBuf::from(""));
         assert_eq!(trim_trailing_separators("/"), PathBuf::from("/"));
         assert_eq!(
             trim_trailing_separators("/tmp/a///"),
             PathBuf::from("/tmp/a")
         );
+        #[cfg(windows)]
+        {
+            assert_eq!(trim_trailing_separators("C:\\"), PathBuf::from("C:\\"));
+            assert_eq!(
+                trim_trailing_separators("C:\\tmp\\a\\\\\\"),
+                PathBuf::from("C:\\tmp\\a")
+            );
+        }
     }
 }

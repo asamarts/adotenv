@@ -2054,7 +2054,7 @@ fn rename_with_references_with_options_handles_quoting_self_ref_and_duplicates()
         "{noref_err:?}"
     );
 
-    // Self-referencing declaration and duplicate target with references (including Duplicates::Error).
+    // Self-referencing declaration and duplicate target with references (Last and First policies).
     let self_ref = crate::parse_strict("HOST=$HOST\n").unwrap();
     let self_renamed = self_ref
         .rename_with_references_with_options(
@@ -2155,4 +2155,200 @@ fn rename_with_references_and_insert_separator_edge_cases() {
         .unwrap();
     assert_eq!(inserted.as_str(), "A=1\r\nB=2\r\nC=3");
     replay("A=1\r\nB=2", &inserted);
+}
+
+#[test]
+fn rename_with_references_rejects_command_quote_break_and_handles_compose_empty_keys() {
+    use crate::Dialect;
+
+    // P1 #1: Injecting shell quotes inside $(...) must not corrupt command structure.
+    let (py_cmd, _) = parse_with("A=1\nX=$(echo \"${A}\")\n", Dialect::PYTHON_DOTENV);
+    assert_eq!(
+        py_cmd.rename_with_references("A", "B\"C"),
+        Err(EditError::WouldChangeMeaning)
+    );
+    let (py_two, _) = parse_with(
+        "A=1\nX=$(echo \"${A}\")$(echo ok)\n",
+        Dialect::PYTHON_DOTENV,
+    );
+    assert_eq!(
+        py_two.rename_with_references("A", "B\"C"),
+        Err(EditError::WouldChangeMeaning)
+    );
+    let (docker_cmd, _) = parse_with("A=1\nX=$(echo '${A}')\n", Dialect::DOCKER_RAW);
+    assert_eq!(
+        docker_cmd.rename_with_references("A", "B'C"),
+        Err(EditError::WouldChangeMeaning)
+    );
+
+    // P1 #2: Compose empty key at item start (0..0 or k..k) renames with ${} references cleanly.
+    let (compose_empty, _) = parse_with("=1\nX=${}\n", Dialect::COMPOSE);
+    let empty_renamed = compose_empty.rename_with_references("", "NEW").unwrap();
+    assert_eq!(empty_renamed.as_str(), "NEW=1\nX=${NEW}\n");
+    replay("=1\nX=${}\n", &empty_renamed);
+
+    let (compose_adj_empty, _) = parse_with("A=\"${}\"=1\n", Dialect::COMPOSE);
+    let adj_empty_renamed = compose_adj_empty.rename_with_references("", "NEW").unwrap();
+    assert_eq!(adj_empty_renamed.as_str(), "A=\"${NEW}\"NEW=1\n");
+    replay("A=\"${}\"=1\n", &adj_empty_renamed);
+
+    // P2 #3: Duplicate target precedence matches 1.6.1 even when new_key has an operator.
+    let (dup_op, _) = parse("A=1\nB-2=2\nX=$A\n");
+    assert_eq!(
+        dup_op.rename_with_references("A", "B-2"),
+        Err(EditError::Duplicate(2))
+    );
+}
+
+#[test]
+fn rename_with_references_with_options_covers_bom_line_breaks_tails_and_ties() {
+    use crate::{BomPolicy, Dialect, EditOptions, LimitKind, LineBreaks, QuotedTail};
+
+    // BOM policies count BOM bytes in max_output_bytes and preserve BOM runs.
+    for (policy, prefix) in [
+        (BomPolicy::Strip, "\u{feff}"),
+        (BomPolicy::StripAll, "\u{feff}\u{feff}"),
+        (BomPolicy::Keep, "\u{feff}"),
+        (BomPolicy::Error, "\u{feff}"),
+    ] {
+        let dialect = Dialect::PORTABLE.with_bom(policy);
+        let source = format!("{prefix}HOST=1\nX=$HOST\n");
+        let (doc, _) = parse_with(&source, dialect);
+        if policy == BomPolicy::Keep {
+            // Keep makes BOM part of the key name; verify renaming the second key works.
+            let keep_src = format!("{prefix}A=1\nHOST=2\nX=$HOST\n");
+            let (keep_doc, _) = parse_with(&keep_src, dialect);
+            let expected = format!("{prefix}A=1\nSRV=2\nX=$SRV\n");
+            let ok = keep_doc
+                .rename_with_references_with_options(
+                    "HOST",
+                    "SRV",
+                    EditOptions::new().with_max_output_bytes(expected.len()),
+                )
+                .unwrap();
+            assert_eq!(ok.as_str(), expected);
+            replay(&keep_src, &ok);
+            continue;
+        }
+        let expected = format!("{prefix}SRV=1\nX=$SRV\n");
+        let ok = doc
+            .rename_with_references_with_options(
+                "HOST",
+                "SRV",
+                EditOptions::new().with_max_output_bytes(expected.len()),
+            )
+            .unwrap();
+        assert_eq!(ok.as_str(), expected);
+        replay(&source, &ok);
+        let too_small = doc
+            .rename_with_references_with_options(
+                "HOST",
+                "SRV",
+                EditOptions::new().with_max_output_bytes(expected.len() - 1),
+            )
+            .unwrap_err();
+        assert!(matches!(
+            too_small,
+            EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes
+        ));
+    }
+
+    // LineBreaks::Lf vs Universal with lone CR and max_output_lines.
+    let cr_src = "A=1\rB=$A\r";
+    let (uni_doc, _) = parse_with(cr_src, Dialect::PORTABLE);
+    assert_eq!(
+        uni_doc
+            .rename_with_references_with_options(
+                "A",
+                "Z",
+                EditOptions::new().with_max_output_lines(2)
+            )
+            .unwrap()
+            .as_str(),
+        "Z=1\rB=$Z\r"
+    );
+    assert!(matches!(
+        uni_doc.rename_with_references_with_options(
+            "A",
+            "Z",
+            EditOptions::new().with_max_output_lines(1)
+        ),
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::Lines
+    ));
+    let lf_dialect = Dialect::PORTABLE.with_line_breaks(LineBreaks::Lf);
+    let (lf_doc, _) = parse_with("A=1\r\nB=$A\r\n", lf_dialect);
+    assert_eq!(
+        lf_doc
+            .rename_with_references_with_options(
+                "A",
+                "Z",
+                EditOptions::new().with_max_output_lines(2)
+            )
+            .unwrap()
+            .as_str(),
+        "Z=1\r\nB=$Z\r\n"
+    );
+
+    // QuotedTail::Append renames reference inside appended tail under EditOptions.
+    let append = Dialect::PORTABLE.with_quoted_tail(QuotedTail::Append);
+    let (tail_doc, _) = parse_with("A=1\nX=\"hi\"$A\n", append);
+    let tail_ok = tail_doc
+        .rename_with_references_with_options(
+            "A",
+            "HOST",
+            EditOptions::new().with_max_output_bytes(32),
+        )
+        .unwrap();
+    assert_eq!(tail_ok.as_str(), "HOST=1\nX=\"hi\"$HOST\n");
+    replay("A=1\nX=\"hi\"$A\n", &tail_ok);
+}
+
+#[test]
+fn rename_with_references_with_options_covers_diagnostics_ties_and_rich_forms() {
+    use crate::{Dialect, EditOptions, LimitKind, ParseOptions};
+
+    // parse_limits.max_diagnostics and tie-breaking (max_output_bytes == max_input_bytes -> OutputBytes).
+    let (warn_doc, _) = parse("A=1\nBAD KEY=x\nX=$A\n");
+    let diag_err = warn_doc
+        .rename_with_references_with_options(
+            "A",
+            "B",
+            EditOptions::new().with_parse_limits(ParseOptions::new().with_max_diagnostics(0)),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(diag_err, EditError::Limit(limit) if limit.kind() == LimitKind::Diagnostics),
+        "{diag_err:?}"
+    );
+    let (tie_doc, _) = parse("A=1\nX=$A\n");
+    let tie_err = tie_doc
+        .rename_with_references_with_options(
+            "A",
+            "SERVER",
+            EditOptions::new()
+                .with_max_output_bytes(10)
+                .with_parse_limits(ParseOptions::new().with_max_input_bytes(10)),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(tie_err, EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes),
+        "{tie_err:?}"
+    );
+
+    // Nested operators, commands, escaped, single-quoted and backtick-quoted values.
+    let rich_dialect = Dialect::PORTABLE.with_backticks(true);
+    let rich = "A=1\nN=${A:-$A}\nC=$(echo $A)\nE=\"\\$A\"\nS='$A'\nT=`$A`\n";
+    let (rich_doc, _) = parse_with(rich, rich_dialect);
+    let rich_ok = rich_doc
+        .rename_with_references_with_options(
+            "A",
+            "SRV",
+            EditOptions::new().with_max_output_bytes(128),
+        )
+        .unwrap();
+    assert_eq!(
+        rich_ok.as_str(),
+        "SRV=1\nN=${SRV:-$SRV}\nC=$(echo $SRV)\nE=\"\\$SRV\"\nS='$SRV'\nT=`$SRV`\n"
+    );
+    replay(rich, &rich_ok);
 }

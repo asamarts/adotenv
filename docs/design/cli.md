@@ -97,9 +97,10 @@ commands print values or text that can contain them:
 ## Diagnostics
 
 `check` prints one line per diagnostic: path, one-based line and column,
-severity, code and message. A leading byte-order mark is hidden on line 1, so
-it does not count in the human or GitHub column. JSON spans still count its
-bytes. A summary line follows when any file has a diagnostic or could not be
+severity, code and message. A stripped leading byte-order mark (or BOM run under
+`BomPolicy::StripAll`) is hidden on line 1, so it does not count in the human or
+GitHub column; `BomPolicy::Keep` and `BomPolicy::Error` keep it in column 1.
+JSON spans still count its bytes. A summary line follows when any file has a diagnostic or could not be
 read; a read failure counts as one error and one affected file. A clean run
 prints nothing.
 
