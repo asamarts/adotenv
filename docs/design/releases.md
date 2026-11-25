@@ -2,6 +2,7 @@
 
 | Version | Date | Focus |
 |---|---|---|
+| 1.6.1 | 2026-11-24 | CLI parse/output limit flags and full-workspace mutation verification; no core library behavior change |
 | adotenv-lint 0.2.2 | 2026-11-23 | `adotenv` 1.6.0 adoption, CLI parse-limit flags and expanded coverage |
 | adotenv-lsp 0.5.0 | 2026-11-23 | `adotenv` 1.6.0 parse limits, multi-BOM/keep mapping and transport tests |
 | 1.6.0 | 2026-11-23 | Line limits, `BomPolicy::StripAll`, `LookupIndex::unique`, `EditOptions` and `CompactEntries` |

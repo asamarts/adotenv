@@ -18,8 +18,12 @@ The current release provides:
 
 ## Current status
 
-`adotenv`, `adotenv-process` and `adotenv-cli` 1.6.0 were published on
-2026-11-23 with physical line limits (`ParseOptions::max_lines`,
+`adotenv`, `adotenv-process` and `adotenv-cli` 1.6.1 were published on
+2026-11-24 with `adotenv-cli` parse/output limit flags (`--max-input-bytes`,
+`--max-lines`, `set --max-output-bytes`, `set --max-output-lines`) and
+full-workspace mutation verification (with no core library behavior changes
+relative to 1.6.0). `adotenv`, `adotenv-process` and `adotenv-cli` 1.6.0 were
+published on 2026-11-23 with physical line limits (`ParseOptions::max_lines`,
 `LimitKind::Lines`), multi-BOM stripping (`BomPolicy::StripAll`,
 `Document::bom_span`), indexed uniqueness checks (`LookupIndex::unique`),
 bounded verified edits (`EditOptions`, `EditError::Limit`,
