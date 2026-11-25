@@ -2848,4 +2848,71 @@ mod tests {
             "\"quote\\\" slash\\\\ line\\n tab\\t control\\u0001\""
         );
     }
+
+    #[test]
+    fn line_content_start_handles_every_bom_policy() {
+        use super::line_content_start;
+        use adotenv::{BomPolicy, Dialect};
+
+        let double_bom = "\u{feff}\u{feff}A=1\n";
+        assert_eq!(
+            line_content_start(double_bom, 0, Dialect::PORTABLE.with_bom(BomPolicy::Strip)),
+            3
+        );
+        assert_eq!(
+            line_content_start(
+                double_bom,
+                0,
+                Dialect::PORTABLE.with_bom(BomPolicy::StripAll)
+            ),
+            6
+        );
+        assert_eq!(
+            line_content_start(double_bom, 0, Dialect::PORTABLE.with_bom(BomPolicy::Keep)),
+            0
+        );
+        assert_eq!(
+            line_content_start(double_bom, 0, Dialect::PORTABLE.with_bom(BomPolicy::Error)),
+            0
+        );
+        assert_eq!(
+            line_content_start(
+                double_bom,
+                7,
+                Dialect::PORTABLE.with_bom(BomPolicy::StripAll)
+            ),
+            7
+        );
+    }
+
+    #[test]
+    fn read_text_with_limit_enforces_exact_boundaries() {
+        use super::{read_text_with_limit, ReadTextError};
+
+        let directory = std::env::temp_dir().join(format!(
+            "adotenv-read-limit-{}-{}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let target = directory.join("app.env");
+        std::fs::write(&target, "A=1\n").unwrap();
+
+        assert_eq!(
+            read_text_with_limit(&target, Some(4)).ok().as_deref(),
+            Some("A=1\n")
+        );
+        assert_eq!(
+            read_text_with_limit(&target, Some(10)).ok().as_deref(),
+            Some("A=1\n")
+        );
+        assert!(matches!(
+            read_text_with_limit(&target, Some(2)),
+            Err(ReadTextError::InputTooLarge {
+                limit: 2,
+                observed: 4
+            })
+        ));
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
 }

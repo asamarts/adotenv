@@ -2078,3 +2078,81 @@ fn rename_with_references_with_options_handles_quoting_self_ref_and_duplicates()
         );
     }
 }
+
+#[test]
+fn rename_with_references_and_insert_separator_edge_cases() {
+    use crate::{Dialect, EditOptions, LimitKind};
+
+    // Unspellable keys (empty, containing quote, or space without quoted_keys) fail with InvalidKey.
+    let (py_doc, _) = parse_with("A=1\nX=$A\n", Dialect::PYTHON_DOTENV);
+    assert_eq!(
+        py_doc.rename_with_references("A", ""),
+        Err(EditError::InvalidKey)
+    );
+    assert_eq!(
+        py_doc.rename_with_references("A", "A 'B"),
+        Err(EditError::InvalidKey)
+    );
+    let (portable_doc, _) = parse("A=1\nX=$A\n");
+    assert_eq!(
+        portable_doc.rename_with_references("A", "A B"),
+        Err(EditError::InvalidKey)
+    );
+
+    // Exact decl_len and total_added caps still report observed > limit.
+    let small = crate::parse_strict("A=1\nB=$A\n").unwrap();
+    let decl_exact = small
+        .rename_with_references_with_options(
+            "A",
+            "LONG",
+            EditOptions::new().with_max_output_bytes(4),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(decl_exact, EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes && limit.observed() > 4),
+        "{decl_exact:?}"
+    );
+    let ref_exact = small
+        .rename_with_references_with_options(
+            "A",
+            "LONG",
+            EditOptions::new().with_max_output_bytes(8),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(ref_exact, EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes && limit.observed() > 8),
+        "{ref_exact:?}"
+    );
+
+    // Compose NextStatement where declaration edit starts exactly at previous entry's value_span.end.
+    let (compose_adj, _) = parse_with("A=\"$B\"B=1\n", Dialect::COMPOSE);
+    let adj_renamed = compose_adj.rename_with_references("B", "HOST").unwrap();
+    assert_eq!(adj_renamed.as_str(), "A=\"$HOST\"HOST=1\n");
+    replay("A=\"$B\"B=1\n", &adj_renamed);
+
+    // Compose EOF insertion adds newline after unquoted value, keeps same line after quoted value.
+    let (compose_unquoted, _) = parse_with("A=1", Dialect::COMPOSE);
+    assert_eq!(
+        compose_unquoted
+            .insert("B", Some("2"), InsertPosition::End)
+            .unwrap()
+            .as_str(),
+        "A=1\nB=2"
+    );
+    let (compose_quoted, _) = parse_with("A=\"1\"", Dialect::COMPOSE);
+    assert_eq!(
+        compose_quoted
+            .insert("B", Some("2"), InsertPosition::End)
+            .unwrap()
+            .as_str(),
+        "A=\"1\"B=2"
+    );
+
+    // LF-only CRLF file without trailing CR keeps CRLF separator on EOF insert.
+    let (docker_crlf, _) = parse_with("A=1\r\nB=2", Dialect::DOCKER_RAW);
+    let inserted = docker_crlf
+        .insert("C", Some("3"), InsertPosition::End)
+        .unwrap();
+    assert_eq!(inserted.as_str(), "A=1\r\nB=2\r\nC=3");
+    replay("A=1\r\nB=2", &inserted);
+}

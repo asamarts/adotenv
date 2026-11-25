@@ -3059,10 +3059,15 @@ fn fmt_and_check_enforce_byte_and_line_limits_on_single_line_invalid_and_oversiz
         stdout(&check_bytes)
     );
 
-    // check human & github formats under --max-input-bytes also exit 1.
+    // check human & github formats under --max-input-bytes also exit 1 and report summary counts.
     let check_human = run(&["--max-input-bytes=8", "check", bad.to_str().unwrap()]);
     assert_eq!(check_human.status.code(), Some(1));
     assert!(stdout(&check_human).contains("dotenv.limit-exceeded"));
+    assert!(
+        stdout(&check_human).contains("1 error, 0 warnings, 0 info in 1 file"),
+        "{}",
+        stdout(&check_human)
+    );
 
     let check_gh = run(&[
         "--max-input-bytes=8",
@@ -3114,6 +3119,29 @@ fn fmt_and_check_enforce_byte_and_line_limits_on_single_line_invalid_and_oversiz
         "{}",
         stderr(&stdin_out)
     );
+
+    // stdin at exact --max-input-bytes boundary succeeds.
+    let mut exact_child = Command::new(env!("CARGO_BIN_EXE_adotenv-cli"))
+        .args(["--max-input-bytes=4", "get", "-", "A"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    exact_child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(b"A=1\n")
+        .unwrap();
+    let exact_stdin = exact_child.wait_with_output().unwrap();
+    assert_eq!(
+        exact_stdin.status.code(),
+        Some(0),
+        "{}",
+        stderr(&exact_stdin)
+    );
+    assert_eq!(stdout(&exact_stdin), "1\n");
 
     // check under BomPolicy::Keep (--dialect=docker) counts the kept BOM in column 1.
     let bom_file = dir.file(".env.bom", "\u{feff}A=1\n");

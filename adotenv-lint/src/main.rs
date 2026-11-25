@@ -1009,4 +1009,39 @@ mod tests {
     fn io_error_is_usage_failure() {
         assert!(collect_paths(&["definitely-missing.env".to_owned()], false, &[]).is_err());
     }
+
+    #[test]
+    fn read_file_bounded_and_write_fixed_enforce_boundaries() {
+        let dir = env::temp_dir().join(format!(
+            "adotenv-lint-unit-{}-{}",
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(".env");
+        fs::write(&file, "A=1\n").unwrap();
+
+        assert_eq!(read_file_bounded(&file, Some(4)).unwrap(), "A=1\n");
+        assert_eq!(read_file_bounded(&file, Some(10)).unwrap(), "A=1\n");
+        assert!(read_file_bounded(&file, Some(2))
+            .unwrap_err()
+            .contains("max_input_bytes"));
+
+        let expected = file_identity(&file).unwrap();
+        let sub = dir.join("subdir");
+        fs::create_dir(&sub).unwrap();
+        assert!(write_fixed(&sub, "A=2\n", expected)
+            .unwrap_err()
+            .contains("changed after it was read"));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn trim_trailing_separators_preserves_root() {
+        assert_eq!(trim_trailing_separators("/"), PathBuf::from("/"));
+        assert_eq!(
+            trim_trailing_separators("/tmp/a///"),
+            PathBuf::from("/tmp/a")
+        );
+    }
 }

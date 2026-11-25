@@ -759,4 +759,19 @@ fn bom_comment_suppresses_completion_and_hover_escapes_backticks_and_newlines() 
         "{}",
         markup.value
     );
+
+    // Inline code padding follows CommonMark: pad only when both ends are spaces
+    // and at least one non-space byte exists.
+    let pad_doc = "PAD=\" x \"\nLEAD=\" x\"\nTRAIL=\"x \"\nSPACES=\"  \"\n";
+    let hover_md = |line: u32| -> String {
+        let h = adotenv_lsp::hover(pad_doc, position(line, 1), &LspOptions::new()).unwrap();
+        let lsp_types::HoverContents::Markup(m) = h.contents else {
+            panic!("expected markdown hover");
+        };
+        m.value
+    };
+    assert!(hover_md(0).contains("Value: `  x  `"), "{}", hover_md(0));
+    assert!(hover_md(1).contains("Value: ` x`"), "{}", hover_md(1));
+    assert!(hover_md(2).contains("Value: `x `"), "{}", hover_md(2));
+    assert!(hover_md(3).contains("Value: `  `"), "{}", hover_md(3));
 }
