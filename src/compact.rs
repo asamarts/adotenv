@@ -1,8 +1,9 @@
 //! Compact storage for effective `.env` values.
 //!
-//! [`CompactValues`] keeps the same keys and values as [`parse_values`] but
-//! stores them in one contiguous string and one fixed-size entry per key,
-//! instead of one map node and two string allocations per key.
+//! [`CompactValues`] keeps the same keys and values as
+//! [`parse_values`](crate::parse_values) but stores them in one contiguous
+//! string and one fixed-size entry per key, instead of one map node and two
+//! string allocations per key.
 
 use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
@@ -107,7 +108,8 @@ impl CompactValues {
     /// Merges two compact maps, with `later` winning on equal keys.
     #[cfg(feature = "load")]
     pub(crate) fn merge(self, later: &Self) -> Self {
-        let mut builder = CompactBuilder::with_capacity(self.data.len() + later.data.len());
+        let mut builder =
+            CompactBuilder::with_capacity(self.data.len().saturating_add(later.data.len()));
         let mut left = 0;
         let mut right = 0;
         while left < self.entries.len() || right < later.entries.len() {
@@ -138,7 +140,7 @@ impl CompactValues {
                 left += 1;
             }
         }
-        builder.finish(Duplicates::Last, false)
+        builder.finish(Duplicates::Last, true)
     }
 }
 
@@ -150,6 +152,14 @@ impl Default for CompactValues {
         }
     }
 }
+
+impl PartialEq for CompactValues {
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.iter().eq(other.iter())
+    }
+}
+
+impl Eq for CompactValues {}
 
 impl fmt::Debug for CompactValues {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

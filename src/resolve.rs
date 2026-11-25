@@ -221,8 +221,8 @@ pub struct ExpandOptions {
     /// with [`ResolveError::TooManyReferences`]. This bounds the candidate
     /// list, roughly one [`Reference`] per candidate. Delimiter matching is
     /// bounded by [`max_depth`](Self::max_depth), so deeply nested forms stop
-    /// with the same error instead of retaining a form record per level. `0`
-    /// rejects every value that contains a possible reference.
+    /// with [`ResolveError::DepthExceeded`] instead of retaining a form record
+    /// per level. `0` rejects every value that contains a possible reference.
     pub max_references: usize,
     /// The maximum length in bytes of one resolved value; 1 MiB in every preset.
     ///
@@ -1344,10 +1344,24 @@ where
                     self.options.max_depth.saturating_add(1),
                     self.options.max_references,
                 )
-                .ok_or_else(|| ResolveError::TooManyReferences {
-                    key: key.clone(),
-                    limit: self.options.max_references,
-                    span: entry.value_span().unwrap_or_else(|| entry.line_span()),
+                .map_err(|limit| {
+                    let span = entry.value_span().unwrap_or_else(|| entry.line_span());
+                    match limit {
+                        crate::references::ScanLimit::TooManyReferences => {
+                            ResolveError::TooManyReferences {
+                                key: key.clone(),
+                                limit: self.options.max_references,
+                                span,
+                            }
+                        }
+                        crate::references::ScanLimit::DepthExceeded => {
+                            ResolveError::DepthExceeded {
+                                key: key.clone(),
+                                limit: self.options.max_depth,
+                                span,
+                            }
+                        }
+                    }
                 })?
         };
         let parts = self.resolve_segments(entry, value, 0..value.len(), None, &references)?;

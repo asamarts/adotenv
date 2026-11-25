@@ -312,13 +312,54 @@ fn duplicate_and_bare_policies_control_serde_membership() {
 
 #[test]
 fn non_string_keys_report_value_context() {
+    #[derive(Debug, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct StrictOnly {
+        #[allow(dead_code)]
+        host: String,
+    }
+
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+    #[serde(try_from = "String")]
+    struct UpperKey(String);
+
+    impl TryFrom<String> for UpperKey {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, Self::Error> {
+            if value.bytes().all(|b| b.is_ascii_uppercase()) {
+                Ok(Self(value))
+            } else {
+                Err("key must be uppercase")
+            }
+        }
+    }
+
     let doc = parse_strict("not-a-number=value\n").unwrap();
     let error = doc
         .deserialize::<alloc::collections::BTreeMap<u16, String>>()
         .unwrap_err();
     assert_eq!(error.line(), 1);
-    assert_eq!(error.key(), Some(""));
+    assert_eq!(error.key(), Some("not-a-number"));
     assert!(error.message().contains("u16"));
+    assert_eq!(
+        error.masked().to_string(),
+        "line 1: <redacted> (key \"not-a-number\")"
+    );
+
+    let unknown = parse_strict("host=localhost\nEXTRA=1\n")
+        .unwrap()
+        .deserialize::<StrictOnly>()
+        .unwrap_err();
+    assert_eq!(unknown.line(), 2);
+    assert_eq!(unknown.key(), Some("EXTRA"));
+
+    let bad_key = parse_strict("GOOD=1\nbad=2\n")
+        .unwrap()
+        .deserialize::<alloc::collections::BTreeMap<UpperKey, String>>()
+        .unwrap_err();
+    assert_eq!(bad_key.line(), 2);
+    assert_eq!(bad_key.key(), Some("bad"));
+    assert!(bad_key.message().contains("uppercase"));
 }
 
 #[derive(Debug, Deserialize, PartialEq)]

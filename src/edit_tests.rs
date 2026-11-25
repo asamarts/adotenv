@@ -1764,3 +1764,75 @@ fn compose_value_edits_preserve_a_separate_comment_suffix() {
         replay(source, &result);
     }
 }
+
+#[test]
+fn lf_only_crlf_file_with_trailing_lone_cr_inserts_without_corrupting_items() {
+    let source = "A=1\r\nB=2\r";
+    for dialect in [
+        crate::Dialect::DOCKER_RAW,
+        crate::Dialect::COMPOSE,
+        crate::Dialect::PORTABLE.with_line_breaks(crate::LineBreaks::Lf),
+    ] {
+        let (doc, _) = parse_with(source, dialect);
+        let inserted = doc.insert("C", Some("3"), InsertPosition::End).unwrap();
+        assert_eq!(inserted.as_str(), "A=1\r\nB=2\r\nC=3\r\n");
+        let (after, _) = parse_with(inserted.as_str(), dialect);
+        assert_eq!(after.get("B"), Some("2"));
+        assert_eq!(after.get("C"), Some("3"));
+        replay(source, &inserted);
+
+        let batch = doc
+            .edit(&[
+                Edit::Set {
+                    entry: 1,
+                    value: "updated",
+                },
+                Edit::Insert {
+                    key: "C",
+                    value: Some("3"),
+                    position: InsertPosition::End,
+                },
+            ])
+            .unwrap();
+        let (after, _) = parse_with(batch.as_str(), dialect);
+        assert_eq!(after.get("B"), Some("updated"));
+        assert_eq!(after.get("C"), Some("3"));
+        replay(source, &batch);
+    }
+
+    let comment_source = "A=1\r\n# note\r";
+    let (doc, _) = parse_with(comment_source, crate::Dialect::DOCKER_RAW);
+    let inserted = doc.insert("C", Some("3"), InsertPosition::End).unwrap();
+    assert_eq!(inserted.as_str(), "A=1\r\n# note\r\nC=3\r\n");
+    let (after, _) = parse_with(inserted.as_str(), crate::Dialect::DOCKER_RAW);
+    assert_eq!(after.item(1).unwrap().comment_text(), Some(" note"));
+
+    let inline_source = "A=1\r\nB=2 # note\r";
+    let (doc, _) = parse_with(inline_source, crate::Dialect::COMPOSE);
+    let inserted = doc.insert("C", Some("3"), InsertPosition::End).unwrap();
+    assert_eq!(inserted.as_str(), "A=1\r\nB=2 # note\r\nC=3\r\n");
+    let (after, _) = parse_with(inserted.as_str(), crate::Dialect::COMPOSE);
+    assert_eq!(after.unique("B").unwrap().inline_comment(), Some("# note"));
+}
+
+#[test]
+fn rename_with_references_braces_digit_leading_keys_and_rejects_escape_or_quote_keys() {
+    let source = "HOST=localhost\nURL=$HOST\n";
+    let doc = crate::parse_strict(source).unwrap();
+    let renamed = doc.rename_with_references("HOST", "1HOST").unwrap();
+    assert_eq!(renamed.as_str(), "1HOST=localhost\nURL=${1HOST}\n");
+    replay(source, &renamed);
+
+    let (py_doc, _) = parse_with(
+        "HOST=localhost\nURL=\"${HOST}\"\n",
+        crate::Dialect::PYTHON_DOTENV,
+    );
+    assert_eq!(
+        py_doc.rename_with_references("HOST", r"A\nB"),
+        Err(EditError::InvalidReferenceKey)
+    );
+    assert_eq!(
+        py_doc.rename_with_references("HOST", "A\"B"),
+        Err(EditError::InvalidReferenceKey)
+    );
+}

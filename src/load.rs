@@ -2087,58 +2087,11 @@ where
     load_value_paths_compact(paths, options, false)
 }
 
-#[allow(clippy::too_many_lines)]
 fn read_load_path(
     path: &Path,
     skip_missing: bool,
     max_input_bytes: Option<usize>,
 ) -> Result<Option<Vec<u8>>, LoadError> {
-    if max_input_bytes.is_none() {
-        match fs::metadata(path) {
-            Ok(metadata) if !metadata.is_file() => {
-                return Err(LoadError::Io {
-                    path: path.to_path_buf(),
-                    source: io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        "path is not a regular file",
-                    ),
-                });
-            }
-            Ok(metadata) if metadata.len() == 0 => return Ok(Some(Vec::new())),
-            _ => {}
-        }
-        let mut file = match fs::File::open(path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == io::ErrorKind::NotFound && skip_missing => {
-                return match fs::symlink_metadata(path) {
-                    Ok(_) => Err(LoadError::Io {
-                        path: path.to_path_buf(),
-                        source: io::Error::new(io::ErrorKind::NotFound, "dangling symbolic link"),
-                    }),
-                    Err(metadata_error) if metadata_error.kind() == io::ErrorKind::NotFound => {
-                        Ok(None)
-                    }
-                    Err(metadata_error) => Err(LoadError::Io {
-                        path: path.to_path_buf(),
-                        source: metadata_error,
-                    }),
-                };
-            }
-            Err(source) => {
-                return Err(LoadError::Io {
-                    path: path.to_path_buf(),
-                    source,
-                });
-            }
-        };
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)
-            .map_err(|source| LoadError::Io {
-                path: path.to_path_buf(),
-                source,
-            })?;
-        return Ok(Some(bytes));
-    }
     let mut file = match fs::File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound && skip_missing => {
@@ -2172,9 +2125,6 @@ fn read_load_path(
             path: path.to_path_buf(),
             source: io::Error::new(io::ErrorKind::InvalidInput, "path is not a regular file"),
         });
-    }
-    if metadata.len() == 0 {
-        return Ok(Some(Vec::new()));
     }
     if let Some(limit) = max_input_bytes {
         let observed = usize::try_from(metadata.len()).unwrap_or(usize::MAX);

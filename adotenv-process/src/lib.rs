@@ -66,8 +66,10 @@
 //! to call from any thread. Both return an [`ApplyError`] for the first key or
 //! value that the process environment cannot hold.
 //!
-//! `apply` takes a [`LoadedEnvironment`]. To set resolved values, resolve them
-//! with [`LoadedEnvironment::resolve_contextual`] and set them yourself.
+//! `apply` takes a [`LoadedEnvironment`], and [`apply_compact`] /
+//! [`validate_compact`] provide the same checks and mutation for
+//! [`CompactValues`]. To set resolved values, resolve them with
+//! [`LoadedEnvironment::resolve_contextual`] and set them yourself.
 
 use std::{env, fmt};
 
@@ -109,8 +111,9 @@ const WINDOWS_VALUE_LIMIT: usize = 32_767;
 pub enum ApplyError {
     /// A key is empty.
     ///
-    /// The `adotenv` loaders skip empty keys, so a loaded environment does not
-    /// produce this error; the check is a safeguard.
+    /// The `adotenv` loaders and [`CompactValues`] skip empty keys, so a
+    /// loaded environment or compact map does not produce this error; the
+    /// check is a safeguard.
     EmptyKey,
     /// A key contains NUL or `=`.
     InvalidKey {
@@ -254,6 +257,20 @@ fn validate_pairs<'a>(pairs: impl Iterator<Item = (&'a str, &'a str)>) -> Result
 /// # Errors
 ///
 /// Returns the first [`ApplyError`] found.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::parse_values_compact;
+/// use adotenv_process::{validate_compact, ApplyError};
+///
+/// let values = parse_values_compact("PORT=8080\nTOKEN=abc\0def\n")?;
+/// assert_eq!(
+///     validate_compact(&values),
+///     Err(ApplyError::InvalidValue { key: "TOKEN".to_string() })
+/// );
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn validate_compact(values: &CompactValues) -> Result<(), ApplyError> {
     validate_pairs(values.iter())
 }
@@ -326,6 +343,19 @@ pub unsafe fn apply(environment: &LoadedEnvironment) -> Result<(), ApplyError> {
 ///
 /// No other thread may read or write the process environment while
 /// `apply_compact` runs. See [`apply`] for the full safety contract.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::parse_values_compact;
+/// use adotenv_process::apply_compact;
+///
+/// let values = parse_values_compact("ADOTENV_COMPACT_DOC_PORT=8080\n")?;
+/// // SAFETY: called at startup, before any other thread exists.
+/// unsafe { apply_compact(&values)? };
+/// assert_eq!(std::env::var("ADOTENV_COMPACT_DOC_PORT")?, "8080");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub unsafe fn apply_compact(values: &CompactValues) -> Result<(), ApplyError> {
     validate_compact(values)?;
     for (key, value) in values.iter() {
@@ -549,20 +579,30 @@ mod tests {
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         );
-        let bad = adotenv::parse_values_compact(&format!("{bad_key}=bad\0val\n")).unwrap();
+        let good_key = format!(
+            "ADOTENV_PROCESS_COMPACT_GOOD_{}_{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        // Ensure earlier valid keys are not mutated when a later key fails validation.
+        let bad = adotenv::parse_values_compact(&format!(
+            "A_{good_key}=should-not-be-set\nZ_{bad_key}=bad\0val\n"
+        ))
+        .unwrap();
         assert_eq!(
             validate_compact(&bad),
             Err(ApplyError::InvalidValue {
-                key: bad_key.clone()
+                key: format!("Z_{bad_key}")
             })
         );
         assert_eq!(
             unsafe { apply_compact(&bad) },
             Err(ApplyError::InvalidValue {
-                key: bad_key.clone()
+                key: format!("Z_{bad_key}")
             })
         );
-        assert!(std::env::var_os(&bad_key).is_none());
+        assert!(std::env::var_os(format!("A_{good_key}")).is_none());
+        assert!(std::env::var_os(format!("Z_{bad_key}")).is_none());
 
         let nul_key = adotenv::parse_values_compact_with(
             "ADOTENV_COMPACT_NUL\0KEY=1\n",
@@ -575,5 +615,59 @@ mod tests {
                 key: "ADOTENV_COMPACT_NUL\0KEY".to_string()
             })
         );
+
+        let eq_key = adotenv::parse_values_compact_with(
+            "'APP=PORT'=8080\n",
+            adotenv::Dialect::PYTHON_DOTENV,
+        )
+        .unwrap();
+        assert_eq!(
+            validate_compact(&eq_key),
+            Err(ApplyError::InvalidKey {
+                key: "APP=PORT".to_string()
+            })
+        );
+
+        assert!(validate_compact(&CompactValues::default()).is_ok());
+        unsafe { apply_compact(&CompactValues::default()).unwrap() };
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_compact_validation_and_apply_boundary() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        let dup = adotenv::parse_values_compact("PATH=one\nPath=two\n").unwrap();
+        assert!(matches!(
+            validate_compact(&dup),
+            Err(ApplyError::DuplicateKey { ref key }) if key.eq_ignore_ascii_case("path")
+        ));
+
+        let too_long =
+            adotenv::parse_values_compact(&format!("A={}\n", "x".repeat(32_768))).unwrap();
+        assert!(matches!(
+            validate_compact(&too_long),
+            Err(ApplyError::ValueTooLong { ref key, limit: 32_767 }) if key == "A"
+        ));
+
+        // 16,384 surrogate pairs = 32,768 UTF-16 code units (exceeds 32,767).
+        let surrogates =
+            adotenv::parse_values_compact(&format!("A={}\n", "😀".repeat(16_384))).unwrap();
+        assert!(matches!(
+            validate_compact(&surrogates),
+            Err(ApplyError::ValueTooLong { ref key, limit: 32_767 }) if key == "A"
+        ));
+
+        let key = format!(
+            "ADOTENV_PROCESS_WIN_BOUNDARY_{}_{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        let value = "x".repeat(32_767);
+        let boundary = adotenv::parse_values_compact(&format!("{key}={value}\n")).unwrap();
+        assert!(validate_compact(&boundary).is_ok());
+        unsafe { apply_compact(&boundary).unwrap() };
+        assert_eq!(std::env::var(&key).as_deref(), Ok(value.as_str()));
+        std::env::remove_var(&key);
     }
 }

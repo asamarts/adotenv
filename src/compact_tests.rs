@@ -351,4 +351,30 @@ fn compact_fast_path_guards_and_empty_entries() {
     )
     .unwrap_err();
     assert_eq!(item_err.limit().unwrap().kind(), LimitKind::Items);
+
+    // CompactValues supports PartialEq / Eq.
+    let left = parse_values_compact("B=2\nA=1\n").unwrap();
+    let right = parse_values_compact("A=1\nB=2\n").unwrap();
+    let other = parse_values_compact("A=1\nB=3\n").unwrap();
+    assert_eq!(left, right);
+    assert_ne!(left, other);
+
+    // BOM-prefixed limited documents preserve bom_len item start while
+    // max_items(0) catches BOM-only errors.
+    let (limited, diags) = crate::parse_with_options(
+        "\u{feff}A=1\n",
+        Dialect::PORTABLE,
+        ParseOptions::new().with_max_input_bytes(2),
+    );
+    let item = limited.items().next().unwrap();
+    assert_eq!(item.span(), 3.."\u{feff}A=1\n".len());
+    assert_eq!(diags[0].span(), 0.."\u{feff}A=1\n".len());
+    let (_, bom_diags) = crate::parse_with_options(
+        "\u{feff}",
+        Dialect::PORTABLE.with_bom(crate::BomPolicy::Error),
+        ParseOptions::new().with_max_items(0),
+    );
+    assert!(bom_diags
+        .iter()
+        .any(|d| d.limit().is_some_and(|l| l.kind() == LimitKind::Items)));
 }

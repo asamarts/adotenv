@@ -389,3 +389,21 @@ fn replay(source: &str, expected: &str, edits: &[crate::TextEdit]) -> String {
     assert_eq!(output, expected);
     output
 }
+
+#[test]
+fn sort_handles_lf_only_trailing_cr_in_crlf_and_lf_files() {
+    for (source, expected) in [
+        ("B=2\r\nA=1\r", "A=1\r\nB=2\r"),
+        ("B=2\nA=1\r", "A=1\nB=2\r"),
+    ] {
+        for dialect in [crate::Dialect::DOCKER_RAW, crate::Dialect::COMPOSE] {
+            let (doc, _) = parse_with(source, dialect);
+            let sorted = doc.sort().unwrap();
+            assert_eq!(sorted.as_str(), expected);
+            replay(source, sorted.as_str(), sorted.edits());
+            let (after, _) = parse_with(sorted.as_str(), dialect);
+            assert_eq!(after.get("A"), Some("1"));
+            assert_eq!(after.get("B"), Some("2"));
+        }
+    }
+}

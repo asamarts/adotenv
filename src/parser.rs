@@ -41,8 +41,9 @@ pub(crate) const MAX_DIAGNOSTICS: usize = 10_000;
 /// default limits.
 ///
 /// Use [`parse_with_options`], [`parse_strict_with_options`],
-/// [`parse_values_with_options`] or [`parse_owned_with_options`] to apply
-/// these options. A limit failure is a
+/// [`parse_values_with_options`], [`parse_values_compact_with_options`],
+/// [`parse_entries_compact_with_options`] or [`parse_owned_with_options`] to
+/// apply these options. A limit failure is a
 /// [`DiagnosticCode::LimitExceeded`](crate::DiagnosticCode::LimitExceeded)
 /// diagnostic; [`Diagnostic::limit`](crate::Diagnostic::limit) carries its
 /// [`LimitExceeded`](crate::LimitExceeded) data.
@@ -155,8 +156,10 @@ impl ParseOptions {
 ///   owns it, with the collected diagnostics and the same budget.
 /// - [`parse_values`] returns only the effective values, or the first error.
 ///   It keeps no items or spans and uses much less memory.
+/// - [`parse_values_compact`] and [`parse_entries_compact`] store effective
+///   values or bare-preserving winning entries in one contiguous buffer.
 ///
-/// All four use [`Dialect::PORTABLE`]. Their `_with` variants, such as
+/// All six use [`Dialect::PORTABLE`]. Their `_with` variants, such as
 /// [`parse_with`], take the [`Dialect`] to use instead.
 ///
 /// # Examples
@@ -1415,6 +1418,10 @@ impl<'src, const D: bool> Parser<'src, D> {
             );
             self.line += line_breaks(&source[..first.end]);
             at = first.end;
+            self.item_count = self.item_count.saturating_add(1);
+            if self.exceeded_item_limit(at) {
+                return;
+            }
         } else if initial_bom && dialect.bom == BomPolicy::Error {
             self.invalid(
                 0,
@@ -1428,6 +1435,10 @@ impl<'src, const D: bool> Parser<'src, D> {
                 1,
             );
             at = 3;
+            self.item_count = self.item_count.saturating_add(1);
+            if self.exceeded_item_limit(at) {
+                return;
+            }
         }
         while at < source.len() {
             let first = self.physical(at);
@@ -1452,23 +1463,32 @@ impl<'src, const D: bool> Parser<'src, D> {
             self.line += line_breaks(&source[at..end]);
             at = end;
             self.item_count = self.item_count.saturating_add(1);
-            if let Some(limit) = self.options.max_items {
-                let observed = if self.projection.is_some() {
-                    self.item_count
-                } else {
-                    self.document.items.len()
-                };
-                if observed > limit {
-                    self.push_limit(
-                        LimitKind::Items,
-                        limit,
-                        observed,
-                        at..source.len(),
-                        self.line,
-                    );
-                    break;
-                }
+            if self.exceeded_item_limit(at) {
+                break;
             }
+        }
+    }
+
+    fn exceeded_item_limit(&mut self, at: usize) -> bool {
+        let Some(limit) = self.options.max_items else {
+            return false;
+        };
+        let observed = if self.projection.is_some() {
+            self.item_count
+        } else {
+            self.document.items.len()
+        };
+        if observed > limit {
+            self.push_limit(
+                LimitKind::Items,
+                limit,
+                observed,
+                at..self.document.source().len(),
+                self.line,
+            );
+            true
+        } else {
+            false
         }
     }
 }

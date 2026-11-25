@@ -8,6 +8,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `adotenv`: implemented `PartialEq` and `Eq` for `CompactValues` (matching
+  `CompactEntries`).
 - `adotenv-config`: added `AdotenvSource::from_compact_values` and
   `AdotenvSource::from_compact_entries` (raising the `adotenv` dependency to
   `1.6.1`).
@@ -16,6 +18,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `1.6.1`).
 - `adotenv-process`: added `validate_compact` and `apply_compact` for
   `CompactValues` (including compact cascade and file loader outputs).
+
+### Fixed
+
+- `adotenv::references`: enforced `ExpandOptions` depth and reference budgets
+  inside nested `${...}` brace scans in `matching_delimited`, closing a
+  memory-budget bypass on deeply nested `${` inputs.
+- `adotenv::edit`, `adotenv::example`, `adotenv::sort`: handled CRLF files
+  ending in an EOF-only `\r` under `LineBreaks::Lf` without corrupting
+  preceding comments, inline comments, or values; tightened `verify_regions`
+  comment/inline-comment checks.
+- `adotenv::edit`: braced digit-leading keys in `Document::rename_with_references`
+  (e.g., `$HOST` -> `${1HOST}`), rejected escape/quote-breaking reference key
+  names, and verified decoded value integrity in `verify_reference_rename`.
+- `adotenv::serde`: reported the actual offending key (instead of `Some("")`)
+  on key-conversion errors and preserved line/key context for post-deserialization
+  `try_from` key failures and `with_origins(false)` loads.
+- `adotenv::exec`: passed Windows `Shell` commands via `cmd /S /C` with
+  `CommandExt::raw_arg` (preserving embedded quotes and backslashes) and
+  rejected embedded CR/LF on Windows.
+- `adotenv::load`: unified `read_load_path` to always open files before
+  inspecting metadata, removing the empty-file permission bypass and TOCTOU
+  window when `max_input_bytes` is unset.
+- `adotenv::parser`, `adotenv::compact`: enforced `max_items(0)` on BOM-only
+  errors, hardened `verify_original_region` span arithmetic, and shrank merged
+  `CompactValues` capacity after key overrides.
 
 ## [1.6.1] - 2026-11-24
 

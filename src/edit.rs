@@ -809,18 +809,28 @@ fn verify_new_keys(parsed: &Document<'_>, mut keys: Vec<&str>) -> Result<(), Edi
     }
 }
 fn unbraced_reference_name(key: &str) -> bool {
-    !key.is_empty()
-        && key
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    let mut bytes = key.bytes();
+    bytes
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic() || first == b'_')
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 fn braced_reference_name(key: &str) -> bool {
     !key.is_empty()
         && !key.bytes().any(|byte| {
             byte.is_ascii_control()
-                || matches!(byte, b':' | b'-' | b'?' | b'+' | b'{' | b'}' | b'$')
+                || matches!(byte, b':' | b'-' | b'?' | b'+' | b'{' | b'}' | b'$' | b'\\')
         })
+}
+
+fn reference_key_fits_quote(quote: Quote, key: &str) -> bool {
+    match quote {
+        Quote::None => true,
+        Quote::Single => !key.contains('\''),
+        Quote::Double => !key.contains('"'),
+        Quote::Backtick => !key.contains('`'),
+    }
 }
 
 fn reference_rename_edit(
@@ -831,6 +841,9 @@ fn reference_rename_edit(
         .name
         .clone()
         .ok_or(EditError::InvalidReferenceKey)?;
+    if !reference_key_fits_quote(reference.quote, new_key) {
+        return Err(EditError::InvalidReferenceKey);
+    }
     if reference.braced {
         if !braced_reference_name(new_key) {
             return Err(EditError::InvalidReferenceKey);
@@ -1760,11 +1773,11 @@ impl Document<'_> {
                 && plan
                     .desired
                     .is_some_and(|desired| desired.quote != Quote::None);
-            let needs_separator = (item.line_ending() == crate::LineEnding::None
-                && !next_statement)
-                || (self.dialect().line_breaks == crate::LineBreaks::Lf
-                    && item.line_ending() == crate::LineEnding::Cr);
-            if needs_separator {
+            if self.dialect().line_breaks == crate::LineBreaks::Lf
+                && item.line_ending() == crate::LineEnding::Cr
+            {
+                "\n"
+            } else if item.line_ending() == crate::LineEnding::None && !next_statement {
                 ending
             } else {
                 ""
@@ -1980,6 +1993,60 @@ impl Document<'_> {
         Ok(regions)
     }
 
+    fn verify_original_region(
+        &self,
+        id: usize,
+        first: crate::Item<'_>,
+        parsed: &Document<'_>,
+        output: &str,
+        range: &Range<usize>,
+        ending: &str,
+    ) -> Result<(), EditError> {
+        let original = self.item(id).ok_or(EditError::InvalidTarget)?;
+        if first.span() != *range || first.kind() != original.kind() {
+            return Err(EditError::WouldChangeMeaning);
+        }
+        let original_text = original.raw();
+        let new_text = &output[range.clone()];
+        let allowed_suffix = if self.dialect().line_breaks == crate::LineBreaks::Lf
+            && original.line_ending() == crate::LineEnding::Cr
+        {
+            "\n"
+        } else {
+            ending
+        };
+        if !new_text.starts_with(original_text)
+            || (new_text.len() != original_text.len()
+                && &new_text[original_text.len()..] != allowed_suffix)
+        {
+            return Err(EditError::WouldChangeMeaning);
+        }
+        if original.kind() == ItemKind::Comment && first.comment_text() != original.comment_text() {
+            return Err(EditError::WouldChangeMeaning);
+        }
+        if let Some(entry) = original.entry() {
+            if !first.entry().is_some_and(|after| {
+                Desired::from_entry(entry).matches(after)
+                    && entry.inline_comment() == after.inline_comment()
+            }) {
+                return Err(EditError::WouldChangeMeaning);
+            }
+        }
+        match (&self.items[id].invalid, &parsed.items[first.id()].invalid) {
+            (None, None) => Ok(()),
+            (Some(before), Some(after))
+                if before.code() == after.code()
+                    && before.span().start.saturating_sub(original.span().start)
+                        == after.span().start.saturating_sub(range.start)
+                    && before.span().end.saturating_sub(original.span().start)
+                        == after.span().end.saturating_sub(range.start) =>
+            {
+                Ok(())
+            }
+            _ => Err(EditError::WouldChangeMeaning),
+        }
+    }
+
     fn verify_regions(
         &self,
         output: &str,
@@ -2023,36 +2090,7 @@ impl Document<'_> {
                     verify_entry_region(first, desired, &region.range, &mut actual)?;
                 }
                 Expect::Original(id) => {
-                    let original = self.item(id).ok_or(EditError::InvalidTarget)?;
-                    if first.span() != region.range || first.kind() != original.kind() {
-                        return Err(EditError::WouldChangeMeaning);
-                    }
-                    let original_text = original.raw();
-                    let new_text = &output[region.range.clone()];
-                    if !new_text.starts_with(original_text)
-                        || (new_text.len() != original_text.len()
-                            && &new_text[original_text.len()..] != ending)
-                    {
-                        return Err(EditError::WouldChangeMeaning);
-                    }
-                    if let Some(entry) = original.entry() {
-                        if !first
-                            .entry()
-                            .is_some_and(|after| Desired::from_entry(entry).matches(after))
-                        {
-                            return Err(EditError::WouldChangeMeaning);
-                        }
-                    }
-                    match (&self.items[id].invalid, &parsed.items[first.id()].invalid) {
-                        (None, None) => {}
-                        (Some(before), Some(after))
-                            if before.code() == after.code()
-                                && before.span().start - original.span().start
-                                    == after.span().start - region.range.start
-                                && before.span().end - original.span().start
-                                    == after.span().end - region.range.start => {}
-                        _ => return Err(EditError::WouldChangeMeaning),
-                    }
+                    self.verify_original_region(id, first, &parsed, output, &region.range, ending)?;
                 }
                 Expect::Comments | Expect::Uncommented => {
                     let comments_only = matches!(region.expect, Expect::Comments);
@@ -2127,6 +2165,40 @@ impl Document<'_> {
                 || rewritten.raw() != expected.as_str()
             {
                 return Err(EditError::WouldChangeMeaning);
+            }
+            if let (Some(orig_entry), Some(new_entry)) = (original.entry(), rewritten.entry()) {
+                if orig_entry.quote() != new_entry.quote()
+                    || orig_entry.exported() != new_entry.exported()
+                    || orig_entry.inline_comment() != new_entry.inline_comment()
+                {
+                    return Err(EditError::WouldChangeMeaning);
+                }
+                if let Some(val_span) = orig_entry.value_span() {
+                    let first_edit = edits.partition_point(|edit| edit.range.end <= val_span.start);
+                    let last_edit = edits.partition_point(|edit| edit.range.start < val_span.end);
+                    let value_edits = &edits[first_edit..last_edit];
+                    if value_edits.is_empty() {
+                        if orig_entry.value() != new_entry.value() {
+                            return Err(EditError::WouldChangeMeaning);
+                        }
+                    } else if let (Some(orig_val), Some(new_val)) =
+                        (orig_entry.value(), new_entry.value())
+                    {
+                        let mut expected_len = orig_val.len();
+                        for edit in value_edits {
+                            expected_len = expected_len
+                                .saturating_add(edit.replacement.len())
+                                .saturating_sub(edit.range.len());
+                        }
+                        if new_val.len() != expected_len {
+                            return Err(EditError::WouldChangeMeaning);
+                        }
+                    } else {
+                        return Err(EditError::WouldChangeMeaning);
+                    }
+                } else if orig_entry.value() != new_entry.value() {
+                    return Err(EditError::WouldChangeMeaning);
+                }
             }
         }
         let mut before_errors: Vec<_> =

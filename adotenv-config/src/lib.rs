@@ -176,8 +176,6 @@ mod tests {
         assert_eq!(table.keys().collect::<Vec<_>>(), ["B"]);
         assert_eq!(config.get_string("UPPER").unwrap(), "upper");
         assert!(config.get_string("upper").is_err());
-        let table = config.get_table("A").unwrap();
-        assert_eq!(table.keys().collect::<Vec<_>>(), ["B"]);
     }
 
     #[test]
@@ -325,6 +323,36 @@ mod tests {
         let source = AdotenvSource::from_compact_entries(&entries);
         assert_eq!(source.values().get("A").map(String::as_str), Some(""));
         assert_eq!(source.values().get("B").map(String::as_str), Some(""));
+
+        let ignore_dialect = Dialect::PORTABLE.with_bare_keys(BareKeys::Ignore);
+        let entries =
+            adotenv::parse_entries_compact_with("A=first\nA\nB\n", ignore_dialect).unwrap();
+        let source = AdotenvSource::from_compact_entries(&entries);
+        assert_eq!(source.values().get("A").map(String::as_str), Some("first"));
+        assert!(!source.values().contains_key("B"));
+
+        let first_dialect = Dialect::PORTABLE.with_duplicates(Duplicates::First);
+        let compact = adotenv::parse_values_compact_with("A=1\nA=2\n", first_dialect).unwrap();
+        assert_eq!(
+            AdotenvSource::from_compact_values(&compact)
+                .values()
+                .get("A")
+                .map(String::as_str),
+            Some("1")
+        );
+
+        assert_eq!(
+            AdotenvSource::from_compact_values(&CompactValues::default())
+                .values()
+                .len(),
+            0
+        );
+        assert_eq!(
+            AdotenvSource::from_compact_entries(&CompactEntries::default())
+                .values()
+                .len(),
+            0
+        );
     }
 
     #[cfg(feature = "load")]

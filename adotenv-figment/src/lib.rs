@@ -344,6 +344,39 @@ mod tests {
         assert_eq!(from_entries.values().get("A").map(String::as_str), Some(""));
         assert_eq!(from_entries.values().get("B").map(String::as_str), Some(""));
 
+        let ignore_dialect = Dialect::PORTABLE.with_bare_keys(BareKeys::Ignore);
+        let entries =
+            adotenv::parse_entries_compact_with("A=first\nA\nB\n", ignore_dialect).unwrap();
+        let from_entries = AdotenvProvider::from_compact_entries(&entries);
+        assert_eq!(
+            from_entries.values().get("A").map(String::as_str),
+            Some("first")
+        );
+        assert!(!from_entries.values().contains_key("B"));
+
+        let first_dialect = Dialect::PORTABLE.with_duplicates(Duplicates::First);
+        let compact = adotenv::parse_values_compact_with("A=1\nA=2\n", first_dialect).unwrap();
+        assert_eq!(
+            AdotenvProvider::from_compact_values(&compact)
+                .values()
+                .get("A")
+                .map(String::as_str),
+            Some("1")
+        );
+
+        assert_eq!(
+            AdotenvProvider::from_compact_values(&CompactValues::default())
+                .values()
+                .len(),
+            0
+        );
+        assert_eq!(
+            AdotenvProvider::from_compact_entries(&CompactEntries::default())
+                .values()
+                .len(),
+            0
+        );
+
         #[cfg(feature = "load")]
         {
             let path = std::env::temp_dir().join(format!(
