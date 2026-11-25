@@ -2889,13 +2889,20 @@ mod tests {
     fn read_text_with_limit_enforces_exact_boundaries() {
         use super::{read_text_with_limit, ReadTextError};
 
-        let directory = std::env::temp_dir().join(format!(
+        struct TempGuard(std::path::PathBuf);
+        impl Drop for TempGuard {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+
+        let directory = TempGuard(std::env::temp_dir().join(format!(
             "adotenv-read-limit-{}-{}",
             std::process::id(),
             NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&directory).unwrap();
-        let target = directory.join("app.env");
+        )));
+        std::fs::create_dir_all(&directory.0).unwrap();
+        let target = directory.0.join("app.env");
         std::fs::write(&target, "A=1\n").unwrap();
 
         assert_eq!(
@@ -2913,6 +2920,5 @@ mod tests {
                 observed: 4
             })
         ));
-        std::fs::remove_dir_all(&directory).unwrap();
     }
 }

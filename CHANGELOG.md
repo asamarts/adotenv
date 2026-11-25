@@ -27,19 +27,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   comment/inline-comment checks.
 - `adotenv::edit`: braced digit-leading keys in `Document::rename_with_references`
   (e.g., `$HOST` -> `${1HOST}`), rejected escape/quote-breaking reference key
-  names, and verified decoded value integrity in `verify_reference_rename`.
+  names and shell-quote breaks inside `$(...)` commands, handled empty-key
+  edits at item start in `rewrite_span` (Compose `=1` with `${}`), verified
+  decoded value and reference-structure integrity in `verify_reference_rename`,
+  and hardened `verify_original_region` span arithmetic.
 - `adotenv::serde`: reported the actual offending key (instead of `Some("")`)
   on key-conversion errors and preserved line/key context for post-deserialization
   `try_from` key failures and `with_origins(false)` loads.
 - `adotenv::exec`: passed Windows `Shell` commands via `cmd /S /C` with
   `CommandExt::raw_arg` (preserving embedded quotes and backslashes) and
   rejected embedded CR/LF on Windows.
-- `adotenv::load`: unified `read_load_path` to always open files before
-  inspecting metadata, removing the empty-file permission bypass and TOCTOU
-  window when `max_input_bytes` is unset.
+- `adotenv::load`: rejected non-regular files (such as Unix FIFOs) before open
+  and validated metadata on the open handle during read, closing the empty-file
+  permission bypass when `max_input_bytes` is unset.
 - `adotenv::parser`, `adotenv::compact`: enforced `max_items(0)` on BOM-only
-  errors, hardened `verify_original_region` span arithmetic, and shrank merged
-  `CompactValues` capacity after key overrides.
+  errors and shrank merged `CompactValues` capacity after key overrides.
 - `adotenv-cli`: aborted `fmt` and `example` with exit code 2 before output
   when `--max-input-bytes` / `--max-lines` limits trigger, bounded file and
   stdin reads to `max_input_bytes + 1` bytes (without blocking on non-regular

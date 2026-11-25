@@ -522,5 +522,6 @@ fn closed_stdout_pipe_and_stdout_write_errors_report_cleanly() {
         assert_eq!(lint_out.status.code(), Some(2));
         let err2 = String::from_utf8(lint_out.stderr).unwrap();
         assert!(err2.contains("stdout error"), "{err2}");
+        assert_eq!(err2.matches("stdout error").count(), 1, "{err2}");
     }
 }

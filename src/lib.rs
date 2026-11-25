@@ -138,10 +138,10 @@
 //! Values may be secrets. `Debug` output of documents, items, entries, edit and format results,
 //! comparisons, loaded environments and entries, resolved values, lookup indexes, effective
 //! entries, compact values, compact entries, line indexes, groups and portability reports include them, and so
-//! do the messages of serde conversion errors. The core document, edit, comparison, load, resolution,
-//! line-index, group and portability types support a structure-preserving `Debug` form
-//! that replaces values with `<redacted>` through [`Masked`] and [`mask`]; use
-//! [`DeserializeError::masked`] for serde errors. Adapter types still include values. Do not
+//! do the messages of serde conversion errors. The core document, edit, comparison, compact
+//! value/entry, load, resolution, line-index, group and portability types support a
+//! structure-preserving `Debug` form that replaces values with `<redacted>` through [`Masked`]
+//! and [`mask`]; use [`DeserializeError::masked`] for serde errors. Adapter types still include values. Do not
 //! log normal `Debug` output where values are secret. [`Document::example`] removes assigned
 //! values but keeps comments verbatim, including any secret written in a comment.
 //!

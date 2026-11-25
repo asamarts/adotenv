@@ -899,12 +899,58 @@ fn reference_rename_edit_bounded(
     Ok(TextEdit { range, replacement })
 }
 
+fn verify_reference_structure(
+    orig_entry: crate::Entry<'_>,
+    new_entry: crate::Entry<'_>,
+    orig_source: &str,
+    new_source: &str,
+    old_key: &str,
+    new_key: &str,
+) -> Result<(), EditError> {
+    let orig_refs = orig_entry.references();
+    let new_refs = new_entry.references();
+    if orig_refs.len() != new_refs.len() {
+        return Err(EditError::WouldChangeMeaning);
+    }
+    for (orig_ref, new_ref) in orig_refs.iter().zip(new_refs.iter()) {
+        let orig_name = orig_ref
+            .name
+            .as_ref()
+            .and_then(|span| orig_source.get(span.clone()));
+        let new_name = new_ref
+            .name
+            .as_ref()
+            .and_then(|span| new_source.get(span.clone()));
+        let renamed = orig_name == Some(old_key);
+        let expected_name = if renamed { Some(new_key) } else { orig_name };
+        let braced_ok =
+            orig_ref.braced == new_ref.braced || (renamed && !orig_ref.braced && new_ref.braced);
+        if orig_ref.kind != new_ref.kind
+            || orig_ref.closed != new_ref.closed
+            || orig_ref.escaped != new_ref.escaped
+            || orig_ref.operator != new_ref.operator
+            || orig_ref.depth != new_ref.depth
+            || orig_ref.parent != new_ref.parent
+            || orig_ref.quote != new_ref.quote
+            || !braced_ok
+            || new_name != expected_name
+        {
+            return Err(EditError::WouldChangeMeaning);
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 fn verify_reference_entry(
     orig_entry: crate::Entry<'_>,
     new_entry: crate::Entry<'_>,
     rewritten: crate::Item<'_>,
+    orig_source: &str,
+    new_source: &str,
     edits: &[TextEdit],
     target_entry: usize,
+    old_key: &str,
     new_key: &str,
 ) -> Result<(), EditError> {
     let expected_key = if orig_entry.id() == target_entry {
@@ -925,7 +971,10 @@ fn verify_reference_entry(
         return Err(EditError::WouldChangeMeaning);
     }
     if let Some(val_span) = orig_entry.value_span() {
-        let first_edit = edits.partition_point(|edit| edit.range.end <= val_span.start);
+        let first_edit = edits.partition_point(|edit| {
+            edit.range.end < val_span.start
+                || (edit.range.end == val_span.start && !edit.range.is_empty())
+        });
         let last_edit = edits.partition_point(|edit| edit.range.start < val_span.end);
         let value_edits = &edits[first_edit..last_edit];
         if value_edits.is_empty() {
@@ -953,6 +1002,14 @@ fn verify_reference_entry(
             if orig_val.len().checked_add(total_added) != new_val.len().checked_add(total_removed) {
                 return Err(EditError::WouldChangeMeaning);
             }
+            verify_reference_structure(
+                orig_entry,
+                new_entry,
+                orig_source,
+                new_source,
+                old_key,
+                new_key,
+            )?;
         } else {
             return Err(EditError::WouldChangeMeaning);
         }
@@ -967,7 +1024,9 @@ fn rewrite_span(
     span: &Range<usize>,
     edits: &[TextEdit],
 ) -> Result<String, EditError> {
-    let first = edits.partition_point(|edit| edit.range.end <= span.start);
+    let first = edits.partition_point(|edit| {
+        edit.range.end < span.start || (edit.range.end == span.start && !edit.range.is_empty())
+    });
     let last = edits.partition_point(|edit| edit.range.start < span.end);
     let mut output = String::new();
     let mut at = span.start;
@@ -2270,8 +2329,11 @@ impl Document<'_> {
                     orig_entry,
                     new_entry,
                     *rewritten,
+                    self.source(),
+                    output,
                     edits,
                     target_entry,
+                    old_key,
                     new_key,
                 )?;
             }
@@ -2554,19 +2616,11 @@ impl Document<'_> {
                 return Err(EditError::Limit(LimitExceeded::new(kind, limit, decl_len)));
             }
         }
-        let decl_replacement = if decl_quote {
-            let mut token = String::with_capacity(decl_len);
-            token.push('\'');
-            token.push_str(new_key);
-            token.push('\'');
-            token
-        } else {
-            new_key.to_string()
-        };
-        let mut edits = vec![TextEdit {
-            range: decl_range,
-            replacement: decl_replacement,
-        }];
+        let existing_decls = self.get_all(new_key).count();
+        if existing_decls > 0 {
+            return Err(EditError::Duplicate(existing_decls + 1));
+        }
+        let mut edits = Vec::new();
         let mut total_added = decl_len;
         let mut references = 0usize;
         let mut existing_new = 0usize;
@@ -2592,6 +2646,19 @@ impl Document<'_> {
         if references == 0 {
             return self.rename_with_options(key, new_key, options);
         }
+        let decl_replacement = if decl_quote {
+            let mut token = String::with_capacity(decl_len);
+            token.push('\'');
+            token.push_str(new_key);
+            token.push('\'');
+            token
+        } else {
+            new_key.to_string()
+        };
+        edits.push(TextEdit {
+            range: decl_range,
+            replacement: decl_replacement,
+        });
         let edits = Self::normalize_edits(edits)?;
         check_planned_output_limits(self.source(), &edits, self.dialect().line_breaks, options)?;
         let output = Self::apply_edits(self.source(), &edits);

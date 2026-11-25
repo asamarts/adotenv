@@ -330,8 +330,9 @@ for edit in verified.edits().iter().rev() {
 assert_eq!(text, verified.as_str());
 ```
 
-`set`, `remove`, `rename`, `insert`, `comment`, `uncomment`, `set_export` and
-`edit` verify the whole batch and reject changes that alter unrelated syntax.
+`set`, `remove`, `rename`, `rename_with_references`, `insert`, `comment`,
+`uncomment`, `set_export` and `edit` verify the whole batch and reject changes
+that alter unrelated syntax.
 Pass `EditOptions` to `edit_with_options`, `set_with_options`,
 `remove_with_options`, `insert_with_options`, `rename_with_options` or
 `rename_with_references_with_options` to bound output bytes, output line counts
