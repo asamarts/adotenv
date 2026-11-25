@@ -2526,11 +2526,6 @@ fn read_text_limited<P: AsRef<Path>>(
     })
 }
 
-#[cfg(test)]
-fn read_text<P: AsRef<Path>>(path: P) -> Result<String, String> {
-    read_text_limited(path, None)
-}
-
 /// Report an error and return [`FAILURE`].
 fn fail(message: String) -> u8 {
     errln!("{message}");
@@ -2544,7 +2539,7 @@ mod tests {
         write_atomic_inner, NEXT_TEMP,
     };
     #[cfg(unix)]
-    use super::{read_text, resolve_write, write_atomic_checked};
+    use super::{read_text_limited, resolve_write, write_atomic_checked};
     use std::{fs, path::Path, sync::atomic::Ordering};
 
     #[cfg(not(unix))]
@@ -2756,7 +2751,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn non_regular_inputs_are_rejected_without_reading() {
-        assert!(read_text("/dev/null").is_err());
+        assert!(read_text_limited("/dev/null", None).is_err());
         assert!(resolve_write(std::path::Path::new("/dev/null")).is_err());
     }
 
