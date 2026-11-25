@@ -469,3 +469,58 @@ fn help_version_default_scan_multi_json_and_dir_without_recursive() {
             .contains("symbolic link directory"));
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn closed_stdout_pipe_and_stdout_write_errors_report_cleanly() {
+    use std::process::Stdio;
+
+    let dir = TempDir::new();
+    let many = "K=v\n".repeat(10_000);
+    let big = dir.file("big.env", &many);
+
+    // Closed stdout pipe (BrokenPipe) must not report a spurious stdout error or exit 2.
+    let mut child = Command::new(env!("CARGO_BIN_EXE_adotenv-lint"))
+        .arg(&big)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stdout.take());
+    let pipe_out = child.wait_with_output().unwrap();
+    assert_eq!(
+        pipe_out.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&pipe_out.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&pipe_out.stderr), "");
+
+    // Real stdout write/flush error (/dev/full on Linux) must report stdout error once and exit 2.
+    #[cfg(target_os = "linux")]
+    if let Ok(full) = fs::OpenOptions::new().write(true).open("/dev/full") {
+        let help_out = Command::new(env!("CARGO_BIN_EXE_adotenv-lint"))
+            .arg("--help")
+            .stdout(full)
+            .output()
+            .unwrap();
+        assert_eq!(help_out.status.code(), Some(2));
+        let err = String::from_utf8(help_out.stderr).unwrap();
+        assert!(err.contains("stdout error"), "{err}");
+        assert_eq!(err.matches("stdout error").count(), 1, "{err}");
+
+        let full2 = fs::OpenOptions::new()
+            .write(true)
+            .open("/dev/full")
+            .unwrap();
+        let small = dir.file("small.env", "A=1\nA=2\n");
+        let lint_out = Command::new(env!("CARGO_BIN_EXE_adotenv-lint"))
+            .arg(&small)
+            .stdout(full2)
+            .output()
+            .unwrap();
+        assert_eq!(lint_out.status.code(), Some(2));
+        let err2 = String::from_utf8(lint_out.stderr).unwrap();
+        assert!(err2.contains("stdout error"), "{err2}");
+    }
+}

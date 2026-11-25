@@ -215,4 +215,13 @@ fn example_keeps_moved_comment_separate_on_lf_only_trailing_cr() {
     assert!(example
         .items()
         .any(|item| item.kind() == ItemKind::Comment && item.comment_text() == Some(" note")));
+
+    // LF-only CRLF line keeps CRLF breaks when moving an inline comment.
+    let (crlf_doc, _) = parse_with("A=1 # note\r\n", dialect);
+    assert_eq!(crlf_doc.example(), "A=\r\n# note\r\n");
+
+    // Universal line-break dialect preserves a CR ending when moving an inline comment.
+    let universal = dialect.with_line_breaks(crate::LineBreaks::Universal);
+    let (cr_doc, _) = parse_with("A=1 # note\r", universal);
+    assert_eq!(cr_doc.example(), "A=\r# note\r");
 }

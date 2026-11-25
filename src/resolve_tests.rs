@@ -1324,4 +1324,36 @@ fn deep_nesting_stops_at_the_depth_limit_without_scanning_every_level() {
     );
     let (doc, _) = crate::parse(&unclosed_brace);
     let _ = doc.unique("A").unwrap().references_within_depth(4);
+
+    // Exact unclosed nesting depth boundary for both `${` and `$(` inside braces:
+    // with max_depth=1, resolve passes max_depth+1=2 and closes.limit is 4, so
+    // 5 unclosed openers exceed the bound (`stack.len() + 1 == 5 > 4`).
+    for source in [
+        "A=${B:-${C:-${D:-${E:-${F\n",
+        "A=${B:-${C:-${D:-${E:-$(echo\n",
+    ] {
+        let err = resolve(
+            source,
+            |_| None,
+            &ExpandOptions::portable().with_max_depth(1),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ResolveError::DepthExceeded { limit: 1, ref key, .. } if key == "A"),
+            "{source:?}: {err:?}"
+        );
+    }
+
+    // Quoted value with no `$` inside quotes still scans `$VAR` in an appended tail.
+    let append_dialect = crate::Dialect::PORTABLE.with_quoted_tail(crate::QuotedTail::Append);
+    let (tail_doc, _) = crate::parse_with("A=\"hello\"$VAR\n", append_dialect);
+    let refs = tail_doc.unique("A").unwrap().references();
+    assert_eq!(refs.len(), 1);
+    assert_eq!(
+        refs[0]
+            .name
+            .as_ref()
+            .map(|span| &tail_doc.source()[span.clone()]),
+        Some("VAR")
+    );
 }
