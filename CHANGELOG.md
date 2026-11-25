@@ -1112,7 +1112,7 @@ the same values unless it exceeds the new output budget. Code that moves from
 
 ### Documentation
 
-- Added [MIGRATION.md](MIGRATION.md) with the 0.9-to-1.0 compatibility path,
+- Added [docs/reference/upgrading.md](docs/reference/upgrading.md) with the 0.9-to-1.0 compatibility path,
   older migration links and an adoption checklist.
 - Added [1.0-readiness.md](docs/design/1.0-readiness.md) with explicit evidence
   status for API freeze, fuzz, conformance, performance, contracts and the
@@ -1132,7 +1132,7 @@ the same values unless it exceeds the new output budget. Code that moves from
 - Documented machine-output compatibility rules, exit codes and the distinction
   between stable JSON/GitHub contracts and human-readable output.
 - Recorded the manual 1.0 performance budget: idle-host comparison against the
-  controlled baseline, repeat the 1.5x–2x range, and block above 2x until
+  controlled baseline, repeat the 1.5x-2x range, and block above 2x until
   explained. CI remains benchmark smoke only.
 
 ## [0.9.1] - 2026-10-22

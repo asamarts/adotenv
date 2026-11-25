@@ -61,7 +61,7 @@ if [[ "$have" != "$version" ]]; then
 fi
 export PATH="$HOME/.cargo/bin:$PATH"
 
-worktree="$(mktemp -d)"
+worktree="$(mktemp -d "${TMPDIR:-/tmp}/adotenv-det-perf.XXXXXX")"
 cleanup() {
   if [[ -n "$worktree" ]]; then
     git worktree remove --force "$worktree" >/dev/null 2>&1 || true

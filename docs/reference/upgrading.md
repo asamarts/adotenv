@@ -64,6 +64,9 @@ Releases within 1.x keep the API. These fixes change results:
 - 1.1.1: `encode_value_with` represents a Node literal-fallback value that
   needs an escaped terminal control character at the line cap, instead of
   returning `EncodeError::Unrepresentable`.
+- 1.1.2: `encode_value_with` represents a Node value whose only legal token
+  needs a repeated backtick run to survive quote recovery, instead of returning
+  `EncodeError::Unrepresentable`.
 - 1.2.0: resolution scans at most 65,536 reference candidates per value by
   default and fails with `ResolveError::TooManyReferences` beyond that.
   `ExpandOptions::with_max_references` changes the limit. Delimiter matching
@@ -114,9 +117,6 @@ Releases within 1.x keep the API. These fixes change results:
   including an empty or short quoted prefix, for custom `QuotedTail::Append`
   dialects, avoiding false `EncodeError::Unrepresentable` results at a line
   cap.
-- 1.1.2: `encode_value_with` represents a Node value whose only legal token
-  needs a repeated backtick run to survive quote recovery, instead of returning
-  `EncodeError::Unrepresentable`.
 - 1.3.0: `adotenv-cli check` human and GitHub columns on line 1 no longer
   count a leading byte-order mark, and `--source` hides it. Use
   `LineIndex::without_bom` for the same columns in the library; the 1.x default
@@ -126,6 +126,25 @@ Releases within 1.x keep the API. These fixes change results:
   `dotenv.limit-exceeded` diagnostic with `Diagnostic::limit()` data.
   `LoadOptions::with_limits` applies the same limits to loading and bounds the
   read itself; `LoadError::Limit` reports it. No limit is enabled by default.
+- 1.4.0: `Document::rename_with_references` adds verified reference-aware key
+  renaming (bracing unbraced references when needed).
+- 1.5.0: `CompactValues`, `parse_values_compact*`, and
+  `load_*_values_compact*` add single-buffer read-only storage for effective
+  values with lower retained heap and allocation counts than `BTreeMap`.
+- 1.5.4: `adotenv-cli diff --format json` publishes a versioned JSON Schema
+  (`diff-report.v1.json`) alongside the check-report schema.
+- 1.6.0: `ParseOptions::max_lines` / `LimitKind::Lines` bound physical lines,
+  `BomPolicy::StripAll` strips repeated leading UTF-8 BOMs,
+  `LookupIndex::unique` provides indexed uniqueness lookup, `EditOptions` /
+  `Document::*_with_options` bound verified edit outputs, and `CompactEntries`
+  preserves winning bare declarations in single-buffer storage.
+- 1.6.1: `adotenv-cli` adds global `--max-input-bytes` / `--max-lines` and
+  `set --max-output-bytes` / `--max-output-lines` flags.
+- Unreleased (next minor): Serde key-conversion errors report the offending key
+  name (`Some(key)`) instead of `Some("")`; delimiter-nesting depth overflows
+  during resolution report `ResolveError::DepthExceeded` rather than
+  `ResolveError::TooManyReferences`; Windows `exec::Shell` runs commands via
+  `cmd /S /C` with raw argument quoting and rejects embedded line breaks.
 
 ## From 0.11
 

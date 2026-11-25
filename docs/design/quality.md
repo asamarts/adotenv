@@ -15,7 +15,7 @@ current coverage figures and known gaps are in the [test audit](test-audit.md).
 - Integration tests for loading, serde, the CLI and its JSON schemas, the
   adapters, and the memory use of reference scanning.
 - Shared format-contract vectors for positions, text edit order, GitHub
-  escaping and the check report schema, with a hash manifest.
+  escaping, and the check and diff report schemas, with a hash manifest.
 - Doctests for the rustdoc examples, the README and every page of this site.
 - Builds for `no_std`, the minimum supported Rust versions and each feature
   set.
@@ -49,9 +49,9 @@ The workflow also:
   `load,serde`, no default features, and no default features with `serde`,
   plus the adapters with `load`;
 - runs the tests on Linux, macOS and Windows;
-- builds the libraries, `adotenv-process`, `adotenv-cli` and `adotenv-figment`
-  with Rust 1.81, `adotenv-lsp` with Rust 1.85 and `adotenv-config` with Rust
-  1.88;
+- builds `adotenv`, `adotenv-process`, `adotenv-cli`, `adotenv-lint` and
+  `adotenv-figment` with Rust 1.81, `adotenv-lsp` with Rust 1.85 and
+  `adotenv-config` with Rust 1.88;
 - builds the core for the `thumbv7em-none-eabi` target without default
   features;
 - resolves the published workspace dependencies to their lowest compatible
@@ -121,9 +121,9 @@ release.
 Mutation testing runs weekly and on demand in four shards. It targets parser
 diagnostics, key validation, edit verification and formatting equivalence,
 with a 90-second timeout and two jobs per shard. The 1.4.1 focused campaign
-tested 72 mutants: 60 caught and 12 equivalent survivors, with the exact
-classification recorded in the [test audit](test-audit.md). Survivors are input
-for targeted regression tests, not an automatic release blocker.
+and the subsequent 1.5.4, 1.6.0 and 1.6.1 per-crate sweeps across all seven
+published crates are recorded in the [test audit](test-audit.md). Survivors are
+input for targeted regression tests, not an automatic release blocker.
 
 Full test and mutation runs are resource-heavy. Follow
 [heavy validation](heavy-validation.md); in particular, do not run

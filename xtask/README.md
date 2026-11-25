@@ -17,11 +17,12 @@ adotenv-xtask gate --baseline docs/benchmarks/memory.jsonl --current target/memo
 adotenv-xtask fingerprint
 ```
 
-`memory` builds and invokes the release-mode isolated memory binary, writes
+`memory` builds and invokes the release-mode isolated memory binary (accepting
+`--compact` to include `adotenv-compact` and `adotenv-compact-entries`), writes
 JSONL results, and writes a sibling `<name>.fingerprint.json`. `cli` builds `adotenv-cli` and
 runs hyperfine over a generated fixture. `report` renders memory JSONL rows as
 a Markdown table. `compare` reports numeric deltas against a previous memory
-JSONL file; it is advisory until the deterministic gates in #77 land.
+JSONL file, and `gate` enforces the deterministic memory baseline thresholds.
 
 ## kbench
 

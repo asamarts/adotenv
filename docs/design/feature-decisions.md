@@ -13,9 +13,9 @@ Feature decisions use these rules:
 
 | Area | Decision | Reason |
 |---|---|---|
-| Values-only parsing | Adopt | Added `parse_values` and `parse_values_with`; no document metadata is retained. |
-| Linter rules and fixes | Incubate as a companion crate | Lint checks are opinionated policy. Lint policy does not belong in the parser core. |
-| LSP and editor support | Incubate as a companion crate | adotenv already has spans, diagnostics and edits. An LSP needs editor protocol work, not parser changes. |
+| Values-only parsing | Adopt | Added `parse_values`, `parse_values_compact` and `parse_entries_compact`; no document metadata is retained. |
+| Linter rules and fixes | Separate companion crate | Published as `adotenv-lint`; lint checks are opinionated policy that does not belong in the parser core. |
+| LSP and editor support | Separate companion crate | Published as `adotenv-lsp`; editor protocol work reuses `Document` spans and edits without changing parser core. |
 | Encryption and vault files | Reject for the core | Crypto, key handling and secret distribution are a different product. Keep adotenv usable as a literal parser. |
 | Implicit file search | Reject | Loading is explicit by directory, mode or ordered file list. Hidden search changes behavior by working directory. |
 | Environment inheritance | Reject | Bare keys stay bare. Callers provide lookup values explicitly. |
@@ -61,4 +61,5 @@ Presets without a stable oracle remain rejected.
 
 A streaming API would need to preserve source spans and recovery behavior, or
 explicitly define a reduced stream mode. This is deferred until a real user
-needs bounded-memory streaming beyond `parse_values` and the values-only loaders.
+needs bounded-memory streaming beyond `parse_values`, `CompactValues`,
+`CompactEntries` and the values-only loaders.

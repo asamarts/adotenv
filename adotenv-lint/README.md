@@ -134,4 +134,6 @@ Version 0.1.0 was the first published release of the companion crate. Version
 0.2.0 added the shared configuration loader and ignored-path API used by the
 CLI and language server. Version 0.2.1 fixes rooted ignore matching, severity
 output and explicit whitespace-option precedence, and reports unsortable
-key-order groups without a fix.
+key-order groups without a fix. Version 0.2.2 adopts `adotenv` 1.6.0 and adds
+`--max-input-bytes` and `--max-lines` parse-limit flags across lint and `--fix`
+runs.

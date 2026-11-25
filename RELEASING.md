@@ -31,7 +31,7 @@ configured for this repository, workflow `release.yml` and no environment.
 `publish_lsp=true` workflow dispatch, using a temporary bootstrap token. The
 token secret was removed and the token revoked, and its Trusted Publisher is
 registered for this repository, workflow `release.yml` and no environment.
-`adotenv-lsp` 0.2.0 through 0.4.2 were published through the same dispatch
+`adotenv-lsp` 0.2.0 through 0.5.0 were published through the same dispatch
 using OIDC, which validated the Trusted Publisher path.
 
 ### LSP releases
@@ -77,7 +77,8 @@ For each later `adotenv-lsp` version:
    replace every matching version string in `Cargo.lock`. Third-party crates can
    share the same version number. The conformance crate has its own lock file,
    `conformance/rust/Cargo.lock`; update the `adotenv` version there too,
-   because CI builds that crate with `--locked`.
+   because CI builds that crate with `--locked`. Refresh local `fuzz/Cargo.lock`
+   as well if present.
 5. Move the `Unreleased` entries in `CHANGELOG.md` into a section headed
    `## [X.Y.Z] - YYYY-MM-DD` for the lockstep version, and update the version in
    the README and docs install snippets.
@@ -114,22 +115,18 @@ The workflow:
 - waits for each version in the sparse index before publishing dependents;
 - uploads the `.crate` files and `.sha256` files as GitHub Release assets;
 - creates the GitHub Release from the matching `CHANGELOG.md` section.
-- publishes the benchmark evidence linked from `docs/benchmarks/` as part of
-  the release checklist.
 
-For a linter-only release without a core tag, dispatch the same workflow with
-`publish_linter=true`. It runs the quality gate, verifies the current linter
-version is unpublished, packages and publishes it through OIDC, compares the
-local crate checksum with crates.io, attests the `.crate`, and uploads the
-crate and `.sha256` as a workflow artifact. Its declared `adotenv` requirement
-must already be published, so a linter release that raises that requirement
-needs the matching core release first.
-
-For an LSP release, dispatch the same workflow with `publish_lsp=true`; it uses
-OIDC and the same package, checksum, attestation and artifact steps. When both
-dispatch inputs are selected, the LSP job waits for the linter job. Dispatch
-only after the required core and linter versions are on crates.io, whether they
-came from the core tag or a standalone linter dispatch.
+For an independent companion or adapter release without a core tag, dispatch
+the same workflow with `publish_linter=true`, `publish_lsp=true`,
+`publish_config=true` or `publish_figment=true`. Each job runs the quality
+gate, verifies the crate's current version is unpublished, packages and
+publishes it through OIDC, compares the local crate checksum with crates.io,
+attests the `.crate`, and uploads the crate and `.sha256` as a workflow
+artifact (`release-crates-linter`, `release-crates-lsp`,
+`release-crates-config`, or `release-crates-figment`). Its declared `adotenv`
+(and, for `adotenv-lsp`, `adotenv-lint`) requirement must already be published.
+When both `publish_linter` and `publish_lsp` are selected, the LSP job waits
+for the linter job.
 
 ## Verify
 
@@ -144,9 +141,9 @@ gh attestation verify adotenv-X.Y.Z.crate --repo asamarts/adotenv
 The release workflow compares the local package checksum with the checksum
 served by the crates.io sparse index and fails the publish job on a mismatch.
 Attestations are created in the publishing job, so the verified bytes are the
-same bytes recorded by crates.io. Companion dispatch runs upload
-`release-crates-linter` or `release-crates-lsp`; download that artifact from
-the workflow run and verify it the same way.
+same bytes recorded by crates.io. Companion dispatch runs upload `release-crates-linter`, `release-crates-lsp`,
+`release-crates-config` or `release-crates-figment`; download that artifact
+from the workflow run and verify it the same way.
 
 Check the published crate pages:
 

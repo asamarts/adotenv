@@ -191,8 +191,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           toolchain: nightly
-      # The LSP prototype has a separate 1.85 MSRV check. It is excluded here
-      # because its protocol dependencies are not part of the published crates.
+      # The LSP crate has its own 1.85 MSRV check and protocol dependencies
+      # pinned for 1.85 compatibility, so exclude it from nightly minimal-versions.
       - run: cargo +nightly update -Z minimal-versions
       - run: cargo +nightly test --workspace --all-features --locked --exclude adotenv-lsp
 

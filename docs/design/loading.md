@@ -157,7 +157,7 @@ Builders change one group each:
 | `with_raw_tokens(false)` | Drop the raw source text; `resolve_contextual` then returns an error |
 | `with_reports(true)` | Keep every report, as `full` does; without reports the report iterators yield nothing |
 | `with_origins(false)` | Drop origins and the override report; resolution errors then have no origin and serde errors report line 0 |
-| `with_limits(parse_options)` | Bound input bytes, items and diagnostics; input bytes also bounds the read |
+| `with_limits(parse_options)` | Bound input bytes, physical lines, items and diagnostics; input bytes also bounds the read |
 
 ## Resolution
 

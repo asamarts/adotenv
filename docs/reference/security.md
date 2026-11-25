@@ -112,10 +112,11 @@ Values may be secrets. These outputs include them:
   loaded values. Loaded files are trusted like code: a loaded `PATH` changes
   which program runs, and variables such as `LD_PRELOAD` change how it runs.
   `run` never expands references or runs command substitutions.
-- `adotenv_process::apply` changes the environment of the current process. It
-  is unsafe because the environment is shared by every thread. `validate` runs
-  the same checks without changing anything. On Windows, keys that differ only
-  by case and values longer than 32,767 UTF-16 code units are rejected.
+- `adotenv_process::apply` and `apply_compact` change the environment of the
+  current process. Both are unsafe because the environment is shared by every
+  thread. `validate` and `validate_compact` run the same checks without
+  changing anything. On Windows, keys that differ only by case and values
+  longer than 32,767 UTF-16 code units are rejected.
 - `adotenv-cli run` applies the same Windows key-case and value-length checks
   before starting a child.
 

@@ -73,6 +73,8 @@ Both types have the same constructors:
 | Constructor | Source |
 |---|---|
 | `from_document(&Document)` | The effective values of a parsed document |
+| `from_compact_values(&CompactValues)` | Compact effective values from `parse_values_compact*` or `load_*_values_compact*` |
+| `from_compact_entries(&CompactEntries)` | Compact winning entries (bare `None` declarations are omitted) |
 | `from_environment(&LoadedEnvironment)` | The final values of a loaded cascade; needs the adapter's `load` feature |
 | `from_values(BTreeMap<String, String>)` | An explicit map |
 
