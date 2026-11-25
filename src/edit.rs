@@ -2036,10 +2036,10 @@ impl Document<'_> {
             (None, None) => Ok(()),
             (Some(before), Some(after))
                 if before.code() == after.code()
-                    && before.span().start - original.span().start
-                        == after.span().start - range.start
-                    && before.span().end - original.span().start
-                        == after.span().end - range.start =>
+                    && before.span().start.saturating_sub(original.span().start)
+                        == after.span().start.saturating_sub(range.start)
+                    && before.span().end.saturating_sub(original.span().start)
+                        == after.span().end.saturating_sub(range.start) =>
             {
                 Ok(())
             }

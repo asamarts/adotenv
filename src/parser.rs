@@ -398,7 +398,7 @@ fn limit_diagnostic(
 
 fn limited_document(source: &str, dialect: Dialect, diagnostic: Diagnostic) -> Document<'_> {
     let bom_len = dialect.bom.stripped_prefix_len(source);
-    let start = bom_len.min(diagnostic.span().start);
+    let start = bom_len;
     let ending = if source.ends_with("\r\n") {
         LineEnding::CrLf
     } else if source.ends_with('\n') {

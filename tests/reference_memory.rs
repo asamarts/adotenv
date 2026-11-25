@@ -149,7 +149,7 @@ fn resolution_depth_budget_bounds_delimiter_scan() {
                         .with_max_references(2)
                         .with_max_depth(64)
                 ),
-                Err(ResolveError::TooManyReferences { .. })
+                Err(ResolveError::DepthExceeded { limit: 64, .. })
             ));
         });
         assert!(

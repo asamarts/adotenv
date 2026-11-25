@@ -359,15 +359,16 @@ fn compact_fast_path_guards_and_empty_entries() {
     assert_eq!(left, right);
     assert_ne!(left, other);
 
-    // BOM-prefixed limited documents keep diagnostic span inside item span,
-    // and max_items(0) catches BOM-only errors.
+    // BOM-prefixed limited documents preserve bom_len item start while
+    // max_items(0) catches BOM-only errors.
     let (limited, diags) = crate::parse_with_options(
         "\u{feff}A=1\n",
         Dialect::PORTABLE,
         ParseOptions::new().with_max_input_bytes(2),
     );
     let item = limited.items().next().unwrap();
-    assert!(diags[0].span().start >= item.span().start);
+    assert_eq!(item.span(), 3.."\u{feff}A=1\n".len());
+    assert_eq!(diags[0].span(), 0.."\u{feff}A=1\n".len());
     let (_, bom_diags) = crate::parse_with_options(
         "\u{feff}",
         Dialect::PORTABLE.with_bom(crate::BomPolicy::Error),

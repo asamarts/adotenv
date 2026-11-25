@@ -477,6 +477,12 @@ impl Reference {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScanLimit {
+    TooManyReferences,
+    DepthExceeded,
+}
+
 impl Entry<'_> {
     /// Returns the `$` reference candidates in this entry's value, in source order.
     ///
@@ -538,12 +544,12 @@ impl Entry<'_> {
     }
 
     /// Like [`Self::references_within_depth`], but stops before allocating
-    /// more than `max_references` candidates and returns `None` instead.
+    /// more than `max_references` candidates or nesting past `max_depth`.
     pub(crate) fn references_within_depth_bounded(
         self,
         max_depth: usize,
         max_references: usize,
-    ) -> Option<Vec<Reference>> {
+    ) -> Result<Vec<Reference>, ScanLimit> {
         self.scan_references(max_depth, Some(max_references))
     }
 
@@ -551,10 +557,10 @@ impl Entry<'_> {
         self,
         max_depth: usize,
         max_references: Option<usize>,
-    ) -> Option<Vec<Reference>> {
+    ) -> Result<Vec<Reference>, ScanLimit> {
         let tokens = self.tokens();
         let Some(body) = tokens.body.clone() else {
-            return Some(Vec::new());
+            return Ok(Vec::new());
         };
         let dialect = self.document.dialect;
         let source = self.document.source();
@@ -565,7 +571,7 @@ impl Entry<'_> {
         // Every candidate starts at a `$`, so most values need no scan.
         let has_dollar = |range: &Range<usize>| source.as_bytes()[range.clone()].contains(&b'$');
         if !has_dollar(&body) && !tail.as_ref().is_some_and(has_dollar) {
-            return Some(Vec::new());
+            return Ok(Vec::new());
         }
         let mut pending = vec![(body, self.quote(), Level::TOP, true)];
         if let Some(tail) = tail {
@@ -589,11 +595,14 @@ impl Entry<'_> {
         };
         while let Some((range, quote, level, backslash_escapes)) = scanner.pending.pop() {
             scanner.scan(&range, quote, level, backslash_escapes);
-            if scanner.exceeded || scanner.closes.exceeded {
-                return None;
+            if scanner.exceeded {
+                return Err(ScanLimit::TooManyReferences);
+            }
+            if scanner.closes.exceeded {
+                return Err(ScanLimit::DepthExceeded);
             }
         }
-        Some(in_source_order(scanner.references))
+        Ok(in_source_order(scanner.references))
     }
 }
 

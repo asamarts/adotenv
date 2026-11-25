@@ -41,7 +41,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   inspecting metadata, removing the empty-file permission bypass and TOCTOU
   window when `max_input_bytes` is unset.
 - `adotenv::parser`, `adotenv::compact`: enforced `max_items(0)` on BOM-only
-  errors, preserved `limited_document` span containment, and shrank merged
+  errors, hardened `verify_original_region` span arithmetic, and shrank merged
   `CompactValues` capacity after key overrides.
 
 ## [1.6.1] - 2026-11-24
