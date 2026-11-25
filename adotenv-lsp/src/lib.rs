@@ -205,13 +205,19 @@ pub fn completion_with_options(
     position: Position,
     options: &LspOptions,
 ) -> CompletionResponse {
-    let Some(offset) = Mapped::new_for_dialect(text, options.dialect).offset(position) else {
+    let mapped = Mapped::new_for_dialect(text, options.dialect);
+    let Some(offset) = mapped.offset(position) else {
         return CompletionResponse::Array(Vec::new());
     };
     let line_start = text[..offset]
         .rfind(['\n', '\r'])
         .map_or(0, |index| index + 1);
-    let prefix = &text[line_start..offset];
+    let content_start = if line_start == 0 {
+        mapped.bom_bytes.min(offset)
+    } else {
+        line_start
+    };
+    let prefix = &text[content_start..offset];
     let trimmed = prefix.trim_start();
     if trimmed.starts_with('#') {
         return CompletionResponse::Array(Vec::new());
@@ -504,21 +510,58 @@ pub fn hover(text: &str, position: Position, options: &LspOptions) -> Option<Hov
     }
     let value = match entry.value() {
         Some(_) if options.mask_values => "`<redacted>`".to_owned(),
-        Some(value) => format!("`{value}`"),
+        Some(value) => format_markdown_code(value),
         None => "`<bare>`".to_owned(),
     };
     Some(Hover {
         contents: HoverContents::Markup(MarkupContent {
             kind: MarkupKind::Markdown,
             value: format!(
-                "`{}` on line {} ({:?})\n\nValue: {value}",
-                entry.key(),
+                "{} on line {} ({:?})\n\nValue: {value}",
+                format_markdown_inline_code(entry.key()),
                 entry.line(),
                 entry.state()
             ),
         }),
         range: Some(mapped.range(entry.key_span())),
     })
+}
+
+fn longest_backtick_run(text: &str) -> usize {
+    let mut longest = 0usize;
+    let mut current = 0usize;
+    for byte in text.bytes() {
+        if byte == b'`' {
+            current += 1;
+            longest = longest.max(current);
+        } else {
+            current = 0;
+        }
+    }
+    longest
+}
+
+fn format_markdown_inline_code(text: &str) -> String {
+    let fence_len = longest_backtick_run(text) + 1;
+    let fence = "`".repeat(fence_len);
+    let needs_pad = text.starts_with('`')
+        || text.ends_with('`')
+        || (text.starts_with(' ') && text.ends_with(' ') && text.bytes().any(|b| b != b' '));
+    if needs_pad {
+        format!("{fence} {text} {fence}")
+    } else {
+        format!("{fence}{text}{fence}")
+    }
+}
+
+fn format_markdown_code(text: &str) -> String {
+    if text.contains(['\n', '\r']) {
+        let fence_len = longest_backtick_run(text).max(2) + 1;
+        let fence = "`".repeat(fence_len);
+        format!("\n{fence}text\n{text}\n{fence}")
+    } else {
+        format_markdown_inline_code(text)
+    }
 }
 
 /// Finds declarations and value references for the symbol at `position`.

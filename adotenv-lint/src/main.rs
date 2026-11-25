@@ -9,7 +9,7 @@ use std::{
     env,
     fmt::Write as _,
     fs,
-    io::{self, Write as IoWrite},
+    io::{self, Read as _, Write as IoWrite},
     path::{Path, PathBuf},
     process::ExitCode,
     sync::atomic::{AtomicUsize, Ordering},
@@ -96,8 +96,58 @@ fn main() -> ExitCode {
     }
 }
 
+fn write_stdout(text: &str) {
+    let mut stdout = io::stdout().lock();
+    if let Err(error) = stdout.write_all(text.as_bytes()) {
+        if error.kind() != io::ErrorKind::BrokenPipe {
+            let _ = writeln!(io::stderr().lock(), "adotenv-lint: stdout error: {error}");
+        }
+    }
+}
+
+fn write_stdout_line(text: &str) {
+    let mut stdout = io::stdout().lock();
+    if let Err(error) = writeln!(stdout, "{text}") {
+        if error.kind() != io::ErrorKind::BrokenPipe {
+            let _ = writeln!(io::stderr().lock(), "adotenv-lint: stdout error: {error}");
+        }
+    }
+}
+
+fn read_file_bounded(path: &Path, max_input_bytes: Option<usize>) -> Result<String, String> {
+    let mut file = fs::File::open(path).map_err(|error| error.to_string())?;
+    let metadata = file.metadata().map_err(|error| error.to_string())?;
+    if !metadata.is_file() {
+        return Err("path is not a regular file".to_owned());
+    }
+    if let Some(limit) = max_input_bytes {
+        let observed = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
+        if observed > limit {
+            return Err(format!(
+                "input exceeds max_input_bytes limit ({limit} bytes)"
+            ));
+        }
+    }
+    let mut bytes = Vec::new();
+    let read_result = match max_input_bytes {
+        Some(limit) => file
+            .take(limit.saturating_add(1) as u64)
+            .read_to_end(&mut bytes),
+        None => file.read_to_end(&mut bytes),
+    };
+    read_result.map_err(|error| error.to_string())?;
+    if let Some(limit) = max_input_bytes {
+        if bytes.len() > limit {
+            return Err(format!(
+                "input exceeds max_input_bytes limit ({limit} bytes)"
+            ));
+        }
+    }
+    String::from_utf8(bytes).map_err(|_| "invalid UTF-8".to_owned())
+}
+
 fn run() -> Result<u8, String> {
-    let mut args = env::args_os()
+    let args = env::args_os()
         .skip(1)
         .map(|argument| {
             argument
@@ -105,21 +155,17 @@ fn run() -> Result<u8, String> {
                 .map_err(|_| "arguments must be valid UTF-8".to_owned())
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let option_end = args.iter().position(|argument| argument == "--");
-    let options = option_end.map_or(args.as_slice(), |end| &args[..end]);
-    if options
-        .iter()
-        .any(|argument| argument == "-h" || argument == "--help")
-    {
-        println!("{USAGE}");
-        return Ok(SUCCESS);
-    }
-    if options.iter().any(|argument| argument == "--version") {
-        println!("adotenv-lint {}", env!("CARGO_PKG_VERSION"));
-        return Ok(SUCCESS);
-    }
-
-    let mut options = parse_args(&mut args)?;
+    let mut options = match parse_cli_args(&args)? {
+        CliAction::Help => {
+            write_stdout_line(USAGE);
+            return Ok(SUCCESS);
+        }
+        CliAction::Version => {
+            write_stdout_line(&format!("adotenv-lint {}", env!("CARGO_PKG_VERSION")));
+            return Ok(SUCCESS);
+        }
+        CliAction::Run(options) => *options,
+    };
     apply_config(&mut options)?;
     if options.paths.is_empty() {
         options.paths.push(".".to_owned());
@@ -127,17 +173,18 @@ fn run() -> Result<u8, String> {
     }
     let paths = collect_paths(&options.paths, options.recursive, &options.exclude)?;
     let mut total = 0usize;
-    let mut first_error = None;
+    let mut had_error = false;
 
     if options.format == Format::Json {
-        print!("[");
+        write_stdout("[");
     }
     let mut printed = 0usize;
     for path in paths {
-        let source = match fs::read_to_string(&path) {
+        let source = match read_file_bounded(&path, options.parse_limits.max_input_bytes) {
             Ok(source) => source,
             Err(error) => {
-                first_error = Some(format!("{}: {error}", path.display()));
+                eprintln!("{}: {error}", path.display());
+                had_error = true;
                 continue;
             }
         };
@@ -145,7 +192,8 @@ fn run() -> Result<u8, String> {
             match parse_strict_with_options(&source, options.dialect, options.parse_limits) {
                 Ok(document) => document,
                 Err(error) => {
-                    first_error = Some(format!("{}: {error}", path.display()));
+                    eprintln!("{}: {error}", path.display());
+                    had_error = true;
                     continue;
                 }
             };
@@ -154,7 +202,8 @@ fn run() -> Result<u8, String> {
             match fix_file(&path, source, &options) {
                 Ok(remaining) => findings = remaining,
                 Err(error) => {
-                    first_error = Some(format!("{}: {error}", path.display()));
+                    eprintln!("{}: {error}", path.display());
+                    had_error = true;
                     findings = Vec::new();
                 }
             }
@@ -164,7 +213,7 @@ fn run() -> Result<u8, String> {
             Format::Json => {
                 for finding in &findings {
                     if printed > 0 {
-                        print!(",");
+                        write_stdout(",");
                     }
                     print_json(&path, finding);
                     printed += 1;
@@ -175,11 +224,10 @@ fn run() -> Result<u8, String> {
         }
     }
     if options.format == Format::Json {
-        println!("]");
+        write_stdout_line("]");
     }
 
-    if let Some(message) = first_error {
-        eprintln!("{message}");
+    if had_error {
         return Ok(FAILURE);
     }
     Ok(if total == 0 { SUCCESS } else { FINDINGS })
@@ -223,7 +271,7 @@ fn file_identity(path: &Path) -> io::Result<FileIdentity> {
 fn fix_file(path: &Path, mut source: String, options: &Options) -> Result<Vec<Finding>, String> {
     let target = fs::canonicalize(path).map_err(|error| error.to_string())?;
     let identity = file_identity(&target).map_err(|error| error.to_string())?;
-    let current = fs::read_to_string(&target).map_err(|error| error.to_string())?;
+    let current = read_file_bounded(&target, options.parse_limits.max_input_bytes)?;
     if current != source {
         return Err("file changed after it was read".to_owned());
     }
@@ -301,12 +349,16 @@ fn write_fixed(path: &Path, source: &str, expected: FileIdentity) -> Result<(), 
     }
     let temporary = temporary.ok_or_else(|| "could not create a temporary file".to_owned())?;
     let result = (|| {
-        let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
-        fs::set_permissions(&temporary, metadata.permissions())
-            .map_err(|error| error.to_string())?;
+        let symlink_meta = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+        if symlink_meta.file_type().is_symlink() {
+            return Err("file changed after it was read".to_owned());
+        }
         if file_identity(path).map_err(|error| error.to_string())? != expected {
             return Err("file changed after it was read".to_owned());
         }
+        let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
+        fs::set_permissions(&temporary, metadata.permissions())
+            .map_err(|error| error.to_string())?;
         replace_file(&temporary, path)
     })();
     if result.is_err() {
@@ -401,8 +453,24 @@ fn parse_limit(flag: &str, value: &str) -> Result<usize, String> {
         .map_err(|_| format!("{flag} expects a non-negative integer: {value}"))
 }
 
-#[allow(clippy::too_many_lines)]
+#[derive(Debug)]
+enum CliAction {
+    Help,
+    Version,
+    Run(Box<Options>),
+}
+
+#[cfg(test)]
 fn parse_args(args: &mut [String]) -> Result<Options, String> {
+    match parse_cli_args(args)? {
+        CliAction::Run(options) => Ok(*options),
+        CliAction::Help => Err("help requested".to_owned()),
+        CliAction::Version => Err("version requested".to_owned()),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn parse_cli_args(args: &[String]) -> Result<CliAction, String> {
     let mut options = Options {
         dialect: Dialect::PORTABLE,
         parse_limits: ParseOptions::new(),
@@ -426,6 +494,8 @@ fn parse_args(args: &mut [String]) -> Result<Options, String> {
         }
         match argument.as_str() {
             "--" => options_ended = true,
+            "-h" | "--help" => return Ok(CliAction::Help),
+            "--version" => return Ok(CliAction::Version),
             "--recursive" | "-r" => {
                 options.recursive = true;
                 options.explicit.recursive = true;
@@ -550,7 +620,7 @@ fn parse_args(args: &mut [String]) -> Result<Options, String> {
         }
         index += 1;
     }
-    Ok(options)
+    Ok(CliAction::Run(Box::new(options)))
 }
 
 fn value<'a>(args: &'a [String], index: usize, option: &str) -> Result<&'a str, String> {
@@ -568,6 +638,8 @@ fn collect_paths(
     let mut found = BTreeSet::new();
     for path in paths {
         let path = PathBuf::from(path);
+        let symlink_meta =
+            fs::symlink_metadata(&path).map_err(|error| format!("{}: {error}", path.display()))?;
         let metadata =
             fs::metadata(&path).map_err(|error| format!("{}: {error}", path.display()))?;
         if excludes.is_ignored_with_root(&path, &path) {
@@ -576,6 +648,12 @@ fn collect_paths(
         if metadata.is_file() {
             found.insert(path);
         } else if metadata.is_dir() {
+            if symlink_meta.file_type().is_symlink() {
+                return Err(format!(
+                    "{}: symbolic link directory is not allowed",
+                    path.display()
+                ));
+            }
             if !recursive {
                 return Err(format!(
                     "{}: directory requires --recursive",
@@ -590,7 +668,15 @@ fn collect_paths(
             ));
         }
     }
-    Ok(found.into_iter().collect())
+    let mut seen_canonical = BTreeSet::new();
+    let mut unique = Vec::with_capacity(found.len());
+    for path in found {
+        let key = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        if seen_canonical.insert(key) {
+            unique.push(path);
+        }
+    }
+    Ok(unique)
 }
 
 fn walk(
@@ -656,27 +742,27 @@ fn print_human(path: &Path, findings: &[Finding]) {
         let key = finding
             .key()
             .map_or_else(String::new, |key| format!(" [{key}]"));
-        println!(
+        write_stdout_line(&format!(
             "{}:{}: {}[{}]: {}{key}",
             path.display(),
             finding.line(),
             severity_name(finding.severity()),
             finding.rule().as_str(),
             finding.message()
-        );
+        ));
     }
 }
 
 fn print_github(path: &Path, findings: &[Finding]) {
     for finding in findings {
-        println!(
+        write_stdout_line(&format!(
             "::{} file={},line={},title={}::{}",
             github_level(finding.severity()),
             github_property(&path.display().to_string()),
             finding.line(),
             github_property(finding.rule().as_str()),
             github_message(finding.message())
-        );
+        ));
     }
 }
 
@@ -689,7 +775,7 @@ fn github_level(severity: Severity) -> &'static str {
 }
 
 fn print_json(path: &Path, finding: &Finding) {
-    print!(
+    write_stdout(&format!(
         "{{\"path\":{},\"line\":{},\"rule\":{},\"severity\":{},\"message\":{},\"key\":{},\"span\":{{\"start\":{},\"end\":{}}}}}",
         json_string(&path.display().to_string()),
         finding.line(),
@@ -701,7 +787,7 @@ fn print_json(path: &Path, finding: &Finding) {
             .map_or_else(|| "null".to_owned(), json_string),
         finding.span().start,
         finding.span().end,
-    );
+    ));
 }
 
 fn severity_name(severity: Severity) -> &'static str {

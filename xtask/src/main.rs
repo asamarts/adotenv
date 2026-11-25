@@ -282,7 +282,7 @@ fn command_report(args: &[String]) -> Result<()> {
     }
     report.push_str(
         "| size | shape | mode | implementation | entries | source bytes | peak heap | retained heap | after drop | allocations | RSS before | RSS peak | RSS after |\n\
-         |---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n",
+         |---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n",
     );
     for row in rows {
         writeln!(
@@ -322,7 +322,7 @@ fn command_compare(args: &[String]) -> Result<()> {
     let current = read_rows(current)?;
     let mut report = String::from(
         "| size | shape | mode | implementation | metric | baseline | current | delta |\n\
-         |---|---|---|---|---:|---:|---:|\n",
+         |---|---|---|---|---|---:|---:|---:|\n",
     );
     for (key, row) in &current {
         let Some(base) = baseline.get(key) else {
