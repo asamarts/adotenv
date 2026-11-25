@@ -351,9 +351,10 @@ pub enum Edit<'a> {
 /// Optional bounds for verified edits.
 ///
 /// All limits are opt-in and default to unbounded, matching [`Document::edit`].
-/// When configured, [`Document::edit_with_options`] enforces output byte and
+/// When configured, [`Document::edit_with_options`] and
+/// [`Document::rename_with_references_with_options`] enforce output byte and
 /// physical-line caps from the planned [`TextEdit`]s before allocating the
-/// output string, and forwards [`parse_limits`](Self::parse_limits) when
+/// output string, and forward [`parse_limits`](Self::parse_limits) when
 /// verification parses the edited output.
 ///
 /// For single operations whose value or inserted text alone exceeds a byte cap,
@@ -471,7 +472,8 @@ pub enum EditError {
     InvalidKey,
     /// A key cannot be written as a variable reference.
     ///
-    /// Returned by [`Document::rename_with_references`] when the new key needs
+    /// Returned by [`Document::rename_with_references`] and
+    /// [`Document::rename_with_references_with_options`] when the new key needs
     /// a character that the reference grammar treats as an operator or
     /// delimiter. For example, a key containing `-` cannot be written as
     /// `$A-B` or `${A-B}`; the scanner reads it as a reference to `A` with an
@@ -498,10 +500,10 @@ pub enum EditError {
     WouldChangeMeaning,
     /// The planned output or verification parse exceeded a configured limit.
     ///
-    /// Returned by [`Document::edit_with_options`] and its single-operation
-    /// helpers when [`EditOptions::max_output_bytes`],
-    /// [`EditOptions::max_output_lines`], or [`EditOptions::parse_limits`] is
-    /// exceeded.
+    /// Returned by [`Document::edit_with_options`], its single-operation
+    /// helpers, and [`Document::rename_with_references_with_options`] when
+    /// [`EditOptions::max_output_bytes`], [`EditOptions::max_output_lines`], or
+    /// [`EditOptions::parse_limits`] is exceeded.
     Limit(LimitExceeded),
 }
 impl fmt::Display for EditError {
@@ -833,9 +835,33 @@ fn reference_key_fits_quote(quote: Quote, key: &str) -> bool {
     }
 }
 
-fn reference_rename_edit(
+fn declaration_rename_spec(
+    entry: crate::Entry<'_>,
+    new_key: &str,
+    dialect: Dialect,
+) -> Result<(Range<usize>, usize, bool), EditError> {
+    if entry.key_span() != entry.tokens().key && !new_key.is_empty() && !new_key.contains('\'') {
+        Ok((entry.key_span(), new_key.len(), false))
+    } else if crate::parser::valid_key_in(new_key, dialect)
+        && !(dialect.quoted_keys && new_key.starts_with('\''))
+    {
+        Ok((entry.tokens().key.clone(), new_key.len(), false))
+    } else if dialect.quoted_keys && !new_key.is_empty() && !new_key.contains('\'') {
+        Ok((
+            entry.tokens().key.clone(),
+            new_key.len().saturating_add(2),
+            true,
+        ))
+    } else {
+        Err(EditError::InvalidKey)
+    }
+}
+
+fn reference_rename_edit_bounded(
     reference: &crate::Reference,
     new_key: &str,
+    added_so_far: usize,
+    byte_cap: Option<(LimitKind, usize)>,
 ) -> Result<TextEdit, EditError> {
     let name = reference
         .name
@@ -844,28 +870,96 @@ fn reference_rename_edit(
     if !reference_key_fits_quote(reference.quote, new_key) {
         return Err(EditError::InvalidReferenceKey);
     }
-    if reference.braced {
+    let (range, brace) = if reference.braced {
         if !braced_reference_name(new_key) {
             return Err(EditError::InvalidReferenceKey);
         }
-        return Ok(TextEdit {
-            range: name,
-            replacement: new_key.to_string(),
-        });
+        (name, false)
+    } else if unbraced_reference_name(new_key) {
+        (name, false)
+    } else if !reference.escaped && braced_reference_name(new_key) {
+        (reference.span.clone(), true)
+    } else {
+        return Err(EditError::InvalidReferenceKey);
+    };
+    let replacement_len = new_key.len().saturating_add(if brace { 3 } else { 0 });
+    if let Some((kind, limit)) = byte_cap {
+        let next_added = added_so_far.saturating_add(replacement_len);
+        if next_added > limit {
+            return Err(EditError::Limit(LimitExceeded::new(
+                kind, limit, next_added,
+            )));
+        }
     }
-    if unbraced_reference_name(new_key) {
-        return Ok(TextEdit {
-            range: name,
-            replacement: new_key.to_string(),
-        });
+    let replacement = if brace {
+        format!("${{{new_key}}}")
+    } else {
+        new_key.to_string()
+    };
+    Ok(TextEdit { range, replacement })
+}
+
+fn verify_reference_entry(
+    orig_entry: crate::Entry<'_>,
+    new_entry: crate::Entry<'_>,
+    rewritten: crate::Item<'_>,
+    edits: &[TextEdit],
+    target_entry: usize,
+    new_key: &str,
+) -> Result<(), EditError> {
+    let expected_key = if orig_entry.id() == target_entry {
+        new_key
+    } else {
+        orig_entry.key()
+    };
+    if new_entry.key() != expected_key
+        || orig_entry.state() != new_entry.state()
+        || orig_entry.quote() != new_entry.quote()
+        || orig_entry.exported() != new_entry.exported()
+        || orig_entry.inline_comment() != new_entry.inline_comment()
+        || (orig_entry.id() == target_entry
+            && rewritten
+                .diagnostic()
+                .is_some_and(|d| d.severity() == Severity::Error))
+    {
+        return Err(EditError::WouldChangeMeaning);
     }
-    if !reference.escaped && braced_reference_name(new_key) {
-        return Ok(TextEdit {
-            range: reference.span.clone(),
-            replacement: format!("${{{new_key}}}"),
-        });
+    if let Some(val_span) = orig_entry.value_span() {
+        let first_edit = edits.partition_point(|edit| edit.range.end <= val_span.start);
+        let last_edit = edits.partition_point(|edit| edit.range.start < val_span.end);
+        let value_edits = &edits[first_edit..last_edit];
+        if value_edits.is_empty() {
+            if orig_entry.value() != new_entry.value() {
+                return Err(EditError::WouldChangeMeaning);
+            }
+        } else if let (Some(orig_val), Some(new_val)) = (orig_entry.value(), new_entry.value()) {
+            let mut total_added = 0usize;
+            let mut total_removed = 0usize;
+            for edit in value_edits {
+                let dec_start = crate::resolve::decoded_start_for_raw(orig_entry, edit.range.start)
+                    .ok_or(EditError::WouldChangeMeaning)?;
+                let dec_end = crate::resolve::decoded_end_for_raw(orig_entry, edit.range.end)
+                    .ok_or(EditError::WouldChangeMeaning)?;
+                let removed = dec_end
+                    .checked_sub(dec_start)
+                    .ok_or(EditError::WouldChangeMeaning)?;
+                total_removed = total_removed
+                    .checked_add(removed)
+                    .ok_or(EditError::WouldChangeMeaning)?;
+                total_added = total_added
+                    .checked_add(edit.replacement.len())
+                    .ok_or(EditError::WouldChangeMeaning)?;
+            }
+            if orig_val.len().checked_add(total_added) != new_val.len().checked_add(total_removed) {
+                return Err(EditError::WouldChangeMeaning);
+            }
+        } else {
+            return Err(EditError::WouldChangeMeaning);
+        }
+    } else if orig_entry.value() != new_entry.value() {
+        return Err(EditError::WouldChangeMeaning);
     }
-    Err(EditError::InvalidReferenceKey)
+    Ok(())
 }
 
 fn rewrite_span(
@@ -2127,16 +2221,21 @@ impl Document<'_> {
         verify_new_keys(&parsed, new_keys)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn verify_reference_rename(
         &self,
         output: &str,
         edits: &[TextEdit],
+        target_entry: usize,
         old_key: &str,
         new_key: &str,
         old_references: usize,
         existing_new: usize,
+        parse_limits: ParseOptions,
     ) -> Result<(), EditError> {
-        let parsed = crate::parser::parse_document(output, self.dialect());
+        let parsed =
+            crate::parser::parse_document_with_options(output, self.dialect(), parse_limits)
+                .map_err(EditError::Limit)?;
         if parsed.bom_span() != self.bom_span() {
             return Err(EditError::WouldChangeMeaning);
         }
@@ -2167,55 +2266,17 @@ impl Document<'_> {
                 return Err(EditError::WouldChangeMeaning);
             }
             if let (Some(orig_entry), Some(new_entry)) = (original.entry(), rewritten.entry()) {
-                if orig_entry.quote() != new_entry.quote()
-                    || orig_entry.exported() != new_entry.exported()
-                    || orig_entry.inline_comment() != new_entry.inline_comment()
-                {
-                    return Err(EditError::WouldChangeMeaning);
-                }
-                if let Some(val_span) = orig_entry.value_span() {
-                    let first_edit = edits.partition_point(|edit| edit.range.end <= val_span.start);
-                    let last_edit = edits.partition_point(|edit| edit.range.start < val_span.end);
-                    let value_edits = &edits[first_edit..last_edit];
-                    if value_edits.is_empty() {
-                        if orig_entry.value() != new_entry.value() {
-                            return Err(EditError::WouldChangeMeaning);
-                        }
-                    } else if let (Some(orig_val), Some(new_val)) =
-                        (orig_entry.value(), new_entry.value())
-                    {
-                        let mut total_added = 0usize;
-                        let mut total_removed = 0usize;
-                        for edit in value_edits {
-                            let dec_start =
-                                crate::resolve::decoded_start_for_raw(orig_entry, edit.range.start)
-                                    .ok_or(EditError::WouldChangeMeaning)?;
-                            let dec_end =
-                                crate::resolve::decoded_end_for_raw(orig_entry, edit.range.end)
-                                    .ok_or(EditError::WouldChangeMeaning)?;
-                            let removed = dec_end
-                                .checked_sub(dec_start)
-                                .ok_or(EditError::WouldChangeMeaning)?;
-                            total_removed = total_removed
-                                .checked_add(removed)
-                                .ok_or(EditError::WouldChangeMeaning)?;
-                            total_added = total_added
-                                .checked_add(edit.replacement.len())
-                                .ok_or(EditError::WouldChangeMeaning)?;
-                        }
-                        if orig_val.len().checked_add(total_added)
-                            != new_val.len().checked_add(total_removed)
-                        {
-                            return Err(EditError::WouldChangeMeaning);
-                        }
-                    } else {
-                        return Err(EditError::WouldChangeMeaning);
-                    }
-                } else if orig_entry.value() != new_entry.value() {
-                    return Err(EditError::WouldChangeMeaning);
-                }
+                verify_reference_entry(
+                    orig_entry,
+                    new_entry,
+                    *rewritten,
+                    edits,
+                    target_entry,
+                    new_key,
+                )?;
             }
         }
+        verify_new_keys(&parsed, vec![new_key])?;
         let mut before_errors: Vec<_> =
             before.iter().filter_map(|item| error_code(*item)).collect();
         let mut after_errors: Vec<_> = after.iter().filter_map(|item| error_code(*item)).collect();
@@ -2461,11 +2522,52 @@ impl Document<'_> {
         key: &str,
         new_key: &str,
     ) -> Result<VerifiedEdits, EditError> {
+        self.rename_with_references_with_options(key, new_key, EditOptions::new())
+    }
+    /// Renames the only declaration of `key` and every variable reference to
+    /// it in the document's values, with opt-in output and verification limits.
+    ///
+    /// This is [`Document::rename_with_references`] with [`EditOptions`].
+    /// Output byte and physical-line caps are checked against the combined
+    /// declaration and reference edits before allocating the output string,
+    /// and [`EditOptions::parse_limits`] bounds verification re-parsing.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Document::rename_with_references`], plus
+    /// [`EditError::Limit`] when an [`EditOptions`] limit is exceeded.
+    pub fn rename_with_references_with_options(
+        &self,
+        key: &str,
+        new_key: &str,
+        options: EditOptions,
+    ) -> Result<VerifiedEdits, EditError> {
         if key == new_key {
-            return self.rename(key, new_key);
+            return self.rename_with_options(key, new_key, options);
         }
-        let declaration = self.rename(key, new_key)?;
-        let mut edits = declaration.edits().to_vec();
+        let target = self.unique(key)?;
+        let (decl_range, decl_len, decl_quote) =
+            declaration_rename_spec(target, new_key, self.dialect())?;
+        let byte_cap = effective_byte_cap(options);
+        if let Some((kind, limit)) = byte_cap {
+            if decl_len > limit {
+                return Err(EditError::Limit(LimitExceeded::new(kind, limit, decl_len)));
+            }
+        }
+        let decl_replacement = if decl_quote {
+            let mut token = String::with_capacity(decl_len);
+            token.push('\'');
+            token.push_str(new_key);
+            token.push('\'');
+            token
+        } else {
+            new_key.to_string()
+        };
+        let mut edits = vec![TextEdit {
+            range: decl_range,
+            replacement: decl_replacement,
+        }];
+        let mut total_added = decl_len;
         let mut references = 0usize;
         let mut existing_new = 0usize;
         for entry in self.entries() {
@@ -2477,7 +2579,10 @@ impl Document<'_> {
                     continue;
                 };
                 if candidate == key {
-                    edits.push(reference_rename_edit(&reference, new_key)?);
+                    let ref_edit =
+                        reference_rename_edit_bounded(&reference, new_key, total_added, byte_cap)?;
+                    total_added = total_added.saturating_add(ref_edit.replacement.len());
+                    edits.push(ref_edit);
                     references += 1;
                 } else if candidate == new_key {
                     existing_new += 1;
@@ -2485,11 +2590,21 @@ impl Document<'_> {
             }
         }
         if references == 0 {
-            return Ok(declaration);
+            return self.rename_with_options(key, new_key, options);
         }
         let edits = Self::normalize_edits(edits)?;
+        check_planned_output_limits(self.source(), &edits, self.dialect().line_breaks, options)?;
         let output = Self::apply_edits(self.source(), &edits);
-        self.verify_reference_rename(&output, &edits, key, new_key, references, existing_new)?;
+        self.verify_reference_rename(
+            &output,
+            &edits,
+            target.id(),
+            key,
+            new_key,
+            references,
+            existing_new,
+            options.parse_limits,
+        )?;
         Ok(VerifiedEdits { edits, output })
     }
     /// Inserts a declaration of a key that the document does not declare yet.

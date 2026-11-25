@@ -514,6 +514,33 @@ fuzz_target!(|bytes: &[u8]| {
         check_selected(source, value, operation, selector, custom);
     }
     let (document, _) = parse(source);
+    if let Some(entry) = document.entry(usize::from(selector) % document.entries().len().max(1)) {
+        let ref_key = if selector & 0x80 == 0 {
+            "FUZZ_REF_KEY"
+        } else {
+            value
+        };
+        if let Ok(renamed) = document.rename_with_references(entry.key(), ref_key) {
+            check_replay(source, &renamed);
+            let exact = document.rename_with_references_with_options(
+                entry.key(),
+                ref_key,
+                EditOptions::new().with_max_output_bytes(renamed.as_str().len()),
+            );
+            assert_eq!(exact, Ok(renamed.clone()));
+            if !renamed.as_str().is_empty() {
+                let too_small = document.rename_with_references_with_options(
+                    entry.key(),
+                    ref_key,
+                    EditOptions::new().with_max_output_bytes(renamed.as_str().len() - 1),
+                );
+                assert!(matches!(
+                    too_small,
+                    Err(EditError::Limit(limit)) if limit.kind() == LimitKind::OutputBytes
+                ));
+            }
+        }
+    }
     let before = meanings(&document);
     let mut expected = before.clone();
     let target = if selector & 0x40 != 0 {

@@ -1861,3 +1861,220 @@ fn rename_with_references_braces_digit_leading_keys_and_rejects_escape_or_quote_
     assert_eq!(renamed_esc.as_str(), "'HOST'=1\nX=\"${HOST}\"\n");
     replay(escaped_old, &renamed_esc);
 }
+
+#[test]
+fn rename_with_references_with_options_enforces_output_and_parse_limits() {
+    use crate::{EditOptions, LimitKind};
+
+    // Growing rename: exact output byte cap succeeds, one byte smaller fails.
+    let source = "HOST=localhost\nURL=$HOST/api\nPORT=${HOST}\n";
+    let doc = crate::parse_strict(source).unwrap();
+    let expected = "SERVER_HOST=localhost\nURL=$SERVER_HOST/api\nPORT=${SERVER_HOST}\n";
+    let exact = doc
+        .rename_with_references_with_options(
+            "HOST",
+            "SERVER_HOST",
+            EditOptions::new()
+                .with_max_output_bytes(expected.len())
+                .with_max_output_lines(3),
+        )
+        .unwrap();
+    assert_eq!(exact.as_str(), expected);
+    replay(source, &exact);
+
+    let err = doc
+        .rename_with_references_with_options(
+            "HOST",
+            "SERVER_HOST",
+            EditOptions::new().with_max_output_bytes(expected.len() - 1),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(err, EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes && limit.limit() == expected.len() - 1 && limit.observed() == expected.len()),
+        "{err:?}"
+    );
+
+    // Line cap enforced before applying edits.
+    let line_err = doc
+        .rename_with_references_with_options(
+            "HOST",
+            "SERVER_HOST",
+            EditOptions::new().with_max_output_lines(2),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(line_err, EditError::Limit(limit) if limit.kind() == LimitKind::Lines && limit.limit() == 2),
+        "{line_err:?}"
+    );
+
+    // Shrinking rename: intermediate declaration-only output (27 bytes) exceeds
+    // the 15-byte cap, but the combined output ("A=1\nURL=$A\n" = 11 bytes) fits.
+    let long_source = "VERY_LONG_OLD_KEY=1\nURL=$VERY_LONG_OLD_KEY\n";
+    let long_doc = crate::parse_strict(long_source).unwrap();
+    let shrunk = long_doc
+        .rename_with_references_with_options(
+            "VERY_LONG_OLD_KEY",
+            "A",
+            EditOptions::new().with_max_output_bytes(15),
+        )
+        .unwrap();
+    assert_eq!(shrunk.as_str(), "A=1\nURL=$A\n");
+    replay(long_source, &shrunk);
+}
+
+#[test]
+fn rename_with_references_with_options_enforces_parse_limits_and_early_caps() {
+    use crate::{EditOptions, LimitKind, ParseOptions};
+
+    let source = "HOST=localhost\nURL=$HOST/api\nPORT=${HOST}\n";
+    let doc = crate::parse_strict(source).unwrap();
+    let expected = "SERVER_HOST=localhost\nURL=$SERVER_HOST/api\nPORT=${SERVER_HOST}\n";
+
+    // Tighter parse_limits.max_input_bytes reports InputBytes; tighter max_output_bytes
+    // reports OutputBytes.
+    let input_err = doc
+        .rename_with_references_with_options(
+            "HOST",
+            "SERVER_HOST",
+            EditOptions::new()
+                .with_max_output_bytes(expected.len() + 10)
+                .with_parse_limits(ParseOptions::new().with_max_input_bytes(expected.len() - 1)),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(input_err, EditError::Limit(limit) if limit.kind() == LimitKind::InputBytes),
+        "{input_err:?}"
+    );
+
+    // Verification re-parse enforces parse_limits.max_items and max_lines.
+    let item_err = doc
+        .rename_with_references_with_options(
+            "HOST",
+            "SERVER_HOST",
+            EditOptions::new().with_parse_limits(ParseOptions::new().with_max_items(2)),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(item_err, EditError::Limit(limit) if limit.kind() == LimitKind::Items),
+        "{item_err:?}"
+    );
+
+    let parse_line_err = doc
+        .rename_with_references_with_options(
+            "HOST",
+            "SERVER_HOST",
+            EditOptions::new().with_parse_limits(ParseOptions::new().with_max_lines(2)),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(parse_line_err, EditError::Limit(limit) if limit.kind() == LimitKind::Lines),
+        "{parse_line_err:?}"
+    );
+
+    // Early cap rejection during declaration or reference collection avoids
+    // unbounded intermediate replacement allocations.
+    let decl_cap_err = doc
+        .rename_with_references_with_options(
+            "HOST",
+            "SERVER_HOST",
+            EditOptions::new().with_max_output_bytes(5),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(decl_cap_err, EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes && limit.observed() == "SERVER_HOST".len()),
+        "{decl_cap_err:?}"
+    );
+
+    let ref_cap_err = doc
+        .rename_with_references_with_options(
+            "HOST",
+            "SERVER_HOST",
+            EditOptions::new().with_max_output_bytes(15),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(ref_cap_err, EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes && limit.observed() == 22),
+        "{ref_cap_err:?}"
+    );
+}
+
+#[test]
+fn rename_with_references_with_options_handles_quoting_self_ref_and_duplicates() {
+    use crate::{Dialect, Duplicates, EditOptions, LimitKind};
+
+    let source = "HOST=localhost\nURL=$HOST/api\nPORT=${HOST}\n";
+    let doc = crate::parse_strict(source).unwrap();
+
+    // Unquoted -> newly-quoted key + unbraced -> braced reference honors exact byte cap.
+    let (py_doc, _) = parse_with("A=1\nX=$A\n", Dialect::PYTHON_DOTENV);
+    let py_expected = "'D E'=1\nX=${D E}\n";
+    let py_ok = py_doc
+        .rename_with_references_with_options(
+            "A",
+            "D E",
+            EditOptions::new().with_max_output_bytes(py_expected.len()),
+        )
+        .unwrap();
+    assert_eq!(py_ok.as_str(), py_expected);
+    replay("A=1\nX=$A\n", &py_ok);
+    let py_err = py_doc
+        .rename_with_references_with_options(
+            "A",
+            "D E",
+            EditOptions::new().with_max_output_bytes(py_expected.len() - 1),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(py_err, EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes),
+        "{py_err:?}"
+    );
+
+    // Self-rename and zero-reference rename also honor EditOptions.
+    let self_err = doc
+        .rename_with_references_with_options(
+            "HOST",
+            "HOST",
+            EditOptions::new().with_max_output_bytes(4),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(self_err, EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes),
+        "{self_err:?}"
+    );
+    let noref_doc = crate::parse_strict("A=1\nB=2\n").unwrap();
+    let noref_err = noref_doc
+        .rename_with_references_with_options(
+            "A",
+            "LONG_NAME",
+            EditOptions::new().with_max_output_bytes(10),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(noref_err, EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes),
+        "{noref_err:?}"
+    );
+
+    // Self-referencing declaration and duplicate target with references (including Duplicates::Error).
+    let self_ref = crate::parse_strict("HOST=$HOST\n").unwrap();
+    let self_renamed = self_ref
+        .rename_with_references_with_options(
+            "HOST",
+            "SERVER",
+            EditOptions::new().with_max_output_bytes(32),
+        )
+        .unwrap();
+    assert_eq!(self_renamed.as_str(), "SERVER=$SERVER\n");
+    replay("HOST=$HOST\n", &self_renamed);
+
+    let dup_source = "A=1\nB=2\nC=$A\n";
+    for dialect in [
+        Dialect::PORTABLE,
+        Dialect::PORTABLE.with_duplicates(Duplicates::First),
+    ] {
+        let (dup_doc, _) = parse_with(dup_source, dialect);
+        assert_eq!(
+            dup_doc.rename_with_references_with_options("A", "B", EditOptions::new()),
+            Err(EditError::Duplicate(2))
+        );
+    }
+}

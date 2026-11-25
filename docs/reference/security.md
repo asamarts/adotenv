@@ -33,11 +33,12 @@ files, `Document::resolve` substitutes references from a lookup you pass,
   major release may choose default limits. `parse_values`, `parse_values_compact`
   and `parse_entries_compact` skip the document model and use much less memory.
 - For untrusted edits, pass `EditOptions` to `Document::edit_with_options`,
-  `set_with_options`, `remove_with_options`, `insert_with_options` or
-  `rename_with_options` to bound output bytes (`LimitKind::OutputBytes`),
-  output physical lines (`LimitKind::Lines`) and verification re-parsing
-  (`parse_limits`). Planned byte and line budgets are checked before allocating
-  the output string; exceeding a limit fails with `EditError::Limit`.
+  `set_with_options`, `remove_with_options`, `insert_with_options`,
+  `rename_with_options` or `rename_with_references_with_options` to bound
+  output bytes (`LimitKind::OutputBytes`), output physical lines
+  (`LimitKind::Lines`) and verification re-parsing (`parse_limits`). Planned
+  byte and line budgets are checked before allocating the output string;
+  exceeding a limit fails with `EditError::Limit`.
 - The loader accepts the same limits with `LoadOptions::with_limits`.
   `max_input_bytes` bounds the file size and the read itself, so a file that
   changes after its metadata check cannot grow without bound. Exceeding a
