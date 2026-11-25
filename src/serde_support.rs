@@ -29,10 +29,10 @@ use crate::{Document, Mask, REDACTED};
 ///   and its key. A value consumed through `#[serde(flatten)]` is decoded
 ///   after map access; serde then reports line `0` and no key for that value.
 /// - A key that does not convert, such as an unknown field under
-///   `#[serde(deny_unknown_fields)]`, has the line of its declaration and an
-///   empty key, `Some("")`. Keys are always passed as strings, so any key read
-///   into a map with non-string keys, such as `BTreeMap<u16, String>`, fails
-///   this way, even `8080`.
+///   `#[serde(deny_unknown_fields)]`, has the line of its declaration and its
+///   key. Keys are always passed as strings, so any key read into a map with
+///   non-string keys, such as `BTreeMap<u16, String>`, fails this way, even
+///   `8080`.
 /// - An error about the whole map, such as a missing field, has line `0` and
 ///   no key.
 /// - From a loaded environment loaded without origins, a value error has
@@ -93,6 +93,8 @@ impl DeserializeError {
     fn with_context(mut self, line: usize, key: String) -> Self {
         if self.line == 0 {
             self.line = line;
+        }
+        if self.key.is_none() {
             self.key = Some(key);
         }
         self
@@ -130,11 +132,10 @@ impl DeserializeError {
     pub const fn line(&self) -> usize {
         self.line
     }
-    /// Returns the key of the declaration whose value did not convert.
+    /// Returns the key of the declaration whose key or value did not convert.
     ///
-    /// Returns `Some("")` when the key itself did not convert, and `None` for
-    /// an error about the whole map or a value consumed through
-    /// `#[serde(flatten)]`.
+    /// Returns `None` for an error about the whole map or a value consumed
+    /// through `#[serde(flatten)]`.
     #[must_use]
     pub fn key(&self) -> Option<&str> {
         self.key.as_deref()
@@ -418,8 +419,11 @@ impl<'de> MapAccess<'de> for EntriesAccess {
         let Some((key, value, line)) = self.entries.next() else {
             return Ok(None);
         };
+        let context = key.clone();
         self.current = Some((key.clone(), value, line));
-        seed.deserialize(KeyDeserializer { key, line }).map(Some)
+        seed.deserialize(KeyDeserializer { key, line })
+            .map(Some)
+            .map_err(|error| error.with_context(line, context))
     }
 
     fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
@@ -453,9 +457,10 @@ impl<'de> Deserializer<'de> for KeyDeserializer {
     where
         V: Visitor<'de>,
     {
+        let Self { key, line } = self;
         visitor
-            .visit_str(&self.key)
-            .map_err(|error: DeserializeError| error.with_context(self.line, String::new()))
+            .visit_str(&key)
+            .map_err(|error: DeserializeError| error.with_context(line, key))
     }
 
     serde::forward_to_deserialize_any! {

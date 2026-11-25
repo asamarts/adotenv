@@ -123,17 +123,17 @@ impl Document<'_> {
                                 // This custom grammar cannot attach a comment to
                                 // an empty value; retain it on the next line.
                                 moved_comment = true;
-                                output.push_str(if ending == crate::LineEnding::None {
+                                let break_str = if ending == crate::LineEnding::None
+                                    || (self.dialect().line_breaks == crate::LineBreaks::Lf
+                                        && ending == crate::LineEnding::Cr)
+                                {
                                     "\n"
                                 } else {
                                     ending.as_str()
-                                });
+                                };
+                                output.push_str(break_str);
                                 output.push_str(&source[comment.clone()]);
-                                output.push_str(if ending == crate::LineEnding::None {
-                                    "\n"
-                                } else {
-                                    ending.as_str()
-                                });
+                                output.push_str(break_str);
                             } else {
                                 output.push_str(&source[tokens.trailing_space.clone()]);
                                 output.push_str(&source[comment.clone()]);

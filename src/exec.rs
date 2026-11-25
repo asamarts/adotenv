@@ -3,7 +3,7 @@
 //! This module exists only with the `exec` feature. [`Shell`] is a ready-made
 //! callback for
 //! [`Document::resolve_with_commands`](crate::Document::resolve_with_commands):
-//! it runs each command with `sh -c`, or `cmd /C` on Windows, in a directory
+//! it runs each command with `sh -c`, or `cmd /S /C` on Windows, in a directory
 //! you name, and returns its standard output.
 //!
 //! A command in a `.env` file is arbitrary code that runs with the permissions
@@ -48,9 +48,10 @@ const SHELL_FLAG: &str = "-c";
 /// [`Document::resolve_with_commands`](crate::Document::resolve_with_commands)
 /// takes. Each command:
 ///
-/// - runs as `sh -c <command>`, or as `cmd /C <command>` on Windows, with the
-///   command text exactly as written between `$(` and `)`, so it uses that
-///   shell's syntax;
+/// - runs as `sh -c <command>`, or as `cmd /S /C "<command>"` on Windows, with
+///   the command text exactly as written between `$(` and `)`, so it uses that
+///   shell's syntax (on Windows, embedded `\r` or `\n` is rejected because
+///   `cmd.exe` truncates command lines at line breaks);
 /// - runs in the directory given to [`Shell::new`], or in the directory that
 ///   [`Shell::with_origins`] maps its source identity to;
 /// - inherits the environment of the current process. The shell expands
@@ -238,13 +239,30 @@ impl Shell {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn run(&self, context: &CommandContext<'_>) -> Result<String, CommandError> {
+        #[cfg(windows)]
+        if context.command.contains(['\r', '\n']) {
+            return Err(CommandError::new(
+                "Windows shell command cannot contain line breaks",
+            ));
+        }
         let directory = context
             .source
             .and_then(|source| self.origins.get(source))
             .unwrap_or(&self.directory);
-        let mut child = Command::new(SHELL)
-            .arg(SHELL_FLAG)
-            .arg(context.command)
+        let mut command = Command::new(SHELL);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command
+                .arg("/S")
+                .arg(SHELL_FLAG)
+                .raw_arg(format!("\"{}\"", context.command));
+        }
+        #[cfg(not(windows))]
+        {
+            command.arg(SHELL_FLAG).arg(context.command);
+        }
+        let mut child = command
             .current_dir(directory)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -397,6 +415,70 @@ fn receive_reader(
 }
 
 #[cfg(test)]
+mod common_tests {
+    #[test]
+    fn stderr_and_reader_caps_count_bytes_exactly() {
+        use std::io::Cursor;
+
+        let input = vec![b'x'; super::MAX_STDERR_BYTES + 1];
+        let bytes = super::read_limited(Cursor::new(input), super::MAX_STDERR_BYTES, None).unwrap();
+        assert_eq!(bytes.len(), super::MAX_STDERR_BYTES);
+
+        let overflow = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let input = vec![b'x'; 4];
+        let bytes = super::read_limited(Cursor::new(input), 4, Some(&overflow)).unwrap();
+        assert_eq!(bytes.len(), 4);
+        assert!(!overflow.load(std::sync::atomic::Ordering::Relaxed));
+        let input = vec![b'x'; 5];
+        let bytes = super::read_limited(Cursor::new(input), 4, Some(&overflow)).unwrap();
+        assert_eq!(bytes.len(), 4);
+        assert!(overflow.load(std::sync::atomic::Ordering::Relaxed));
+    }
+}
+
+#[cfg(test)]
+#[cfg(windows)]
+mod windows_tests {
+    use super::Shell;
+
+    fn context(command: &str) -> crate::CommandContext<'_> {
+        crate::CommandContext {
+            command,
+            reference: 0..0,
+            payload: 0..0,
+            source: None,
+        }
+    }
+
+    #[test]
+    fn cmd_preserves_embedded_quotes_spaces_and_trailing_backslashes() {
+        let shell = Shell::new(".");
+        let quoted = shell.run(&context(r#"echo "hello world""#)).unwrap();
+        assert_eq!(quoted, r#""hello world""#);
+
+        let slash = shell.run(&context(r#"echo foo\"#)).unwrap();
+        assert_eq!(slash, r#"foo\"#);
+    }
+
+    #[test]
+    fn cmd_rejects_line_breaks_nonzero_status_and_output_overflow() {
+        let shell = Shell::new(".");
+        let newline = shell.run(&context("echo a\necho b")).unwrap_err();
+        assert!(newline.message().contains("line breaks"), "{newline}");
+
+        let cr = shell.run(&context("echo a\recho b")).unwrap_err();
+        assert!(cr.message().contains("line breaks"), "{cr}");
+
+        let failed = shell.run(&context("exit /b 7")).unwrap_err();
+        assert!(failed.message().contains("failed"), "{failed}");
+
+        let capped = Shell::new(".").with_max_output_bytes(4);
+        let overflow = capped.run(&context("echo abcdef")).unwrap_err();
+        assert!(overflow.message().contains("exceeds 4 bytes"), "{overflow}");
+    }
+}
+
+#[cfg(test)]
 #[cfg(unix)]
 mod tests {
     use super::Shell;
@@ -457,25 +539,6 @@ mod tests {
         let shell = Shell::new(".");
         let output = shell.run(&context("printf '%4096s' ''")).unwrap();
         assert_eq!(output.len(), 4096);
-    }
-
-    #[test]
-    fn stderr_and_reader_caps_count_bytes_exactly() {
-        use std::io::Cursor;
-
-        let input = vec![b'x'; super::MAX_STDERR_BYTES + 1];
-        let bytes = super::read_limited(Cursor::new(input), super::MAX_STDERR_BYTES, None).unwrap();
-        assert_eq!(bytes.len(), super::MAX_STDERR_BYTES);
-
-        let overflow = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let input = vec![b'x'; 4];
-        let bytes = super::read_limited(Cursor::new(input), 4, Some(&overflow)).unwrap();
-        assert_eq!(bytes.len(), 4);
-        assert!(!overflow.load(std::sync::atomic::Ordering::Relaxed));
-        let input = vec![b'x'; 5];
-        let bytes = super::read_limited(Cursor::new(input), 4, Some(&overflow)).unwrap();
-        assert_eq!(bytes.len(), 4);
-        assert!(overflow.load(std::sync::atomic::Ordering::Relaxed));
     }
 
     #[test]

@@ -215,7 +215,9 @@ impl Document<'_> {
         if endings[..last].contains(&LineEnding::None) {
             return None;
         }
-        let open_end = endings[last] == LineEnding::None;
+        let open_end = endings[last] == LineEnding::None
+            || (self.dialect().line_breaks == crate::LineBreaks::Lf
+                && endings[last] == LineEnding::Cr);
         if open_end && items[last_entry].span().end != source.len() {
             return None;
         }
@@ -224,9 +226,12 @@ impl Document<'_> {
 
         let header = &source[group.span().start..items[first_entry].span().start];
         let trailing = &source[items[last_entry].span().end..group.span().end];
-        // When the file ends without a line ending and its last declaration
-        // moves up, that declaration takes the line ending of the declaration
-        // that becomes last, so the file still has no final line ending.
+        // When the file ends without a usable mid-file line ending (no ending,
+        // or an EOF-only CR under `LineBreaks::Lf`) and its last declaration
+        // moves up, it swaps endings with the declaration that becomes last so
+        // every interior line keeps a real separator and the file keeps its
+        // original final ending.
+        let last_ending = endings[last].as_str();
         let moved_ending = order
             .last()
             .filter(|&&final_entry| open_end && final_entry != last)
@@ -238,9 +243,10 @@ impl Document<'_> {
             match moved_ending {
                 Some(ending) if position + 1 == order.len() => {
                     text.push_str(&chunk[..chunk.len() - ending.len()]);
+                    text.push_str(last_ending);
                 }
                 Some(ending) if entry == last => {
-                    text.push_str(chunk);
+                    text.push_str(&chunk[..chunk.len() - last_ending.len()]);
                     text.push_str(ending);
                 }
                 _ => text.push_str(chunk),

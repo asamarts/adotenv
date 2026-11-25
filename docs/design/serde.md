@@ -93,7 +93,7 @@ accept a string, such as `String`, work there.
   error still names the key.
 - A key that does not convert, such as an unknown field under
   `#[serde(deny_unknown_fields)]` or any key of a map with non-string keys,
-  reports its line and an empty key, `Some("")`.
+  reports its line and key.
 - An error about the whole map, such as a missing field, has line `0` and no
   key.
 - A value consumed through `#[serde(flatten)]` is decoded after map access;

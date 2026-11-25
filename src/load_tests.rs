@@ -1199,3 +1199,26 @@ fn compact_loading_matches_map_loading_and_preserves_overrides() {
         load_cascade_values_compact_with(dir.path(), "production", Dialect::PORTABLE).unwrap();
     assert_eq!(compact.get("C"), Some("mode"));
 }
+
+#[cfg(unix)]
+#[test]
+fn unreadable_empty_file_fails_without_max_input_bytes() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new();
+    let path = dir.path().join(".env");
+    fs::write(&path, "").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+    let readable = fs::File::open(&path).is_ok();
+    if !readable {
+        assert!(matches!(
+            load_files([&path], Dialect::PORTABLE),
+            Err(LoadError::Io { .. })
+        ));
+        assert!(matches!(
+            load_values_compact([&path], Dialect::PORTABLE),
+            Err(LoadError::Io { .. })
+        ));
+    }
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+}

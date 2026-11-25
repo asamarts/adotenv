@@ -203,3 +203,16 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn example_keeps_moved_comment_separate_on_lf_only_trailing_cr() {
+    let dialect = crate::Dialect::COMPOSE.with_quoted_comments(false);
+    let (doc, _) = parse_with("A=1\r\nB=2 # note\r", dialect);
+    let example_text = doc.example();
+    let (example, _) = parse_with(&example_text, dialect);
+    assert_eq!(example.get("A"), Some(""));
+    assert_eq!(example.get("B"), Some(""));
+    assert!(example
+        .items()
+        .any(|item| item.kind() == ItemKind::Comment && item.comment_text() == Some(" note")));
+}

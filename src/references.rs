@@ -572,7 +572,9 @@ impl Entry<'_> {
             pending.push((tail, Quote::None, Level::TOP, true));
         }
         let closes = Closes {
-            limit: max_depth.checked_add(2).filter(|_| max_depth != usize::MAX),
+            limit: max_depth
+                .checked_add(2)
+                .filter(|_| max_references.is_some() && max_depth != usize::MAX),
             ..Closes::default()
         };
         let mut scanner = Scanner {
@@ -1070,10 +1072,16 @@ fn matching_delimited(
         if top(&stack) == Some(Delimiter::Brace) {
             match bytes[at] {
                 b'$' if bytes.get(at + 1) == Some(&b'{') => {
+                    if closes.too_deep(stack.len() + 1) {
+                        return (None, end);
+                    }
                     stack.push((Delimiter::Brace, Some(at)));
                     at += 2;
                 }
                 b'$' if bytes.get(at + 1) == Some(&b'(') => {
+                    if closes.too_deep(stack.len() + 1) {
+                        return (None, end);
+                    }
                     stack.push((Delimiter::Paren, Some(at)));
                     at += 2;
                 }
