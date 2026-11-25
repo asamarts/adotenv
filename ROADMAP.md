@@ -38,7 +38,8 @@ lockstep releases were 1.5.3 on 2026-11-16 with package-safe integration tests,
 1.5.2 on 2026-11-15 with CLI help-text corrections, and 1.5.1 on 2026-11-15
 with companion-tooling fixes; 1.5.0 on 2026-11-12 added the compact values API,
 and `adotenv-lint` 0.2.0 / `adotenv-lsp` 0.4.0 were published on 2026-11-11.
-`adotenv-config` is at 0.12.0 and `adotenv-figment` at 0.12.1. A pre-release audit of 0.10.4 found
+`adotenv-config` is at 0.12.1 and `adotenv-figment` at 0.12.2 (both published on
+2026-11-25 with `CompactValues` and `CompactEntries` constructors). A pre-release audit of 0.10.4 found
 defects in behavior that 1.0 would freeze. They were fixed in 0.11.0, apart
 from the rename collision rule, which shipped in 1.0.0. The fixes are listed in
 [1.0-fix-round.md](docs/design/1.0-fix-round.md), and the 1.0 evidence was
