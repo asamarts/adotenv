@@ -43,36 +43,36 @@ impl Counters {
         }
     }
 
+    fn update_current(&self, update: impl Fn(usize) -> usize) -> usize {
+        let mut current = self.current.load(Ordering::Relaxed);
+        loop {
+            let next = update(current);
+            match self.current.compare_exchange_weak(
+                current,
+                next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return next,
+                Err(observed) => current = observed,
+            }
+        }
+    }
+
     fn allocated(&self, bytes: usize) {
-        let current = self
-            .current
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-                Some(current.saturating_add(bytes))
-            })
-            .unwrap_or(0)
-            .saturating_add(bytes);
+        let current = self.update_current(|current| current.saturating_add(bytes));
         self.peak.fetch_max(current, Ordering::Relaxed);
         self.allocations.fetch_add(1, Ordering::Relaxed);
     }
 
     fn freed(&self, bytes: usize) {
-        let _ = self
-            .current
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-                Some(current.saturating_sub(bytes))
-            });
+        let _ = self.update_current(|current| current.saturating_sub(bytes));
     }
 
     fn reallocated(&self, old_size: usize, new_size: usize) {
         if new_size >= old_size {
             let delta = new_size - old_size;
-            let current = self
-                .current
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-                    Some(current.saturating_add(delta))
-                })
-                .unwrap_or(0)
-                .saturating_add(delta);
+            let current = self.update_current(|current| current.saturating_add(delta));
             self.peak.fetch_max(current, Ordering::Relaxed);
         } else {
             self.freed(old_size - new_size);
