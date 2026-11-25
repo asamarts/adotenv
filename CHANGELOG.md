@@ -10,12 +10,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `adotenv`: implemented `PartialEq` and `Eq` for `CompactValues` (matching
   `CompactEntries`).
-- `adotenv-config`: added `AdotenvSource::from_compact_values` and
-  `AdotenvSource::from_compact_entries` (raising the `adotenv` dependency to
-  `1.6.1`).
-- `adotenv-figment`: added `AdotenvProvider::from_compact_values` and
-  `AdotenvProvider::from_compact_entries` (raising the `adotenv` dependency to
-  `1.6.1`).
 - `adotenv-process`: added `validate_compact` and `apply_compact` for
   `CompactValues` (including compact cascade and file loader outputs).
 
@@ -59,6 +53,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and suppressed completion inside BOM-prefixed comments.
 - `adotenv-xtask`: aligned `rust-version` with `adotenv-bench` (`1.88`) and
   fixed Markdown table alignment/column separators in `report` and `compare`.
+
+## [adotenv-config 0.12.1] - 2026-11-25
+
+### Added
+
+- Added `AdotenvSource::from_compact_values` and
+  `AdotenvSource::from_compact_entries` (raising the `adotenv` dependency to
+  `1.6.1`).
+
+## [adotenv-figment 0.12.2] - 2026-11-25
+
+### Added
+
+- Added `AdotenvProvider::from_compact_values` and
+  `AdotenvProvider::from_compact_entries` with distinct provider metadata
+  sources (`"compact values"` and `"compact entries"`, raising the `adotenv`
+  dependency to `1.6.1`).
 
 ## [1.6.1] - 2026-11-24
 

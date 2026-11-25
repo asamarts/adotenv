@@ -2,6 +2,8 @@
 
 | Version | Date | Focus |
 |---|---|---|
+| adotenv-config 0.12.1 | 2026-11-25 | `CompactValues` and `CompactEntries` constructors (`adotenv` 1.6.1) |
+| adotenv-figment 0.12.2 | 2026-11-25 | `CompactValues` and `CompactEntries` constructors (`adotenv` 1.6.1) |
 | 1.6.1 | 2026-11-24 | CLI parse/output limit flags and full-workspace mutation verification; no core library behavior change |
 | adotenv-lint 0.2.2 | 2026-11-23 | `adotenv` 1.6.0 adoption, CLI parse-limit flags and expanded coverage |
 | adotenv-lsp 0.5.0 | 2026-11-23 | `adotenv` 1.6.0 parse limits, multi-BOM/keep mapping and transport tests |
