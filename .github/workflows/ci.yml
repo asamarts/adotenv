@@ -257,14 +257,14 @@ jobs:
       - name: package companion crates
         run: |
           version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "adotenv"))')"
-          code="$(curl -sS -o /dev/null -w '%{http_code}' -H 'User-Agent: adotenv-ci' \
+          code="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' -H 'User-Agent: adotenv-ci' \
             "https://crates.io/api/v1/crates/adotenv/$version")"
           case "$code" in
             200)
               # The core version is on crates.io, so companion packages can
               # resolve their registry dependency and be fully verified.
               lint_version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "adotenv-lint"))')"
-              lint_code="$(curl -sS -o /dev/null -w '%{http_code}' -H 'User-Agent: adotenv-ci' \
+              lint_code="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' -H 'User-Agent: adotenv-ci' \
                 "https://crates.io/api/v1/crates/adotenv-lint/$lint_version")"
               if [[ "$lint_code" == "200" ]]; then
                 cargo package -p adotenv-cli -p adotenv-lint -p adotenv-lsp -p adotenv-process -p adotenv-config -p adotenv-figment --locked

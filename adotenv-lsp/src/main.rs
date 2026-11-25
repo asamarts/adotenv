@@ -533,6 +533,23 @@ mod tests {
         }
     }
 
+    struct TempFile(PathBuf);
+
+    impl TempFile {
+        fn new(name: &str, contents: &str) -> Self {
+            let path = std::env::temp_dir()
+                .join(format!("adotenv-lsp-{name}-{}.toml", std::process::id()));
+            std::fs::write(&path, contents).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
     #[test]
     fn defaults_to_no_lint_configuration() {
         let cli = parse_args_from(args(&[])).unwrap();
@@ -545,12 +562,9 @@ mod tests {
 
     #[test]
     fn config_dialect_is_applied_to_lsp_options() {
-        let path =
-            std::env::temp_dir().join(format!("adotenv-lsp-dialect-{}.toml", std::process::id()));
-        std::fs::write(&path, "dialect = \"python\"\n").unwrap();
-        let cli = cli_with_config(Some(path.clone()));
+        let file = TempFile::new("dialect", "dialect = \"python\"\n");
+        let cli = cli_with_config(Some(file.0.clone()));
         let (options, _) = load_policy(&cli).unwrap();
-        let _ = std::fs::remove_file(path);
         assert_eq!(options.dialect, Dialect::PYTHON_DOTENV);
     }
 
@@ -618,14 +632,11 @@ mod tests {
 
     #[test]
     fn explicit_config_resolves_lint_policy_and_ignores() {
-        let path =
-            std::env::temp_dir().join(format!("adotenv-lsp-policy-{}.toml", std::process::id()));
-        std::fs::write(
-            &path,
+        let file = TempFile::new(
+            "policy",
             "key_order = true\nignore = [\".env.skip\"]\n[rules]\nduplicate-key = \"error\"\n",
-        )
-        .unwrap();
-        let cli = cli_with_config(Some(path.clone()));
+        );
+        let cli = cli_with_config(Some(file.0.clone()));
         let (options, ignore) = load_policy(&cli).unwrap();
         let lint = options.lint.expect("lint policy");
         assert!(lint.key_order);
@@ -634,15 +645,12 @@ mod tests {
             adotenv::Severity::Error
         );
         assert!(ignore.unwrap().is_ignored(Path::new(".env.skip")));
-        let _ = std::fs::remove_file(path);
     }
 
     #[test]
     fn config_policy_does_not_duplicate_parser_diagnostics() {
-        let path =
-            std::env::temp_dir().join(format!("adotenv-lsp-duplicate-{}.toml", std::process::id()));
-        std::fs::write(&path, "key_order = true\n").unwrap();
-        let cli = cli_with_config(Some(path.clone()));
+        let file = TempFile::new("duplicate", "key_order = true\n");
+        let cli = cli_with_config(Some(file.0.clone()));
         let (options, _) = load_policy(&cli).unwrap();
         let uri: lsp_types::Uri = "file:///tmp/.env".parse().unwrap();
         let diagnostics = adotenv_lsp::diagnostics("B=2\nA=1\nA=2\n", &uri, &options);
@@ -656,7 +664,6 @@ mod tests {
             }),
             "parser duplicate diagnostics were duplicated by the linter"
         );
-        let _ = std::fs::remove_file(path);
     }
 
     #[test]
@@ -693,12 +700,9 @@ mod tests {
 
     #[test]
     fn invalid_explicit_config_is_an_error() {
-        let path =
-            std::env::temp_dir().join(format!("adotenv-lsp-invalid-{}.toml", std::process::id()));
-        std::fs::write(&path, "unknown = true\n").unwrap();
-        let cli = cli_with_config(Some(path.clone()));
+        let file = TempFile::new("invalid", "unknown = true\n");
+        let cli = cli_with_config(Some(file.0.clone()));
         assert!(load_policy(&cli).is_err());
-        let _ = std::fs::remove_file(path);
     }
 
     fn send_req(client: &Connection, id: i32, method: &str, params: serde_json::Value) -> Response {
@@ -1021,6 +1025,72 @@ mod tests {
             )))
             .unwrap();
 
+        thread.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn serve_rejects_rename_exceeding_max_input_bytes() {
+        let (server, client) = Connection::memory();
+        let options = LspOptions::new()
+            .with_parse_options(adotenv_lsp::ParseOptions::new().with_max_input_bytes(20));
+        let thread = std::thread::spawn(move || serve(&server, options, None));
+
+        let init = send_req(
+            &client,
+            1,
+            "initialize",
+            serde_json::json!({ "capabilities": {} }),
+        );
+        assert!(init.response_result.is_ok());
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "initialized".to_owned(),
+                serde_json::json!({}),
+            )))
+            .unwrap();
+
+        let uri = "file:///tmp/bounded.env";
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "textDocument/didOpen".to_owned(),
+                serde_json::json!({
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": "dotenv",
+                        "version": 1,
+                        "text": "A=1\nX=$A\n"
+                    }
+                }),
+            )))
+            .unwrap();
+        let _ = recv_diagnostics(&client);
+
+        let ren_err = send_req(
+            &client,
+            2,
+            "textDocument/rename",
+            serde_json::json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": 0, "character": 0 },
+                "newName": "VERY_LONG_HOST_NAME"
+            }),
+        );
+        assert_eq!(
+            ren_err.response_result.unwrap_err().code,
+            lsp_server::ErrorCode::RequestFailed as i32
+        );
+
+        let shut = send_req(&client, 3, "shutdown", serde_json::Value::Null);
+        assert!(shut.response_result.is_ok());
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "exit".to_owned(),
+                serde_json::Value::Null,
+            )))
+            .unwrap();
         thread.join().unwrap().unwrap();
     }
 }

@@ -27,20 +27,25 @@ fn meanings(document: &Document<'_>) -> Vec<Meaning> {
         .collect()
 }
 
+fn map_offset(offset: usize, verified: &VerifiedEdits, include_insertions_at_boundary: bool) -> usize {
+    verified.edits().iter().fold(offset, |mapped, edit| {
+        let before = edit.range.end < offset
+            || (edit.range.end == offset
+                && (!edit.range.is_empty() || include_insertions_at_boundary));
+        if before {
+            mapped - edit.range.len() + edit.replacement.len()
+        } else {
+            mapped
+        }
+    })
+}
+
 fn mapped_range(range: Range<usize>, verified: &VerifiedEdits) -> Range<usize> {
-    let map = |offset: usize, include_insertions_at_boundary: bool| {
-        verified.edits().iter().fold(offset, |mapped, edit| {
-            let before = edit.range.end < offset
-                || (edit.range.end == offset
-                    && (!edit.range.is_empty() || include_insertions_at_boundary));
-            if before {
-                mapped - edit.range.len() + edit.replacement.len()
-            } else {
-                mapped
-            }
-        })
-    };
-    map(range.start, false)..map(range.end, true)
+    map_offset(range.start, verified, false)..map_offset(range.end, verified, true)
+}
+
+fn mapped_range_after(range: Range<usize>, verified: &VerifiedEdits) -> Range<usize> {
+    map_offset(range.start, verified, true)..map_offset(range.end, verified, true)
 }
 
 fn insertion_anchor(
@@ -508,6 +513,8 @@ fn check_rename_with_references(source: &str, value: &str, selector: u8, dialect
         ));
     }
     let (after, _) = parse_with(renamed.as_str(), dialect);
+    assert_eq!(after.bom_span(), document.bom_span());
+    assert_eq!(after.items().len(), document.items().len());
     let mut expected_meanings = meanings(&document);
     expected_meanings[entry.id()].key = ref_key.to_owned();
     let actual_meanings = meanings(&after);
@@ -522,13 +529,45 @@ fn check_rename_with_references(source: &str, value: &str, selector: u8, dialect
         let before_refs = before_entry.references();
         let after_refs = after_entry.references();
         assert_eq!(before_refs.len(), after_refs.len());
+        let mut had_matching_ref = false;
         for (br, ar) in before_refs.iter().zip(after_refs.iter()) {
+            let orig_name = br.name.as_ref().and_then(|s| source.get(s.clone()));
+            let new_name = ar.name.as_ref().and_then(|s| renamed.as_str().get(s.clone()));
+            let was_renamed = orig_name == Some(entry.key());
+            had_matching_ref |= was_renamed;
+            let expected_name = if was_renamed { Some(ref_key) } else { orig_name };
             assert_eq!(br.kind, ar.kind);
             assert_eq!(br.closed, ar.closed);
             assert_eq!(br.escaped, ar.escaped);
             assert_eq!(br.operator, ar.operator);
             assert_eq!(br.depth, ar.depth);
             assert_eq!(br.parent, ar.parent);
+            assert_eq!(br.quote, ar.quote);
+            assert!(br.braced == ar.braced || (was_renamed && !br.braced && ar.braced));
+            assert_eq!(new_name, expected_name);
+            assert_eq!(ar.span, mapped_range(br.span.clone(), &renamed));
+            assert_eq!(
+                ar.command,
+                br.command.clone().map(|r| mapped_range(r, &renamed))
+            );
+            assert_eq!(
+                ar.operator_span,
+                br.operator_span
+                    .clone()
+                    .map(|r| mapped_range_after(r, &renamed))
+            );
+            assert_eq!(
+                ar.argument,
+                br.argument
+                    .clone()
+                    .map(|r| mapped_range_after(r, &renamed))
+            );
+            if br.braced == ar.braced {
+                assert_eq!(ar.name, br.name.clone().map(|r| mapped_range(r, &renamed)));
+            }
+        }
+        if !had_matching_ref {
+            assert_eq!(after_entry.value(), before_entry.value());
         }
     }
     let mut line_count = 0usize;

@@ -639,7 +639,7 @@ pub fn rename(
 
 /// Renames a key declaration and its literal references using `options`.
 ///
-/// This is [`rename`] with an explicit dialect.
+/// This is [`rename`] with an explicit dialect and parse limits.
 ///
 /// # Errors
 ///
