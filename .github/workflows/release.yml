@@ -394,7 +394,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      id-token: write # crates.io Trusted Publishing after bootstrap
+      id-token: write # crates.io Trusted Publishing
       attestations: write # Sigstore build provenance
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

@@ -2808,12 +2808,13 @@ fn parse_and_output_limit_flags_apply_across_cli_commands() {
     ]);
     assert_eq!(diff_matrix_lines.status.code(), Some(2));
 
-    // fmt refuses to format a limit-exceeded document (exit 2); example prints diagnostic
+    // fmt and example both refuse limit-exceeded documents (exit 2, empty stdout)
     let fmt_lines = run(&["--max-lines=2", "fmt", file.to_str().unwrap()]);
     assert_eq!(fmt_lines.status.code(), Some(2));
     assert!(stderr(&fmt_lines).contains("limit"));
     let example_lines = run(&["--max-lines=2", "example", file.to_str().unwrap()]);
-    assert_eq!(example_lines.status.code(), Some(0));
+    assert_eq!(example_lines.status.code(), Some(2));
+    assert_eq!(stdout(&example_lines), "");
     assert!(stderr(&example_lines).contains("limit"));
 
     // load and run enforce ParseOptions limits through LoadOptions
@@ -3071,4 +3072,70 @@ fn fmt_and_check_enforce_byte_and_line_limits_on_single_line_invalid_and_oversiz
     ]);
     assert_eq!(check_gh.status.code(), Some(1));
     assert!(stdout(&check_gh).contains("title=dotenv.limit-exceeded"));
+
+    // example must never leak secret values when --max-lines or --max-input-bytes triggers.
+    let secret = dir.file(".env.secret", "SECRET=hunter2\nOTHER=1\n");
+    let ex_lines = run(&["--max-lines=1", "example", secret.to_str().unwrap()]);
+    assert_eq!(ex_lines.status.code(), Some(2));
+    assert_eq!(stdout(&ex_lines), "");
+    assert!(!stdout(&ex_lines).contains("hunter2"));
+    let ex_bytes = run(&["--max-input-bytes=5", "example", secret.to_str().unwrap()]);
+    assert_eq!(ex_bytes.status.code(), Some(2));
+    assert_eq!(stdout(&ex_bytes), "");
+
+    // check --json --max-input-bytes output conforms to the check-report v1 schema.
+    let parsed: serde_json::Value = serde_json::from_str(&stdout(&check_bytes)).unwrap();
+    assert_eq!(parsed["version"], 1);
+    assert_eq!(parsed["files"][0]["ok"], false);
+    assert_eq!(
+        parsed["files"][0]["diagnostics"][0]["code"],
+        "dotenv.limit-exceeded"
+    );
+
+    // stdin exceeding --max-input-bytes on a multi-byte UTF-8 boundary reports limit, not UTF-8.
+    let mut child = Command::new(env!("CARGO_BIN_EXE_adotenv-cli"))
+        .args(["--max-input-bytes=4", "get", "-", "A"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    use std::io::Write as _;
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all("A=ééé".as_bytes())
+        .unwrap();
+    let stdin_out = child.wait_with_output().unwrap();
+    assert_eq!(stdin_out.status.code(), Some(2));
+    assert!(
+        stderr(&stdin_out).contains("limit"),
+        "{}",
+        stderr(&stdin_out)
+    );
+
+    // check under BomPolicy::Keep (--dialect=docker) counts the kept BOM in column 1.
+    let bom_file = dir.file(".env.bom", "\u{feff}A=1\n");
+    let bom_keep = run(&["--dialect=docker", "check", bom_file.to_str().unwrap()]);
+    assert_eq!(bom_keep.status.code(), Some(0));
+
+    // Unix FIFO must be rejected immediately without blocking.
+    #[cfg(unix)]
+    {
+        let fifo = dir.path().join("pipe.env");
+        if Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .is_ok_and(|s| s.success())
+        {
+            let fifo_out = run(&["get", fifo.to_str().unwrap(), "A"]);
+            assert_eq!(fifo_out.status.code(), Some(2));
+            assert!(
+                stderr(&fifo_out).contains("not a regular file"),
+                "{}",
+                stderr(&fifo_out)
+            );
+        }
+    }
 }

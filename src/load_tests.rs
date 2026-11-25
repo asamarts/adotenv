@@ -1222,3 +1222,20 @@ fn unreadable_empty_file_fails_without_max_input_bytes() {
     }
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
 }
+
+#[cfg(unix)]
+#[test]
+fn fifo_path_is_rejected_without_blocking() {
+    let dir = TempDir::new();
+    let fifo = dir.path().join(".env");
+    if std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .is_ok_and(|s| s.success())
+    {
+        assert!(matches!(
+            load_files([&fifo], Dialect::PORTABLE),
+            Err(LoadError::Io { ref source, .. }) if source.kind() == std::io::ErrorKind::InvalidInput
+        ));
+    }
+}

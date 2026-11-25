@@ -1835,4 +1835,29 @@ fn rename_with_references_braces_digit_leading_keys_and_rejects_escape_or_quote_
         py_doc.rename_with_references("HOST", "A\"B"),
         Err(EditError::InvalidReferenceKey)
     );
+
+    // Single-quoted and backtick-quoted enclosing delimiters are rejected too.
+    let (single_doc, _) = parse_with(
+        "HOST=localhost\nURL='${HOST}'\n",
+        crate::Dialect::PYTHON_DOTENV,
+    );
+    assert_eq!(
+        single_doc.rename_with_references("HOST", "A'B"),
+        Err(EditError::InvalidReferenceKey)
+    );
+    let (tick_doc, _) = parse_with(
+        "HOST=localhost\nURL=`${HOST}`\n",
+        crate::Dialect::PYTHON_DOTENV.with_backticks(true),
+    );
+    assert_eq!(
+        tick_doc.rename_with_references("HOST", "A`B"),
+        Err(EditError::InvalidReferenceKey)
+    );
+
+    // Renaming AWAY from an escaped key inside double quotes succeeds cleanly.
+    let escaped_old = "'A\\nB'=1\nX=\"${A\\nB}\"\n";
+    let (esc_doc, _) = parse_with(escaped_old, crate::Dialect::PYTHON_DOTENV);
+    let renamed_esc = esc_doc.rename_with_references(r"A\nB", "HOST").unwrap();
+    assert_eq!(renamed_esc.as_str(), "'HOST'=1\nX=\"${HOST}\"\n");
+    replay(escaped_old, &renamed_esc);
 }

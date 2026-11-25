@@ -12,7 +12,7 @@ use std::{
     io::{self, Read as _, Write as IoWrite},
     path::{Path, PathBuf},
     process::ExitCode,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 use adotenv::{parse_strict_with_options, Dialect, ParseOptions, Severity};
@@ -96,25 +96,49 @@ fn main() -> ExitCode {
     }
 }
 
+static STDOUT_FAILED: AtomicBool = AtomicBool::new(false);
+
+fn report_stdout_error(error: &io::Error) {
+    if error.kind() != io::ErrorKind::BrokenPipe && !STDOUT_FAILED.swap(true, Ordering::Relaxed) {
+        let _ = writeln!(io::stderr().lock(), "adotenv-lint: stdout error: {error}");
+    }
+}
+
 fn write_stdout(text: &str) {
     let mut stdout = io::stdout().lock();
     if let Err(error) = stdout.write_all(text.as_bytes()) {
-        if error.kind() != io::ErrorKind::BrokenPipe {
-            let _ = writeln!(io::stderr().lock(), "adotenv-lint: stdout error: {error}");
-        }
+        report_stdout_error(&error);
     }
 }
 
 fn write_stdout_line(text: &str) {
     let mut stdout = io::stdout().lock();
     if let Err(error) = writeln!(stdout, "{text}") {
-        if error.kind() != io::ErrorKind::BrokenPipe {
-            let _ = writeln!(io::stderr().lock(), "adotenv-lint: stdout error: {error}");
-        }
+        report_stdout_error(&error);
+    }
+}
+
+fn flush_stdout() {
+    if let Err(error) = io::stdout().lock().flush() {
+        report_stdout_error(&error);
+    }
+}
+
+fn finish_output(code: u8) -> u8 {
+    flush_stdout();
+    if STDOUT_FAILED.load(Ordering::Relaxed) {
+        FAILURE
+    } else {
+        code
     }
 }
 
 fn read_file_bounded(path: &Path, max_input_bytes: Option<usize>) -> Result<String, String> {
+    if let Ok(metadata) = fs::metadata(path) {
+        if !metadata.is_file() {
+            return Err("path is not a regular file".to_owned());
+        }
+    }
     let mut file = fs::File::open(path).map_err(|error| error.to_string())?;
     let metadata = file.metadata().map_err(|error| error.to_string())?;
     if !metadata.is_file() {
@@ -158,11 +182,11 @@ fn run() -> Result<u8, String> {
     let mut options = match parse_cli_args(&args)? {
         CliAction::Help => {
             write_stdout_line(USAGE);
-            return Ok(SUCCESS);
+            return Ok(finish_output(SUCCESS));
         }
         CliAction::Version => {
             write_stdout_line(&format!("adotenv-lint {}", env!("CARGO_PKG_VERSION")));
-            return Ok(SUCCESS);
+            return Ok(finish_output(SUCCESS));
         }
         CliAction::Run(options) => *options,
     };
@@ -228,9 +252,9 @@ fn run() -> Result<u8, String> {
     }
 
     if had_error {
-        return Ok(FAILURE);
+        return Ok(finish_output(FAILURE));
     }
-    Ok(if total == 0 { SUCCESS } else { FINDINGS })
+    Ok(finish_output(if total == 0 { SUCCESS } else { FINDINGS }))
 }
 
 const MAX_FIX_ROUNDS: usize = 64;
@@ -247,25 +271,28 @@ struct FileIdentity {
     ino: u64,
 }
 
-fn file_identity(path: &Path) -> io::Result<FileIdentity> {
-    let metadata = fs::metadata(path)?;
+fn file_identity_from_metadata(metadata: &fs::Metadata) -> FileIdentity {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        Ok(FileIdentity {
+        FileIdentity {
             len: metadata.len(),
             modified: metadata.modified().ok(),
             dev: metadata.dev(),
             ino: metadata.ino(),
-        })
+        }
     }
     #[cfg(not(unix))]
     {
-        Ok(FileIdentity {
+        FileIdentity {
             len: metadata.len(),
             modified: metadata.modified().ok(),
-        })
+        }
     }
+}
+
+fn file_identity(path: &Path) -> io::Result<FileIdentity> {
+    Ok(file_identity_from_metadata(&fs::metadata(path)?))
 }
 
 fn fix_file(path: &Path, mut source: String, options: &Options) -> Result<Vec<Finding>, String> {
@@ -350,14 +377,13 @@ fn write_fixed(path: &Path, source: &str, expected: FileIdentity) -> Result<(), 
     let temporary = temporary.ok_or_else(|| "could not create a temporary file".to_owned())?;
     let result = (|| {
         let symlink_meta = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
-        if symlink_meta.file_type().is_symlink() {
+        if symlink_meta.file_type().is_symlink() || !symlink_meta.is_file() {
             return Err("file changed after it was read".to_owned());
         }
-        if file_identity(path).map_err(|error| error.to_string())? != expected {
+        if file_identity_from_metadata(&symlink_meta) != expected {
             return Err("file changed after it was read".to_owned());
         }
-        let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
-        fs::set_permissions(&temporary, metadata.permissions())
+        fs::set_permissions(&temporary, symlink_meta.permissions())
             .map_err(|error| error.to_string())?;
         replace_file(&temporary, path)
     })();
@@ -629,6 +655,16 @@ fn value<'a>(args: &'a [String], index: usize, option: &str) -> Result<&'a str, 
         .ok_or_else(|| format!("{option} requires a value"))
 }
 
+fn trim_trailing_separators(raw: &str) -> PathBuf {
+    let trimmed = raw.trim_end_matches(|c| c == '/' || (cfg!(windows) && c == '\\'));
+    if trimmed.is_empty() || (cfg!(windows) && trimmed.len() == 2 && trimmed.as_bytes()[1] == b':')
+    {
+        PathBuf::from(raw)
+    } else {
+        PathBuf::from(trimmed)
+    }
+}
+
 fn collect_paths(
     paths: &[String],
     recursive: bool,
@@ -636,10 +672,11 @@ fn collect_paths(
 ) -> Result<Vec<PathBuf>, String> {
     let excludes = IgnoredPaths::new(exclude_patterns)?;
     let mut found = BTreeSet::new();
-    for path in paths {
-        let path = PathBuf::from(path);
+    for raw_path in paths {
+        let probe = trim_trailing_separators(raw_path);
+        let path = PathBuf::from(raw_path);
         let symlink_meta =
-            fs::symlink_metadata(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+            fs::symlink_metadata(&probe).map_err(|error| format!("{}: {error}", path.display()))?;
         let metadata =
             fs::metadata(&path).map_err(|error| format!("{}: {error}", path.display()))?;
         if excludes.is_ignored_with_root(&path, &path) {

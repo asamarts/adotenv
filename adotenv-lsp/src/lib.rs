@@ -494,7 +494,10 @@ pub fn hover(text: &str, position: Position, options: &LspOptions) -> Option<Hov
         return Some(Hover {
             contents: HoverContents::Markup(MarkupContent {
                 kind: MarkupKind::Markdown,
-                value: format!("`${{{name}}}`{target}"),
+                value: format!(
+                    "{}{target}",
+                    format_markdown_inline_code(&format!("${{{name}}}"))
+                ),
             }),
             range: Some(mapped.range(reference.span.clone())),
         });
