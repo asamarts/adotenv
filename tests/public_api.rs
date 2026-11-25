@@ -147,6 +147,29 @@ fn public_1_6_api_end_to_end_flow() {
     assert!(!removed.as_str().contains("B=2"));
     let renamed = doc.rename_with_options("B", "B_NEW", opts).unwrap();
     assert!(renamed.as_str().contains("B_NEW=2"));
+    let ref_doc = parse_strict("HOST=localhost\nURL=$HOST/api\n").unwrap();
+    let ref_renamed = ref_doc
+        .rename_with_references_with_options(
+            "HOST",
+            "SERVER",
+            EditOptions::new()
+                .with_max_output_bytes(64)
+                .with_max_output_lines(3)
+                .with_parse_limits(ParseOptions::new().with_max_lines(3)),
+        )
+        .unwrap();
+    assert_eq!(ref_renamed.as_str(), "SERVER=localhost\nURL=$SERVER/api\n");
+    let ref_too_big = ref_doc
+        .rename_with_references_with_options(
+            "HOST",
+            "VERY_LONG_SERVER_NAME",
+            EditOptions::new().with_max_output_bytes(24),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        ref_too_big,
+        EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes
+    ));
     let inserted = doc
         .insert_with_options("C", Some("3"), InsertPosition::End, opts)
         .unwrap();

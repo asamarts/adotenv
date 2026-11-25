@@ -8,6 +8,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `adotenv`: added `Document::rename_with_references_with_options` so
+  reference-aware renames enforce `EditOptions` byte, line and verification
+  parse limits before allocating output.
 - `adotenv`: implemented `PartialEq` and `Eq` for `CompactValues` (matching
   `CompactEntries`).
 - `adotenv-process`: added `validate_compact` and `apply_compact` for
