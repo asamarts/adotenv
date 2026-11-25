@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Package, publish and verify one workspace crate through crates.io.
 #
-# Used by the independent linter and LSP dispatch jobs. The tag release job has
+# Used by the independent companion and adapter dispatch jobs. The tag release job has
 # the same checks inline because it publishes several crates in dependency
 # order. The caller supplies the registry token through
 # CARGO_REGISTRY_TOKEN and is responsible for attesting and uploading the

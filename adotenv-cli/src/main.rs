@@ -1695,8 +1695,14 @@ fn example(args: &[String], global: GlobalOptions) -> u8 {
         Err(error) => return fail(error),
     };
     let (doc, diagnostics) = parse_with_options(&source, global.dialect, global.parse_options);
+    let has_limit = diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.limit().is_some());
     for diagnostic in diagnostics {
         errln!("{}: {diagnostic}", args[0]);
+    }
+    if has_limit {
+        return FAILURE;
     }
     out!("{}", doc.example());
     SUCCESS
@@ -2467,6 +2473,14 @@ fn read_text_with_limit<P: AsRef<Path>>(
         }
         bytes
     } else {
+        if let Ok(metadata) = fs::metadata(path) {
+            if !metadata.is_file() {
+                return Err(ReadTextError::Message(format!(
+                    "{}: path is not a regular file",
+                    path.display()
+                )));
+            }
+        }
         let file = fs::File::open(path)
             .map_err(|error| ReadTextError::Message(format!("{}: {error}", path.display())))?;
         let metadata = file

@@ -2184,13 +2184,28 @@ impl Document<'_> {
                     } else if let (Some(orig_val), Some(new_val)) =
                         (orig_entry.value(), new_entry.value())
                     {
-                        let mut expected_len = orig_val.len();
+                        let mut total_added = 0usize;
+                        let mut total_removed = 0usize;
                         for edit in value_edits {
-                            expected_len = expected_len
-                                .saturating_add(edit.replacement.len())
-                                .saturating_sub(edit.range.len());
+                            let dec_start =
+                                crate::resolve::decoded_start_for_raw(orig_entry, edit.range.start)
+                                    .ok_or(EditError::WouldChangeMeaning)?;
+                            let dec_end =
+                                crate::resolve::decoded_end_for_raw(orig_entry, edit.range.end)
+                                    .ok_or(EditError::WouldChangeMeaning)?;
+                            let removed = dec_end
+                                .checked_sub(dec_start)
+                                .ok_or(EditError::WouldChangeMeaning)?;
+                            total_removed = total_removed
+                                .checked_add(removed)
+                                .ok_or(EditError::WouldChangeMeaning)?;
+                            total_added = total_added
+                                .checked_add(edit.replacement.len())
+                                .ok_or(EditError::WouldChangeMeaning)?;
                         }
-                        if new_val.len() != expected_len {
+                        if orig_val.len().checked_add(total_added)
+                            != new_val.len().checked_add(total_removed)
+                        {
                             return Err(EditError::WouldChangeMeaning);
                         }
                     } else {

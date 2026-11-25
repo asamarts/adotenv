@@ -1308,4 +1308,20 @@ fn deep_nesting_stops_at_the_depth_limit_without_scanning_every_level() {
         matches!(error, ResolveError::DepthExceeded { limit: 64, ref key, .. } if key == "A"),
         "{error:?}"
     );
+
+    // Unclosed nested `${` and `$(` also stop at the depth budget cross-platform,
+    // and unbounded `references_within_depth(small_k)` does not panic.
+    let unclosed_brace = alloc::format!("A={}\n", "${".repeat(500));
+    let err_brace = resolve(
+        &unclosed_brace,
+        |_| None,
+        &ExpandOptions::portable().with_max_depth(8),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(err_brace, ResolveError::DepthExceeded { limit: 8, ref key, .. } if key == "A"),
+        "{err_brace:?}"
+    );
+    let (doc, _) = crate::parse(&unclosed_brace);
+    let _ = doc.unique("A").unwrap().references_within_depth(4);
 }

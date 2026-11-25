@@ -1937,7 +1937,7 @@ fn subtree_end(references: &[Reference], index: usize) -> usize {
 ///
 /// Original offsets never decrease as decoded offsets grow, so a binary search
 /// finds the boundary a forward scan would stop at.
-fn decoded_start_for_raw(entry: Entry<'_>, raw: usize) -> Option<usize> {
+pub(crate) fn decoded_start_for_raw(entry: Entry<'_>, raw: usize) -> Option<usize> {
     let value = entry.value()?;
     // Find the first byte offset whose enclosing boundary maps past `raw`.
     let (mut low, mut high) = (0, value.len() + 1);
@@ -1959,7 +1959,7 @@ fn decoded_start_for_raw(entry: Entry<'_>, raw: usize) -> Option<usize> {
 
 /// The first decoded boundary before the end of the value that maps to
 /// original offset `raw` or later, or the end of the value.
-fn decoded_end_for_raw(entry: Entry<'_>, raw: usize) -> Option<usize> {
+pub(crate) fn decoded_end_for_raw(entry: Entry<'_>, raw: usize) -> Option<usize> {
     let value = entry.value()?;
     let (mut low, mut high) = (0, value.len());
     while low < high {
