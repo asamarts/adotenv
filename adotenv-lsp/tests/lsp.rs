@@ -821,6 +821,85 @@ fn rename_with_options_enforces_parse_limits_on_planned_output() {
         2
     );
 
+    // Zero-reference rename still enforces max_input_bytes on planned output.
+    let zero_ref_opts =
+        LspOptions::new().with_parse_options(ParseOptions::new().with_max_input_bytes(8));
+    let zero_ref_err = adotenv_lsp::rename_with_options(
+        "A=1\n",
+        &uri(),
+        position(0, 0),
+        "VERY_LONG_NAME",
+        &zero_ref_opts,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(zero_ref_err, RenameError::Edit(EditError::Limit(limit)) if limit.kind() == LimitKind::InputBytes),
+        "{zero_ref_err:?}"
+    );
+    let zero_ref_ok =
+        adotenv_lsp::rename_with_options("A=1\n", &uri(), position(0, 0), "LONG", &zero_ref_opts)
+            .unwrap();
+    assert_eq!(
+        zero_ref_ok
+            .changes
+            .unwrap()
+            .into_values()
+            .next()
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn rename_with_options_enforces_lines_diagnostics_and_items_limits() {
+    use adotenv_lsp::{LimitKind, ParseOptions};
+
+    // max_lines is enforced when exceeded on input and passes at exact line count.
+    let line_opts = LspOptions::new().with_parse_options(ParseOptions::new().with_max_lines(1));
+    let line_err =
+        adotenv_lsp::rename_with_options("A=1\nX=$A\n", &uri(), position(0, 0), "B", &line_opts)
+            .unwrap_err();
+    assert!(
+        matches!(line_err, RenameError::Edit(EditError::Limit(limit)) if limit.kind() == LimitKind::Lines),
+        "{line_err:?}"
+    );
+    let line_ok_opts = LspOptions::new().with_parse_options(ParseOptions::new().with_max_lines(2));
+    assert!(adotenv_lsp::rename_with_options(
+        "A=1\nX=$A\n",
+        &uri(),
+        position(0, 0),
+        "B",
+        &line_ok_opts,
+    )
+    .is_ok());
+
+    // max_diagnostics bounds verification re-parsing (e.g. a document with a leading BOM warning).
+    let diag_zero =
+        LspOptions::new().with_parse_options(ParseOptions::new().with_max_diagnostics(0));
+    let diag_err = adotenv_lsp::rename_with_options(
+        "\u{feff}A=1\nX=$A\n",
+        &uri(),
+        position(0, 0),
+        "B",
+        &diag_zero,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(diag_err, RenameError::Edit(EditError::Limit(limit)) if limit.kind() == LimitKind::Diagnostics),
+        "{diag_err:?}"
+    );
+    let diag_one =
+        LspOptions::new().with_parse_options(ParseOptions::new().with_max_diagnostics(1));
+    assert!(adotenv_lsp::rename_with_options(
+        "\u{feff}A=1\nX=$A\n",
+        &uri(),
+        position(0, 0),
+        "B",
+        &diag_one,
+    )
+    .is_ok());
+
     // max_items is enforced cleanly when exceeded on input or rename verification.
     let item_opts = LspOptions::new().with_parse_options(ParseOptions::new().with_max_items(2));
     let item_err = adotenv_lsp::rename_with_options(

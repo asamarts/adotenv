@@ -2161,7 +2161,8 @@ fn rename_with_references_and_insert_separator_edge_cases() {
 fn rename_with_references_rejects_command_quote_break_and_handles_compose_empty_keys() {
     use crate::Dialect;
 
-    // P1 #1: Injecting shell quotes inside $(...) must not corrupt command structure.
+    // P1 #1: Injecting shell quotes inside $(...) must not corrupt command structure,
+    // including command extension (pulling trailing text in) and truncation (closing early).
     let (py_cmd, _) = parse_with("A=1\nX=$(echo \"${A}\")\n", Dialect::PYTHON_DOTENV);
     assert_eq!(
         py_cmd.rename_with_references("A", "B\"C"),
@@ -2175,22 +2176,76 @@ fn rename_with_references_rejects_command_quote_break_and_handles_compose_empty_
         py_two.rename_with_references("A", "B\"C"),
         Err(EditError::WouldChangeMeaning)
     );
+    let (py_extend, _) = parse_with(
+        "A=1\nX=$(echo \"${A}\" ) ; rm -rf /\")\n",
+        Dialect::PYTHON_DOTENV,
+    );
+    assert_eq!(
+        py_extend.rename_with_references("A", "B\"C"),
+        Err(EditError::WouldChangeMeaning)
+    );
+    let (py_truncate, _) = parse_with("A=1\nX=$(echo \"${A}\" \")\" ok)\n", Dialect::PYTHON_DOTENV);
+    assert_eq!(
+        py_truncate.rename_with_references("A", "B\"C"),
+        Err(EditError::WouldChangeMeaning)
+    );
+    let (py_truncate_unbraced, _) =
+        parse_with("A=1\nX=$(echo \"$A\" \")\" ok)\n", Dialect::PYTHON_DOTENV);
+    assert_eq!(
+        py_truncate_unbraced.rename_with_references("A", "B\"C"),
+        Err(EditError::WouldChangeMeaning)
+    );
     let (docker_cmd, _) = parse_with("A=1\nX=$(echo '${A}')\n", Dialect::DOCKER_RAW);
     assert_eq!(
         docker_cmd.rename_with_references("A", "B'C"),
         Err(EditError::WouldChangeMeaning)
     );
+    let (docker_extend, _) =
+        parse_with("A=1\nX=$(echo '${A}' ) ; rm -rf /')\n", Dialect::DOCKER_RAW);
+    assert_eq!(
+        docker_extend.rename_with_references("A", "B'C"),
+        Err(EditError::WouldChangeMeaning)
+    );
+    let (docker_truncate, _) = parse_with("A=1\nX=$(echo '${A}' ')' ok)\n", Dialect::DOCKER_RAW);
+    assert_eq!(
+        docker_truncate.rename_with_references("A", "B'C"),
+        Err(EditError::WouldChangeMeaning)
+    );
 
-    // P1 #2: Compose empty key at item start (0..0 or k..k) renames with ${} references cleanly.
-    let (compose_empty, _) = parse_with("=1\nX=${}\n", Dialect::COMPOSE);
-    let empty_renamed = compose_empty.rename_with_references("", "NEW").unwrap();
-    assert_eq!(empty_renamed.as_str(), "NEW=1\nX=${NEW}\n");
-    replay("=1\nX=${}\n", &empty_renamed);
-
-    let (compose_adj_empty, _) = parse_with("A=\"${}\"=1\n", Dialect::COMPOSE);
-    let adj_empty_renamed = compose_adj_empty.rename_with_references("", "NEW").unwrap();
-    assert_eq!(adj_empty_renamed.as_str(), "A=\"${NEW}\"NEW=1\n");
-    replay("A=\"${}\"=1\n", &adj_empty_renamed);
+    // P1 #2 & A2: Compose empty keys at item start and unclosed `${` at value end / EOF.
+    for (src, expected, dialect) in [
+        ("=1\nX=${}\n", "NEW=1\nX=${NEW}\n", Dialect::COMPOSE),
+        ("A=\"${}\"=1\n", "A=\"${NEW}\"NEW=1\n", Dialect::COMPOSE),
+        ("A=\"${\"=1\n", "A=\"${NEW\"NEW=1\n", Dialect::COMPOSE),
+        ("=1\nX=${\n", "NEW=1\nX=${NEW\n", Dialect::COMPOSE),
+        ("=1\nX=${", "NEW=1\nX=${NEW", Dialect::COMPOSE),
+        (
+            "=1\nX=${ # note\n",
+            "NEW=1\nX=${NEW # note\n",
+            Dialect::COMPOSE,
+        ),
+        (
+            "=1\nX=${:-${}}\n",
+            "NEW=1\nX=${NEW:-${NEW}}\n",
+            Dialect::COMPOSE,
+        ),
+        ("=1\nX=${:-${", "NEW=1\nX=${NEW:-${NEW", Dialect::COMPOSE),
+        (
+            "=1\nX=\"a\"${\n",
+            "NEW=1\nX=\"a\"${NEW\n",
+            Dialect::COMPOSE.with_quoted_tail(crate::QuotedTail::Append),
+        ),
+        (
+            "=1\nX=\"a\"${",
+            "NEW=1\nX=\"a\"${NEW",
+            Dialect::COMPOSE.with_quoted_tail(crate::QuotedTail::Append),
+        ),
+    ] {
+        let (doc, _) = parse_with(src, dialect);
+        let renamed = doc.rename_with_references("", "NEW").unwrap();
+        assert_eq!(renamed.as_str(), expected, "source: {src:?}");
+        replay(src, &renamed);
+    }
 
     // P2 #3: Duplicate target precedence matches 1.6.1 even when new_key has an operator.
     let (dup_op, _) = parse("A=1\nB-2=2\nX=$A\n");

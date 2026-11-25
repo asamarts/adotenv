@@ -42,7 +42,7 @@ parser dialect for every operation (including `BomPolicy::StripAll` multi-BOM
 position mapping); the stdio server takes it from the loaded lint configuration.
 `LspOptions::with_parse_options` (and the stdio binary's `--max-input-bytes` /
 `--max-lines` flags) applies opt-in `ParseOptions` bounds to every document
-parse. Linter findings are an explicit policy:
+parse and to planned rename output. Linter findings are an explicit policy:
 `LspOptions::with_lint_options` accepts the linter's own `LintOptions` rule and
 severity policy. The default `LspOptions` does not run the linter, so
 diagnostics do not silently depend on a policy configuration.

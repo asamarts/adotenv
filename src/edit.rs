@@ -899,11 +899,19 @@ fn reference_rename_edit_bounded(
     Ok(TextEdit { range, replacement })
 }
 
+struct PlannedRefEdit {
+    edit: TextEdit,
+    item_id: usize,
+    is_value_edit: bool,
+}
+
+#[allow(clippy::too_many_arguments)]
 fn verify_reference_structure(
     orig_entry: crate::Entry<'_>,
     new_entry: crate::Entry<'_>,
     orig_source: &str,
     new_source: &str,
+    boundaries: &Boundaries<'_>,
     old_key: &str,
     new_key: &str,
 ) -> Result<(), EditError> {
@@ -925,6 +933,26 @@ fn verify_reference_structure(
         let expected_name = if renamed { Some(new_key) } else { orig_name };
         let braced_ok =
             orig_ref.braced == new_ref.braced || (renamed && !orig_ref.braced && new_ref.braced);
+        let expected_span =
+            boundaries.map(orig_ref.span.start)..boundaries.map_after(orig_ref.span.end);
+        let expected_command = orig_ref
+            .command
+            .as_ref()
+            .map(|r| boundaries.map(r.start)..boundaries.map_after(r.end));
+        let expected_operator = orig_ref
+            .operator_span
+            .as_ref()
+            .map(|r| boundaries.map_after(r.start)..boundaries.map_after(r.end));
+        let expected_argument = orig_ref
+            .argument
+            .as_ref()
+            .map(|r| boundaries.map_after(r.start)..boundaries.map_after(r.end));
+        let name_span_ok = orig_ref.braced != new_ref.braced
+            || new_ref.name
+                == orig_ref
+                    .name
+                    .as_ref()
+                    .map(|r| boundaries.map(r.start)..boundaries.map_after(r.end));
         if orig_ref.kind != new_ref.kind
             || orig_ref.closed != new_ref.closed
             || orig_ref.escaped != new_ref.escaped
@@ -934,6 +962,11 @@ fn verify_reference_structure(
             || orig_ref.quote != new_ref.quote
             || !braced_ok
             || new_name != expected_name
+            || new_ref.span != expected_span
+            || new_ref.command != expected_command
+            || new_ref.operator_span != expected_operator
+            || new_ref.argument != expected_argument
+            || !name_span_ok
         {
             return Err(EditError::WouldChangeMeaning);
         }
@@ -948,7 +981,8 @@ fn verify_reference_entry(
     rewritten: crate::Item<'_>,
     orig_source: &str,
     new_source: &str,
-    edits: &[TextEdit],
+    item_edits: &[PlannedRefEdit],
+    boundaries: &Boundaries<'_>,
     target_entry: usize,
     old_key: &str,
     new_key: &str,
@@ -970,50 +1004,43 @@ fn verify_reference_entry(
     {
         return Err(EditError::WouldChangeMeaning);
     }
-    if let Some(val_span) = orig_entry.value_span() {
-        let first_edit = edits.partition_point(|edit| {
-            edit.range.end < val_span.start
-                || (edit.range.end == val_span.start && !edit.range.is_empty())
-        });
-        let last_edit = edits.partition_point(|edit| edit.range.start < val_span.end);
-        let value_edits = &edits[first_edit..last_edit];
-        if value_edits.is_empty() {
-            if orig_entry.value() != new_entry.value() {
-                return Err(EditError::WouldChangeMeaning);
-            }
-        } else if let (Some(orig_val), Some(new_val)) = (orig_entry.value(), new_entry.value()) {
-            let mut total_added = 0usize;
-            let mut total_removed = 0usize;
-            for edit in value_edits {
-                let dec_start = crate::resolve::decoded_start_for_raw(orig_entry, edit.range.start)
-                    .ok_or(EditError::WouldChangeMeaning)?;
-                let dec_end = crate::resolve::decoded_end_for_raw(orig_entry, edit.range.end)
-                    .ok_or(EditError::WouldChangeMeaning)?;
-                let removed = dec_end
-                    .checked_sub(dec_start)
-                    .ok_or(EditError::WouldChangeMeaning)?;
-                total_removed = total_removed
-                    .checked_add(removed)
-                    .ok_or(EditError::WouldChangeMeaning)?;
-                total_added = total_added
-                    .checked_add(edit.replacement.len())
-                    .ok_or(EditError::WouldChangeMeaning)?;
-            }
-            if orig_val.len().checked_add(total_added) != new_val.len().checked_add(total_removed) {
-                return Err(EditError::WouldChangeMeaning);
-            }
-            verify_reference_structure(
-                orig_entry,
-                new_entry,
-                orig_source,
-                new_source,
-                old_key,
-                new_key,
-            )?;
-        } else {
+    let has_value_edits = item_edits.iter().any(|planned| planned.is_value_edit);
+    if !has_value_edits {
+        if orig_entry.value() != new_entry.value() {
             return Err(EditError::WouldChangeMeaning);
         }
-    } else if orig_entry.value() != new_entry.value() {
+    } else if let (Some(orig_val), Some(new_val)) = (orig_entry.value(), new_entry.value()) {
+        let mut total_added = 0usize;
+        let mut total_removed = 0usize;
+        for planned in item_edits.iter().filter(|planned| planned.is_value_edit) {
+            let edit = &planned.edit;
+            let dec_start = crate::resolve::decoded_start_for_raw(orig_entry, edit.range.start)
+                .ok_or(EditError::WouldChangeMeaning)?;
+            let dec_end = crate::resolve::decoded_end_for_raw(orig_entry, edit.range.end)
+                .ok_or(EditError::WouldChangeMeaning)?;
+            let removed = dec_end
+                .checked_sub(dec_start)
+                .ok_or(EditError::WouldChangeMeaning)?;
+            total_removed = total_removed
+                .checked_add(removed)
+                .ok_or(EditError::WouldChangeMeaning)?;
+            total_added = total_added
+                .checked_add(edit.replacement.len())
+                .ok_or(EditError::WouldChangeMeaning)?;
+        }
+        if orig_val.len().checked_add(total_added) != new_val.len().checked_add(total_removed) {
+            return Err(EditError::WouldChangeMeaning);
+        }
+        verify_reference_structure(
+            orig_entry,
+            new_entry,
+            orig_source,
+            new_source,
+            boundaries,
+            old_key,
+            new_key,
+        )?;
+    } else {
         return Err(EditError::WouldChangeMeaning);
     }
     Ok(())
@@ -1022,15 +1049,12 @@ fn verify_reference_entry(
 fn rewrite_span(
     source: &str,
     span: &Range<usize>,
-    edits: &[TextEdit],
+    item_edits: &[PlannedRefEdit],
 ) -> Result<String, EditError> {
-    let first = edits.partition_point(|edit| {
-        edit.range.end < span.start || (edit.range.end == span.start && !edit.range.is_empty())
-    });
-    let last = edits.partition_point(|edit| edit.range.start < span.end);
     let mut output = String::new();
     let mut at = span.start;
-    for edit in &edits[first..last] {
+    for planned in item_edits {
+        let edit = &planned.edit;
         if edit.range.start < at || edit.range.end > span.end {
             return Err(EditError::WouldChangeMeaning);
         }
@@ -1134,6 +1158,10 @@ impl<'a> Boundaries<'a> {
         let count = self.edits.partition_point(|edit| {
             edit.range.end < offset || (edit.range.end == offset && !edit.range.is_empty())
         });
+        offset - self.removed[count] + self.added[count]
+    }
+    fn map_after(&self, offset: usize) -> usize {
+        let count = self.edits.partition_point(|edit| edit.range.end <= offset);
         offset - self.removed[count] + self.added[count]
     }
 }
@@ -2285,6 +2313,7 @@ impl Document<'_> {
         &self,
         output: &str,
         edits: &[TextEdit],
+        planned: &[PlannedRefEdit],
         target_entry: usize,
         old_key: &str,
         new_key: &str,
@@ -2303,22 +2332,29 @@ impl Document<'_> {
         if before.len() != after.len() {
             return Err(EditError::WouldChangeMeaning);
         }
-        let mut item = 0;
-        for edit in edits {
-            while item < before.len() && before[item].span().end <= edit.range.start {
-                item += 1;
-            }
-            let Some(owner) = before.get(item) else {
+        for item_edit in planned {
+            let Some(owner) = before.get(item_edit.item_id) else {
                 return Err(EditError::WouldChangeMeaning);
             };
-            if owner.span().start > edit.range.start || edit.range.end > owner.span().end {
+            if owner.span().start > item_edit.edit.range.start
+                || item_edit.edit.range.end > owner.span().end
+            {
                 return Err(EditError::WouldChangeMeaning);
             }
         }
         let boundaries = Boundaries::new(edits);
-        for (original, rewritten) in before.iter().zip(after.iter()) {
-            let expected = rewrite_span(self.source(), &original.span(), edits)?;
-            if rewritten.span().start != boundaries.map(original.span().start)
+        let mut planned_cursor = 0;
+        let mut removed_before = 0usize;
+        let mut added_before = 0usize;
+        for (item_id, (original, rewritten)) in before.iter().zip(after.iter()).enumerate() {
+            let start_idx = planned_cursor;
+            while planned_cursor < planned.len() && planned[planned_cursor].item_id == item_id {
+                planned_cursor += 1;
+            }
+            let item_edits = &planned[start_idx..planned_cursor];
+            let expected_start = original.span().start - removed_before + added_before;
+            let expected = rewrite_span(self.source(), &original.span(), item_edits)?;
+            if rewritten.span().start != expected_start
                 || rewritten.kind() != original.kind()
                 || rewritten.raw() != expected.as_str()
             {
@@ -2331,11 +2367,16 @@ impl Document<'_> {
                     *rewritten,
                     self.source(),
                     output,
-                    edits,
+                    item_edits,
+                    &boundaries,
                     target_entry,
                     old_key,
                     new_key,
                 )?;
+            }
+            for item_edit in item_edits {
+                removed_before += item_edit.edit.range.len();
+                added_before += item_edit.edit.replacement.len();
             }
         }
         verify_new_keys(&parsed, vec![new_key])?;
@@ -2620,7 +2661,7 @@ impl Document<'_> {
         if existing_decls > 0 {
             return Err(EditError::Duplicate(existing_decls + 1));
         }
-        let mut edits = Vec::new();
+        let mut planned = Vec::new();
         let mut total_added = decl_len;
         let mut references = 0usize;
         let mut existing_new = 0usize;
@@ -2636,7 +2677,11 @@ impl Document<'_> {
                     let ref_edit =
                         reference_rename_edit_bounded(&reference, new_key, total_added, byte_cap)?;
                     total_added = total_added.saturating_add(ref_edit.replacement.len());
-                    edits.push(ref_edit);
+                    planned.push(PlannedRefEdit {
+                        edit: ref_edit,
+                        item_id: entry.item_id(),
+                        is_value_edit: true,
+                    });
                     references += 1;
                 } else if candidate == new_key {
                     existing_new += 1;
@@ -2655,16 +2700,34 @@ impl Document<'_> {
         } else {
             new_key.to_string()
         };
-        edits.push(TextEdit {
-            range: decl_range,
-            replacement: decl_replacement,
+        planned.push(PlannedRefEdit {
+            edit: TextEdit {
+                range: decl_range,
+                replacement: decl_replacement,
+            },
+            item_id: target.item_id(),
+            is_value_edit: false,
         });
-        let edits = Self::normalize_edits(edits)?;
+        planned.sort_by(|a, b| {
+            a.item_id
+                .cmp(&b.item_id)
+                .then(a.edit.range.start.cmp(&b.edit.range.start))
+                .then(a.edit.range.end.cmp(&b.edit.range.end))
+                .then(a.is_value_edit.cmp(&b.is_value_edit))
+        });
+        if planned.windows(2).any(|pair| {
+            pair[1].edit.range.start < pair[0].edit.range.end
+                || (pair[0].edit.range.is_empty() && pair[0].edit.range == pair[1].edit.range)
+        }) {
+            return Err(EditError::ConflictingEdits);
+        }
+        let edits: Vec<TextEdit> = planned.iter().map(|p| p.edit.clone()).collect();
         check_planned_output_limits(self.source(), &edits, self.dialect().line_breaks, options)?;
         let output = Self::apply_edits(self.source(), &edits);
         self.verify_reference_rename(
             &output,
             &edits,
+            &planned,
             target.id(),
             key,
             new_key,
