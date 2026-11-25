@@ -30,8 +30,11 @@ struct App {
 let app: App = config.try_deserialize()?;
 ```
 
-`from_values` accepts an explicit map. The `load` feature adds `from_environment`
-for `LoadedEnvironment`.
+`from_values` accepts an explicit map, `from_compact_values` accepts
+`CompactValues` (including results from `load_values_compact` and
+`load_cascade_values_compact`), and `from_compact_entries` accepts
+`CompactEntries`. The `load` feature adds `from_environment` for
+`LoadedEnvironment`.
 
 ## Keys
 

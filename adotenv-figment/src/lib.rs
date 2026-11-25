@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 #[cfg(feature = "load")]
 use adotenv::load::LoadedEnvironment;
-use adotenv::Document;
+use adotenv::{CompactEntries, CompactValues, Document};
 use figment::{
     value::{Dict, Map, Value},
     Metadata, Profile, Provider,
@@ -71,6 +71,37 @@ impl AdotenvProvider {
         Self {
             values,
             source: "literal document",
+        }
+    }
+
+    /// Build a provider from compact effective literal values.
+    ///
+    /// Accepts the output of `parse_values_compact*`, `load_values_compact*`,
+    /// or `load_cascade_values_compact*`.
+    #[must_use]
+    pub fn from_compact_values(values: &CompactValues) -> Self {
+        Self {
+            values: values
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect(),
+            source: "compact values",
+        }
+    }
+
+    /// Build a provider from compact winning entries.
+    ///
+    /// Bare declarations retained as `None` under `BareKeys::Preserve` are
+    /// omitted; bare declarations converted to `""` under `BareKeys::Empty`
+    /// are included.
+    #[must_use]
+    pub fn from_compact_entries(entries: &CompactEntries) -> Self {
+        Self {
+            values: entries
+                .iter()
+                .filter_map(|(key, value)| value.map(|val| (key.to_string(), val.to_string())))
+                .collect(),
+            source: "compact entries",
         }
     }
 
@@ -274,6 +305,45 @@ mod tests {
             Metadata::from("adotenv", "literal document")
         );
 
+        let compact = adotenv::parse_values_compact("host=localhost\nport=8080\nBARE\n").unwrap();
+        let from_compact = AdotenvProvider::from_compact_values(&compact);
+        assert_eq!(
+            from_compact.metadata(),
+            Metadata::from("adotenv", "compact values")
+        );
+        assert!(!from_compact.values().contains_key("BARE"));
+        let extracted: Config = Figment::new().merge(from_compact).extract().unwrap();
+        assert_eq!(
+            extracted,
+            Config {
+                host: "localhost".to_string(),
+                port: "8080".to_string(),
+            }
+        );
+
+        let entries = adotenv::parse_entries_compact("A=1\nBARE\nEMPTY=\n").unwrap();
+        let from_entries = AdotenvProvider::from_compact_entries(&entries);
+        assert_eq!(
+            from_entries.metadata(),
+            Metadata::from("adotenv", "compact entries")
+        );
+        assert_eq!(
+            from_entries.values().get("A").map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(
+            from_entries.values().get("EMPTY").map(String::as_str),
+            Some("")
+        );
+        assert!(!from_entries.values().contains_key("BARE"));
+
+        let empty_dialect = Dialect::PORTABLE.with_bare_keys(BareKeys::Empty);
+        let entries =
+            adotenv::parse_entries_compact_with("A=first\nA\nB\n", empty_dialect).unwrap();
+        let from_entries = AdotenvProvider::from_compact_entries(&entries);
+        assert_eq!(from_entries.values().get("A").map(String::as_str), Some(""));
+        assert_eq!(from_entries.values().get("B").map(String::as_str), Some(""));
+
         #[cfg(feature = "load")]
         {
             let path = std::env::temp_dir().join(format!(
@@ -288,6 +358,27 @@ mod tests {
                 Metadata::from("adotenv", "loaded environment")
             );
             let _ = std::fs::remove_file(path);
+
+            let dir = std::env::temp_dir().join(format!(
+                "adotenv-figment-compact-cascade-{}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(".env"), "host=localhost\nport=8080\n").unwrap();
+            std::fs::write(dir.join(".env.local"), "port=9090\n").unwrap();
+            let compact = adotenv::load::load_cascade_values_compact(&dir, "").unwrap();
+            let extracted: Config = Figment::new()
+                .merge(AdotenvProvider::from_compact_values(&compact))
+                .extract()
+                .unwrap();
+            assert_eq!(
+                extracted,
+                Config {
+                    host: "localhost".to_string(),
+                    port: "9090".to_string(),
+                }
+            );
+            std::fs::remove_dir_all(dir).unwrap();
         }
     }
 }

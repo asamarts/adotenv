@@ -71,7 +71,7 @@
 
 use std::{env, fmt};
 
-use adotenv::load::LoadedEnvironment;
+use adotenv::{load::LoadedEnvironment, CompactValues};
 
 #[cfg(windows)]
 const WINDOWS_VALUE_LIMIT: usize = 32_767;
@@ -207,9 +207,13 @@ impl std::error::Error for ApplyError {}
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn validate(environment: &LoadedEnvironment) -> Result<(), ApplyError> {
+    validate_pairs(environment.values())
+}
+
+fn validate_pairs<'a>(pairs: impl Iterator<Item = (&'a str, &'a str)>) -> Result<(), ApplyError> {
     #[cfg(windows)]
     let mut seen = std::collections::BTreeSet::new();
-    for (key, value) in environment.values() {
+    for (key, value) in pairs {
         if key.is_empty() {
             return Err(ApplyError::EmptyKey);
         }
@@ -239,6 +243,19 @@ pub fn validate(environment: &LoadedEnvironment) -> Result<(), ApplyError> {
         }
     }
     Ok(())
+}
+
+/// Checks that the process environment can hold every key and value in a
+/// [`CompactValues`] map.
+///
+/// Runs the same checks as [`validate`] in sorted key order without modifying
+/// the process environment.
+///
+/// # Errors
+///
+/// Returns the first [`ApplyError`] found.
+pub fn validate_compact(values: &CompactValues) -> Result<(), ApplyError> {
+    validate_pairs(values.iter())
 }
 
 /// Sets every loaded key to its loaded value in the current process
@@ -289,6 +306,29 @@ pub fn validate(environment: &LoadedEnvironment) -> Result<(), ApplyError> {
 pub unsafe fn apply(environment: &LoadedEnvironment) -> Result<(), ApplyError> {
     validate(environment)?;
     for (key, value) in environment.values() {
+        unsafe { env::set_var(key, value) };
+    }
+    Ok(())
+}
+
+/// Sets every key and value from a [`CompactValues`] map in the current
+/// process environment.
+///
+/// First runs [`validate_compact`], so a map it rejects changes nothing. Then
+/// sets each key with [`std::env::set_var`], in sorted order.
+///
+/// # Errors
+///
+/// Returns the [`ApplyError`] from [`validate_compact`], before changing
+/// anything.
+///
+/// # Safety
+///
+/// No other thread may read or write the process environment while
+/// `apply_compact` runs. See [`apply`] for the full safety contract.
+pub unsafe fn apply_compact(values: &CompactValues) -> Result<(), ApplyError> {
+    validate_compact(values)?;
+    for (key, value) in values.iter() {
         unsafe { env::set_var(key, value) };
     }
     Ok(())
@@ -486,5 +526,54 @@ mod tests {
     fn error_messages_include_the_key() {
         let error = ApplyError::InvalidKey { key: "A=B".into() };
         assert!(error.to_string().contains("A=B"));
+    }
+
+    #[test]
+    fn apply_compact_sets_values_and_validates_before_mutation() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let key = format!(
+            "ADOTENV_PROCESS_COMPACT_{}_{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        let dir = TempDir::new();
+        fs::write(dir.path().join(".env"), format!("{key}=compact-val\n")).unwrap();
+        let compact = adotenv::load::load_cascade_values_compact(dir.path(), "").unwrap();
+        assert!(validate_compact(&compact).is_ok());
+        unsafe { apply_compact(&compact).unwrap() };
+        assert_eq!(std::env::var(&key).as_deref(), Ok("compact-val"));
+        std::env::remove_var(&key);
+
+        let bad_key = format!(
+            "ADOTENV_PROCESS_COMPACT_BAD_{}_{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        let bad = adotenv::parse_values_compact(&format!("{bad_key}=bad\0val\n")).unwrap();
+        assert_eq!(
+            validate_compact(&bad),
+            Err(ApplyError::InvalidValue {
+                key: bad_key.clone()
+            })
+        );
+        assert_eq!(
+            unsafe { apply_compact(&bad) },
+            Err(ApplyError::InvalidValue {
+                key: bad_key.clone()
+            })
+        );
+        assert!(std::env::var_os(&bad_key).is_none());
+
+        let nul_key = adotenv::parse_values_compact_with(
+            "ADOTENV_COMPACT_NUL\0KEY=1\n",
+            adotenv::Dialect::DOCKER_RAW,
+        )
+        .unwrap();
+        assert_eq!(
+            validate_compact(&nul_key),
+            Err(ApplyError::InvalidKey {
+                key: "ADOTENV_COMPACT_NUL\0KEY".to_string()
+            })
+        );
     }
 }

@@ -20,7 +20,10 @@ values longer than 32,767 UTF-16 code units. It sets only keys from the loaded
 environment, removes nothing and cannot roll changes back. The process environment is global, so the caller owns
 the concurrency guarantee.
 
-`validate` runs the same checks without changing anything.
+`validate` runs the same checks without changing anything. `validate_compact`
+and `apply_compact` provide the same validation and process-mutation semantics
+for `CompactValues` (such as values returned by `load_cascade_values_compact`
+or `load_values_compact`).
 
 Prefer passing `LoadedEnvironment::values()` to a child process, or reading them
 directly, when mutation is not required. See the
