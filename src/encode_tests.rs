@@ -1205,6 +1205,12 @@ fn append_tail_inverse_spells_normalized_lf_as_cr_past_short_prefixes() {
 
 #[test]
 fn append_tail_inverse_reserves_cr_padding_byte_under_line_byte_limit() {
+    // DoubleEscapes::DOUBLE_QUOTE (without BACKSLASH) + UnknownEscapes::Error
+    // forbids `\` inside double quotes, and SingleEscapes::None forbids leading
+    // `'`, forcing QuotedTail::Append with the closing quote before `\`.
+    // At line_byte_limit = 15, split end=6 (`A="'1234#""\x\r\r`, 15 bytes) fits
+    // after mandatory CR padding while end=7 (`A="'1234#\""\x\r\r`, 16 bytes)
+    // overflows even though its unpadded length is 15.
     let normalized = Dialect {
         inline_comments: InlineComments::AnyHash,
         double_escapes: DoubleEscapes::DOUBLE_QUOTE,
@@ -1216,11 +1222,13 @@ fn append_tail_inverse_reserves_cr_padding_byte_under_line_byte_limit() {
         whitespace: Whitespace::Ascii,
         normalize_newlines: true,
         line_breaks: LineBreaks::Lf,
-        line_byte_limit: Some(14),
+        line_byte_limit: Some(15),
         ..Dialect::PORTABLE
     };
-    assert!(assert_inverse("\"'1234#\"\"x\r\r", normalized));
-    assert_encodes("'1234#\"x\n", normalized);
+    assert!(assert_inverse("\"'1234#\"\"\\x\r\r", normalized));
+    let token = encode_value_with("'1234#\"\\x\n", normalized).unwrap();
+    assert_eq!(token, "\"'1234#\"\"\\x\r\r");
+    assert_encodes("'1234#\"\\x\n", normalized);
 
     // Same CR-padding budget applies when normalize_newlines is disabled and
     // the value itself ends in literal CR.
@@ -1228,16 +1236,45 @@ fn append_tail_inverse_reserves_cr_padding_byte_under_line_byte_limit() {
         normalize_newlines: false,
         ..normalized
     };
-    assert!(assert_inverse("\"'1234#\"\"x\r\r", unnormalized));
-    assert_encodes("'1234#\"x\r", unnormalized);
+    assert!(assert_inverse("\"'1234#\"\"\\x\r\r", unnormalized));
+    assert_eq!(
+        encode_value_with("'1234#\"\\x\r", unnormalized).unwrap(),
+        "\"'1234#\"\"\\x\r\r"
+    );
 
-    // Native editing respects the exact same line_byte_limit budget at LF and EOF.
-    for source in ["A=1\n", "A=1"] {
+    // Native editing respects the exact line_byte_limit budget at LF, EOF and
+    // CRLF (where the existing `\r\n` terminator avoids an extra padding CR).
+    for source in ["A=1\n", "A=1", "A=1\r\n"] {
         let (doc, diagnostics) = parse_with(source, normalized);
         assert!(!diagnostics.iter().any(|d| d.severity() == Severity::Error));
-        let edited = doc.set("A", "'1234#\"x\n").unwrap();
+        let edited = doc.set("A", "'1234#\"\\x\n").unwrap();
         let (after, diagnostics) = parse_with(edited.as_str(), normalized);
         assert!(!diagnostics.iter().any(|d| d.severity() == Severity::Error));
-        assert_eq!(after.get("A"), Some("'1234#\"x\n"));
+        assert_eq!(after.get("A"), Some("'1234#\"\\x\n"));
     }
+
+    // With an existing CRLF line ending (`after == "\r\n"`), end=7 does not
+    // need an extra CR pad: `A="'1234#\""\x\r\r\n` is 16 bytes (15 + CR).
+    let crlf_fit = Dialect {
+        line_byte_limit: Some(16),
+        ..normalized
+    };
+    let (doc, _) = parse_with("A=1\r\n", crlf_fit);
+    let edited = doc.set("A", "'1234#\"\\x\n").unwrap();
+    assert_eq!(edited.as_str(), "A=\"'1234#\\\"\"\\x\r\r\n");
+
+    // With an inline comment after the value (`separate_comment == true`), the
+    // trailing `\r` precedes `' '` rather than LF/EOF so no extra CR pad is needed:
+    // `A="'1234#\""\x\r #c` is exactly 18 bytes.
+    let comment_fit = Dialect {
+        line_byte_limit: Some(18),
+        ..normalized
+    };
+    let (doc, _) = parse_with("A=1#c\n", comment_fit);
+    let edited = doc.set("A", "'1234#\"\\x\n").unwrap();
+    assert_eq!(edited.as_str(), "A=\"'1234#\\\"\"\\x\r #c\n");
+    let (after, diagnostics) = parse_with(edited.as_str(), comment_fit);
+    assert!(!diagnostics.iter().any(|d| d.severity() == Severity::Error));
+    assert_eq!(after.get("A"), Some("'1234#\"\\x\n"));
+    assert_eq!(after.unique("A").unwrap().inline_comment(), Some("#c"));
 }

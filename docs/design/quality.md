@@ -28,10 +28,13 @@ Its main steps:
 
 ```console
 cargo fmt --all --check
+cargo fmt --manifest-path fuzz/Cargo.toml --all --check
+cargo fmt --manifest-path conformance/rust/Cargo.toml --all --check
 python3 scripts/check_docs.py
 shellcheck scripts/*.sh
 actionlint
 cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo clippy --manifest-path conformance/rust/Cargo.toml --all-targets --locked -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features --locked
 cargo test --workspace --locked
 cargo test -p adotenv --features load,serde --locked
@@ -58,7 +61,11 @@ The workflow also:
   versions on nightly and runs their test suite; the LSP prototype has its own
   1.85 MSRV check;
 - checks that every package includes its license files;
-- runs the benchmarks once as a smoke test.
+- runs the `gungraun` `det_parse` benchmark smoke test, checks the memory
+  regression gates with `adotenv-xtask gate` against both
+  `docs/benchmarks/memory.jsonl` and `docs/benchmarks/compact-memory.jsonl`
+  (`adotenv`, `adotenv-compact` and `adotenv-compact-entries`), and runs the
+  deterministic instruction-count gate (`scripts/det-perf-gate.sh`).
 
 The docs workflow also builds the mdBook site and runs a headless-browser smoke
 test for nested navigation, charts, sortable/filterable tables and selector
@@ -121,9 +128,10 @@ release.
 Mutation testing runs weekly and on demand in four shards. It targets parser
 diagnostics, key validation, edit verification and formatting equivalence,
 with a 90-second timeout and two jobs per shard. The 1.4.1 focused campaign
-and the subsequent 1.5.4, 1.6.0 and 1.6.1 per-crate sweeps across all seven
-published crates are recorded in the [test audit](test-audit.md). Survivors are
-input for targeted regression tests, not an automatic release blocker.
+and the subsequent 1.5.4, 1.6.0, 1.6.1 and 1.7.x per-crate and `--in-diff`
+sweeps across all seven published crates are recorded in the
+[test audit](test-audit.md). Survivors are input for targeted regression tests,
+not an automatic release blocker.
 
 Full test and mutation runs are resource-heavy. Follow
 [heavy validation](heavy-validation.md); in particular, do not run
