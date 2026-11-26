@@ -4,16 +4,17 @@ This page records test coverage at the last release and the known gaps.
 Coverage is a guide, not a release gate. How the tests are organized is
 described in [Quality](quality.md).
 
-## Coverage at 1.7.2
+## Coverage at 1.7.3
 
-From CI run `45751750161` (`cargo llvm-cov --workspace --all-features`) on
-2026-11-25 at release commit `8c1c782` (`v1.7.2`). The core crate
-(`coverage-summary.txt`) covers 94.7 percent of regions (10,842 of 11,444),
-97.2 percent of functions (1,128 of 1,160) and 95.5 percent of lines (10,318 of
-10,805), up from 94.2 percent of regions and 94.9 percent of lines at 1.6.0
-(CI run `45107927491`, commit `ca38775`). Across all seven published crates
+From CI run `45774141013` (`cargo llvm-cov --workspace --all-features`) on
+2026-11-26 at release commit `c5c199f` (`v1.7.3`). The core crate
+(`coverage-summary.txt`) covers 94.8 percent of regions (10,859 of 11,459),
+97.2 percent of functions (1,131 of 1,163) and 95.5 percent of lines (10,328 of
+10,815), up from 94.7 percent of regions at 1.7.2 (CI run `45751750161`, commit
+`8c1c782`) and 94.2 percent of regions / 94.9 percent of lines at 1.6.0 (CI run
+`45107927491`, commit `ca38775`). Across all seven published crates
 (`lcov.info`, production source files excluding tests, benchmarks and `xtask`),
-line coverage is 95.5 percent (16,008 of 16,763 lines). The earlier `1.2.0`
+line coverage is 95.5 percent (16,018 of 16,773 lines). The earlier `1.2.0`
 local workspace baseline (94.4 percent of regions and 94.8 percent of lines on
 2026-11-04) predates `compact.rs`, `limit.rs`, `adotenv-lint` and `adotenv-lsp`.
 
@@ -21,25 +22,25 @@ local workspace baseline (94.4 percent of regions and 94.8 percent of lines on
 
 | Scope | Regions | Lines |
 |---|---:|---:|
-| Core crate total | 94.7% | 95.5% |
+| Core crate total | 94.8% | 95.5% |
 | `compare.rs`, `limit.rs`, `parser/unicode.rs` | 100.0% | 100.0% |
 | `compact.rs` | 99.6% | 99.5% |
 | `parser/docker.rs` | 99.4% | 99.3% |
 | `example.rs` | 99.1% | 98.8% |
 | `structure.rs` | 98.5% | 99.0% |
+| `parser/decode.rs` | 98.5% | 99.4% |
 | `position.rs` | 98.1% | 98.2% |
 | `portability.rs` | 97.8% | 97.5% |
-| `parser/decode.rs` | 97.7% | 99.1% |
 | `diagnostic.rs` | 97.7% | 97.8% |
 | `dialect.rs` | 97.6% | 97.6% |
 | `parser.rs` | 97.5% | 97.0% |
 | `model.rs` | 97.5% | 98.4% |
 | `format.rs` | 97.4% | 97.0% |
 | `sort.rs` | 96.5% | 96.1% |
-| `encode.rs` | 95.9% | 97.3% |
-| `references.rs` | 95.5% | 95.9% |
+| `encode.rs` | 96.1% | 97.4% |
 | `parser/python.rs` | 95.5% | 94.5% |
-| `edit.rs` | 95.3% | 97.0% |
+| `edit.rs` | 95.4% | 97.1% |
+| `references.rs` | 94.8% | 95.3% |
 | `serde_support.rs` | 94.4% | 98.3% |
 | `parser/compose.rs` | 94.2% | 94.0% |
 | `parser/node.rs` | 94.0% | 97.0% |
@@ -50,10 +51,10 @@ local workspace baseline (94.4 percent of regions and 94.8 percent of lines on
 
 ### Published companion crates
 
-Line coverage from the workspace `lcov.info` artifact (CI run `45751750161` at
-release commit `8c1c782`, following `adotenv-config 0.12.1`,
+Line coverage from the workspace `lcov.info` artifact (CI run `45774141013` at
+release commit `c5c199f`, following `adotenv-config 0.12.1`,
 `adotenv-figment 0.12.2`, `adotenv-lint 0.2.3`, `adotenv-lsp 0.5.1` and
-`1.7.0`-`1.7.2`; production source files across all seven published crates,
+`1.7.0`-`1.7.3`; production source files across all seven published crates,
 excluding tests, benchmarks and `xtask`):
 
 | Scope | Lines |
@@ -71,19 +72,21 @@ excluding tests, benchmarks and `xtask`):
 
 `limit.rs`, `compare.rs`, `parser/unicode.rs` and `adotenv-figment/src/lib.rs`
 are at 100.0 percent line coverage, `compact.rs` and
-`adotenv-process/src/lib.rs` at 99.5 percent, `adotenv-lsp/src/lib.rs` at 99.0
-percent, `example.rs` at 98.8 percent, `adotenv-config/src/lib.rs` at 98.7
-percent, `adotenv-lsp/src/main.rs` at 98.5 percent, `model.rs` at 98.4 percent,
-`adotenv-lint/src/config.rs` at 98.3 percent, `encode.rs` at 97.3 percent,
-`parser.rs` and `edit.rs` at 97.0 percent, `adotenv-lint/src/lib.rs` at 96.0
-percent, `references.rs` at 95.9 percent, `adotenv-cli/src/main.rs` at 93.2
-percent, `adotenv-lint/src/main.rs` at 89.1 percent and `mask.rs` at 87.5
-percent. Across all seven published crates, line coverage at 1.7.2 is 95.5
-percent (16,008 of 16,763 lines, CI run `45751750161` at `8c1c782`), compared
-with 96.0 percent at `9d852ec` (14,853 of 15,471 lines, before pre-1.7.0 CLI and
-linter I/O and platform error-handling additions), 95.3 percent at
-`adotenv-lsp 0.5.0` (`94835f1`), 93.3 percent at 1.6.0 (`ca38775`) and 92.0
-percent at 1.5.4 (`8a50850`). `exec.rs`, `load.rs`, `resolve.rs`,
+`adotenv-process/src/lib.rs` at 99.5 percent, `parser/decode.rs` at 99.4
+percent, `adotenv-lsp/src/lib.rs` at 99.0 percent, `example.rs` at 98.8
+percent, `adotenv-config/src/lib.rs` at 98.7 percent, `adotenv-lsp/src/main.rs`
+at 98.5 percent, `model.rs` at 98.4 percent, `adotenv-lint/src/config.rs` at
+98.3 percent, `encode.rs` at 97.4 percent, `edit.rs` at 97.1 percent,
+`parser.rs` at 97.0 percent, `adotenv-lint/src/lib.rs` at 96.0 percent,
+`references.rs` at 95.3 percent, `adotenv-cli/src/main.rs` at 93.2 percent,
+`adotenv-lint/src/main.rs` at 89.1 percent and `mask.rs` at 87.5 percent.
+Across all seven published crates, line coverage at 1.7.3 is 95.5 percent
+(16,018 of 16,773 lines, CI run `45774141013` at `c5c199f`), matching 95.5
+percent at 1.7.2 (16,008 of 16,763 lines, CI run `45751750161` at `8c1c782`),
+compared with 96.0 percent at `9d852ec` (14,853 of 15,471 lines, before
+pre-1.7.0 CLI and linter I/O and platform error-handling additions), 95.3
+percent at `adotenv-lsp 0.5.0` (`94835f1`), 93.3 percent at 1.6.0 (`ca38775`)
+and 92.0 percent at 1.5.4 (`8a50850`). `exec.rs`, `load.rs`, `resolve.rs`,
 `adotenv-cli/src/main.rs` and `adotenv-lint/src/main.rs` retain defensive I/O
 and Windows-only error branches (the Windows branches are exercised by the
 Windows CI job rather than Linux coverage).
@@ -229,6 +232,10 @@ key allowlists):
   fixes for CR-padding `line_byte_limit` budgets and tightened `$(...)`
   command-context keys): 7 of 7 targets passed with zero crashes and zero
   timeouts.
+- `45771294647` (`69df45f`, PR #241, merged as `eb9462d` ahead of `v1.7.3`
+  `c5c199f`, validating the removal of the subsumed `has_command_ancestor`
+  helper in `src/edit.rs` and `fuzz/fuzz_targets/edits.rs`): 7 of 7 targets
+  passed with zero crashes and zero timeouts.
 
 ## Mutation testing at 1.2.0
 
@@ -554,7 +561,8 @@ in `lint`, where `group.iter().skip(1)` already yields nothing for length 1).
   (`planned_cursor *= 1` in `verify_reference_rename`). Every
   `is_safe_command_ref_key` and command-context allowlist mutant in
   `src/edit.rs` was caught; the 13 `src/edit.rs` survivors are redundant
-  `has_command_ancestor` branches subsumed by `has_command_context`, disjoint
+  `has_command_ancestor` branches subsumed by `has_command_context` (since
+  removed in `eb9462d`, PR #241, shipped in `v1.7.3`), disjoint
   `<` vs `<=` span-start equivalence, and defensive verification/overlap
   guards. In `src/encode.rs`, 11 of the 34 survivors exposed a genuine test gap
   where `append = false` shadowed the `QuotedTail::Append` CR-padding
