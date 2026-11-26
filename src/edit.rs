@@ -2607,27 +2607,29 @@ impl Document<'_> {
     /// Commands themselves have no name and are not renamed, but variable
     /// candidates nested inside their arguments are.
     ///
+    /// The new key must be writable in every matching reference form when the
+    /// document has any matching candidates. Planning fails with
+    /// [`EditError::InvalidReferenceKey`] if `new_key` is empty, contains
+    /// ASCII control bytes or reference operator/delimiter bytes (`-`, `:`,
+    /// `?`, `+`, `{`, `}`, `$`, `\`), contains a quote delimiter matching an
+    /// enclosing value's quotes (`'`, `"`, `` ` ``), or requires bracing on an
+    /// escaped unbraced reference (such as `\$OLD`). A key with no matching
+    /// references can use those characters normally.
+    ///
     /// When `key != new_key` and a matching variable reference occurs inside or
     /// after a `$(` command substitution in the same entry, both `key` and
-    /// `new_key` must satisfy a strict shell-safe allowlist (starting with an
-    /// ASCII letter or `_`, containing only ASCII alphanumerics, `_` or `.`,
-    /// with no trailing `.` or `..`). Scanner operator and delimiter bytes
-    /// (`-`, `:`, `?`, `+`, `{`, `}`, `$`, `\`) in `new_key` fail earlier
-    /// during planning with [`EditError::InvalidReferenceKey`]; all other keys
-    /// outside the command-context allowlist, such as POSIX positional
-    /// parameters (`0`, `1`), leading digits or dots, quotes, whitespace,
-    /// shell metacharacters, non-scanner expansion operators (`=`, `%`, `#`,
-    /// `/`), or a non-allowlist `key`, fail verification with
-    /// [`EditError::WouldChangeMeaning`]. When `key == new_key`, this method
-    /// delegates directly to [`Document::rename_with_options`] as a no-op
-    /// without rewriting or verifying references.
-    ///
-    /// The new key must be writable as a reference when the document has any
-    /// matching candidates. A key containing `-`, `:`, `?` or `+` cannot be
-    /// written as a reference name because the scanner treats those bytes as
-    /// operators; such a rename fails with
-    /// [`EditError::InvalidReferenceKey`]. A key with no matching references
-    /// can use those characters normally.
+    /// `new_key` must also satisfy a strict shell-safe allowlist (starting with
+    /// an ASCII letter or `_`, containing only ASCII alphanumerics, `_` or `.`,
+    /// with no trailing `.` or `..`). Any key that passes reference planning
+    /// but falls outside this allowlist (such as POSIX positional parameters
+    /// `0`/`1`, leading digits or dots, ASCII space or non-ASCII whitespace,
+    /// quotes not matching the enclosing value's quotes, shell metacharacters,
+    /// non-scanner expansion operators `=`/`%`/`#`/`/`, or a non-allowlist
+    /// `key`) fails verification with [`EditError::WouldChangeMeaning`]. When
+    /// `key == new_key`, this method delegates directly to
+    /// [`Document::rename_with_options`], skipping reference rewriting and
+    /// reference verification (while still validating uniqueness, enforcing
+    /// [`EditOptions`] limits, and verifying the unchanged declaration).
     ///
     /// The complete output is parsed and verified: the declaration has the new
     /// key, every old reference now names the new key, newly matching references

@@ -6,6 +6,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use adotenv_bench::competitors::Competitor;
 use adotenv_bench::memory::{Implementation, Mode};
@@ -134,17 +135,17 @@ fn command_memory(args: &[String]) -> Result<()> {
     } else {
         "docs/benchmarks/memory.jsonl"
     });
-    validate_local_out(out)?;
+    validate_out_with_fingerprint(out)?;
     let sizes = parsed.get("--sizes").unwrap_or("8,128");
     let shapes = parsed.get("--shapes").unwrap_or("plain");
     let modes = parsed
         .get("--modes")
         .unwrap_or("values,load,document,resolve");
-    let out = PathBuf::from(out);
-    ensure_parent(&out)?;
     let sizes = parse_sizes(sizes)?;
     let shapes = parse_shapes(shapes)?;
     let modes = parse_modes(modes)?;
+    let out = PathBuf::from(out);
+    ensure_parent(&out)?;
     let memory = build_memory_binary()?;
     let mut lines = String::new();
     for size in sizes {
@@ -211,9 +212,13 @@ fn command_speed(args: &[String]) -> Result<()> {
     let parsed = ParsedArgs::parse(args, &["--out", "--bench", "--filter"], &["--quick"])?;
     let out_arg = parsed.get("--out").unwrap_or("docs/benchmarks/speed.txt");
     validate_speed_out(out_arg)?;
-    let out = PathBuf::from(out_arg);
     let bench = parsed.get("--bench").unwrap_or("competitors");
     validate_bench_target(bench)?;
+    let filter = parsed.get("--filter");
+    if let Some(filter) = filter {
+        validate_filter(filter)?;
+    }
+    let out = PathBuf::from(out_arg);
     ensure_parent(&out)?;
     let binary = build_bench_binary(bench)?;
     let mut command = Command::new(binary);
@@ -221,8 +226,7 @@ fn command_speed(args: &[String]) -> Result<()> {
     if parsed.has("--quick") {
         command.arg("--quick");
     }
-    if let Some(filter) = parsed.get("--filter") {
-        validate_filter(filter)?;
+    if let Some(filter) = filter {
         command.arg(filter);
     }
     let output = command.output().map_err(|error| error.to_string())?;
@@ -276,10 +280,19 @@ fn write_speed_markdown(path: &Path) -> Result<()> {
     Ok(())
 }
 
+struct TempFileGuard(PathBuf);
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
 fn command_cli(args: &[String]) -> Result<()> {
+    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
     let parsed = ParsedArgs::parse(args, &["--out", "--size", "--shape"], &[])?;
     let out_arg = parsed.get("--out").unwrap_or("docs/benchmarks/cli.json");
-    validate_local_out(out_arg)?;
+    validate_out_with_fingerprint(out_arg)?;
     let out = PathBuf::from(out_arg);
     let size = Size::from_label(parsed.get("--size").unwrap_or("128")).ok_or("unknown size")?;
     let shape =
@@ -289,13 +302,16 @@ fn command_cli(args: &[String]) -> Result<()> {
     let fixture = adotenv_bench::fixture(size, shape);
     let temp_dir = binary
         .parent()
-        .map_or_else(std::env::temp_dir, Path::to_path_buf);
-    let path = temp_dir.join("bench-cli.env");
-    fs::write(&path, fixture.source()).map_err(|error| error.to_string())?;
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map_or_else(env::temp_dir, Path::to_path_buf);
+    let seq = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let temp_file =
+        TempFileGuard(temp_dir.join(format!("bench-cli-{}-{seq}.env", std::process::id())));
+    fs::write(&temp_file.0, fixture.source()).map_err(|error| error.to_string())?;
     let command = format!(
         "{} check {}",
         shell_quote(&binary.to_string_lossy()),
-        shell_quote(&path.to_string_lossy())
+        shell_quote(&temp_file.0.to_string_lossy())
     );
     let status = Command::new("hyperfine")
         .args(["--warmup", "2", "--min-runs", "5", "--export-json"])
@@ -304,7 +320,7 @@ fn command_cli(args: &[String]) -> Result<()> {
         .arg(command)
         .status()
         .map_err(|error| error.to_string())?;
-    let _ = fs::remove_file(path);
+    drop(temp_file);
     if !status.success() {
         return Err(format!("hyperfine exited with {status}"));
     }
@@ -932,15 +948,26 @@ fn validate_local_out(path: &str) -> Result<()> {
         || path.ends_with("\\..")
         || out.file_name().is_none()
         || out.is_dir()
-        || out.with_extension("fingerprint.json").is_dir()
     {
         return Err(format!("--out must be a non-directory file path: {path:?}"));
     }
     Ok(())
 }
 
-fn validate_speed_out(path: &str) -> Result<()> {
+fn validate_out_with_fingerprint(path: &str) -> Result<()> {
     validate_local_out(path)?;
+    let sidecar = Path::new(path).with_extension("fingerprint.json");
+    if sidecar.is_dir() {
+        return Err(format!(
+            "--out fingerprint sibling path is a directory: {}",
+            sidecar.display()
+        ));
+    }
+    Ok(())
+}
+
+fn validate_speed_out(path: &str) -> Result<()> {
+    validate_out_with_fingerprint(path)?;
     let out = Path::new(path);
     if out
         .extension()
@@ -1085,7 +1112,7 @@ fn command_queue(args: &[String]) -> Result<()> {
     } else {
         "docs/benchmarks/memory.jsonl"
     });
-    validate_local_out(local_out)?;
+    validate_out_with_fingerprint(local_out)?;
     let remote_out = parsed.get("--remote-out").unwrap_or(if compact {
         "bench-compact-memory.jsonl"
     } else {
@@ -1101,6 +1128,9 @@ fn command_queue(args: &[String]) -> Result<()> {
     let parsed_shapes = parse_shapes(shapes)?;
     let parsed_modes = parse_modes(modes)?;
     let dry_run = parsed.has("--dry-run");
+    if parsed.has("--sync") && !dry_run {
+        ensure_clean_worktree()?;
+    }
     if !dry_run {
         ensure_parent(Path::new(local_out))?;
     }
@@ -1195,6 +1225,9 @@ fn command_queue_speed(args: &[String]) -> Result<()> {
         }
     }
     let dry_run = parsed.has("--dry-run");
+    if parsed.has("--sync") && !dry_run {
+        ensure_clean_worktree()?;
+    }
     if !dry_run {
         ensure_parent(Path::new(local_out))?;
     }
@@ -1371,25 +1404,31 @@ fn copy_binary(remote: &RemoteConfig, binary: &Path, name: &str) -> Result<()> {
     Ok(())
 }
 
-fn extract_cargo_executable(stdout: &str, target_name: &str) -> Result<PathBuf> {
+fn extract_cargo_executable(stdout: &str, target_name: &str, target_kind: &str) -> Result<PathBuf> {
     let mut executable = None;
     for line in stdout.lines() {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
         };
+        let target = value.get("target");
+        let kind_matches = target
+            .and_then(|target| target.get("kind"))
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|kinds| kinds.iter().any(|kind| kind.as_str() == Some(target_kind)));
         if value.get("reason").and_then(serde_json::Value::as_str) == Some("compiler-artifact")
-            && value
-                .get("target")
+            && target
                 .and_then(|target| target.get("name"))
                 .and_then(serde_json::Value::as_str)
                 == Some(target_name)
+            && kind_matches
         {
             if let Some(path) = value.get("executable").and_then(serde_json::Value::as_str) {
                 executable = Some(PathBuf::from(path));
             }
         }
     }
-    executable.ok_or_else(|| format!("cargo did not report an executable for {target_name}"))
+    executable
+        .ok_or_else(|| format!("cargo did not report a {target_kind} executable for {target_name}"))
 }
 
 fn build_bench_binary(bench: &str) -> Result<PathBuf> {
@@ -1409,7 +1448,7 @@ fn build_bench_binary(bench: &str) -> Result<PathBuf> {
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).into_owned());
     }
-    extract_cargo_executable(&String::from_utf8_lossy(&output.stdout), bench)
+    extract_cargo_executable(&String::from_utf8_lossy(&output.stdout), bench, "bench")
 }
 
 fn build_release_binary(package: &str, bin: &str) -> Result<PathBuf> {
@@ -1433,7 +1472,7 @@ fn build_release_binary(package: &str, bin: &str) -> Result<PathBuf> {
             String::from_utf8_lossy(&output.stderr)
         ));
     }
-    extract_cargo_executable(&String::from_utf8_lossy(&output.stdout), bin)
+    extract_cargo_executable(&String::from_utf8_lossy(&output.stdout), bin, "bin")
 }
 
 fn build_xtask_binary() -> Result<PathBuf> {
@@ -2044,13 +2083,15 @@ mod tests {
         assert!(validate_speed_out("docs/benchmarks/speed.txt").is_ok());
         assert!(validate_speed_out("docs/benchmarks/speed.md").is_err());
         assert!(validate_speed_out("docs/benchmarks/speed.MD").is_err());
-        let cargo_json = r#"{"reason":"compiler-artifact","target":{"name":"adotenv"},"executable":null}
-{"reason":"compiler-artifact","target":{"name":"memory"},"executable":"/custom/target/release/memory"}"#;
+        let cargo_json = r#"{"reason":"compiler-artifact","target":{"name":"adotenv","kind":["lib"]},"executable":null}
+{"reason":"compiler-artifact","target":{"name":"memory","kind":["test"]},"executable":"/custom/target/debug/deps/memory-abc"}
+{"reason":"compiler-artifact","target":{"name":"memory","kind":["bin"]},"executable":"/custom/target/release/memory"}"#;
         assert_eq!(
-            extract_cargo_executable(cargo_json, "memory").unwrap(),
+            extract_cargo_executable(cargo_json, "memory", "bin").unwrap(),
             PathBuf::from("/custom/target/release/memory")
         );
-        assert!(extract_cargo_executable(cargo_json, "missing").is_err());
+        assert!(extract_cargo_executable(cargo_json, "memory", "bench").is_err());
+        assert!(extract_cargo_executable(cargo_json, "missing", "bin").is_err());
         #[cfg(not(windows))]
         {
             assert_eq!(
@@ -2070,5 +2111,31 @@ mod tests {
         // Fingerprints never expose the host's local hostname.
         let fp: serde_json::Value = serde_json::from_str(&fingerprint_json()).unwrap();
         assert_eq!(fp["hostname"], serde_json::json!("unknown"));
+    }
+
+    #[test]
+    fn output_sibling_directory_validation() {
+        struct TempDirGuard(PathBuf);
+        impl Drop for TempDirGuard {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+
+        let dir = TempDirGuard(
+            env::temp_dir().join(format!("adotenv-xtask-test-{}", std::process::id())),
+        );
+        fs::create_dir_all(dir.0.join("out.fingerprint.json")).unwrap();
+        fs::create_dir_all(dir.0.join("speed.md")).unwrap();
+
+        let out_fp = dir.0.join("out.jsonl");
+        let out_fp_str = out_fp.to_string_lossy();
+        assert!(validate_local_out(&out_fp_str).is_ok());
+        assert!(validate_out_with_fingerprint(&out_fp_str).is_err());
+
+        let out_md = dir.0.join("speed.txt");
+        let out_md_str = out_md.to_string_lossy();
+        assert!(validate_out_with_fingerprint(&out_md_str).is_ok());
+        assert!(validate_speed_out(&out_md_str).is_err());
     }
 }
