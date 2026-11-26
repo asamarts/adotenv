@@ -82,8 +82,8 @@ A median/estimate and its reported spread are the unit of comparison. The
 release summary compares the adotenv line with the best competitor line for the
 same mode, shape and size. The 1.5.0 compact run adds an `adotenv-compact` line
 to the same values/load cells and compares it with the same best competitor;
-the 1.6.0 run also measures `adotenv-compact-entries` in `values` cells.
-Criterion wall time is publication evidence; it is not a PR gate.
+the 1.6.0 and 1.7.3 runs also measure `adotenv-compact-entries` in `values`
+cells. Criterion wall time is publication evidence; it is not a PR gate.
 
 ## Memory
 
@@ -95,8 +95,9 @@ counting global allocator records:
 - `retained_heap_bytes`: live heap while the result is held;
 - `heap_after_drop_bytes`: live heap after dropping the result;
 - `allocations`: successful `alloc`, `alloc_zeroed` and `realloc` calls above
-  the baseline (counted once per call; historical snapshots through 1.6.0
-  predate the `realloc` double-counting fix);
+  the baseline (counted once per call; 1.7.3 is the first versioned snapshot
+  after the `realloc` double-counting fix, while historical snapshots through
+  1.6.0 predate it);
 - `rss_before_bytes`, `rss_peak_bytes`, `rss_after_bytes`: Linux RSS where
   available.
 

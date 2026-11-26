@@ -71,10 +71,10 @@ The compact memory output contains 180 rows: 30 `adotenv` rows, 30
 values rows and 60 competitor load rows. The 1.4.1 speed output contains 115
 cells: 40 values and 75 load lines. The 1.5.0 compact speed output contains 140
 cells: 50 values (5 sizes × 2 non-empty shapes × 5 implementations) and 90 load
-lines (5 sizes × 3 shapes × 6 implementations). The 1.6.0 speed output adds
-`adotenv-compact-entries` for 150 cells (60 values and 90 load lines). Empty
-values are skipped by the Criterion values target because there is no non-empty
-parse workload.
+lines (5 sizes × 3 shapes × 6 implementations). The 1.6.0 and 1.7.3 speed
+outputs add `adotenv-compact-entries` for 150 cells (60 values and 90 load
+lines). Empty values are skipped by the Criterion values target because there
+is no non-empty parse workload.
 
 ## Fixture generation
 
