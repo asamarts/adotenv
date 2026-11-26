@@ -125,7 +125,7 @@ fn compact_and_compact_entries_measure_nonzero_heap_and_clean_drop() {
 }
 
 #[test]
-fn rejects_unknown_cli_flags() {
+fn rejects_unknown_duplicate_and_missing_value_cli_flags() {
     let output = run(&[
         "--mode",
         "values",
@@ -140,4 +140,36 @@ fn rejects_unknown_cli_flags() {
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("UTF-8 output");
     assert!(stderr.contains("unknown argument"), "{stderr}");
+
+    let dup = run(&[
+        "--mode",
+        "values",
+        "--mode",
+        "values",
+        "--implementation",
+        "adotenv",
+        "--size",
+        "8",
+        "--shape",
+        "plain",
+    ]);
+    assert!(!dup.status.success());
+    let dup_err = String::from_utf8(dup.stderr).expect("UTF-8 output");
+    assert!(dup_err.contains("duplicate argument"), "{dup_err}");
+
+    let missing_val = run(&[
+        "--mode",
+        "--size",
+        "8",
+        "--implementation",
+        "adotenv",
+        "--shape",
+        "plain",
+    ]);
+    assert!(!missing_val.status.success());
+    let missing_err = String::from_utf8(missing_val.stderr).expect("UTF-8 output");
+    assert!(
+        missing_err.contains("missing value for --mode"),
+        "{missing_err}"
+    );
 }

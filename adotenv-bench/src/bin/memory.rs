@@ -43,13 +43,28 @@ fn run_cli() -> Result<(), String> {
                     .get(index + 1)
                     .map(String::as_str)
                     .ok_or_else(|| format!("missing value for {flag}"))?;
-                match flag {
-                    "--mode" => mode = Some(value),
-                    "--implementation" => implementation = Some(value),
-                    "--size" => size = Some(value),
-                    "--shape" => shape = Some(value),
-                    "--format" => format = Some(value),
+                if matches!(
+                    value,
+                    "--mode"
+                        | "--implementation"
+                        | "--size"
+                        | "--shape"
+                        | "--format"
+                        | "--help"
+                        | "-h"
+                ) {
+                    return Err(format!("missing value for {flag} (got flag {value})"));
+                }
+                let slot = match flag {
+                    "--mode" => &mut mode,
+                    "--implementation" => &mut implementation,
+                    "--size" => &mut size,
+                    "--shape" => &mut shape,
+                    "--format" => &mut format,
                     _ => unreachable!(),
+                };
+                if slot.replace(value).is_some() {
+                    return Err(format!("duplicate argument: {flag}"));
                 }
                 index += 2;
             }

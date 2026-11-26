@@ -874,7 +874,8 @@ fn rename_with_options_enforces_lines_diagnostics_and_items_limits() {
     )
     .is_ok());
 
-    // max_diagnostics bounds verification re-parsing (e.g. a document with a leading BOM warning).
+    // max_diagnostics bounds both input parsing (BOM warning) and verification re-parsing
+    // (a clean 0-diagnostic document renamed to a dotted NonPosixKey warning).
     let diag_zero =
         LspOptions::new().with_parse_options(ParseOptions::new().with_max_diagnostics(0));
     let diag_err = adotenv_lsp::rename_with_options(
@@ -889,6 +890,18 @@ fn rename_with_options_enforces_lines_diagnostics_and_items_limits() {
         matches!(diag_err, RenameError::Edit(EditError::Limit(limit)) if limit.kind() == LimitKind::Diagnostics),
         "{diag_err:?}"
     );
+    let verify_diag_err = adotenv_lsp::rename_with_options(
+        "A=1\nX=$A\n",
+        &uri(),
+        position(0, 0),
+        "APP.A",
+        &diag_zero,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(verify_diag_err, RenameError::Edit(EditError::Limit(limit)) if limit.kind() == LimitKind::Diagnostics),
+        "{verify_diag_err:?}"
+    );
     let diag_one =
         LspOptions::new().with_parse_options(ParseOptions::new().with_max_diagnostics(1));
     assert!(adotenv_lsp::rename_with_options(
@@ -896,6 +909,14 @@ fn rename_with_options_enforces_lines_diagnostics_and_items_limits() {
         &uri(),
         position(0, 0),
         "B",
+        &diag_one,
+    )
+    .is_ok());
+    assert!(adotenv_lsp::rename_with_options(
+        "A=1\nX=$A\n",
+        &uri(),
+        position(0, 0),
+        "APP.A",
         &diag_one,
     )
     .is_ok());

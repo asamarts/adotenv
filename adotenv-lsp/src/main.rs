@@ -537,10 +537,16 @@ mod tests {
 
     impl TempFile {
         fn new(name: &str, contents: &str) -> Self {
-            let path = std::env::temp_dir()
-                .join(format!("adotenv-lsp-{name}-{}.toml", std::process::id()));
-            std::fs::write(&path, contents).unwrap();
-            Self(path)
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "adotenv-lsp-{name}-{}-{}.toml",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            let file = Self(path);
+            std::fs::write(&file.0, contents).unwrap();
+            file
         }
     }
 

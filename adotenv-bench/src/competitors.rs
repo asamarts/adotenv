@@ -231,9 +231,9 @@ struct TempFile(PathBuf);
 
 impl TempFile {
     fn new(contents: &str) -> Result<Self, String> {
-        let path = temporary_path();
-        fs::write(&path, contents).map_err(|error| error.to_string())?;
-        Ok(Self(path))
+        let file = Self(temporary_path());
+        fs::write(&file.0, contents).map_err(|error| error.to_string())?;
+        Ok(file)
     }
 }
 
