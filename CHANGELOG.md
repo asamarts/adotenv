@@ -6,26 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
-
-- Release automation (`.github/workflows/release.yml`, `RELEASING.md`):
-  independent companion and adapter crate dispatches (`publish_linter`,
-  `publish_lsp`, `publish_config`, `publish_figment`) now validate their
-  `CHANGELOG.md` section before OIDC publish and create permanent non-latest
-  `<crate>-vX.Y.Z` GitHub Releases with `.crate` and `.crate.sha256` assets
-  attached (via shared `scripts/release-extract-changelog.py` and
-  `scripts/release-companion-github.sh` helpers).
-- `adotenv-xtask`: parameterized remote benchmark queue execution (`--host` /
-  `ADOTENV_BENCH_HOST`, `--pueue-config` / `PUEUE_CONFIG_PATH`, `--group` /
-  `ADOTENV_BENCH_GROUP`, `--queue-user` / `ADOTENV_BENCH_USER`) and fixed
-  `fingerprint` to always emit `"hostname": "unknown"`.
+## [1.7.2] - 2026-11-25
 
 ### Fixed
 
-- `adotenv::encode`: mapped cooked LF to raw CR in `QuotedTail::Append`
-  inverse tail search (`tail_starts` / `inverse`) when `normalize_newlines`
-  and `LineBreaks::Lf` are enabled, fixing `EncodeError::Unrepresentable` on
-  long quoted prefixes with appended multiline tails.
 - `adotenv::edit`: replaced the `$(...)` command-ancestor denylist in
   `verify_reference_structure` with a strict allowlist (ASCII alphanumeric,
   `_`, and `.`) on renamed keys inside command substitutions, closing
@@ -33,19 +17,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   assignment (`${VAR=word}`), indirect-expansion (`${!VAR*}`), array-subscript,
   glob/suffix, reverse-colon, and non-ASCII whitespace bypasses under
   `PYTHON_DOTENV`, `DOCKER_RAW`, and `COMPOSE`.
-- `adotenv-xtask`: hardened subcommand `--help` dispatch, multi-field baseline
-  validation and tuple keys in `gate`/`compare`, Criterion numeric/filter/bench
-  flag validation, duplicate bool-flag rejection, `ADOTENV_BENCH_ROOT` fallback,
-  quoted `--dry-run` SSH output, `scp --` and colon-safe local paths, random
-  remote staging directories, normalized path-segment checks in
-  `validate_remote_root`/`validate_pueue_config`, and strict host/token
-  validators.
-- Release automation (`.github/workflows/release.yml`,
-  `scripts/release-companion-github.sh`, `scripts/release-extract-changelog.py`):
-  added pre-OIDC `CHANGELOG.md` validation and job timeouts to lockstep
-  `publish`/`github-release`, distinguished `"release not found"` from API/auth
-  errors in `gh release view`, and documented exact companion retry recovery in
-  `RELEASING.md`.
+- `adotenv::encode`: mapped cooked LF to raw CR in `QuotedTail::Append`
+  inverse tail search (`tail_starts` / `inverse`) when `normalize_newlines`
+  and `LineBreaks::Lf` are enabled, fixing `EncodeError::Unrepresentable` on
+  long quoted prefixes with appended multiline tails.
+- `adotenv-process`, `adotenv-cli`: lockstep patch version bump adopting
+  `adotenv` 1.7.2; no standalone behavior changes relative to 1.7.1.
+- Internal tooling, release automation and docs: parameterized `adotenv-xtask`
+  remote queue options (`--host`, `--remote-root`, `--pueue-config`, `--group`,
+  `--queue-user` and env fallbacks), redacted fingerprint `"hostname"` to
+  `"unknown"`, hardened `adotenv-xtask` CLI/gate/validator checks, generalized
+  private benchmark-host details across public documentation, added permanent
+  non-latest `<crate>-vX.Y.Z` GitHub Releases for independent companion/adapter
+  dispatches, and added pre-OIDC `CHANGELOG.md` validation and timeouts to
+  `.github/workflows/release.yml`.
 
 ## [1.7.1] - 2026-11-25
 

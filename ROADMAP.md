@@ -18,7 +18,12 @@ The current release provides:
 
 ## Current status
 
-`adotenv`, `adotenv-process` and `adotenv-cli` 1.7.1 were published on
+`adotenv`, `adotenv-process` and `adotenv-cli` 1.7.2 were published on
+2026-11-25 with a strict ASCII alphanumeric/`_`/`.` allowlist on renamed
+references inside `$(...)` command substitutions, normalized LF-to-CR encoding
+in `QuotedTail::Append` inverse search, generalized benchmark docs,
+parameterized `adotenv-xtask` queue options, and permanent companion GitHub
+Releases. `adotenv`, `adotenv-process` and `adotenv-cli` 1.7.1 were published on
 2026-11-25 with exact reference-rename span and `$(...)` quote verification,
 Compose empty-key unclosed `${` fixes, and benchmark/CI memory gate hardening
 (including `adotenv-compact-entries`). `adotenv`, `adotenv-process` and
