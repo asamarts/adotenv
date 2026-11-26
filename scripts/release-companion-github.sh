@@ -23,6 +23,8 @@ for path in "$crate_file" "$sha_file"; do
   fi
 done
 
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+repo_root="$(cd "${script_dir}/.." && pwd)"
 tag="${crate}-v${version}"
 notes="$(mktemp)"
 trap 'rm -f "$notes"' EXIT
@@ -30,7 +32,9 @@ trap 'rm -f "$notes"' EXIT
 if view_err="$(gh release view "$tag" 2>&1 >/dev/null)"; then
   echo "::notice::release $tag already exists"
 elif grep -qi "release not found" <<<"$view_err"; then
-  python3 scripts/release-extract-changelog.py "${crate} ${version}" > "$notes"
+  python3 "${script_dir}/release-extract-changelog.py" \
+    --changelog "${repo_root}/CHANGELOG.md" \
+    "${crate} ${version}" > "$notes"
   gh release create "$tag" \
     --target "$target_sha" \
     --latest=false \

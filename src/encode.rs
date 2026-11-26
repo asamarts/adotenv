@@ -526,8 +526,8 @@ fn encode_quoted(context: &mut Context<'_>, quote: Quote) -> Option<(String, Quo
             let mut candidate = String::with_capacity(body.len() + tail.len());
             candidate.push_str(&body);
             candidate.push_str(&tail);
-            if let Some(actual) = context.verify(&candidate) {
-                return Some((candidate, actual));
+            if let Some(encoded) = verify_with_cr_padding(context, candidate) {
+                return Some(encoded);
             }
         }
     }
@@ -896,8 +896,22 @@ fn inverse(context: &Context<'_>, value: &str, mode: InverseMode) -> Option<Stri
             {
                 continue;
             }
-            let line =
-                cell.line + usize::from(close) * mark.len_utf8() + value.len() - offsets[end];
+            let ends_raw_cr = if end < chars.len() {
+                chars.last().and_then(|c| tail_raw_char(*c, dialect)) == Some('\r')
+            } else {
+                !close
+                    && cell.path != ROOT
+                    && !search.links[cell.path].octal
+                    && search.links[cell.path].raw == '\r'
+            };
+            let needs_cr_pad = ends_raw_cr
+                && dialect.line_breaks == LineBreaks::Lf
+                && (context.eof
+                    || (!context.separate_comment
+                        && (context.after.is_empty() || context.after.starts_with('\n'))));
+            let line = cell.line + usize::from(close) * mark.len_utf8() + value.len()
+                - offsets[end]
+                + usize::from(needs_cr_pad);
             if suffix_budget.is_some_and(|budget| line > budget) {
                 continue;
             }

@@ -159,17 +159,17 @@ To refresh the tracked source and queue a bounded workspace test (with
 ```console
 tmp=$(mktemp -d ~/.tmp/adotenv-remote.XXXXXX)
 git archive --format=tar.gz HEAD > "$tmp/src.tar.gz"
-ssh -- "$ADOTENV_BENCH_HOST" "mkdir -p '$ADOTENV_BENCH_ROOT/adotenv-src' \
-  && find '$ADOTENV_BENCH_ROOT/adotenv-src' -mindepth 1 -maxdepth 1 -exec rm -rf {} +"
-ssh -- "$ADOTENV_BENCH_HOST" "tar -xzf - -C '$ADOTENV_BENCH_ROOT/adotenv-src'" < "$tmp/src.tar.gz"
+ssh -- "${ADOTENV_BENCH_HOST:?}" "mkdir -p '${ADOTENV_BENCH_ROOT:?}/adotenv-src' \
+  && find '${ADOTENV_BENCH_ROOT:?}/adotenv-src' -mindepth 1 -maxdepth 1 -exec rm -rf {} +"
+ssh -- "${ADOTENV_BENCH_HOST:?}" "tar -xzf - -C '${ADOTENV_BENCH_ROOT:?}/adotenv-src'" < "$tmp/src.tar.gz"
 rm -rf "$tmp"
 
-ssh -- "$ADOTENV_BENCH_HOST" "${PUEUE_CONFIG_PATH:+PUEUE_CONFIG_PATH='$PUEUE_CONFIG_PATH' }pueue add \
-  --group '${ADOTENV_BENCH_GROUP:-bench}' --working-directory '$ADOTENV_BENCH_ROOT/adotenv-src' \
+ssh -- "${ADOTENV_BENCH_HOST:?}" "${PUEUE_CONFIG_PATH:+PUEUE_CONFIG_PATH='$PUEUE_CONFIG_PATH' }pueue add \
+  --group '${ADOTENV_BENCH_GROUP:-bench}' --working-directory '${ADOTENV_BENCH_ROOT:?}/adotenv-src' \
   --label adotenv-tests --print-task-id -- \
   \"ulimit -v 8388608; \
-    export HOME='$ADOTENV_BENCH_ROOT' CARGO_HOME='$ADOTENV_BENCH_ROOT/cargo' \
-      PATH='$ADOTENV_BENCH_ROOT/bin:$ADOTENV_BENCH_ROOT/toolchain/bin:/usr/bin:/bin' \
+    export HOME='${ADOTENV_BENCH_ROOT:?}' CARGO_HOME='${ADOTENV_BENCH_ROOT:?}/cargo' \
+      PATH='${ADOTENV_BENCH_ROOT:?}/bin:${ADOTENV_BENCH_ROOT:?}/toolchain/bin:/usr/bin:/bin' \
       CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2; \
     exec cargo test --workspace --all-features --locked\""
 ```
@@ -177,21 +177,21 @@ ssh -- "$ADOTENV_BENCH_HOST" "${PUEUE_CONFIG_PATH:+PUEUE_CONFIG_PATH='$PUEUE_CON
 Use the task id printed by `pueue add` to wait and collect the log:
 
 ```console
-ssh -- "$ADOTENV_BENCH_HOST" "${PUEUE_CONFIG_PATH:+PUEUE_CONFIG_PATH='$PUEUE_CONFIG_PATH' }pueue wait <task>"
-ssh -- "$ADOTENV_BENCH_HOST" "${PUEUE_CONFIG_PATH:+PUEUE_CONFIG_PATH='$PUEUE_CONFIG_PATH' }pueue log <task>"
+ssh -- "${ADOTENV_BENCH_HOST:?}" "${PUEUE_CONFIG_PATH:+PUEUE_CONFIG_PATH='$PUEUE_CONFIG_PATH' }pueue wait <task>"
+ssh -- "${ADOTENV_BENCH_HOST:?}" "${PUEUE_CONFIG_PATH:+PUEUE_CONFIG_PATH='$PUEUE_CONFIG_PATH' }pueue log <task>"
 ```
 
 For mutation testing, keep one worker and one test thread, and pass the
 shell command as a single quoted argument so `pueue` does not split on `;`:
 
 ```console
-ssh -- "$ADOTENV_BENCH_HOST" "${PUEUE_CONFIG_PATH:+PUEUE_CONFIG_PATH='$PUEUE_CONFIG_PATH' }pueue add \
-  --group '${ADOTENV_BENCH_GROUP:-bench}' --working-directory '$ADOTENV_BENCH_ROOT/adotenv-src' \
+ssh -- "${ADOTENV_BENCH_HOST:?}" "${PUEUE_CONFIG_PATH:+PUEUE_CONFIG_PATH='$PUEUE_CONFIG_PATH' }pueue add \
+  --group '${ADOTENV_BENCH_GROUP:-bench}' --working-directory '${ADOTENV_BENCH_ROOT:?}/adotenv-src' \
   --label adotenv-mutants --print-task-id -- \
   \"ulimit -v 8388608; \
-    export HOME='$ADOTENV_BENCH_ROOT' CARGO_HOME='$ADOTENV_BENCH_ROOT/cargo' \
-      CARGO='$ADOTENV_BENCH_ROOT/toolchain/bin/cargo' \
-      PATH='$ADOTENV_BENCH_ROOT/bin:$ADOTENV_BENCH_ROOT/toolchain/bin:/usr/bin:/bin' \
+    export HOME='${ADOTENV_BENCH_ROOT:?}' CARGO_HOME='${ADOTENV_BENCH_ROOT:?}/cargo' \
+      CARGO='${ADOTENV_BENCH_ROOT:?}/toolchain/bin/cargo' \
+      PATH='${ADOTENV_BENCH_ROOT:?}/bin:${ADOTENV_BENCH_ROOT:?}/toolchain/bin:/usr/bin:/bin' \
       CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1; \
     exec cargo mutants --workspace --all-features \
       --file src/references.rs --jobs 1 --timeout 120 \
@@ -206,9 +206,11 @@ hardened queue service account may not read user `/home` profiles, and
 is acceptable only in the dedicated remote checkout with one mutant worker;
 it avoids the per-worker copy but mutates the source tree.
 
-The queue has one slot. Before submitting, run `pueue status` and wait if any
-task from another project is running or queued. Submit one adotenv task at a
-time, wait for it, then re-check the queue before submitting the next shard.
+The queue has one slot. Before submitting, run
+`ssh -- "${ADOTENV_BENCH_HOST:?}" "${PUEUE_CONFIG_PATH:+PUEUE_CONFIG_PATH='$PUEUE_CONFIG_PATH' }pueue status"`
+and wait if any task from another project is running or queued. Submit one
+adotenv task at a time, wait for it, then re-check the queue before submitting
+the next shard.
 Do not queue several shards at once, do not run a mutation or test task at the
 same time as a benchmark, and do not submit the same campaign twice. Remove
 `mutants.out/` and remote scratch data after collecting results.

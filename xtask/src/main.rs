@@ -134,6 +134,7 @@ fn command_memory(args: &[String]) -> Result<()> {
     } else {
         "docs/benchmarks/memory.jsonl"
     });
+    validate_local_out(out)?;
     let sizes = parsed.get("--sizes").unwrap_or("8,128");
     let shapes = parsed.get("--shapes").unwrap_or("plain");
     let modes = parsed
@@ -192,6 +193,7 @@ fn command_memory(args: &[String]) -> Result<()> {
 fn command_micro(args: &[String]) -> Result<()> {
     let parsed = ParsedArgs::parse(args, &["--bench"], &["--quick"])?;
     let bench = parsed.get("--bench").unwrap_or("fixtures");
+    validate_bench_target(bench)?;
     let mut command = Command::new(cargo());
     command.args(["bench", "-p", "adotenv-bench", "--bench", bench, "--locked"]);
     if parsed.has("--quick") {
@@ -207,7 +209,9 @@ fn command_micro(args: &[String]) -> Result<()> {
 
 fn command_speed(args: &[String]) -> Result<()> {
     let parsed = ParsedArgs::parse(args, &["--out", "--bench", "--filter"], &["--quick"])?;
-    let out = PathBuf::from(parsed.get("--out").unwrap_or("docs/benchmarks/speed.txt"));
+    let out_arg = parsed.get("--out").unwrap_or("docs/benchmarks/speed.txt");
+    validate_local_out(out_arg)?;
+    let out = PathBuf::from(out_arg);
     let bench = parsed.get("--bench").unwrap_or("competitors");
     validate_bench_target(bench)?;
     ensure_parent(&out)?;
@@ -274,7 +278,9 @@ fn write_speed_markdown(path: &Path) -> Result<()> {
 
 fn command_cli(args: &[String]) -> Result<()> {
     let parsed = ParsedArgs::parse(args, &["--out", "--size", "--shape"], &[])?;
-    let out = PathBuf::from(parsed.get("--out").unwrap_or("docs/benchmarks/cli.json"));
+    let out_arg = parsed.get("--out").unwrap_or("docs/benchmarks/cli.json");
+    validate_local_out(out_arg)?;
+    let out = PathBuf::from(out_arg);
     let size = Size::from_label(parsed.get("--size").unwrap_or("128")).ok_or("unknown size")?;
     let shape =
         Shape::from_label(parsed.get("--shape").unwrap_or("plain")).ok_or("unknown shape")?;
@@ -902,12 +908,25 @@ fn validate_pueue_config(path: &str) -> Result<()> {
     if path.is_empty()
         || !path.starts_with('/')
         || first_non_dot_segment(path).is_none()
-        || path.contains('~')
-        || path.contains('\\')
-        || path.bytes().any(|byte| byte.is_ascii_control())
         || path.split('/').any(|part| part == "..")
+        || !path
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'/' | b'-'))
     {
         return Err("--pueue-config must be an absolute non-root path".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_local_out(path: &str) -> Result<()> {
+    let out = Path::new(path);
+    if path.trim().is_empty()
+        || path.ends_with('/')
+        || path.ends_with('\\')
+        || out.file_name().is_none()
+        || out.is_dir()
+    {
+        return Err(format!("--out must be a non-directory file path: {path:?}"));
     }
     Ok(())
 }
@@ -933,6 +952,10 @@ fn validate_bench_target(bench: &str) -> Result<()> {
 
 fn scp_local_arg(path: &Path) -> String {
     let text = path.to_string_lossy();
+    let has_prefix = matches!(
+        path.components().next(),
+        Some(std::path::Component::Prefix(_))
+    );
     let first_sep = text.find(['/', '\\']);
     let colon_before_sep = match (text.find(':'), first_sep) {
         (Some(colon), Some(sep)) => colon < sep,
@@ -940,6 +963,7 @@ fn scp_local_arg(path: &Path) -> String {
         (None, _) => false,
     };
     if !path.is_absolute()
+        && !has_prefix
         && !text.starts_with("./")
         && !text.starts_with("../")
         && colon_before_sep
@@ -1029,6 +1053,7 @@ fn command_queue(args: &[String]) -> Result<()> {
     } else {
         "docs/benchmarks/memory.jsonl"
     });
+    validate_local_out(local_out)?;
     let remote_out = parsed.get("--remote-out").unwrap_or(if compact {
         "bench-compact-memory.jsonl"
     } else {
@@ -1109,6 +1134,7 @@ fn command_queue_speed(args: &[String]) -> Result<()> {
     )?;
     let remote = RemoteConfig::from_parsed(&parsed)?;
     let local_out = parsed.get("--out").unwrap_or("docs/benchmarks/speed.txt");
+    validate_local_out(local_out)?;
     let remote_out = parsed.get("--remote-out").unwrap_or("bench-speed.txt");
     validate_remote_out(remote_out)?;
     let bench = parsed.get("--bench").unwrap_or("competitors");
@@ -1232,12 +1258,27 @@ fn validate_remote_root(remote_root: &str) -> Result<()> {
         || !remote_root.starts_with('/')
         || first.is_none()
         || first == Some("home")
-        || remote_root.contains('~')
-        || remote_root.contains('\\')
-        || remote_root.bytes().any(|byte| byte.is_ascii_control())
         || remote_root.split('/').any(|part| part == "..")
+        || !remote_root
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'/' | b'-'))
     {
         return Err("--remote-root must be an absolute, non-root, non-home path".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_staging_dir(staging_dir: &str) -> Result<()> {
+    let valid = staging_dir
+        .strip_prefix("/var/tmp/adotenv.")
+        .is_some_and(|suffix| {
+            !suffix.is_empty()
+                && suffix
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+        });
+    if !valid {
+        return Err(format!("unexpected remote staging dir: {staging_dir:?}"));
     }
     Ok(())
 }
@@ -1268,12 +1309,7 @@ fn copy_binary(remote: &RemoteConfig, binary: &Path, name: &str) -> Result<()> {
         "dir=$(mktemp -d /var/tmp/adotenv.XXXXXX) && chmod 755 \"$dir\" && printf '%s\\n' \"$dir\"",
     )?;
     let staging_dir = staging_dir.trim();
-    if !staging_dir.starts_with("/var/tmp/adotenv.")
-        || staging_dir.contains("..")
-        || staging_dir.bytes().any(|byte| byte.is_ascii_control())
-    {
-        return Err(format!("unexpected remote staging dir: {staging_dir:?}"));
-    }
+    validate_staging_dir(staging_dir)?;
     let status = Command::new("scp")
         .arg("--")
         .arg(scp_local_arg(binary))
@@ -1946,6 +1982,35 @@ mod tests {
         assert!(validate_pueue_config("relative/pueue.yml").is_err());
         assert!(validate_pueue_config("/etc/../pueue.yml").is_err());
         assert!(validate_pueue_config("/.").is_err());
+        assert!(validate_pueue_config("/etc/bench path/pueue.yml").is_err());
+        assert!(validate_pueue_config("/etc/bench*/pueue.yml").is_err());
+        assert!(validate_remote_root("/var/lib/bench ").is_err());
+        assert!(validate_remote_root("/var/lib/*").is_err());
+        assert!(validate_remote_root("/var/lib/a;id").is_err());
+        assert!(validate_remote_root("/var/lib/$(id)").is_err());
+        assert!(validate_staging_dir("/var/tmp/adotenv.AbC_12-x").is_ok());
+        for bad_staging in [
+            "/var/tmp/adotenv.",
+            "/var/tmp/adotenv.abc/def",
+            "/var/tmp/adotenv.abc def",
+            "/var/tmp/adotenv.abc;id",
+            "/var/tmp/adotenv.*",
+            "/tmp/adotenv.abc",
+        ] {
+            assert!(validate_staging_dir(bad_staging).is_err(), "{bad_staging}");
+        }
+        assert!(validate_local_out("docs/benchmarks/memory.jsonl").is_ok());
+        for bad_out in [
+            "",
+            "   ",
+            ".",
+            "..",
+            "/",
+            "docs/benchmarks/",
+            env!("CARGO_MANIFEST_DIR"),
+        ] {
+            assert!(validate_local_out(bad_out).is_err(), "{bad_out:?}");
+        }
         assert!(validate_simple_token("--group", "-bad").is_err());
         assert!(validate_simple_token("--group", ".").is_err());
         assert!(validate_simple_token("--group", "..").is_err());

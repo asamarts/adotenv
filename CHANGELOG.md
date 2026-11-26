@@ -6,6 +6,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `adotenv::encode`: accounted for the mandatory trailing CR-padding byte
+  under `LineBreaks::Lf` and `line_byte_limit` during `QuotedTail::Append`
+  (and unclosed Node literal-fallback) inverse search and short-prefix
+  verification, fixing false `EncodeError::Unrepresentable` errors at exact
+  line-length boundaries.
+- `adotenv::edit`: tightened the `$(...)` command-context allowlist in
+  `verify_reference_structure` to require an ASCII letter or `_` first byte
+  with no trailing or consecutive dots (rejecting POSIX positional/special
+  keys like `0`/`1` and invalid `${1HOST}`/`..` substitutions) and enforced it
+  for any reference following a `$(` command substitution in the same entry
+  (closing early-closed `\"` and shell `case` pattern bypasses).
+- Internal tooling, release scripts and docs: restricted `adotenv-xtask`
+  `--remote-root`, `--pueue-config`, and remote staging paths to safe
+  `scp`-clean characters, added upfront `--out` file validation, validated
+  `micro --bench`, preserved Windows drive-relative paths in `scp_local_arg`,
+  made `scripts/release-companion-github.sh` CWD-independent, and added
+  `${VAR:?}` guards to `docs/design/heavy-validation.md`.
+
 ## [1.7.2] - 2026-11-25
 
 ### Fixed

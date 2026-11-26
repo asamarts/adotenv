@@ -2335,13 +2335,65 @@ fn rename_with_references_rejects_command_shell_metacharacters() {
     );
 
     // Normal dotted keys inside $(...) remain allowed.
-    let (cmd_dotted, _) = parse_with("A=1\nX=$(echo \"${A}\")\n", Dialect::PORTABLE);
-    let dotted_ok = cmd_dotted.rename_with_references("A", "APP.HOST").unwrap();
+    for new_key in ["APP.HOST", "DB.1.HOST", "_INTERNAL"] {
+        let (cmd_dotted, _) = parse_with("A=1\nX=$(echo \"${A}\")\n", Dialect::PORTABLE);
+        let dotted_ok = cmd_dotted.rename_with_references("A", new_key).unwrap();
+        assert_eq!(
+            dotted_ok.as_str(),
+            format!("{new_key}=1\nX=$(echo \"${{{new_key}}}\")\n")
+        );
+        replay("A=1\nX=$(echo \"${A}\")\n", &dotted_ok);
+    }
+}
+
+#[test]
+fn rename_with_references_rejects_positional_dot_and_early_closed_command_keys() {
+    use crate::Dialect;
+
+    // Positional / special shell parameters and leading/trailing/double-dot keys
+    // are rejected inside $(...) in both directions.
+    for bad_key in ["0", "1", "12", "1HOST", ".", "..", ".FOO", "A.", "A..B"] {
+        let (doc, _) = parse_with("A=1\nX=$(echo $A)\n", Dialect::PORTABLE);
+        assert_eq!(
+            doc.rename_with_references("A", bad_key),
+            Err(EditError::WouldChangeMeaning),
+            "PORTABLE A -> {bad_key:?}"
+        );
+        let reverse_src = format!("{bad_key}=1\nX=$(echo ${{{bad_key}}})\n");
+        let (rev_doc, _) = parse_with(&reverse_src, Dialect::PORTABLE);
+        if rev_doc.unique(bad_key).is_ok() {
+            assert_eq!(
+                rev_doc.rename_with_references(bad_key, "A"),
+                Err(EditError::WouldChangeMeaning),
+                "PORTABLE {bad_key:?} -> A"
+            );
+        }
+    }
+
+    // Even when raw-source scanning closes `$(...)` early (escaped `\"` inside a
+    // double-quoted value or a shell `case ... in pat)` arm), renaming a variable
+    // after a preceding `$(` enforces the strict command-key allowlist.
+    let (escaped_quote_doc, _) =
+        parse_with("A=1\nX=\"$(echo \\\"a)\\\" $A)\"\n", Dialect::PYTHON_DOTENV);
     assert_eq!(
-        dotted_ok.as_str(),
-        "APP.HOST=1\nX=$(echo \"${APP.HOST}\")\n"
+        escaped_quote_doc.rename_with_references("A", "B);id;(C"),
+        Err(EditError::WouldChangeMeaning)
     );
-    replay("A=1\nX=$(echo \"${A}\")\n", &dotted_ok);
+    let (case_doc, _) = parse_with(
+        "A=1\nX=$(case x in x) echo $A;; esac)\n",
+        Dialect::PYTHON_DOTENV,
+    );
+    assert_eq!(
+        case_doc.rename_with_references("A", "B;id;C"),
+        Err(EditError::WouldChangeMeaning)
+    );
+    // Normal identifier/dotted renames after a preceding `$(...)` still succeed.
+    let safe_after_cmd = case_doc.rename_with_references("A", "APP.HOST").unwrap();
+    assert_eq!(
+        safe_after_cmd.as_str(),
+        "APP.HOST=1\nX=$(case x in x) echo ${APP.HOST};; esac)\n"
+    );
+    replay("A=1\nX=$(case x in x) echo $A;; esac)\n", &safe_after_cmd);
 }
 
 #[test]
