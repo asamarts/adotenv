@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.7.3] - 2026-11-26
+
 ### Fixed
 
 - `adotenv::encode`: accounted for the mandatory trailing CR-padding byte
@@ -16,15 +18,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `adotenv::edit`: tightened the `$(...)` command-context allowlist in
   `verify_reference_structure` to require an ASCII letter or `_` first byte
   with no trailing or consecutive dots (rejecting POSIX positional/special
-  keys like `0`/`1` and invalid `${1HOST}`/`..` substitutions) and enforced it
-  for any reference following a `$(` command substitution in the same entry
-  (closing early-closed `\"` and shell `case` pattern bypasses).
-- Internal tooling, release scripts and docs: restricted `adotenv-xtask`
-  `--remote-root`, `--pueue-config`, and remote staging paths to safe
-  `scp`-clean characters, added upfront `--out` file validation, validated
-  `micro --bench`, preserved Windows drive-relative paths in `scp_local_arg`,
-  made `scripts/release-companion-github.sh` CWD-independent, and added
-  `${VAR:?}` guards to `docs/design/heavy-validation.md`.
+  keys like `0`/`1` and invalid `${1HOST}`/`..` substitutions), enforced it
+  for any variable reference inside or following a `$(` command substitution in
+  the same entry (closing early-closed `\"` and shell `case` pattern bypasses),
+  and documented the allowlist and `EditError::WouldChangeMeaning` behavior in
+  `Document::rename_with_references` rustdoc.
+- `adotenv-process`, `adotenv-cli`: lockstep patch version bump adopting
+  `adotenv` 1.7.3; no standalone behavior changes relative to 1.7.2.
+- Internal tooling, release scripts and docs: hardened `adotenv-xtask` path and
+  `scp` validators (`--remote-root`, `--pueue-config`, remote staging dirs,
+  upfront `--out` and `.md`-collision checks, `micro --bench`, and platform-aware
+  `scp_local_arg`), made `scripts/release-companion-github.sh` CWD- and
+  `CDPATH`-independent, added `${VAR:?}` guards to
+  `docs/design/heavy-validation.md`, and refreshed `docs/design/test-audit.md`
+  and `docs/design/quality.md` with `1.7.x` coverage, fuzz and mutation records.
 
 ## [1.7.2] - 2026-11-25
 

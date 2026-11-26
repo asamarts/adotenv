@@ -18,7 +18,13 @@ The current release provides:
 
 ## Current status
 
-`adotenv`, `adotenv-process` and `adotenv-cli` 1.7.2 were published on
+`adotenv`, `adotenv-process` and `adotenv-cli` 1.7.3 were published on
+2026-11-26 with `QuotedTail::Append` CR-padding `line_byte_limit` budget
+accounting, tightened `$(...)` command-context key allowlist rules (rejecting
+positional/leading-digit/dot-bounded keys and enforcing the allowlist after any
+`$(` in the same entry), refreshed `1.7.x` test-audit and quality records, and
+`adotenv-xtask`/release-script hardening. `adotenv`, `adotenv-process` and
+`adotenv-cli` 1.7.2 were published on
 2026-11-25 with a strict ASCII alphanumeric/`_`/`.` allowlist on renamed
 references inside `$(...)` command substitutions, normalized LF-to-CR encoding
 in `QuotedTail::Append` inverse search, generalized benchmark docs,

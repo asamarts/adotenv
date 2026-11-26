@@ -163,6 +163,14 @@ Releases within 1.x keep the API. These fixes change results:
   parameter-expansion assignments, indirect expansions, array subscripts, globs
   and non-ASCII whitespace; `encode_value_with` also maps normalized LF to CR
   in `QuotedTail::Append` inverse tail search under `LineBreaks::Lf`.
+- 1.7.3: `Document::rename_with_references` tightens the command-context
+  allowlist to require an ASCII letter or `_` first byte with no trailing `.`
+  or `..` (rejecting POSIX positional parameters like `0`/`1` and invalid
+  `${1HOST}`/`..` substitutions) and enforces it for any matching reference
+  inside or following a `$(` command substitution in the same entry;
+  `encode_value_with` and `Document::set` also account for the mandatory
+  trailing CR-padding byte under `LineBreaks::Lf` and `line_byte_limit` in
+  `QuotedTail::Append` inverse search.
 
 ## From 0.11
 
