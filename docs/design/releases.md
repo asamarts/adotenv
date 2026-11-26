@@ -2,6 +2,7 @@
 
 | Version | Date | Focus |
 |---|---|---|
+| 1.7.3 | 2026-11-26 | `QuotedTail::Append` CR-padding `line_byte_limit` fix, tightened `$(...)` command-context key allowlist and post-`$(` enforcement, `test-audit`/`quality` refresh, and `xtask`/release-script hardening |
 | 1.7.2 | 2026-11-25 | Strict `$(...)` command-reference rename allowlist, `QuotedTail::Append` LF-to-CR encode fix, generalized benchmark docs, parameterized `xtask`, and permanent companion GitHub Releases |
 | 1.7.1 | 2026-11-25 | Reference-rename span and `$(...)` quote verification, Compose empty-key unclosed `${` fix, and benchmark/CI memory gate hardening |
 | adotenv-lint 0.2.3 | 2026-11-25 | `adotenv` 1.7.0 adoption, multi-file error reporting, bounded reads, stdout error handling, and symlink/dedup hardening |
