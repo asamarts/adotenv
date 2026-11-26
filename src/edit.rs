@@ -923,11 +923,22 @@ fn has_command_ancestor(refs: &[crate::Reference], mut parent: Option<usize>) ->
     false
 }
 
+fn has_command_context(refs: &[crate::Reference], reference: &crate::Reference) -> bool {
+    has_command_ancestor(refs, reference.parent)
+        || refs.iter().any(|candidate| {
+            candidate.kind == crate::ReferenceKind::Command
+                && candidate.span.start < reference.span.start
+        })
+}
+
 fn is_safe_command_ref_key(key: &str) -> bool {
-    !key.is_empty()
-        && key
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.'))
+    let mut bytes = key.bytes();
+    bytes
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic() || first == b'_')
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.'))
+        && !key.ends_with('.')
+        && !key.contains("..")
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -956,7 +967,7 @@ fn verify_reference_structure(
             .and_then(|span| new_source.get(span.clone()));
         let renamed = orig_name == Some(old_key);
         if renamed
-            && has_command_ancestor(&orig_refs, orig_ref.parent)
+            && has_command_context(&orig_refs, orig_ref)
             && (!is_safe_command_ref_key(new_key) || !is_safe_command_ref_key(old_key))
         {
             return Err(EditError::WouldChangeMeaning);

@@ -551,12 +551,21 @@ fn check_rename_with_references(source: &str, value: &str, selector: u8, dialect
                 }
                 ancestor = before_refs[idx].parent;
             }
+            if !in_command {
+                in_command = before_refs.iter().any(|candidate| {
+                    candidate.kind == adotenv::ReferenceKind::Command
+                        && candidate.span.start < br.span.start
+                });
+            }
             if was_renamed && entry.key() != ref_key && in_command {
                 let is_safe_cmd_key = |key: &str| {
-                    !key.is_empty()
-                        && key
-                            .bytes()
-                            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.'))
+                    let mut bytes = key.bytes();
+                    bytes
+                        .next()
+                        .is_some_and(|first| first.is_ascii_alphabetic() || first == b'_')
+                        && bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.'))
+                        && !key.ends_with('.')
+                        && !key.contains("..")
                 };
                 assert!(
                     is_safe_cmd_key(ref_key) && is_safe_cmd_key(entry.key()),

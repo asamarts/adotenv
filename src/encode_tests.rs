@@ -1202,3 +1202,42 @@ fn append_tail_inverse_spells_normalized_lf_as_cr_past_short_prefixes() {
     };
     assert_encodes("prefix\"#body\"'tail\n", ascii_ws);
 }
+
+#[test]
+fn append_tail_inverse_reserves_cr_padding_byte_under_line_byte_limit() {
+    let normalized = Dialect {
+        inline_comments: InlineComments::AnyHash,
+        double_escapes: DoubleEscapes::DOUBLE_QUOTE,
+        unknown_escapes: UnknownEscapes::Error,
+        single_escapes: SingleEscapes::None,
+        backticks: false,
+        quoted_tail: QuotedTail::Append,
+        multiline: Multiline::NONE,
+        whitespace: Whitespace::Ascii,
+        normalize_newlines: true,
+        line_breaks: LineBreaks::Lf,
+        line_byte_limit: Some(14),
+        ..Dialect::PORTABLE
+    };
+    assert!(assert_inverse("\"'1234#\"\"x\r\r", normalized));
+    assert_encodes("'1234#\"x\n", normalized);
+
+    // Same CR-padding budget applies when normalize_newlines is disabled and
+    // the value itself ends in literal CR.
+    let unnormalized = Dialect {
+        normalize_newlines: false,
+        ..normalized
+    };
+    assert!(assert_inverse("\"'1234#\"\"x\r\r", unnormalized));
+    assert_encodes("'1234#\"x\r", unnormalized);
+
+    // Native editing respects the exact same line_byte_limit budget at LF and EOF.
+    for source in ["A=1\n", "A=1"] {
+        let (doc, diagnostics) = parse_with(source, normalized);
+        assert!(!diagnostics.iter().any(|d| d.severity() == Severity::Error));
+        let edited = doc.set("A", "'1234#\"x\n").unwrap();
+        let (after, diagnostics) = parse_with(edited.as_str(), normalized);
+        assert!(!diagnostics.iter().any(|d| d.severity() == Severity::Error));
+        assert_eq!(after.get("A"), Some("'1234#\"x\n"));
+    }
+}
