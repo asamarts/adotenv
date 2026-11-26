@@ -3,7 +3,8 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::fmt::Write as _;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -145,7 +146,6 @@ fn command_memory(args: &[String]) -> Result<()> {
     let shapes = parse_shapes(shapes)?;
     let modes = parse_modes(modes)?;
     let out = PathBuf::from(out);
-    ensure_parent(&out)?;
     let memory = build_memory_binary()?;
     let mut lines = String::new();
     for size in sizes {
@@ -184,6 +184,7 @@ fn command_memory(args: &[String]) -> Result<()> {
             }
         }
     }
+    ensure_parent(&out)?;
     fs::write(&out, &lines).map_err(|error| error.to_string())?;
     let sidecar = out.with_extension("fingerprint.json");
     fs::write(&sidecar, fingerprint_json()).map_err(|error| error.to_string())?;
@@ -219,7 +220,6 @@ fn command_speed(args: &[String]) -> Result<()> {
         validate_filter(filter)?;
     }
     let out = PathBuf::from(out_arg);
-    ensure_parent(&out)?;
     let binary = build_bench_binary(bench)?;
     let mut command = Command::new(binary);
     command.args(["--bench", "--output-format", "bencher", "--noplot"]);
@@ -237,6 +237,7 @@ fn command_speed(args: &[String]) -> Result<()> {
             String::from_utf8_lossy(&output.stderr)
         ));
     }
+    ensure_parent(&out)?;
     fs::write(&out, &output.stdout).map_err(|error| error.to_string())?;
     let sidecar = out.with_extension("fingerprint.json");
     fs::write(&sidecar, fingerprint_json()).map_err(|error| error.to_string())?;
@@ -288,8 +289,30 @@ impl Drop for TempFileGuard {
     }
 }
 
-fn command_cli(args: &[String]) -> Result<()> {
+fn create_temp_file(dir: &Path, prefix: &str, contents: &[u8]) -> Result<TempFileGuard> {
     static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+    let pid = std::process::id();
+    for _ in 0..64 {
+        let seq = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        let path = dir.join(format!("{prefix}-{pid}-{seq}.env"));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(mut file) => {
+                let guard = TempFileGuard(path);
+                file.write_all(contents)
+                    .map_err(|error| error.to_string())?;
+                return Ok(guard);
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    Err(format!(
+        "failed to create unique temporary file under {}",
+        dir.display()
+    ))
+}
+
+fn command_cli(args: &[String]) -> Result<()> {
     let parsed = ParsedArgs::parse(args, &["--out", "--size", "--shape"], &[])?;
     let out_arg = parsed.get("--out").unwrap_or("docs/benchmarks/cli.json");
     validate_out_with_fingerprint(out_arg)?;
@@ -297,22 +320,28 @@ fn command_cli(args: &[String]) -> Result<()> {
     let size = Size::from_label(parsed.get("--size").unwrap_or("128")).ok_or("unknown size")?;
     let shape =
         Shape::from_label(parsed.get("--shape").unwrap_or("plain")).ok_or("unknown shape")?;
-    ensure_parent(&out)?;
     let binary = build_release_binary("adotenv-cli", "adotenv-cli")?;
     let fixture = adotenv_bench::fixture(size, shape);
     let temp_dir = binary
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .map_or_else(env::temp_dir, Path::to_path_buf);
-    let seq = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    let temp_file =
-        TempFileGuard(temp_dir.join(format!("bench-cli-{}-{seq}.env", std::process::id())));
-    fs::write(&temp_file.0, fixture.source()).map_err(|error| error.to_string())?;
+    let temp_file = create_temp_file(&temp_dir, "bench-cli", fixture.source().as_bytes())?;
+    let binary_str = binary
+        .to_str()
+        .ok_or_else(|| format!("binary path is not valid UTF-8: {}", binary.display()))?;
+    let temp_file_str = temp_file.0.to_str().ok_or_else(|| {
+        format!(
+            "temporary fixture path is not valid UTF-8: {}",
+            temp_file.0.display()
+        )
+    })?;
     let command = format!(
-        "{} check {}",
-        shell_quote(&binary.to_string_lossy()),
-        shell_quote(&temp_file.0.to_string_lossy())
+        "{} check -- {}",
+        shell_quote(binary_str),
+        shell_quote(temp_file_str)
     );
+    ensure_parent(&out)?;
     let status = Command::new("hyperfine")
         .args(["--warmup", "2", "--min-runs", "5", "--export-json"])
         .arg(&out)
@@ -1129,12 +1158,6 @@ fn command_queue(args: &[String]) -> Result<()> {
     let parsed_modes = parse_modes(modes)?;
     let dry_run = parsed.has("--dry-run");
     if parsed.has("--sync") && !dry_run {
-        ensure_clean_worktree()?;
-    }
-    if !dry_run {
-        ensure_parent(Path::new(local_out))?;
-    }
-    if parsed.has("--sync") && !dry_run {
         sync_binaries(&remote)?;
     }
     let git_sha = require_command_output("git", &["rev-parse", "HEAD"])?;
@@ -1225,12 +1248,6 @@ fn command_queue_speed(args: &[String]) -> Result<()> {
         }
     }
     let dry_run = parsed.has("--dry-run");
-    if parsed.has("--sync") && !dry_run {
-        ensure_clean_worktree()?;
-    }
-    if !dry_run {
-        ensure_parent(Path::new(local_out))?;
-    }
     if parsed.has("--sync") && !dry_run {
         sync_speed_binaries(&remote, bench)?;
     }
@@ -1404,8 +1421,30 @@ fn copy_binary(remote: &RemoteConfig, binary: &Path, name: &str) -> Result<()> {
     Ok(())
 }
 
-fn extract_cargo_executable(stdout: &str, target_name: &str, target_kind: &str) -> Result<PathBuf> {
-    let mut executable = None;
+fn package_id_matches(package_id: &str, package_name: &str) -> bool {
+    if let Some((prefix, fragment)) = package_id.rsplit_once('#') {
+        if let Some((name, _)) = fragment.split_once('@') {
+            return name == package_name;
+        }
+        return prefix
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .is_some_and(|segment| segment == package_name);
+    }
+    package_id
+        .split_ascii_whitespace()
+        .next()
+        .is_some_and(|name| name == package_name)
+}
+
+fn extract_cargo_executable(
+    stdout: &str,
+    package_name: &str,
+    target_name: &str,
+    target_kind: &str,
+) -> Result<PathBuf> {
+    let mut executable: Option<PathBuf> = None;
     for line in stdout.lines() {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
@@ -1415,20 +1454,39 @@ fn extract_cargo_executable(stdout: &str, target_name: &str, target_kind: &str) 
             .and_then(|target| target.get("kind"))
             .and_then(serde_json::Value::as_array)
             .is_some_and(|kinds| kinds.iter().any(|kind| kind.as_str() == Some(target_kind)));
+        let package_matches = value
+            .get("package_id")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|id| package_id_matches(id, package_name));
         if value.get("reason").and_then(serde_json::Value::as_str) == Some("compiler-artifact")
+            && package_matches
             && target
                 .and_then(|target| target.get("name"))
                 .and_then(serde_json::Value::as_str)
                 == Some(target_name)
             && kind_matches
         {
-            if let Some(path) = value.get("executable").and_then(serde_json::Value::as_str) {
-                executable = Some(PathBuf::from(path));
+            if let Some(path) = value
+                .get("executable")
+                .and_then(serde_json::Value::as_str)
+                .filter(|path| !path.is_empty())
+            {
+                let candidate = PathBuf::from(path);
+                if let Some(existing) = &executable {
+                    if *existing != candidate {
+                        return Err(format!(
+                            "cargo reported multiple {target_kind} executables for {package_name}::{target_name}"
+                        ));
+                    }
+                } else {
+                    executable = Some(candidate);
+                }
             }
         }
     }
-    executable
-        .ok_or_else(|| format!("cargo did not report a {target_kind} executable for {target_name}"))
+    executable.ok_or_else(|| {
+        format!("cargo did not report a {target_kind} executable for {package_name}::{target_name}")
+    })
 }
 
 fn build_bench_binary(bench: &str) -> Result<PathBuf> {
@@ -1448,7 +1506,12 @@ fn build_bench_binary(bench: &str) -> Result<PathBuf> {
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).into_owned());
     }
-    extract_cargo_executable(&String::from_utf8_lossy(&output.stdout), bench, "bench")
+    extract_cargo_executable(
+        &String::from_utf8_lossy(&output.stdout),
+        "adotenv-bench",
+        bench,
+        "bench",
+    )
 }
 
 fn build_release_binary(package: &str, bin: &str) -> Result<PathBuf> {
@@ -1472,7 +1535,12 @@ fn build_release_binary(package: &str, bin: &str) -> Result<PathBuf> {
             String::from_utf8_lossy(&output.stderr)
         ));
     }
-    extract_cargo_executable(&String::from_utf8_lossy(&output.stdout), bin, "bin")
+    extract_cargo_executable(
+        &String::from_utf8_lossy(&output.stdout),
+        package,
+        bin,
+        "bin",
+    )
 }
 
 fn build_xtask_binary() -> Result<PathBuf> {
@@ -2083,15 +2151,40 @@ mod tests {
         assert!(validate_speed_out("docs/benchmarks/speed.txt").is_ok());
         assert!(validate_speed_out("docs/benchmarks/speed.md").is_err());
         assert!(validate_speed_out("docs/benchmarks/speed.MD").is_err());
-        let cargo_json = r#"{"reason":"compiler-artifact","target":{"name":"adotenv","kind":["lib"]},"executable":null}
-{"reason":"compiler-artifact","target":{"name":"memory","kind":["test"]},"executable":"/custom/target/debug/deps/memory-abc"}
-{"reason":"compiler-artifact","target":{"name":"memory","kind":["bin"]},"executable":"/custom/target/release/memory"}"#;
+        let cargo_json = r#"{"reason":"compiler-artifact","package_id":"path+file:///repo#adotenv@1.7.3","target":{"name":"adotenv","kind":["lib"]},"executable":null}
+{"reason":"compiler-artifact","package_id":"path+file:///repo/other#other@0.1.0","target":{"name":"memory","kind":["bin"]},"executable":"/custom/target/release/other-memory"}
+{"reason":"compiler-artifact","package_id":"path+file:///repo/adotenv-bench#0.1.0","target":{"name":"memory","kind":["test"]},"executable":"/custom/target/debug/deps/memory-abc"}
+{"reason":"compiler-artifact","package_id":"path+file:///repo/adotenv-bench#0.1.0","target":{"name":"memory","kind":["bin"]},"executable":""}
+{"reason":"compiler-artifact","package_id":"path+file:///repo/adotenv-bench#0.1.0","target":{"name":"memory","kind":["bin"]},"executable":"/custom/target/release/memory"}
+{"reason":"compiler-artifact","package_id":"path+file:///repo/adotenv-bench#0.1.0","target":{"name":"competitors","kind":["bench"]},"executable":"/custom/target/release/deps/competitors-123"}
+{"reason":"compiler-artifact","package_id":"adotenv-xtask 0.0.0 (path+file:///repo/xtask)","target":{"name":"adotenv-xtask","kind":["bin"]},"executable":"/custom/target/release/adotenv-xtask"}
+{"reason":"compiler-artifact","package_id":"path+file:///repo/xtask#adotenv-cli@1.7.3","target":{"name":"adotenv-cli","kind":["bin"]},"executable":"/custom/target/release/adotenv-cli"}"#;
         assert_eq!(
-            extract_cargo_executable(cargo_json, "memory", "bin").unwrap(),
+            extract_cargo_executable(cargo_json, "adotenv-bench", "memory", "bin").unwrap(),
             PathBuf::from("/custom/target/release/memory")
         );
-        assert!(extract_cargo_executable(cargo_json, "memory", "bench").is_err());
-        assert!(extract_cargo_executable(cargo_json, "missing", "bin").is_err());
+        assert_eq!(
+            extract_cargo_executable(cargo_json, "adotenv-bench", "competitors", "bench").unwrap(),
+            PathBuf::from("/custom/target/release/deps/competitors-123")
+        );
+        assert_eq!(
+            extract_cargo_executable(cargo_json, "adotenv-xtask", "adotenv-xtask", "bin").unwrap(),
+            PathBuf::from("/custom/target/release/adotenv-xtask")
+        );
+        assert_eq!(
+            extract_cargo_executable(cargo_json, "adotenv-cli", "adotenv-cli", "bin").unwrap(),
+            PathBuf::from("/custom/target/release/adotenv-cli")
+        );
+        assert!(extract_cargo_executable(cargo_json, "adotenv-bench", "memory", "bench").is_err());
+        assert!(extract_cargo_executable(cargo_json, "adotenv-bench", "missing", "bin").is_err());
+        assert!(extract_cargo_executable(cargo_json, "wrong-pkg", "memory", "bin").is_err());
+        let empty_exec = r#"{"reason":"compiler-artifact","package_id":"path+file:///repo/adotenv-bench#0.1.0","target":{"name":"memory","kind":["bin"]},"executable":""}"#;
+        assert!(extract_cargo_executable(empty_exec, "adotenv-bench", "memory", "bin").is_err());
+        let missing_kind = r#"{"reason":"compiler-artifact","package_id":"path+file:///repo/adotenv-bench#0.1.0","target":{"name":"memory"},"executable":"/target/memory"}"#;
+        assert!(extract_cargo_executable(missing_kind, "adotenv-bench", "memory", "bin").is_err());
+        let ambiguous = r#"{"reason":"compiler-artifact","package_id":"path+file:///repo/adotenv-bench#0.1.0","target":{"name":"memory","kind":["bin"]},"executable":"/target/a/memory"}
+{"reason":"compiler-artifact","package_id":"path+file:///repo/adotenv-bench#0.1.0","target":{"name":"memory","kind":["bin"]},"executable":"/target/b/memory"}"#;
+        assert!(extract_cargo_executable(ambiguous, "adotenv-bench", "memory", "bin").is_err());
         #[cfg(not(windows))]
         {
             assert_eq!(
@@ -2114,17 +2207,20 @@ mod tests {
     }
 
     #[test]
-    fn output_sibling_directory_validation() {
+    fn output_sibling_directory_and_temp_file_validation() {
         struct TempDirGuard(PathBuf);
         impl Drop for TempDirGuard {
             fn drop(&mut self) {
                 let _ = fs::remove_dir_all(&self.0);
             }
         }
+        static TEST_DIR_ID: AtomicU64 = AtomicU64::new(0);
 
-        let dir = TempDirGuard(
-            env::temp_dir().join(format!("adotenv-xtask-test-{}", std::process::id())),
-        );
+        let dir = TempDirGuard(env::temp_dir().join(format!(
+            "adotenv-xtask-test-{}-{}",
+            std::process::id(),
+            TEST_DIR_ID.fetch_add(1, Ordering::Relaxed)
+        )));
         fs::create_dir_all(dir.0.join("out.fingerprint.json")).unwrap();
         fs::create_dir_all(dir.0.join("speed.md")).unwrap();
 
@@ -2132,10 +2228,25 @@ mod tests {
         let out_fp_str = out_fp.to_string_lossy();
         assert!(validate_local_out(&out_fp_str).is_ok());
         assert!(validate_out_with_fingerprint(&out_fp_str).is_err());
+        assert!(validate_speed_out(&out_fp_str).is_err());
 
         let out_md = dir.0.join("speed.txt");
         let out_md_str = out_md.to_string_lossy();
         assert!(validate_out_with_fingerprint(&out_md_str).is_ok());
         assert!(validate_speed_out(&out_md_str).is_err());
+
+        // Exclusive temp file creation avoids collisions and cleans up on drop.
+        let guard = create_temp_file(&dir.0, "unit", b"A=1\n").unwrap();
+        let temp_path = guard.0.clone();
+        assert_eq!(fs::read_to_string(&temp_path).unwrap(), "A=1\n");
+        let second = create_temp_file(&dir.0, "unit", b"B=2\n").unwrap();
+        assert_ne!(second.0, temp_path);
+        assert_eq!(fs::read_to_string(&temp_path).unwrap(), "A=1\n");
+        drop(guard);
+        assert!(!temp_path.exists());
+        assert!(second.0.exists());
+        let second_path = second.0.clone();
+        drop(second);
+        assert!(!second_path.exists());
     }
 }

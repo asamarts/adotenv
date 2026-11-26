@@ -473,11 +473,16 @@ pub enum EditError {
     /// A key cannot be written as a variable reference.
     ///
     /// Returned by [`Document::rename_with_references`] and
-    /// [`Document::rename_with_references_with_options`] when the new key needs
-    /// a character that the reference grammar treats as an operator or
-    /// delimiter. For example, a key containing `-` cannot be written as
-    /// `$A-B` or `${A-B}`; the scanner reads it as a reference to `A` with an
-    /// operator. Such a key can still be renamed when no reference uses it.
+    /// [`Document::rename_with_references_with_options`] during planning when
+    /// matching references exist and `new_key` is empty (for example under
+    /// [`Dialect::COMPOSE`](crate::Dialect::COMPOSE)), contains ASCII control
+    /// bytes or reference operator/delimiter bytes (`-`, `:`, `?`, `+`, `{`,
+    /// `}`, `$`, `\`), contains a quote delimiter matching an enclosing value's
+    /// quotes (`'`, `"`, `` ` ``), or requires bracing on an escaped unbraced
+    /// reference (such as `\$OLD`). For example, a key containing `-` cannot be
+    /// written as `$A-B` or `${A-B}`; the scanner reads it as a reference to
+    /// `A` with an operator. Such a key can still be renamed when no reference
+    /// uses it.
     InvalidReferenceKey,
     /// The dialect cannot spell the value in this position.
     ///
