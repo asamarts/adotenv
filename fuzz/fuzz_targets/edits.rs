@@ -542,21 +542,10 @@ fn check_rename_with_references(source: &str, value: &str, selector: u8, dialect
                 .and_then(|s| renamed.as_str().get(s.clone()));
             let was_renamed = orig_name == Some(entry.key());
             had_matching_ref |= was_renamed;
-            let mut ancestor = br.parent;
-            let mut in_command = false;
-            while let Some(idx) = ancestor {
-                if before_refs[idx].kind == adotenv::ReferenceKind::Command {
-                    in_command = true;
-                    break;
-                }
-                ancestor = before_refs[idx].parent;
-            }
-            if !in_command {
-                in_command = before_refs.iter().any(|candidate| {
-                    candidate.kind == adotenv::ReferenceKind::Command
-                        && candidate.span.start < br.span.start
-                });
-            }
+            let in_command = before_refs.iter().any(|candidate| {
+                candidate.kind == adotenv::ReferenceKind::Command
+                    && candidate.span.start < br.span.start
+            });
             if was_renamed && entry.key() != ref_key && in_command {
                 let is_safe_cmd_key = |key: &str| {
                     let mut bytes = key.bytes();

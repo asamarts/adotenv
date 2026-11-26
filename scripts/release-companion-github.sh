@@ -23,8 +23,8 @@ for path in "$crate_file" "$sha_file"; do
   fi
 done
 
-script_dir="$(cd "$(dirname "$0")" && pwd)"
-repo_root="$(cd "${script_dir}/.." && pwd)"
+script_dir="$(CDPATH='' cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(CDPATH='' cd -P -- "${script_dir}/.." && pwd)"
 tag="${crate}-v${version}"
 notes="$(mktemp)"
 trap 'rm -f "$notes"' EXIT
