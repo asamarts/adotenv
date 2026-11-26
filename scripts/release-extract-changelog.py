@@ -11,7 +11,7 @@ from pathlib import Path
 
 def extract_section(text: str, section: str) -> str:
     match = re.search(
-        rf"^## \[{re.escape(section)}\][^\n]*\n(.*?)(?=^## \[|\Z)",
+        rf"^## \[{re.escape(section)}\][^\n]*\n(.*?)(?=^## |\Z)",
         text,
         re.MULTILINE | re.DOTALL,
     )

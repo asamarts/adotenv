@@ -552,32 +552,15 @@ fn check_rename_with_references(source: &str, value: &str, selector: u8, dialect
                 ancestor = before_refs[idx].parent;
             }
             if was_renamed && entry.key() != ref_key && in_command {
-                let is_shell_meta = |b: u8| {
-                    b.is_ascii_control()
-                        || matches!(
-                            b,
-                            b'\''
-                                | b'"'
-                                | b'`'
-                                | b'\\'
-                                | b'('
-                                | b')'
-                                | b'{'
-                                | b'}'
-                                | b'$'
-                                | b';'
-                                | b'&'
-                                | b'|'
-                                | b'<'
-                                | b'>'
-                                | b'#'
-                                | b' '
-                                | b'\t'
-                        )
+                let is_safe_cmd_key = |key: &str| {
+                    !key.is_empty()
+                        && key
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.'))
                 };
                 assert!(
-                    !ref_key.bytes().any(is_shell_meta) && !entry.key().bytes().any(is_shell_meta),
-                    "shell metacharacter modified inside $(...)"
+                    is_safe_cmd_key(ref_key) && is_safe_cmd_key(entry.key()),
+                    "unsafe shell key renamed inside $(...)"
                 );
             }
             let expected_name = if was_renamed {

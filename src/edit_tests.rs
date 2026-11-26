@@ -2295,6 +2295,45 @@ fn rename_with_references_rejects_command_shell_metacharacters() {
         docker_hash_cmd.rename_with_references("A", "B#C"),
         Err(EditError::WouldChangeMeaning)
     );
+    // Shell parameter-expansion assignments (=), indirect expansion (!), array
+    // subscripts ([...]), globs/suffix-strips (%, *, @, /, ^, ,), reverse-direction
+    // colon (:), and non-ASCII whitespace/control characters must also be rejected
+    // inside $(...) by the strict allowlist.
+    for key in [
+        "ENV=/tmp/pwn",
+        "A[B=1]",
+        "!AWS_*",
+        "B%pat",
+        "*",
+        "@",
+        "B/a/b",
+        "B^",
+        "B,",
+        "B\u{00a0}C",
+    ] {
+        let (py_doc, _) = parse_with("A=1\nX=$(echo $A)\n", Dialect::PYTHON_DOTENV);
+        assert_eq!(
+            py_doc.rename_with_references("A", key),
+            Err(EditError::WouldChangeMeaning),
+            "PYTHON_DOTENV key={key:?}"
+        );
+    }
+    let (compose_arr, _) = parse_with("A=1\nX=$(echo $A)\n", Dialect::COMPOSE);
+    assert_eq!(
+        compose_arr.rename_with_references("A", "A[0]"),
+        Err(EditError::WouldChangeMeaning)
+    );
+    let (docker_colon, _) = parse_with("A:0=1\nX=$(echo ${A:0})\n", Dialect::DOCKER_RAW);
+    assert_eq!(
+        docker_colon.rename_with_references("A:0", "B"),
+        Err(EditError::WouldChangeMeaning)
+    );
+    let (docker_nbsp, _) = parse_with("A=1\nX=$(echo $A)\n", Dialect::DOCKER_RAW);
+    assert_eq!(
+        docker_nbsp.rename_with_references("A", "B\u{00a0}C"),
+        Err(EditError::WouldChangeMeaning)
+    );
+
     // Normal dotted keys inside $(...) remain allowed.
     let (cmd_dotted, _) = parse_with("A=1\nX=$(echo \"${A}\")\n", Dialect::PORTABLE);
     let dotted_ok = cmd_dotted.rename_with_references("A", "APP.HOST").unwrap();
