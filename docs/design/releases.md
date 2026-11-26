@@ -35,6 +35,7 @@
 Current release evidence is on the [benchmark overview](../benchmarks/README.md).
 Release plans and audit records:
 
+- [1.8.0 and LSP stabilization plan](1.8.0-plan.md)
 - [1.6.0 plan](1.6.0-plan.md)
 - [1.5.0 plan](1.5.0-plan.md)
 - [1.4.1 plan](1.4.1-plan.md)

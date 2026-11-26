@@ -936,3 +936,238 @@ fn rename_with_options_enforces_lines_diagnostics_and_items_limits() {
         "{item_err:?}"
     );
 }
+
+#[test]
+fn crlf_lf_only_dialects_and_bom_edge_cases_produce_valid_ranges() {
+    use adotenv_lsp::BomPolicy;
+
+    // Under LineBreaks::Lf dialects (Docker, Compose), CRLF item content spans
+    // end between `\r` and `\n`; ranges must stay monotonic and contain selection_range.
+    for dialect in [Dialect::DOCKER_RAW, Dialect::COMPOSE] {
+        let options = LspOptions::new().with_dialect(dialect);
+        let source = "HOST=localhost\r\nPORT=8080\r\n";
+        let DocumentSymbolResponse::Nested(symbols) =
+            document_symbols_with_options(source, &options)
+        else {
+            panic!("expected nested document symbols");
+        };
+        assert_eq!(symbols.len(), 2);
+        assert_eq!(symbols[0].range.start, position(0, 0));
+        assert_eq!(symbols[0].range.end, position(0, 14));
+        assert_eq!(symbols[1].range.start, position(1, 0));
+        assert_eq!(symbols[1].range.end, position(1, 9));
+        for sym in &symbols {
+            assert!(sym.range.start <= sym.selection_range.start);
+            assert!(sym.selection_range.end <= sym.range.end);
+        }
+        let ws = adotenv_lsp::workspace_symbols_with_options(source, &uri(), "", &options);
+        assert_eq!(ws[1].location.range.start, position(1, 0));
+        assert_eq!(ws[1].location.range.end, position(1, 9));
+    }
+
+    // BomPolicy::Error does not strip the BOM; the diagnostic spans 0..1 and the key starts at col 1.
+    let bom_err = LspOptions::new().with_dialect(Dialect::PORTABLE.with_bom(BomPolicy::Error));
+    let diags = diagnostics("\u{feff}HOST=1\n", &uri(), &bom_err);
+    assert_eq!(code(&diags[0]), Some("dotenv.forbidden-bom"));
+    assert_eq!(
+        diags[0].range,
+        lsp_types::Range::new(position(0, 0), position(0, 1))
+    );
+    let hov = hover("\u{feff}HOST=1\n", position(0, 1), &bom_err).unwrap();
+    assert_eq!(
+        hov.range.unwrap(),
+        lsp_types::Range::new(position(0, 1), position(0, 5))
+    );
+
+    // BOM-only and BOM+newline documents anchor the BOM diagnostic to (0, 0)..(0, 0) instead of past EOL.
+    for empty_bom in ["\u{feff}", "\u{feff}\n"] {
+        let diags = diagnostics(empty_bom, &uri(), &LspOptions::new());
+        let bom = diags
+            .iter()
+            .find(|d| code(d) == Some("dotenv.bom"))
+            .expect("bom diagnostic");
+        assert_eq!(
+            bom.range,
+            lsp_types::Range::new(position(0, 0), position(0, 0))
+        );
+    }
+}
+
+#[test]
+fn rename_recovers_unrelated_invalid_lines_and_enforces_command_allowlist() {
+    use adotenv_lsp::EditError as ReexportedEditError;
+
+    // Unrelated invalid line does not block renaming a valid key.
+    let source = "BAD KEY=1\nHOST=localhost\nURL=${HOST}\n";
+    let edit = rename(source, &uri(), position(1, 0), "SERVER").unwrap();
+    let edits = &edit.changes.unwrap()[&uri()];
+    assert_eq!(edits.len(), 2);
+    assert_eq!(edits[0].range.start, position(1, 0));
+    assert_eq!(edits[1].range.start, position(2, 6));
+
+    // Command-context reference outside the shell-safe allowlist fails with WouldChangeMeaning.
+    let cmd_err = adotenv_lsp::rename_with_options(
+        "HOST=localhost\nCMD=$(echo $HOST)\n",
+        &uri(),
+        position(0, 0),
+        "1BAD",
+        &LspOptions::new(),
+    )
+    .unwrap_err();
+    assert_eq!(
+        cmd_err,
+        RenameError::from(ReexportedEditError::WouldChangeMeaning)
+    );
+    assert_eq!(cmd_err.clone(), cmd_err);
+
+    // LspOptions::without_lint_options disables a previously set lint policy.
+    let with_lint = LspOptions::new().with_lint_options(LintOptions::new().with_key_order(true));
+    assert!(with_lint.lint.is_some());
+    assert!(with_lint.without_lint_options().lint.is_none());
+}
+
+#[test]
+fn completion_handles_multiline_dialects_escapes_and_dotted_braced_refs() {
+    let items_len = |source: &str, pos: Position, dialect: Dialect| -> usize {
+        let options = LspOptions::new().with_dialect(dialect);
+        let CompletionResponse::Array(items) = completion_with_options(source, pos, &options)
+        else {
+            panic!("expected completion array");
+        };
+        items.len()
+    };
+
+    // Multiline single-quoted values suppress `$` completion (both closed and unclosed at EOF).
+    assert_eq!(
+        items_len(
+            "HOST=1\nURL='line1\n$H'\n",
+            position(2, 2),
+            Dialect::PORTABLE
+        ),
+        0
+    );
+    assert_eq!(
+        items_len("HOST=1\nURL='line1\n$H", position(2, 2), Dialect::PORTABLE),
+        0
+    );
+    // Multiline double-quoted values suppress bogus key-start completion, but allow `$` refs.
+    assert_eq!(
+        items_len(
+            "HOST=1\nURL=\"line1\nfoo\"\n",
+            position(2, 3),
+            Dialect::PORTABLE
+        ),
+        0
+    );
+    assert_eq!(
+        items_len(
+            "HOST=1\nURL=\"line1\n$H\"\n",
+            position(2, 2),
+            Dialect::PORTABLE
+        ),
+        2
+    );
+    // Unclosed multiline double-quoted value suppresses key-start completion and allows `$` refs.
+    assert_eq!(
+        items_len(
+            "HOST=1\nURL=\"line1\nfoo",
+            position(2, 3),
+            Dialect::PORTABLE
+        ),
+        0
+    );
+    assert_eq!(
+        items_len("HOST=1\nURL=\"line1\n$H", position(2, 2), Dialect::PORTABLE),
+        1
+    );
+
+    // Node backticks are literal and suppress `$` completion.
+    assert_eq!(
+        items_len("HOST=1\nURL=`$H`\n", position(1, 7), Dialect::NODE_DOTENV),
+        0
+    );
+    // Compose colon separator enters value context and respects single quotes.
+    assert_eq!(
+        items_len("HOST=1\nURL: '$H'\n", position(1, 8), Dialect::COMPOSE),
+        0
+    );
+    assert_eq!(
+        items_len("HOST=1\nURL: $H\n", position(1, 7), Dialect::COMPOSE),
+        2
+    );
+    // Python escaped single quote stays inside single quotes.
+    assert_eq!(
+        items_len(
+            "HOST=1\nURL='it\\'s $H'\n",
+            position(1, 13),
+            Dialect::PYTHON_DOTENV
+        ),
+        0
+    );
+    // Docker raw values do not treat `'` as a quote delimiter.
+    assert_eq!(
+        items_len("HOST=1\nURL='$H\n", position(1, 7), Dialect::DOCKER_RAW),
+        2
+    );
+}
+
+#[test]
+fn completion_handles_dotted_braced_refs_and_escaped_dollars() {
+    let items_len = |source: &str, pos: Position, dialect: Dialect| -> usize {
+        let options = LspOptions::new().with_dialect(dialect);
+        let CompletionResponse::Array(items) = completion_with_options(source, pos, &options)
+        else {
+            panic!("expected completion array");
+        };
+        items.len()
+    };
+
+    // Braced dotted references complete; unbraced dotted and escaped dollars do not.
+    assert_eq!(
+        items_len(
+            "APP.HOST=1\nURL=${APP.H\n",
+            position(1, 11),
+            Dialect::PORTABLE
+        ),
+        2
+    );
+    assert_eq!(
+        items_len(
+            "APP.HOST=1\nURL=$APP.H\n",
+            position(1, 10),
+            Dialect::PORTABLE
+        ),
+        0
+    );
+    assert_eq!(
+        items_len("HOST=1\nURL=\"\\$H\"\n", position(1, 8), Dialect::PORTABLE),
+        0
+    );
+    assert_eq!(
+        items_len(
+            "HOST=1\nURL=\"\\\\$H\"\n",
+            position(1, 9),
+            Dialect::PORTABLE
+        ),
+        2
+    );
+    assert_eq!(
+        items_len("HOST=1\nURL=$$H\n", position(1, 7), Dialect::COMPOSE),
+        0
+    );
+    assert_eq!(
+        items_len("HOST=1\nURL=$$$H\n", position(1, 8), Dialect::COMPOSE),
+        2
+    );
+}
+
+#[test]
+fn hover_escapes_multiline_quoted_keys() {
+    // Hover escapes multiline quoted keys without allowing blank-line Markdown breaks.
+    let py = LspOptions::new().with_dialect(Dialect::PYTHON_DOTENV);
+    let hov = hover("'A\n\nB'=1\n", position(0, 1), &py).unwrap();
+    let HoverContents::Markup(markup) = hov.contents else {
+        panic!("expected markup hover");
+    };
+    assert!(markup.value.starts_with("`A\\n\\nB`"), "{}", markup.value);
+}

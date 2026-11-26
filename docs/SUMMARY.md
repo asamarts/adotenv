@@ -59,6 +59,7 @@
 - [Test audit](design/test-audit.md)
 - [Heavy validation](design/heavy-validation.md)
 - [Release history](design/releases.md)
+  - [1.8.0 and LSP stabilization plan](design/1.8.0-plan.md)
   - [1.6.0 plan](design/1.6.0-plan.md)
   - [1.5.0 plan](design/1.5.0-plan.md)
   - [1.4.1 plan](design/1.4.1-plan.md)
