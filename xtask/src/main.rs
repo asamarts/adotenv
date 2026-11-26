@@ -23,29 +23,67 @@ fn main() -> ExitCode {
     }
 }
 
+const KNOWN_COMMANDS: &[&str] = &[
+    "fixtures",
+    "memory",
+    "micro",
+    "speed",
+    "cli",
+    "report",
+    "compare",
+    "gate",
+    "fingerprint",
+    "queue",
+    "queue-speed",
+];
+
+enum CommandAction<'a> {
+    Help,
+    Dispatch(&'a str, &'a [String]),
+}
+
+fn classify_command(args: &[String]) -> Result<CommandAction<'_>> {
+    let Some(command) = args.first().map(String::as_str) else {
+        return Ok(CommandAction::Help);
+    };
+    let rest = &args[1..];
+    if matches!(command, "help" | "--help" | "-h") {
+        if let Some(extra) = rest.first() {
+            return Err(format!("unexpected argument for {command}: {extra}"));
+        }
+        return Ok(CommandAction::Help);
+    }
+    if !KNOWN_COMMANDS.contains(&command) {
+        return Err(format!("unknown command: {command}\n\n{USAGE}"));
+    }
+    if rest
+        .iter()
+        .any(|arg| matches!(arg.as_str(), "--help" | "-h"))
+    {
+        return Ok(CommandAction::Help);
+    }
+    Ok(CommandAction::Dispatch(command, rest))
+}
+
 fn run() -> Result<()> {
     let args: Vec<String> = env::args().skip(1).collect();
-    if args.len() == 2 && matches!(args[1].as_str(), "--help" | "-h") {
-        println!("{USAGE}");
-        return Ok(());
-    }
-    match args.first().map(String::as_str) {
-        Some("fixtures") => command_fixtures(&args[1..]),
-        Some("memory") => command_memory(&args[1..]),
-        Some("micro") => command_micro(&args[1..]),
-        Some("speed") => command_speed(&args[1..]),
-        Some("cli") => command_cli(&args[1..]),
-        Some("report") => command_report(&args[1..]),
-        Some("compare") => command_compare(&args[1..]),
-        Some("gate") => command_gate(&args[1..]),
-        Some("fingerprint") => command_fingerprint(&args[1..]),
-        Some("queue") => command_queue(&args[1..]),
-        Some("queue-speed") => command_queue_speed(&args[1..]),
-        Some("help" | "--help" | "-h") | None => {
+    match classify_command(&args)? {
+        CommandAction::Help => {
             println!("{USAGE}");
             Ok(())
         }
-        Some(other) => Err(format!("unknown command: {other}\n\n{USAGE}")),
+        CommandAction::Dispatch("fixtures", rest) => command_fixtures(rest),
+        CommandAction::Dispatch("memory", rest) => command_memory(rest),
+        CommandAction::Dispatch("micro", rest) => command_micro(rest),
+        CommandAction::Dispatch("speed", rest) => command_speed(rest),
+        CommandAction::Dispatch("cli", rest) => command_cli(rest),
+        CommandAction::Dispatch("report", rest) => command_report(rest),
+        CommandAction::Dispatch("compare", rest) => command_compare(rest),
+        CommandAction::Dispatch("gate", rest) => command_gate(rest),
+        CommandAction::Dispatch("fingerprint", rest) => command_fingerprint(rest),
+        CommandAction::Dispatch("queue", rest) => command_queue(rest),
+        CommandAction::Dispatch("queue-speed", rest) => command_queue_speed(rest),
+        CommandAction::Dispatch(other, _) => Err(format!("unknown command: {other}\n\n{USAGE}")),
     }
 }
 
@@ -177,6 +215,7 @@ fn command_speed(args: &[String]) -> Result<()> {
         command.arg("--quick");
     }
     if let Some(filter) = parsed.get("--filter") {
+        validate_filter(filter)?;
         command.arg(filter);
     }
     let output = command.output().map_err(|error| error.to_string())?;
@@ -466,9 +505,15 @@ fn command_gate(args: &[String]) -> Result<()> {
     }
 }
 
+type RowKey = (String, String, String, String);
+
+fn format_row_key(key: &RowKey) -> String {
+    format!("{}|{}|{}|{}", key.0, key.1, key.2, key.3)
+}
+
 fn check_memory_gate(
-    baseline: &BTreeMap<String, serde_json::Value>,
-    current: &BTreeMap<String, serde_json::Value>,
+    baseline: &BTreeMap<RowKey, serde_json::Value>,
+    current: &BTreeMap<RowKey, serde_json::Value>,
     implementation: &str,
     max_heap_percent: u64,
     max_heap_bytes: u64,
@@ -479,34 +524,36 @@ fn check_memory_gate(
         if field(base, "implementation") != implementation {
             continue;
         }
+        let label = format_row_key(key);
         let Some(cur) = current.get(key) else {
-            violations.push(format!("{key}: missing current case"));
+            violations.push(format!("{label}: missing current case"));
             continue;
         };
-        let Some(base_hash) = base
+        let base_hash = base
             .get("fixture_sha256")
             .and_then(serde_json::Value::as_str)
-        else {
-            violations.push(format!("{key}: missing baseline fixture_sha256"));
-            continue;
-        };
-        match cur
+            .filter(|hash| !hash.is_empty());
+        let cur_hash = cur
             .get("fixture_sha256")
             .and_then(serde_json::Value::as_str)
-        {
-            Some(cur_hash) if cur_hash == base_hash => {}
-            Some(cur_hash) => violations.push(format!(
-                "{key}: fixture hash changed ({base_hash} -> {cur_hash})"
-            )),
-            None => violations.push(format!("{key}: missing current fixture_sha256")),
+            .filter(|hash| !hash.is_empty());
+        match (base_hash, cur_hash) {
+            (None, _) => violations.push(format!("{label}: missing baseline fixture_sha256")),
+            (Some(_), None) => violations.push(format!("{label}: missing current fixture_sha256")),
+            (Some(base_hash), Some(cur_hash)) if cur_hash != base_hash => {
+                violations.push(format!(
+                    "{label}: fixture hash changed ({base_hash} -> {cur_hash})"
+                ));
+            }
+            (Some(_), Some(_)) => {}
         }
         for metric in ["peak_heap_bytes", "retained_heap_bytes"] {
             let Some(base_value) = unsigned(base, metric) else {
-                violations.push(format!("{key}: missing baseline {metric}"));
+                violations.push(format!("{label}: missing baseline {metric}"));
                 continue;
             };
             let Some(cur_value) = unsigned(cur, metric) else {
-                violations.push(format!("{key}: missing current {metric}"));
+                violations.push(format!("{label}: missing current {metric}"));
                 continue;
             };
             let percent_delta = base_value.saturating_mul(max_heap_percent) / 100;
@@ -515,7 +562,7 @@ fn check_memory_gate(
                 .max(base_value.saturating_add(max_heap_bytes));
             if cur_value > allowed {
                 violations.push(format!(
-                    "{key}: {metric} {cur_value} > allowed {allowed} (baseline {base_value}, +{max_heap_percent}% or +{max_heap_bytes} B)"
+                    "{label}: {metric} {cur_value} > allowed {allowed} (baseline {base_value}, +{max_heap_percent}% or +{max_heap_bytes} B)"
                 ));
             }
         }
@@ -523,25 +570,27 @@ fn check_memory_gate(
             unsigned(base, "heap_after_drop_bytes"),
             unsigned(cur, "heap_after_drop_bytes"),
         ) {
-            (None, _) => violations.push(format!("{key}: missing baseline heap_after_drop_bytes")),
+            (None, _) => {
+                violations.push(format!("{label}: missing baseline heap_after_drop_bytes"));
+            }
             (Some(_), None) => {
-                violations.push(format!("{key}: missing current heap_after_drop_bytes"));
+                violations.push(format!("{label}: missing current heap_after_drop_bytes"));
             }
             (Some(base_value), Some(cur_value)) if cur_value > base_value => {
                 violations.push(format!(
-                    "{key}: heap_after_drop_bytes {cur_value} > baseline {base_value}"
+                    "{label}: heap_after_drop_bytes {cur_value} > baseline {base_value}"
                 ));
             }
             (Some(_), Some(_)) => {}
         }
         match (unsigned(base, "allocations"), unsigned(cur, "allocations")) {
-            (None, _) => violations.push(format!("{key}: missing baseline allocations")),
-            (Some(_), None) => violations.push(format!("{key}: missing current allocations")),
+            (None, _) => violations.push(format!("{label}: missing baseline allocations")),
+            (Some(_), None) => violations.push(format!("{label}: missing current allocations")),
             (Some(base_value), Some(cur_value)) => {
                 let allowed = base_value.saturating_add(max_allocation_delta);
                 if cur_value > allowed {
                     violations.push(format!(
-                        "{key}: allocations {cur_value} > allowed {allowed} (baseline {base_value}, +{max_allocation_delta})"
+                        "{label}: allocations {cur_value} > allowed {allowed} (baseline {base_value}, +{max_allocation_delta})"
                     ));
                 }
             }
@@ -550,12 +599,12 @@ fn check_memory_gate(
     violations
 }
 
-fn read_rows(path: &str) -> Result<BTreeMap<String, serde_json::Value>> {
+fn read_rows(path: &str) -> Result<BTreeMap<RowKey, serde_json::Value>> {
     let text = fs::read_to_string(path).map_err(|error| error.to_string())?;
     parse_rows(&text, path)
 }
 
-fn parse_rows(text: &str, source: &str) -> Result<BTreeMap<String, serde_json::Value>> {
+fn parse_rows(text: &str, source: &str) -> Result<BTreeMap<RowKey, serde_json::Value>> {
     let mut rows = BTreeMap::new();
     for line in text.lines().filter(|line| !line.trim().is_empty()) {
         let value: serde_json::Value =
@@ -572,11 +621,20 @@ fn parse_rows(text: &str, source: &str) -> Result<BTreeMap<String, serde_json::V
                 .ok_or_else(|| {
                     format!("benchmark row in {source} is missing string field {name}")
                 })?;
-            parts.push(part);
+            parts.push(part.to_owned());
         }
-        let key = format!("{}|{}|{}|{}", parts[0], parts[1], parts[2], parts[3]);
+        let mut iter = parts.into_iter();
+        let key: RowKey = (
+            iter.next().unwrap(),
+            iter.next().unwrap(),
+            iter.next().unwrap(),
+            iter.next().unwrap(),
+        );
         if rows.insert(key.clone(), value).is_some() {
-            return Err(format!("duplicate benchmark row for {key} in {source}"));
+            return Err(format!(
+                "duplicate benchmark row for {} in {source}",
+                format_row_key(&key)
+            ));
         }
     }
     Ok(rows)
@@ -714,6 +772,7 @@ fn submit_and_fetch_remote_task(
     ensure_task_succeeded(task)?;
     ensure_parent(Path::new(local_out))?;
     let status = Command::new("scp")
+        .arg("--")
         .arg(format!("kbench:{remote_root}/{remote_out}"))
         .arg(local_out)
         .status()
@@ -724,6 +783,7 @@ fn submit_and_fetch_remote_task(
     let local_fingerprint = Path::new(local_out).with_extension("fingerprint.json");
     let remote_fingerprint = Path::new(remote_out).with_extension("fingerprint.json");
     let status = Command::new("scp")
+        .arg("--")
         .arg(format!(
             "kbench:{remote_root}/{}",
             remote_fingerprint.display()
@@ -842,6 +902,26 @@ fn command_queue_speed(args: &[String]) -> Result<()> {
     {
         return Err("--bench must be a simple target name".to_owned());
     }
+    let mut bench_args = vec!["--bench", "--output-format", "bencher", "--noplot"];
+    if parsed.has("--quick") {
+        bench_args.push("--quick");
+    }
+    if let Some(filter) = parsed.get("--filter") {
+        validate_filter(filter)?;
+        bench_args.push(filter);
+    }
+    if let Some(value) = parsed.get("--sample-size") {
+        validate_positive_u64("--sample-size", value)?;
+        bench_args.push("--sample-size");
+        bench_args.push(value);
+    }
+    for name in ["--warm-up-time", "--measurement-time"] {
+        if let Some(value) = parsed.get(name) {
+            validate_positive_f64(name, value)?;
+            bench_args.push(name);
+            bench_args.push(value);
+        }
+    }
     let dry_run = parsed.has("--dry-run");
     if parsed.has("--sync") && !dry_run {
         sync_speed_binaries(remote_root, bench)?;
@@ -849,23 +929,6 @@ fn command_queue_speed(args: &[String]) -> Result<()> {
     let git_sha = require_command_output("git", &["rev-parse", "HEAD"])?;
     let rustc = require_command_output("rustc", &["--version"])?;
     let remote_fingerprint = Path::new(remote_out).with_extension("fingerprint.json");
-    let mut bench_args = vec!["--bench", "--output-format", "bencher", "--noplot"];
-    if parsed.has("--quick") {
-        bench_args.push("--quick");
-    }
-    if let Some(filter) = parsed.get("--filter") {
-        bench_args.push(filter);
-    }
-    for (name, flag) in [
-        ("--sample-size", "--sample-size"),
-        ("--warm-up-time", "--warm-up-time"),
-        ("--measurement-time", "--measurement-time"),
-    ] {
-        if let Some(value) = parsed.get(name) {
-            bench_args.push(flag);
-            bench_args.push(value);
-        }
-    }
     let bench_args = bench_args
         .iter()
         .map(|argument| shell_quote(argument))
@@ -919,12 +982,42 @@ fn sync_speed_binaries(remote_root: &str, bench: &str) -> Result<()> {
     Ok(())
 }
 
+fn validate_filter(filter: &str) -> Result<()> {
+    if filter.is_empty() || filter.starts_with('-') {
+        return Err("--filter must be non-empty and must not start with '-'".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_positive_u64(flag: &str, value: &str) -> Result<()> {
+    let parsed = value
+        .parse::<u64>()
+        .map_err(|error| format!("invalid {flag}: {error}"))?;
+    if parsed == 0 {
+        return Err(format!("invalid {flag}: must be greater than zero"));
+    }
+    Ok(())
+}
+
+fn validate_positive_f64(flag: &str, value: &str) -> Result<()> {
+    let parsed = value
+        .parse::<f64>()
+        .map_err(|error| format!("invalid {flag}: {error}"))?;
+    if !parsed.is_finite() || parsed <= 0.0 {
+        return Err(format!("invalid {flag}: must be a finite positive number"));
+    }
+    Ok(())
+}
+
 fn validate_remote_root(remote_root: &str) -> Result<()> {
     if remote_root.is_empty()
         || !remote_root.starts_with('/')
         || remote_root.trim_end_matches('/').is_empty()
+        || remote_root == "/home"
+        || remote_root.starts_with("/home/")
         || remote_root.contains('~')
         || remote_root.contains('\\')
+        || remote_root.bytes().any(|byte| byte.is_ascii_control())
         || remote_root.split('/').any(|part| part == "..")
     {
         return Err("--remote-root must be an absolute, non-root, non-home path".to_owned());
@@ -958,6 +1051,7 @@ fn prepare_remote_root(remote_root: &str) -> Result<()> {
 fn copy_binary(remote_root: &str, binary: &Path, name: &str) -> Result<()> {
     let staging = format!("/var/tmp/adotenv-{}-{name}", std::process::id());
     let status = Command::new("scp")
+        .arg("--")
         .arg(binary)
         .arg(format!("kbench:{staging}"))
         .status()
@@ -1158,10 +1252,7 @@ impl<'a> ParsedArgs<'a> {
                     .get(index + 1)
                     .map(String::as_str)
                     .ok_or_else(|| format!("missing value for {argument}"))?;
-                if value_flags.contains(&value)
-                    || bool_flags.contains(&value)
-                    || matches!(value, "--help" | "-h")
-                {
+                if value.starts_with("--") || matches!(value, "-h") {
                     return Err(format!("missing value for {argument} (got flag {value})"));
                 }
                 if values.insert(argument, value).is_some() {
@@ -1169,7 +1260,9 @@ impl<'a> ParsedArgs<'a> {
                 }
                 index += 2;
             } else if bool_flags.contains(&argument) {
-                flags.insert(argument, true);
+                if flags.insert(argument, true).is_some() {
+                    return Err(format!("duplicate argument: {argument}"));
+                }
                 index += 1;
             } else {
                 return Err(format!("unknown argument: {argument}"));
@@ -1248,9 +1341,18 @@ mod tests {
         assert!(parse_shapes("not-a-shape").is_err());
     }
 
+    fn row_key(size: &str, shape: &str, mode: &str, implementation: &str) -> RowKey {
+        (
+            size.to_owned(),
+            shape.to_owned(),
+            mode.to_owned(),
+            implementation.to_owned(),
+        )
+    }
+
     #[test]
     fn memory_gate_detects_allocation_and_heap_regressions() {
-        let key = "8|plain|values|adotenv";
+        let key = row_key("8", "plain", "values", "adotenv");
         let base = serde_json::json!({
             "size": "8", "shape": "plain", "mode": "values",
             "implementation": "adotenv", "fixture_sha256": "abc",
@@ -1264,9 +1366,9 @@ mod tests {
             "heap_after_drop_bytes": 0, "allocations": 11
         });
         let mut baseline = BTreeMap::new();
-        baseline.insert(key.to_owned(), base);
+        baseline.insert(key.clone(), base);
         let mut current = BTreeMap::new();
-        current.insert(key.to_owned(), regressed);
+        current.insert(key, regressed);
         assert_eq!(
             check_memory_gate(&baseline, &current, "adotenv", 5, 0, 0).len(),
             1
@@ -1275,8 +1377,8 @@ mod tests {
 
     #[test]
     fn memory_gate_filters_the_requested_implementation() {
-        let map_key = "8|plain|values|adotenv";
-        let compact_key = "8|plain|values|adotenv-compact";
+        let map_key = row_key("8", "plain", "values", "adotenv");
+        let compact_key = row_key("8", "plain", "values", "adotenv-compact");
         let map = serde_json::json!({
             "size": "8", "shape": "plain", "mode": "values",
             "implementation": "adotenv", "fixture_sha256": "abc",
@@ -1290,13 +1392,13 @@ mod tests {
             "heap_after_drop_bytes": 0, "allocations": 5
         });
         let mut baseline = BTreeMap::new();
-        baseline.insert(map_key.to_owned(), map.clone());
-        baseline.insert(compact_key.to_owned(), compact.clone());
+        baseline.insert(map_key.clone(), map.clone());
+        baseline.insert(compact_key.clone(), compact.clone());
         let mut current = BTreeMap::new();
-        current.insert(map_key.to_owned(), map);
+        current.insert(map_key, map);
         let mut regressed_compact = compact;
         regressed_compact["allocations"] = serde_json::json!(6);
-        current.insert(compact_key.to_owned(), regressed_compact);
+        current.insert(compact_key, regressed_compact);
         assert_eq!(
             check_memory_gate(&baseline, &current, "adotenv", 5, 0, 0).len(),
             0
@@ -1334,13 +1436,40 @@ mod tests {
         assert!(ParsedArgs::parse(&missing, &["--implementation"], &[]).is_err());
         let swallowed_flag = args(&["--out", "--dry-run"]);
         assert!(ParsedArgs::parse(&swallowed_flag, &["--out"], &["--dry-run"]).is_err());
+        let swallowed_typo = args(&["--out", "--dryrun"]);
+        assert!(ParsedArgs::parse(&swallowed_typo, &["--out"], &["--dry-run"]).is_err());
         let duplicate = args(&["--out", "a.jsonl", "--out", "b.jsonl"]);
         assert!(ParsedArgs::parse(&duplicate, &["--out"], &[]).is_err());
+        let duplicate_bool = args(&["--sync", "--sync"]);
+        assert!(ParsedArgs::parse(&duplicate_bool, &[], &["--sync"]).is_err());
+    }
+
+    #[test]
+    fn classify_command_handles_help_and_rejects_unknown_commands() {
+        let args = |items: &[&str]| items.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert!(matches!(
+            classify_command(&args(&[])),
+            Ok(CommandAction::Help)
+        ));
+        assert!(matches!(
+            classify_command(&args(&["help"])),
+            Ok(CommandAction::Help)
+        ));
+        assert!(classify_command(&args(&["help", "extra"])).is_err());
+        assert!(classify_command(&args(&["bogus", "--help"])).is_err());
+        assert!(matches!(
+            classify_command(&args(&["gate", "--baseline", "a.jsonl", "--help"])),
+            Ok(CommandAction::Help)
+        ));
+        assert!(matches!(
+            classify_command(&args(&["gate", "--baseline", "a.jsonl"])),
+            Ok(CommandAction::Dispatch("gate", _))
+        ));
     }
 
     #[test]
     fn memory_gate_checks_missing_fields_leaks_and_compact_entries() {
-        let key = "8|plain|values|adotenv-compact-entries";
+        let key = row_key("8", "plain", "values", "adotenv-compact-entries");
         let base = serde_json::json!({
             "size": "8", "shape": "plain", "mode": "values",
             "implementation": "adotenv-compact-entries",
@@ -1351,7 +1480,7 @@ mod tests {
             "allocations": 5
         });
         let mut baseline = BTreeMap::new();
-        baseline.insert(key.to_owned(), base.clone());
+        baseline.insert(key.clone(), base.clone());
 
         // Missing fixture_sha256, heap_after_drop_bytes, and allocations must fail.
         let incomplete = serde_json::json!({
@@ -1361,7 +1490,7 @@ mod tests {
             "retained_heap_bytes": 400
         });
         let mut current = BTreeMap::new();
-        current.insert(key.to_owned(), incomplete);
+        current.insert(key.clone(), incomplete);
         let violations =
             check_memory_gate(&baseline, &current, "adotenv-compact-entries", 5, 64, 0);
         assert_eq!(violations.len(), 3, "{violations:?}");
@@ -1369,26 +1498,27 @@ mod tests {
         // Non-zero heap_after_drop_bytes leak must fail.
         let mut leaked = base.clone();
         leaked["heap_after_drop_bytes"] = serde_json::json!(16);
-        current.insert(key.to_owned(), leaked);
+        current.insert(key.clone(), leaked);
         let leak_violations =
             check_memory_gate(&baseline, &current, "adotenv-compact-entries", 5, 64, 0);
         assert_eq!(leak_violations.len(), 1, "{leak_violations:?}");
         assert!(leak_violations[0].contains("heap_after_drop_bytes"));
 
-        // Missing baseline fields must also fail instead of silently skipping checks.
+        // Missing baseline fields must all report violations rather than short-circuiting.
         let mut bad_base = BTreeMap::new();
         bad_base.insert(
-            key.to_owned(),
+            key.clone(),
             serde_json::json!({
                 "size": "8", "shape": "plain", "mode": "values",
-                "implementation": "adotenv-compact-entries"
+                "implementation": "adotenv-compact-entries",
+                "fixture_sha256": ""
             }),
         );
         let mut ok_cur = BTreeMap::new();
-        ok_cur.insert(key.to_owned(), base);
+        ok_cur.insert(key, base);
         let bad_base_violations =
             check_memory_gate(&bad_base, &ok_cur, "adotenv-compact-entries", 5, 64, 0);
-        assert_eq!(bad_base_violations.len(), 1, "{bad_base_violations:?}");
+        assert_eq!(bad_base_violations.len(), 5, "{bad_base_violations:?}");
         assert!(bad_base_violations[0].contains("missing baseline fixture_sha256"));
     }
 
@@ -1400,6 +1530,18 @@ mod tests {
         assert!(parse_rows("123\n", "non-object").is_err());
         assert!(parse_rows("{\"size\":\"8\"}\n", "missing-fields").is_err());
 
+        // Pipe characters inside fields do not collide under tuple keys.
+        let pipe_a =
+            "{\"size\":\"a|b\",\"shape\":\"c\",\"mode\":\"values\",\"implementation\":\"adotenv\"}";
+        let pipe_b =
+            "{\"size\":\"a\",\"shape\":\"b|c\",\"mode\":\"values\",\"implementation\":\"adotenv\"}";
+        assert_eq!(
+            parse_rows(&format!("{pipe_a}\n{pipe_b}\n"), "pipes")
+                .unwrap()
+                .len(),
+            2
+        );
+
         assert!(validate_remote_out("bench-compact-memory.jsonl").is_ok());
         assert!(validate_remote_out("").is_err());
         assert!(validate_remote_out("../evil.jsonl").is_err());
@@ -1408,7 +1550,20 @@ mod tests {
         assert!(validate_remote_root("/var/lib/benchq/adotenv-bench").is_ok());
         assert!(validate_remote_root("/").is_err());
         assert!(validate_remote_root("//").is_err());
-        assert!(validate_remote_root("/tmp/..").is_err());
+        assert!(validate_remote_root("/home").is_err());
+        assert!(validate_remote_root("/home/user/bench").is_err());
+        assert!(validate_remote_root("/tmp/..\n").is_err());
+        assert!(validate_remote_root("/tmp/bad\npath").is_err());
         assert!(validate_remote_root("~/bench").is_err());
+
+        assert!(validate_filter("plain/128").is_ok());
+        assert!(validate_filter("").is_err());
+        assert!(validate_filter("-foo").is_err());
+        assert!(validate_positive_u64("--sample-size", "20").is_ok());
+        assert!(validate_positive_u64("--sample-size", "0").is_err());
+        assert!(validate_positive_u64("--sample-size", "abc").is_err());
+        assert!(validate_positive_f64("--warm-up-time", "1.5").is_ok());
+        assert!(validate_positive_f64("--warm-up-time", "0").is_err());
+        assert!(validate_positive_f64("--warm-up-time", "NaN").is_err());
     }
 }

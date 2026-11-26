@@ -923,6 +923,30 @@ fn has_command_ancestor(refs: &[crate::Reference], mut parent: Option<usize>) ->
     false
 }
 
+fn is_shell_command_meta(byte: u8) -> bool {
+    byte.is_ascii_control()
+        || matches!(
+            byte,
+            b'\''
+                | b'"'
+                | b'`'
+                | b'\\'
+                | b'('
+                | b')'
+                | b'{'
+                | b'}'
+                | b'$'
+                | b';'
+                | b'&'
+                | b'|'
+                | b'<'
+                | b'>'
+                | b'#'
+                | b' '
+                | b'\t'
+        )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn verify_reference_structure(
     orig_entry: crate::Entry<'_>,
@@ -950,8 +974,8 @@ fn verify_reference_structure(
         let renamed = orig_name == Some(old_key);
         if renamed
             && has_command_ancestor(&orig_refs, orig_ref.parent)
-            && (new_key.bytes().any(|b| matches!(b, b'\'' | b'"'))
-                || orig_name.is_some_and(|n| n.bytes().any(|b| matches!(b, b'\'' | b'"'))))
+            && (new_key.bytes().any(is_shell_command_meta)
+                || orig_name.is_some_and(|n| n.bytes().any(is_shell_command_meta)))
         {
             return Err(EditError::WouldChangeMeaning);
         }

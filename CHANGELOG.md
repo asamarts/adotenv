@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `adotenv::edit`: extended the `$(...)` command-ancestor check in
+  `verify_reference_structure` to reject all shell-active metacharacters
+  (backticks, escapes, parentheses, braces, `$`, list/pipe/redirection/comment
+  operators, whitespace and ASCII control bytes) on renamed keys inside command
+  substitutions, closing escaped `\${...}` termination and backtick injection
+  bypasses under `PYTHON_DOTENV` and `DOCKER_RAW`.
+- `adotenv-xtask`: hardened subcommand `--help` dispatch, multi-field baseline
+  validation and tuple keys in `gate`/`compare`, Criterion numeric/filter flag
+  validation, duplicate bool-flag rejection, `scp --` path guards and
+  `/home` rejection in `validate_remote_root`.
+
 ## [1.7.1] - 2026-11-25
 
 ### Fixed

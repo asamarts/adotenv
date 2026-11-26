@@ -2249,6 +2249,63 @@ fn rename_with_references_rejects_command_quote_break_and_handles_compose_empty_
 }
 
 #[test]
+fn rename_with_references_rejects_command_shell_metacharacters() {
+    use crate::Dialect;
+
+    // Shell metacharacters (backticks, command termination via escaped \${...},
+    // list/pipe/redirection/comment/whitespace operators, and reverse-direction `\`)
+    // must be rejected whenever a renamed reference has a $(...) ancestor.
+    for dialect in [Dialect::PYTHON_DOTENV, Dialect::DOCKER_RAW] {
+        let (esc_cmd, _) = parse_with("A=1\nX=$(echo \\${A})\n", dialect);
+        assert_eq!(
+            esc_cmd.rename_with_references("A", "B);id;(C"),
+            Err(EditError::WouldChangeMeaning)
+        );
+        let (tick_cmd, _) = parse_with("A=1\nX=$(echo \"$A\")\n", dialect);
+        assert_eq!(
+            tick_cmd.rename_with_references("A", "B`id`C"),
+            Err(EditError::WouldChangeMeaning)
+        );
+        let (tick_esc_cmd, _) = parse_with("A=1\nX=$(echo \"\\${A}\")\n", dialect);
+        assert_eq!(
+            tick_esc_cmd.rename_with_references("A", "B`id`C"),
+            Err(EditError::WouldChangeMeaning)
+        );
+        for meta_key in ["B)C", "B;id;C", "B|id", "B&id", "B>out", "B<in"] {
+            let (meta_doc, _) = parse_with("A=1\nX=$(echo $A)\n", dialect);
+            assert_eq!(
+                meta_doc.rename_with_references("A", meta_key),
+                Err(EditError::WouldChangeMeaning),
+                "{dialect:?} key={meta_key}"
+            );
+        }
+        let (rev_bs, _) = parse_with("A\\=1\nX=$(echo \\${A\\} ' ; id ; ' })\n", dialect);
+        assert_eq!(
+            rev_bs.rename_with_references("A\\", "B"),
+            Err(EditError::WouldChangeMeaning)
+        );
+    }
+    let (py_space_cmd, _) = parse_with("A=1\nX=$(echo $A)\n", Dialect::PYTHON_DOTENV);
+    assert_eq!(
+        py_space_cmd.rename_with_references("A", "B C"),
+        Err(EditError::WouldChangeMeaning)
+    );
+    let (docker_hash_cmd, _) = parse_with("A=1\nX=$(echo $A)\n", Dialect::DOCKER_RAW);
+    assert_eq!(
+        docker_hash_cmd.rename_with_references("A", "B#C"),
+        Err(EditError::WouldChangeMeaning)
+    );
+    // Normal dotted keys inside $(...) remain allowed.
+    let (cmd_dotted, _) = parse_with("A=1\nX=$(echo \"${A}\")\n", Dialect::PORTABLE);
+    let dotted_ok = cmd_dotted.rename_with_references("A", "APP.HOST").unwrap();
+    assert_eq!(
+        dotted_ok.as_str(),
+        "APP.HOST=1\nX=$(echo \"${APP.HOST}\")\n"
+    );
+    replay("A=1\nX=$(echo \"${A}\")\n", &dotted_ok);
+}
+
+#[test]
 fn rename_with_references_handles_compose_empty_keys_and_duplicate_precedence() {
     use crate::Dialect;
 

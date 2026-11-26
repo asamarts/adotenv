@@ -152,6 +152,11 @@ Releases within 1.x keep the API. These fixes change results:
   `exec::Shell` runs commands via `cmd /S /C` with raw argument quoting and
   rejects embedded line breaks; and `adotenv-cli` aborts `fmt`/`example` before
   output when `--max-input-bytes`/`--max-lines` limits trigger.
+- 1.7.1: `Document::rename_with_references` verifies exact mapped spans across
+  every reference field (`span`, `command`, `operator_span`, `argument` and
+  `name`), rejects shell-quote changes on renamed references nested inside
+  `$(...)` command substitutions, and fixes empty-key Compose renames around
+  unclosed `${` and `QuotedTail::Append` boundaries.
 
 ## From 0.11
 
