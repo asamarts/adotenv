@@ -1,8 +1,8 @@
 # 1.7.3 benchmark results
 
-Status: publication-grade 1.7.3 compact-values, compact-entries and map
-evidence. Both the memory and speed matrices were recorded from the clean
-`v1.7.3` release commit `c5c199f`; neither replaces the historical
+Status: publication-grade post-release 1.7.3 compact-values, compact-entries
+and map evidence. Both the memory and speed matrices were recorded from the
+clean `v1.7.3` release commit `c5c199f`; neither replaces the historical
 [1.6.0 results](RESULTS-1.6.0.md), [1.5.0 results](RESULTS-1.5.0.md) or
 [1.4.1 results](RESULTS-1.4.1.md).
 
@@ -71,8 +71,9 @@ Against the best pinned competitor in each comparable cell:
 `adotenv-compact` wins all 10 `values` speed cells (`0.16-0.30x`, median
 `0.21x`, within `-0.8%` to `+2.4%` of 1.6.0) and all 10 non-empty `load` speed
 cells (`0.16-0.89x`, median `0.24x`). In the 5 empty-file `load` cells
-(`empty/{8,128,1k,10k,100k}`), `adotenv` and `adotenv-compact` take `4.4-4.6 us`
-versus `2.5 us` for the fastest competitor (`dotenv`/`dotenvy`/`dotenv-flow`).
+(`empty/{8,128,1k,10k,100k}`), `adotenv` takes `4.4-4.7 us` (`4.42-4.66 us`)
+and `adotenv-compact` takes `4.4-4.6 us` (`4.43-4.65 us`) versus `2.5 us` for
+the fastest competitor (`dotenv`/`dotenvy`/`dotenv-flow`).
 That ~2 us fixed per-file difference comes from the intentional 1.7.0 file-read
 hardening (`#211`, `#220`): `read_load_path` performs a pre-open regular-file
 check (preventing Unix FIFO hangs), opens the file, verifies `is_file()` on the
