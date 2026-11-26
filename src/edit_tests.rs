@@ -2235,6 +2235,17 @@ fn rename_with_references_rejects_command_quote_break_and_handles_compose_empty_
         py_nested_cmd.rename_with_references("A", "B\" ; id ; \"C"),
         Err(EditError::WouldChangeMeaning)
     );
+
+    // Outside $(...), unquoted references still permit dialect-valid quote keys.
+    let (py_non_cmd, _) = parse_with("A=1\nX=${A}\n", Dialect::PYTHON_DOTENV);
+    let py_ok = py_non_cmd.rename_with_references("A", "B\"C").unwrap();
+    assert_eq!(py_ok.as_str(), "B\"C=1\nX=${B\"C}\n");
+    replay("A=1\nX=${A}\n", &py_ok);
+
+    let (docker_non_cmd, _) = parse_with("A=1\nX=${A}\n", Dialect::DOCKER_RAW);
+    let docker_ok = docker_non_cmd.rename_with_references("A", "B'C").unwrap();
+    assert_eq!(docker_ok.as_str(), "B'C=1\nX=${B'C}\n");
+    replay("A=1\nX=${A}\n", &docker_ok);
 }
 
 #[test]
