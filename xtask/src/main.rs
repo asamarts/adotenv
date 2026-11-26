@@ -100,9 +100,11 @@ compare --baseline <path> --current <path> [--out <path>]
 gate    --baseline <path> --current <path> [--implementation <label>]
         [--max-heap-percent 5] [--max-heap-bytes 64] [--max-allocation-delta 0]
 fingerprint
-queue   --remote-root <path> [--out <path>] [--remote-out <path>]
+queue   [--host <host>] --remote-root <path> [--pueue-config <path>]
+        [--group <name>] [--queue-user <user>] [--out <path>] [--remote-out <path>]
         [--sizes ...] [--shapes ...] [--modes ...] [--compact] [--sync] [--dry-run]
-queue-speed --remote-root <path> [--out <path>] [--remote-out <path>]
+queue-speed [--host <host>] --remote-root <path> [--pueue-config <path>]
+        [--group <name>] [--queue-user <user>] [--out <path>] [--remote-out <path>]
         [--bench competitors] [--filter <text>] [--quick] [--sample-size N]
         [--warm-up-time SECS] [--measurement-time SECS] [--sync] [--dry-run]";
 
@@ -689,7 +691,7 @@ fn fingerprint_json() -> String {
     serde_json::json!({
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
-        "hostname": command_output("hostname", &[]),
+        "hostname": "unknown",
         "kernel": command_output("uname", &["-sr"]),
         "cpu": cpu,
         "cpu_count": cpu_count(),
@@ -742,7 +744,152 @@ fn require_command_output(program: &str, arguments: &[&str]) -> Result<String> {
     Ok(text)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct RemoteConfig {
+    host: String,
+    pueue_config: Option<String>,
+    group: String,
+    queue_user: Option<String>,
+}
+
+impl RemoteConfig {
+    fn from_parsed(parsed: &ParsedArgs<'_>) -> Result<Self> {
+        Self::from_parsed_with_env(parsed, |key| env::var(key).ok())
+    }
+
+    fn from_parsed_with_env(
+        parsed: &ParsedArgs<'_>,
+        get_env: impl Fn(&str) -> Option<String>,
+    ) -> Result<Self> {
+        let host = parsed
+            .get("--host")
+            .map(str::to_owned)
+            .or_else(|| get_env("ADOTENV_BENCH_HOST"))
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| "missing --host (or ADOTENV_BENCH_HOST)".to_owned())?;
+        validate_remote_host(&host)?;
+
+        let pueue_config = parsed
+            .get("--pueue-config")
+            .map(str::to_owned)
+            .or_else(|| get_env("PUEUE_CONFIG_PATH"))
+            .filter(|value| !value.trim().is_empty());
+        if let Some(path) = &pueue_config {
+            validate_pueue_config(path)?;
+        }
+
+        let group = parsed
+            .get("--group")
+            .map(str::to_owned)
+            .or_else(|| get_env("ADOTENV_BENCH_GROUP"))
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "bench".to_owned());
+        validate_simple_token("--group", &group)?;
+
+        let queue_user = parsed
+            .get("--queue-user")
+            .map(str::to_owned)
+            .or_else(|| get_env("ADOTENV_BENCH_USER"))
+            .filter(|value| !value.trim().is_empty());
+        if let Some(user) = &queue_user {
+            validate_simple_token("--queue-user", user)?;
+        }
+
+        Ok(Self {
+            host,
+            pueue_config,
+            group,
+            queue_user,
+        })
+    }
+
+    fn pueue_prefix(&self) -> String {
+        match &self.pueue_config {
+            Some(path) => format!("PUEUE_CONFIG_PATH={} ", shell_quote(path)),
+            None => String::new(),
+        }
+    }
+
+    fn sudo_prefix(&self) -> String {
+        match &self.queue_user {
+            Some(user) => format!("sudo -n -u {} ", shell_quote(user)),
+            None => String::new(),
+        }
+    }
+
+    fn queue_add_command(&self, remote_root: &str, label: &str, remote_command: &str) -> String {
+        format!(
+            "{}pueue add --group {} --working-directory {} --label {} --print-task-id -- {}",
+            self.pueue_prefix(),
+            shell_quote(&self.group),
+            shell_quote(remote_root),
+            shell_quote(label),
+            shell_quote(remote_command)
+        )
+    }
+
+    fn pueue_wait_command(&self, task: &str) -> String {
+        format!("{}pueue wait {task}", self.pueue_prefix())
+    }
+
+    fn pueue_status_command(&self) -> String {
+        format!("{}pueue status --json", self.pueue_prefix())
+    }
+
+    fn prepare_root_command(&self, remote_root: &str) -> String {
+        let sudo = self.sudo_prefix();
+        let root = shell_quote(remote_root);
+        format!("{sudo}mkdir -p {root} && {sudo}chmod 750 {root}")
+    }
+
+    fn install_binary_command(&self, staging: &str, destination: &str) -> String {
+        let sudo = self.sudo_prefix();
+        let src = shell_quote(staging);
+        let dst = shell_quote(destination);
+        format!("{sudo}install -m 755 {src} {dst}; status=$?; rm -f {src}; exit $status")
+    }
+}
+
+fn validate_remote_host(host: &str) -> Result<()> {
+    if host.is_empty()
+        || host.starts_with('-')
+        || !host
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_' | b'@'))
+    {
+        return Err("--host must be a valid SSH host name or user@host".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_pueue_config(path: &str) -> Result<()> {
+    if path.is_empty()
+        || !path.starts_with('/')
+        || path.trim_end_matches('/').is_empty()
+        || path.contains('~')
+        || path.contains('\\')
+        || path.bytes().any(|byte| byte.is_ascii_control())
+        || path.split('/').any(|part| part == "..")
+    {
+        return Err("--pueue-config must be an absolute non-root path".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_simple_token(flag: &str, value: &str) -> Result<()> {
+    if value.is_empty()
+        || value.starts_with('-')
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+    {
+        return Err(format!("{flag} must be a simple identifier"));
+    }
+    Ok(())
+}
+
 fn submit_and_fetch_remote_task(
+    remote: &RemoteConfig,
     remote_root: &str,
     remote_out: &str,
     local_out: &str,
@@ -750,30 +897,23 @@ fn submit_and_fetch_remote_task(
     remote_command: &str,
     dry_run: bool,
 ) -> Result<()> {
-    let queue_command = format!(
-        "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add --group bench --working-directory {} --label {} --print-task-id -- {}",
-        shell_quote(remote_root),
-        shell_quote(label),
-        shell_quote(remote_command)
-    );
+    let queue_command = remote.queue_add_command(remote_root, label, remote_command);
     if dry_run {
-        println!("ssh kbench {queue_command}");
+        println!("ssh -- {} {queue_command}", remote.host);
         return Ok(());
     }
-    let task = ssh(&queue_command)?;
+    let task = ssh(&remote.host, &queue_command)?;
     let task = task.trim();
     if task.is_empty() || !task.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(format!("pueue returned invalid task id: {task:?}"));
     }
-    println!("queued kbench task {task}");
-    ssh(&format!(
-        "PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue wait {task}"
-    ))?;
-    ensure_task_succeeded(task)?;
+    println!("queued remote task {task}");
+    ssh(&remote.host, &remote.pueue_wait_command(task))?;
+    ensure_task_succeeded(remote, task)?;
     ensure_parent(Path::new(local_out))?;
     let status = Command::new("scp")
         .arg("--")
-        .arg(format!("kbench:{remote_root}/{remote_out}"))
+        .arg(format!("{}:{remote_root}/{remote_out}", remote.host))
         .arg(local_out)
         .status()
         .map_err(|error| error.to_string())?;
@@ -785,7 +925,8 @@ fn submit_and_fetch_remote_task(
     let status = Command::new("scp")
         .arg("--")
         .arg(format!(
-            "kbench:{remote_root}/{}",
+            "{}:{remote_root}/{}",
+            remote.host,
             remote_fingerprint.display()
         ))
         .arg(&local_fingerprint)
@@ -802,7 +943,11 @@ fn command_queue(args: &[String]) -> Result<()> {
     let parsed = ParsedArgs::parse(
         args,
         &[
+            "--host",
             "--remote-root",
+            "--pueue-config",
+            "--group",
+            "--queue-user",
             "--out",
             "--remote-out",
             "--sizes",
@@ -811,6 +956,7 @@ fn command_queue(args: &[String]) -> Result<()> {
         ],
         &["--compact", "--sync", "--dry-run"],
     )?;
+    let remote = RemoteConfig::from_parsed(&parsed)?;
     let remote_root = parsed.get("--remote-root").ok_or("missing --remote-root")?;
     validate_remote_root(remote_root)?;
     let compact = parsed.has("--compact");
@@ -830,19 +976,22 @@ fn command_queue(args: &[String]) -> Result<()> {
     let modes = parsed
         .get("--modes")
         .unwrap_or("values,load,document,resolve");
+    let parsed_sizes = parse_sizes(sizes)?;
+    let parsed_shapes = parse_shapes(shapes)?;
+    let parsed_modes = parse_modes(modes)?;
     let dry_run = parsed.has("--dry-run");
     if parsed.has("--sync") && !dry_run {
-        sync_binaries(remote_root)?;
+        sync_binaries(&remote, remote_root)?;
     }
     let git_sha = require_command_output("git", &["rev-parse", "HEAD"])?;
     let rustc = require_command_output("rustc", &["--version"])?;
     let remote_fingerprint = Path::new(remote_out).with_extension("fingerprint.json");
     let mut memory_commands = Vec::new();
-    for size in parse_sizes(sizes)? {
-        for shape in parse_shapes(shapes)? {
-            for mode in parse_modes(modes)? {
+    for size in parsed_sizes {
+        for shape in &parsed_shapes {
+            for mode in &parsed_modes {
                 for implementation in implementations(compact) {
-                    if !implementation.supports(mode) {
+                    if !implementation.supports(*mode) {
                         continue;
                     }
                     memory_commands.push(format!(
@@ -866,6 +1015,7 @@ fn command_queue(args: &[String]) -> Result<()> {
         shell_quote(remote_out)
     );
     submit_and_fetch_remote_task(
+        &remote,
         remote_root,
         remote_out,
         local_out,
@@ -879,7 +1029,11 @@ fn command_queue_speed(args: &[String]) -> Result<()> {
     let parsed = ParsedArgs::parse(
         args,
         &[
+            "--host",
             "--remote-root",
+            "--pueue-config",
+            "--group",
+            "--queue-user",
             "--out",
             "--remote-out",
             "--bench",
@@ -890,6 +1044,7 @@ fn command_queue_speed(args: &[String]) -> Result<()> {
         ],
         &["--quick", "--sync", "--dry-run"],
     )?;
+    let remote = RemoteConfig::from_parsed(&parsed)?;
     let remote_root = parsed.get("--remote-root").ok_or("missing --remote-root")?;
     validate_remote_root(remote_root)?;
     let local_out = parsed.get("--out").unwrap_or("docs/benchmarks/speed.txt");
@@ -924,7 +1079,7 @@ fn command_queue_speed(args: &[String]) -> Result<()> {
     }
     let dry_run = parsed.has("--dry-run");
     if parsed.has("--sync") && !dry_run {
-        sync_speed_binaries(remote_root, bench)?;
+        sync_speed_binaries(&remote, remote_root, bench)?;
     }
     let git_sha = require_command_output("git", &["rev-parse", "HEAD"])?;
     let rustc = require_command_output("rustc", &["--version"])?;
@@ -945,6 +1100,7 @@ fn command_queue_speed(args: &[String]) -> Result<()> {
         shell_quote(remote_out)
     );
     submit_and_fetch_remote_task(
+        &remote,
         remote_root,
         remote_out,
         local_out,
@@ -972,13 +1128,13 @@ fn ensure_clean_worktree() -> Result<()> {
     Ok(())
 }
 
-fn sync_speed_binaries(remote_root: &str, bench: &str) -> Result<()> {
+fn sync_speed_binaries(remote: &RemoteConfig, remote_root: &str, bench: &str) -> Result<()> {
     ensure_clean_worktree()?;
     let bench_binary = build_bench_binary(bench)?;
     let xtask = build_xtask_binary()?;
-    prepare_remote_root(remote_root)?;
-    copy_binary(remote_root, &bench_binary, bench)?;
-    copy_binary(remote_root, &xtask, "adotenv-xtask")?;
+    prepare_remote_root(remote, remote_root)?;
+    copy_binary(remote, remote_root, &bench_binary, bench)?;
+    copy_binary(remote, remote_root, &xtask, "adotenv-xtask")?;
     Ok(())
 }
 
@@ -1039,33 +1195,27 @@ fn validate_remote_out(remote_out: &str) -> Result<()> {
     Ok(())
 }
 
-fn prepare_remote_root(remote_root: &str) -> Result<()> {
-    ssh(&format!(
-        "sudo -n -u benchq mkdir -p {} && sudo -n -u benchq chmod 750 {}",
-        shell_quote(remote_root),
-        shell_quote(remote_root)
-    ))?;
+fn prepare_remote_root(remote: &RemoteConfig, remote_root: &str) -> Result<()> {
+    ssh(&remote.host, &remote.prepare_root_command(remote_root))?;
     Ok(())
 }
 
-fn copy_binary(remote_root: &str, binary: &Path, name: &str) -> Result<()> {
+fn copy_binary(remote: &RemoteConfig, remote_root: &str, binary: &Path, name: &str) -> Result<()> {
     let staging = format!("/var/tmp/adotenv-{}-{name}", std::process::id());
     let status = Command::new("scp")
         .arg("--")
         .arg(binary)
-        .arg(format!("kbench:{staging}"))
+        .arg(format!("{}:{staging}", remote.host))
         .status()
         .map_err(|error| error.to_string())?;
     if !status.success() {
         return Err(format!("scp {} exited with {status}", binary.display()));
     }
     let destination = format!("{remote_root}/{name}");
-    ssh(&format!(
-        "sudo -n -u benchq install -m 755 {} {}; status=$?; rm -f {}; exit $status",
-        shell_quote(&staging),
-        shell_quote(&destination),
-        shell_quote(&staging)
-    ))?;
+    ssh(
+        &remote.host,
+        &remote.install_binary_command(&staging, &destination),
+    )?;
     Ok(())
 }
 
@@ -1130,13 +1280,13 @@ fn build_xtask_binary() -> Result<PathBuf> {
     }))
 }
 
-fn sync_binaries(remote_root: &str) -> Result<()> {
+fn sync_binaries(remote: &RemoteConfig, remote_root: &str) -> Result<()> {
     ensure_clean_worktree()?;
     let memory = build_memory_binary()?;
     let xtask = build_xtask_binary()?;
-    prepare_remote_root(remote_root)?;
-    copy_binary(remote_root, &memory, "memory")?;
-    copy_binary(remote_root, &xtask, "adotenv-xtask")?;
+    prepare_remote_root(remote, remote_root)?;
+    copy_binary(remote, remote_root, &memory, "memory")?;
+    copy_binary(remote, remote_root, &xtask, "adotenv-xtask")?;
     Ok(())
 }
 
@@ -1156,8 +1306,8 @@ fn workspace_root() -> Result<&'static Path> {
         .ok_or_else(|| "xtask has no parent".to_owned())
 }
 
-fn ensure_task_succeeded(task: &str) -> Result<()> {
-    let status = ssh("PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue status --json")?;
+fn ensure_task_succeeded(remote: &RemoteConfig, task: &str) -> Result<()> {
+    let status = ssh(&remote.host, &remote.pueue_status_command())?;
     let value: serde_json::Value =
         serde_json::from_str(&status).map_err(|error| format!("parsing pueue status: {error}"))?;
     let result = value
@@ -1171,7 +1321,7 @@ fn ensure_task_succeeded(task: &str) -> Result<()> {
         Ok(())
     } else {
         Err(format!(
-            "kbench task {task} did not succeed (result: {})",
+            "remote task {task} did not succeed (result: {})",
             result.unwrap_or("unknown")
         ))
     }
@@ -1284,9 +1434,10 @@ fn cargo() -> String {
     env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned())
 }
 
-fn ssh(command: &str) -> Result<String> {
+fn ssh(host: &str, command: &str) -> Result<String> {
     let output = Command::new("ssh")
-        .arg("kbench")
+        .arg("--")
+        .arg(host)
         .arg(command)
         .output()
         .map_err(|error| error.to_string())?;
@@ -1547,7 +1698,7 @@ mod tests {
         assert!(validate_remote_out("../evil.jsonl").is_err());
         assert!(validate_remote_out("bad name.jsonl").is_err());
 
-        assert!(validate_remote_root("/var/lib/benchq/adotenv-bench").is_ok());
+        assert!(validate_remote_root("/var/lib/bench-runner/adotenv-bench").is_ok());
         assert!(validate_remote_root("/").is_err());
         assert!(validate_remote_root("//").is_err());
         assert!(validate_remote_root("/home").is_err());
@@ -1565,5 +1716,83 @@ mod tests {
         assert!(validate_positive_f64("--warm-up-time", "1.5").is_ok());
         assert!(validate_positive_f64("--warm-up-time", "0").is_err());
         assert!(validate_positive_f64("--warm-up-time", "NaN").is_err());
+    }
+
+    #[test]
+    fn remote_config_resolves_flags_env_and_builds_safe_commands() {
+        let args = |items: &[&str]| items.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        let value_flags = ["--host", "--pueue-config", "--group", "--queue-user"];
+
+        // Missing host fails cleanly.
+        let empty_raw = args(&[]);
+        let empty = ParsedArgs::parse(&empty_raw, &value_flags, &[]).unwrap();
+        assert!(RemoteConfig::from_parsed_with_env(&empty, |_| None).is_err());
+
+        // Environment fallback without pueue_config or queue_user omits both prefixes.
+        let from_env = RemoteConfig::from_parsed_with_env(&empty, |key| match key {
+            "ADOTENV_BENCH_HOST" => Some("bench-host".to_owned()),
+            _ => None,
+        })
+        .unwrap();
+        assert_eq!(from_env.host, "bench-host");
+        assert_eq!(from_env.group, "bench");
+        assert_eq!(from_env.pueue_config, None);
+        assert_eq!(from_env.queue_user, None);
+        assert!(from_env
+            .queue_add_command("/var/lib/bench-runner/adotenv", "adotenv-bench", "echo ok")
+            .starts_with("pueue add --group 'bench' "));
+        assert_eq!(
+            from_env.prepare_root_command("/var/lib/bench-runner/adotenv"),
+            "mkdir -p '/var/lib/bench-runner/adotenv' && chmod 750 '/var/lib/bench-runner/adotenv'"
+        );
+        assert!(from_env
+            .install_binary_command("/var/tmp/a", "/var/lib/bench-runner/adotenv/memory")
+            .starts_with("install -m 755 '/var/tmp/a' "));
+
+        // Explicit CLI flags override env and emit quoted PUEUE_CONFIG_PATH and sudo prefixes.
+        let cli_raw = args(&[
+            "--host",
+            "runner@bench.example",
+            "--pueue-config",
+            "/etc/bench-runner/pueue.yml",
+            "--group",
+            "serial",
+            "--queue-user",
+            "runner",
+        ]);
+        let cli = ParsedArgs::parse(&cli_raw, &value_flags, &[]).unwrap();
+        let from_cli =
+            RemoteConfig::from_parsed_with_env(&cli, |_| Some("ignored".to_owned())).unwrap();
+        assert_eq!(from_cli.host, "runner@bench.example");
+        assert_eq!(from_cli.group, "serial");
+        assert_eq!(
+            from_cli.pueue_config.as_deref(),
+            Some("/etc/bench-runner/pueue.yml")
+        );
+        assert_eq!(from_cli.queue_user.as_deref(), Some("runner"));
+        assert!(from_cli
+            .queue_add_command("/var/lib/bench-runner/adotenv", "adotenv-bench", "echo ok")
+            .starts_with(
+                "PUEUE_CONFIG_PATH='/etc/bench-runner/pueue.yml' pueue add --group 'serial' "
+            ));
+        assert!(from_cli
+            .prepare_root_command("/var/lib/bench-runner/adotenv")
+            .starts_with("sudo -n -u 'runner' mkdir -p "));
+        assert!(from_cli
+            .install_binary_command("/var/tmp/a", "/var/lib/bench-runner/adotenv/memory")
+            .starts_with("sudo -n -u 'runner' install -m 755 "));
+
+        // Host, pueue config, and token validators reject malformed values.
+        assert!(validate_remote_host("-oProxyCommand=evil").is_err());
+        assert!(validate_remote_host("host:22").is_err());
+        assert!(validate_remote_host("bad host").is_err());
+        assert!(validate_pueue_config("relative/pueue.yml").is_err());
+        assert!(validate_pueue_config("/etc/../pueue.yml").is_err());
+        assert!(validate_simple_token("--group", "-bad").is_err());
+        assert!(validate_simple_token("--queue-user", "user;id").is_err());
+
+        // Fingerprints never expose the host's local hostname.
+        let fp: serde_json::Value = serde_json::from_str(&fingerprint_json()).unwrap();
+        assert_eq!(fp["hostname"], serde_json::json!("unknown"));
     }
 }

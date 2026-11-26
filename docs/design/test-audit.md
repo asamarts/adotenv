@@ -313,13 +313,13 @@ unviable. The remaining work was split into file shards:
   found.
 - References shard (`references`): the 2026-11-18 local run was cancelled
   after 41 outcomes when the shared host ran out of capacity. The complete
-  kbench rerun tested **406 mutants: 205 caught, 0 missed, 59 unviable and 142
-  timeouts**. A two-worker run of 2/4 hit a global OOM after 87 outcomes when a
-  mutant test process reached 9.6 GiB RSS; the one-worker rerun completed.
-  The timeouts are nonterminating scanner, delimiter and bit-mask mutations;
-  no product failure was demonstrated. See
+  remote validation rerun tested **406 mutants: 205 caught, 0 missed, 59
+  unviable and 142 timeouts**. A two-worker run of 2/4 hit a global OOM after
+  87 outcomes when a mutant test process reached 9.6 GiB RSS; the one-worker
+  rerun completed. The timeouts are nonterminating scanner, delimiter and
+  bit-mask mutations; no product failure was demonstrated. See
   [heavy validation](heavy-validation.md).
-- Parser-core shard (`parser`): all four kbench shards completed with zero
+- Parser-core shard (`parser`): all four remote shards completed with zero
   missed survivors:
   - 0/4: 174 mutants; 116 caught, 0 missed, 24 unviable and 34 timeouts.
   - 1/4: 174 mutants; 136 caught, 0 missed, 18 unviable and 20 timeouts.
@@ -329,7 +329,7 @@ unviable. The remaining work was split into file shards:
   missed, 48 unviable and 129 timeouts**. The timeouts are nonterminating
   portable-value, physical-line, scanner-index, quote-closing and budget-loop
   mutations; no product failure was demonstrated.
-- Parser-decode shard (`parser/decode`): both kbench shards (`--timeout 120`)
+- Parser-decode shard (`parser/decode`): both remote shards (`--timeout 120`)
   tested **241 mutants: 151 caught, 66 missed, 13 unviable and 11 timeouts**
   (0/2: 84 caught, 22 missed, 12 unviable, 3 timeouts; 1/2: 67 caught, 44
   missed, 1 unviable, 8 timeouts). Added targeted tests covering Compose octal
@@ -353,7 +353,7 @@ unviable. The remaining work was split into file shards:
 - Serde shard (`serde_support`): `--timeout 120` run tested **68 mutants: 33
   caught, 3 missed, 32 unviable and 0 timeouts**. All three survivors were
   `EntriesAccess::size_hint` (`None`, `Some(0)`, `Some(1)`); added a custom
-  `MapAccess` visitor test asserting `[Some(2), Some(1), Some(0)]`. The kbench
+  `MapAccess` visitor test asserting `[Some(2), Some(1), Some(0)]`. The remote
   `size_hint` confirmation rerun verified **3 of 3 caught (0 missed)**,
   leaving `serde_support` at **36 caught, 32 unviable, 0 missed and 0
   timeouts**.
@@ -430,7 +430,7 @@ and 2 timeouts**:
 
 ### `adotenv-lsp/src/lib.rs` sweep (`2026-11-23`)
 
-A full-file `kbench` sweep of `adotenv-lsp/src/lib.rs` (**146 mutants**, one
+A full-file remote sweep of `adotenv-lsp/src/lib.rs` (**146 mutants**, one
 `--in-place` worker, 8 GiB cap, 60-second timeout) initially recorded 105
 caught, 28 unviable, 5 timeouts (from unbounded channel waits in the in-process
 transport test) and 8 missed mutants (5 genuine test gaps and 3 equivalent
@@ -446,7 +446,7 @@ in `Mapped::offset` and `Mapped::position`).
 
 ### `adotenv-lint` library sweep (`2026-11-24`)
 
-Full-file `kbench` sweeps of `adotenv-lint/src/lib.rs` (96 mutants) and
+Full-file remote sweeps of `adotenv-lint/src/lib.rs` (96 mutants) and
 `adotenv-lint/src/config.rs` (74 mutants) under one `--in-place` worker, 8 GiB
 cap and 60-second timeout initially recorded 100 caught, 39 unviable, 0
 timeouts and 31 missed mutants (30 genuine test gaps + 1 equivalent mutant).
@@ -467,8 +467,8 @@ in `lint`, where `group.iter().skip(1)` already yields nothing for length 1).
   (11 genuine gaps + 1 bitwise-equivalent `|` vs `^` in `decoded_uri_path`).
   Adding assertions for all 8 `ServerCapabilities` fields, standalone
   `--config=`, and truncated/leading percent-escapes in `decoded_uri_path`
-  closed all 11 genuine gaps (confirmed on `kbench`: **76 caught, 6 unviable,
-  1 timeout, 1 equivalent survivor, 0 genuine gaps**).
+  closed all 11 genuine gaps (confirmed on the validation host: **76 caught,
+  6 unviable, 1 timeout, 1 equivalent survivor, 0 genuine gaps**).
 - `adotenv-lint/src/main.rs` (**131 mutants**): initially 104 caught, 3
   unviable, 1 infinite-loop timeout (`index -= 1` in `parse_args`) and 23
   missed (10 Windows-only `#[cfg(windows)]` / `#[cfg(not(unix))]` branches
@@ -476,8 +476,8 @@ in `lint`, where `group.iter().skip(1)` already yields nothing for length 1).
   / `fix_file`, and 9 genuine gaps). Tightening JSON array start checks,
   testing `--max-lines` at non-zero option index, multi-byte UTF-8 filename
   truncation, recursive `walk` directory filtering, `is_ignored_dir`, and
-  `Severity::Warning` output helpers closed all genuine gaps (confirmed on
-  `kbench`: **111 caught, 3 unviable, 2 infinite-loop timeouts, 10
+  `Severity::Warning` output helpers closed all genuine gaps (confirmed on the
+  validation host: **111 caught, 3 unviable, 2 infinite-loop timeouts, 10
   Windows-only + 5 defensive/equivalent survivors, 0 genuine gaps**).
 - `adotenv-cli/src/main.rs` (**506 mutants** across shards `0/2` and `1/2`):
   initially 416 caught, 13 unviable, 9 infinite-loop timeouts and 68 missed
@@ -531,9 +531,9 @@ overflow and popover bounds.
    than Linux mutation runs.
 4. Every published crate in the workspace (`adotenv` core, `adotenv-process`,
    `adotenv-config`, `adotenv-figment`, `adotenv-lsp`, `adotenv-lint`, and
-   `adotenv-cli`) has completed sharded or full-file mutation runs on `kbench`,
-   including both confirmation shards (`0/2` and `1/2`) of
-   `src/parser/decode.rs`. Shard `1/2` confirmation (120 mutants, `--timeout
+   `adotenv-cli`) has completed sharded or full-file mutation runs on the
+   dedicated validation host, including both confirmation shards (`0/2` and
+   `1/2`) of `src/parser/decode.rs`. Shard `1/2` confirmation (120 mutants, `--timeout
    120`) verified **94 caught, 1 unviable, 8 infinite-loop timeouts and 17
    missed** (14 defensive single-line `decode_tail`/custom-dialect `\r` guards,
    1 custom `LineBreaks::Lf` + `normalize_newlines` boundary, and 2 equivalent

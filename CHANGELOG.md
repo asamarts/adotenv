@@ -6,6 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Release automation (`.github/workflows/release.yml`, `RELEASING.md`):
+  independent companion and adapter crate dispatches (`publish_linter`,
+  `publish_lsp`, `publish_config`, `publish_figment`) now validate their
+  `CHANGELOG.md` section before OIDC publish and create permanent non-latest
+  `<crate>-vX.Y.Z` GitHub Releases with `.crate` and `.crate.sha256` assets
+  attached (via shared `scripts/release-extract-changelog.py` and
+  `scripts/release-companion-github.sh` helpers).
+- `adotenv-xtask`: parameterized remote benchmark queue execution (`--host` /
+  `ADOTENV_BENCH_HOST`, `--pueue-config` / `PUEUE_CONFIG_PATH`, `--group` /
+  `ADOTENV_BENCH_GROUP`, `--queue-user` / `ADOTENV_BENCH_USER`) and fixed
+  `fingerprint` to always emit `"hostname": "unknown"`.
+
 ### Fixed
 
 - `adotenv::edit`: extended the `$(...)` command-ancestor check in
@@ -233,7 +247,7 @@ verification updates.
   byte-for-byte identical memory to `CompactValues`), and refreshed the 1.6.0
   CI coverage audit (`94.2%` regions / `94.9%` lines core; `93.3%` across all 7
   published crates).
-- Documented the heavy-validation policy, the kbench/benchq pueue procedure,
+- Documented the heavy-validation policy, the remote serialized queue procedure,
   the local resource incident and the one-worker/8 GiB limit, recorded the
   completed core (references, parser, decode, limit, serde) and adapter
   (`adotenv-process`, `adotenv-config`, `adotenv-figment`) mutation campaigns,

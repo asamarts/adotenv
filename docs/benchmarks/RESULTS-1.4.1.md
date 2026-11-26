@@ -1,6 +1,7 @@
 # 1.4.1 benchmark results
 
-Status: final 1.4.1 baseline, recorded on `kbench` at source SHA `0649096`.
+Status: final 1.4.1 baseline, recorded on the dedicated Linux reference host at
+source SHA `0649096`.
 Re-run this complete matrix if the benchmark code or baseline changes.
 
 **Map** is the standard `parse_values`/`load_values` API returning `BTreeMap<String, String>`. The 1.4.1 release did not include the compact API; charts show the map API and every pinned library.
@@ -32,13 +33,13 @@ and [result schema](SCHEMA.md). Raw evidence:
 | Item | Value |
 |---|---|
 | Source SHA | `0649096` |
-| Reference host | `kbench` |
+| Reference host | Dedicated quiet Linux x86_64 host |
 | CPU | Intel Core i7-6700HQ, 8 logical CPUs |
 | OS / kernel | Linux / 7.1.3-arch1-2 |
 | Rust | 1.97.1 (8bab26f4f 2026-07-14) |
 | Criterion environment | Speed fingerprint `load1=0.46` |
 | Memory environment | Memory fingerprint `load1=0.25` |
-| Queue | benchq/pueue, group `bench`, one slot |
+| Queue | Single-slot serialized queue (`bench` group) |
 
 The two runs share the same source SHA. The memory fingerprint records a
 lower one-minute load than the Criterion run (`0.25` versus `0.46`). The
@@ -100,13 +101,15 @@ Find the matching `competitor_values/.../plain/128` or
 
 ```console
 cargo run --release -p adotenv-xtask -- queue \
-  --remote-root /var/lib/benchq/adotenv-bench \
+  --host "$ADOTENV_BENCH_HOST" \
+  --remote-root "$ADOTENV_BENCH_ROOT" \
   --out docs/benchmarks/memory.jsonl \
   --sizes 8,128,1k,10k,100k --shapes plain,long-line,empty \
   --modes values,load,document,resolve --sync
 
 cargo run --release -p adotenv-xtask -- queue-speed \
-  --remote-root /var/lib/benchq/adotenv-bench \
+  --host "$ADOTENV_BENCH_HOST" \
+  --remote-root "$ADOTENV_BENCH_ROOT" \
   --out docs/benchmarks/speed.txt --sync
 ```
 

@@ -34,7 +34,7 @@ cells. Retained heap is a tie in all 30 map-based cells and a loss in none.
 ## Documents
 
 - [Methodology](METHODOLOGY.md) -- what is measured, how, and what is excluded.
-- [Running benchmarks](RUNNING.md) -- reproduce a cell locally or on `kbench`.
+- [Running benchmarks](RUNNING.md) -- reproduce a cell locally or on a dedicated reference host.
 - [Scenario catalogue](SCENARIOS.md) -- fixtures, exact hashes and modes.
 - [Result schema](SCHEMA.md) -- JSONL and bencher formats.
 - [1.4.1 results](RESULTS-1.4.1.md) -- historical speed and map-based evidence.
@@ -81,8 +81,9 @@ cargo run --release -p adotenv-xtask -- speed \
 
 Use a private scratch directory such as `~/.tmp/adotenv-bench` rather than
 `/tmp`. The raw result and fingerprint files are the source of truth.
-Publication runs use `kbench` through the serialized benchq queue; do not run a
-publication benchmark concurrently with another benchmark.
+Publication runs use a dedicated quiet Linux reference host through a
+single-slot serialized queue; do not run a publication benchmark concurrently
+with another benchmark.
 
 ## Scope
 

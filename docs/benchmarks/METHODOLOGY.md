@@ -67,7 +67,8 @@ adapters and output validation before timing. The published command is:
 
 ```console
 cargo run -p adotenv-xtask -- queue-speed \
-  --remote-root /var/lib/benchq/adotenv-bench \
+  --host "$ADOTENV_BENCH_HOST" \
+  --remote-root "$ADOTENV_BENCH_ROOT" \
   --out docs/benchmarks/speed.txt --sync
 ```
 
@@ -139,10 +140,11 @@ PR. `det-perf` runs the base/head instruction/cycle comparison.
 
 ## Host and provenance
 
-Publication runs use `kbench`, the canonical benchmark host. The shared pueue
-daemon is configured by `/etc/benchq/pueue.yml`; the group is `bench` with one
-parallel slot. Work is serialized and no host-wide CPU, swap or other projects'
-queue/CI settings are changed.
+Publication runs use a dedicated quiet Linux reference host reached over SSH
+through a single-slot serialized `pueue` queue (default group `bench`, one
+parallel slot, configured via `ADOTENV_BENCH_HOST`, `ADOTENV_BENCH_GROUP` and
+optional `PUEUE_CONFIG_PATH` / `ADOTENV_BENCH_USER`). Work is serialized and no
+host-wide CPU, swap or other projects' queue/CI settings are changed.
 
 Every result directory includes a fingerprint sidecar with:
 
