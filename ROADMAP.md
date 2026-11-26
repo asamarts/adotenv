@@ -18,7 +18,11 @@ The current release provides:
 
 ## Current status
 
-`adotenv`, `adotenv-process` and `adotenv-cli` 1.7.0 were published on
+`adotenv`, `adotenv-process` and `adotenv-cli` 1.7.1 were published on
+2026-11-25 with exact reference-rename span and `$(...)` quote verification,
+Compose empty-key unclosed `${` fixes, and benchmark/CI memory gate hardening
+(including `adotenv-compact-entries`). `adotenv`, `adotenv-process` and
+`adotenv-cli` 1.7.0 were published on
 2026-11-25 with `Document::rename_with_references_with_options`,
 `CompactValues` `PartialEq`/`Eq`, `adotenv-process::{validate_compact, apply_compact}`,
 and the remaining post-1.0 and core/CLI audit fixes, alongside `adotenv-lint`

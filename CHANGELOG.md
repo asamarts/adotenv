@@ -6,6 +6,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-11-25
+
+### Fixed
+
+- `adotenv::edit`: verified exact mapped byte spans (`span`, `command`,
+  `operator_span`, `argument`, and `name`) in `verify_reference_structure` and
+  rejected shell-quote (`'` / `"`) changes on renamed variables nested inside
+  `$(...)` command substitutions, closing command-boundary extension,
+  truncation, and balanced/mixed-quote injection bypasses.
+- `adotenv::edit`: tracked explicit item ownership for planned reference-rename
+  edits and short-circuited empty-range decoded removal length, fixing false
+  `EditError::WouldChangeMeaning` rejections when renaming Compose empty keys
+  with unclosed `${` at value end, EOF, or `QuotedTail::Append` quote
+  boundaries.
+- `adotenv-process`, `adotenv-cli`: lockstep patch version bump adopting
+  `adotenv` 1.7.1; no standalone behavior changes relative to 1.7.0.
+- Internal tooling and tests: fixed `CountingAllocator::realloc` double-counting
+  in `adotenv-bench`, regenerated live CI memory baselines and added
+  `adotenv-compact-entries` gating in CI, hardened `adotenv-xtask` CLI and gate
+  validation, and expanded `adotenv-lsp` limit tests and the `edits` fuzz
+  oracle.
+
 ## [adotenv-lint 0.2.3] - 2026-11-25
 
 ### Fixed
