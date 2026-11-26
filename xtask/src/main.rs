@@ -920,14 +920,12 @@ fn sync_speed_binaries(remote_root: &str, bench: &str) -> Result<()> {
 }
 
 fn validate_remote_root(remote_root: &str) -> Result<()> {
-    let path = Path::new(remote_root);
     if remote_root.is_empty()
+        || !remote_root.starts_with('/')
         || remote_root.trim_end_matches('/').is_empty()
-        || !path.is_absolute()
         || remote_root.contains('~')
-        || path
-            .components()
-            .any(|component| matches!(component, std::path::Component::ParentDir))
+        || remote_root.contains('\\')
+        || remote_root.split('/').any(|part| part == "..")
     {
         return Err("--remote-root must be an absolute, non-root, non-home path".to_owned());
     }
@@ -1388,9 +1386,10 @@ mod tests {
         );
         let mut ok_cur = BTreeMap::new();
         ok_cur.insert(key.to_owned(), base);
-        assert!(
-            !check_memory_gate(&bad_base, &ok_cur, "adotenv-compact-entries", 5, 64, 0).is_empty()
-        );
+        let bad_base_violations =
+            check_memory_gate(&bad_base, &ok_cur, "adotenv-compact-entries", 5, 64, 0);
+        assert_eq!(bad_base_violations.len(), 1, "{bad_base_violations:?}");
+        assert!(bad_base_violations[0].contains("missing baseline fixture_sha256"));
     }
 
     #[test]

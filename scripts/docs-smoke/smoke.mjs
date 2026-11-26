@@ -54,6 +54,11 @@ async function newPage(browserInstance, viewport) {
     current.on("pageerror", (error) => failures.push(`page error: ${error.message}`));
     current.on("console", (message) => {
         if (message.type() === "error") {
+            // mdBook 0.5.4's bundled book.js registers a window `unload` listener,
+            // which Chrome's DeprecateUnload rollout logs as a Permissions-Policy error.
+            if (message.text().includes("Permissions policy violation: unload")) {
+                return;
+            }
             failures.push(`console error: ${message.text()}`);
         }
     });
