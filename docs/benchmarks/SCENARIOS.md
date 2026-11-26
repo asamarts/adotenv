@@ -47,7 +47,7 @@ These are the exact generated sources for the competitive matrix. The same
 hashes are recorded in every memory JSONL row.
 
 | Fixture | Size | Shape | Entries | Bytes | SHA-256 |
-|---|---|---|---|---:|---:|---|
+|---|---|---|---:|---:|---|
 | `plain-8` | 8 | plain | 8 | 104 | `6ee242e0e29423ccf125f7433fe4f3da4bcb73bd9a338e01c07ae55c2391a0cf` |
 | `long-line-8` | 8 | long-line | 8 | 608 | `341501be378e0933ca3d84c727ccb9193efb4bb0b8aa9cd0b5c7c00fad082e7b` |
 | `empty-8` | 8 | empty | 0 | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |

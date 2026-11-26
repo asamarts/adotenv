@@ -25,6 +25,10 @@ fn main() -> ExitCode {
 
 fn run() -> Result<()> {
     let args: Vec<String> = env::args().skip(1).collect();
+    if args.len() == 2 && matches!(args[1].as_str(), "--help" | "-h") {
+        println!("{USAGE}");
+        return Ok(());
+    }
     match args.first().map(String::as_str) {
         Some("fixtures") => command_fixtures(&args[1..]),
         Some("memory") => command_memory(&args[1..]),
@@ -479,23 +483,26 @@ fn check_memory_gate(
             violations.push(format!("{key}: missing current case"));
             continue;
         };
-        if let Some(base_hash) = base
+        let Some(base_hash) = base
+            .get("fixture_sha256")
+            .and_then(serde_json::Value::as_str)
+        else {
+            violations.push(format!("{key}: missing baseline fixture_sha256"));
+            continue;
+        };
+        match cur
             .get("fixture_sha256")
             .and_then(serde_json::Value::as_str)
         {
-            match cur
-                .get("fixture_sha256")
-                .and_then(serde_json::Value::as_str)
-            {
-                Some(cur_hash) if cur_hash == base_hash => {}
-                Some(cur_hash) => violations.push(format!(
-                    "{key}: fixture hash changed ({base_hash} -> {cur_hash})"
-                )),
-                None => violations.push(format!("{key}: missing current fixture_sha256")),
-            }
+            Some(cur_hash) if cur_hash == base_hash => {}
+            Some(cur_hash) => violations.push(format!(
+                "{key}: fixture hash changed ({base_hash} -> {cur_hash})"
+            )),
+            None => violations.push(format!("{key}: missing current fixture_sha256")),
         }
         for metric in ["peak_heap_bytes", "retained_heap_bytes"] {
             let Some(base_value) = unsigned(base, metric) else {
+                violations.push(format!("{key}: missing baseline {metric}"));
                 continue;
             };
             let Some(cur_value) = unsigned(cur, metric) else {
@@ -512,26 +519,31 @@ fn check_memory_gate(
                 ));
             }
         }
-        if let Some(base_value) = unsigned(base, "heap_after_drop_bytes") {
-            match unsigned(cur, "heap_after_drop_bytes") {
-                Some(cur_value) if cur_value <= base_value => {}
-                Some(cur_value) => violations.push(format!(
-                    "{key}: heap_after_drop_bytes {cur_value} > baseline {base_value}"
-                )),
-                None => violations.push(format!("{key}: missing current heap_after_drop_bytes")),
+        match (
+            unsigned(base, "heap_after_drop_bytes"),
+            unsigned(cur, "heap_after_drop_bytes"),
+        ) {
+            (None, _) => violations.push(format!("{key}: missing baseline heap_after_drop_bytes")),
+            (Some(_), None) => {
+                violations.push(format!("{key}: missing current heap_after_drop_bytes"));
             }
+            (Some(base_value), Some(cur_value)) if cur_value > base_value => {
+                violations.push(format!(
+                    "{key}: heap_after_drop_bytes {cur_value} > baseline {base_value}"
+                ));
+            }
+            (Some(_), Some(_)) => {}
         }
-        if let Some(base_value) = unsigned(base, "allocations") {
-            match unsigned(cur, "allocations") {
-                Some(cur_value) => {
-                    let allowed = base_value.saturating_add(max_allocation_delta);
-                    if cur_value > allowed {
-                        violations.push(format!(
-                            "{key}: allocations {cur_value} > allowed {allowed} (baseline {base_value}, +{max_allocation_delta})"
-                        ));
-                    }
+        match (unsigned(base, "allocations"), unsigned(cur, "allocations")) {
+            (None, _) => violations.push(format!("{key}: missing baseline allocations")),
+            (Some(_), None) => violations.push(format!("{key}: missing current allocations")),
+            (Some(base_value), Some(cur_value)) => {
+                let allowed = base_value.saturating_add(max_allocation_delta);
+                if cur_value > allowed {
+                    violations.push(format!(
+                        "{key}: allocations {cur_value} > allowed {allowed} (baseline {base_value}, +{max_allocation_delta})"
+                    ));
                 }
-                None => violations.push(format!("{key}: missing current allocations")),
             }
         }
     }
@@ -548,13 +560,21 @@ fn parse_rows(text: &str, source: &str) -> Result<BTreeMap<String, serde_json::V
     for line in text.lines().filter(|line| !line.trim().is_empty()) {
         let value: serde_json::Value =
             serde_json::from_str(line).map_err(|error| error.to_string())?;
-        let key = format!(
-            "{}|{}|{}|{}",
-            field(&value, "size"),
-            field(&value, "shape"),
-            field(&value, "mode"),
-            field(&value, "implementation")
-        );
+        if !value.is_object() {
+            return Err(format!("benchmark row in {source} is not a JSON object"));
+        }
+        let mut parts = Vec::with_capacity(4);
+        for name in ["size", "shape", "mode", "implementation"] {
+            let part = value
+                .get(name)
+                .and_then(serde_json::Value::as_str)
+                .filter(|part| !part.is_empty())
+                .ok_or_else(|| {
+                    format!("benchmark row in {source} is missing string field {name}")
+                })?;
+            parts.push(part);
+        }
+        let key = format!("{}|{}|{}|{}", parts[0], parts[1], parts[2], parts[3]);
         if rows.insert(key.clone(), value).is_some() {
             return Err(format!("duplicate benchmark row for {key} in {source}"));
         }
@@ -684,8 +704,8 @@ fn submit_and_fetch_remote_task(
     }
     let task = ssh(&queue_command)?;
     let task = task.trim();
-    if task.is_empty() {
-        return Err("pueue did not return a task id".to_owned());
+    if task.is_empty() || !task.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(format!("pueue returned invalid task id: {task:?}"));
     }
     println!("queued kbench task {task}");
     ssh(&format!(
@@ -901,9 +921,11 @@ fn sync_speed_binaries(remote_root: &str, bench: &str) -> Result<()> {
 
 fn validate_remote_root(remote_root: &str) -> Result<()> {
     if remote_root.is_empty()
-        || remote_root == "/"
-        || !Path::new(remote_root).is_absolute()
+        || !remote_root.starts_with('/')
+        || remote_root.trim_end_matches('/').is_empty()
         || remote_root.contains('~')
+        || remote_root.contains('\\')
+        || remote_root.split('/').any(|part| part == "..")
     {
         return Err("--remote-root must be an absolute, non-root, non-home path".to_owned());
     }
@@ -1136,7 +1158,15 @@ impl<'a> ParsedArgs<'a> {
                     .get(index + 1)
                     .map(String::as_str)
                     .ok_or_else(|| format!("missing value for {argument}"))?;
-                values.insert(argument, value);
+                if value_flags.contains(&value)
+                    || bool_flags.contains(&value)
+                    || matches!(value, "--help" | "-h")
+                {
+                    return Err(format!("missing value for {argument} (got flag {value})"));
+                }
+                if values.insert(argument, value).is_some() {
+                    return Err(format!("duplicate argument: {argument}"));
+                }
                 index += 2;
             } else if bool_flags.contains(&argument) {
                 flags.insert(argument, true);
@@ -1223,13 +1253,15 @@ mod tests {
         let key = "8|plain|values|adotenv";
         let base = serde_json::json!({
             "size": "8", "shape": "plain", "mode": "values",
-            "implementation": "adotenv", "peak_heap_bytes": 1000,
-            "retained_heap_bytes": 800, "allocations": 10
+            "implementation": "adotenv", "fixture_sha256": "abc",
+            "peak_heap_bytes": 1000, "retained_heap_bytes": 800,
+            "heap_after_drop_bytes": 0, "allocations": 10
         });
         let regressed = serde_json::json!({
             "size": "8", "shape": "plain", "mode": "values",
-            "implementation": "adotenv", "peak_heap_bytes": 1000,
-            "retained_heap_bytes": 800, "allocations": 11
+            "implementation": "adotenv", "fixture_sha256": "abc",
+            "peak_heap_bytes": 1000, "retained_heap_bytes": 800,
+            "heap_after_drop_bytes": 0, "allocations": 11
         });
         let mut baseline = BTreeMap::new();
         baseline.insert(key.to_owned(), base);
@@ -1247,13 +1279,15 @@ mod tests {
         let compact_key = "8|plain|values|adotenv-compact";
         let map = serde_json::json!({
             "size": "8", "shape": "plain", "mode": "values",
-            "implementation": "adotenv", "peak_heap_bytes": 1000,
-            "retained_heap_bytes": 800, "allocations": 10
+            "implementation": "adotenv", "fixture_sha256": "abc",
+            "peak_heap_bytes": 1000, "retained_heap_bytes": 800,
+            "heap_after_drop_bytes": 0, "allocations": 10
         });
         let compact = serde_json::json!({
             "size": "8", "shape": "plain", "mode": "values",
-            "implementation": "adotenv-compact", "peak_heap_bytes": 500,
-            "retained_heap_bytes": 400, "allocations": 5
+            "implementation": "adotenv-compact", "fixture_sha256": "abc",
+            "peak_heap_bytes": 500, "retained_heap_bytes": 400,
+            "heap_after_drop_bytes": 0, "allocations": 5
         });
         let mut baseline = BTreeMap::new();
         baseline.insert(map_key.to_owned(), map.clone());
@@ -1287,7 +1321,7 @@ mod tests {
     }
 
     #[test]
-    fn parsed_args_rejects_unknown_flags_and_missing_values() {
+    fn parsed_args_rejects_unknown_flags_duplicates_and_flag_values() {
         let args = |items: &[&str]| items.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
         let valid = args(&["--implementation", "adotenv-compact-entries", "--compact"]);
         let ok = ParsedArgs::parse(&valid, &["--implementation"], &["--compact"]).unwrap();
@@ -1298,6 +1332,10 @@ mod tests {
         assert!(ParsedArgs::parse(&typo, &["--implementation"], &[]).is_err());
         let missing = args(&["--implementation"]);
         assert!(ParsedArgs::parse(&missing, &["--implementation"], &[]).is_err());
+        let swallowed_flag = args(&["--out", "--dry-run"]);
+        assert!(ParsedArgs::parse(&swallowed_flag, &["--out"], &["--dry-run"]).is_err());
+        let duplicate = args(&["--out", "a.jsonl", "--out", "b.jsonl"]);
+        assert!(ParsedArgs::parse(&duplicate, &["--out"], &[]).is_err());
     }
 
     #[test]
@@ -1329,24 +1367,48 @@ mod tests {
         assert_eq!(violations.len(), 3, "{violations:?}");
 
         // Non-zero heap_after_drop_bytes leak must fail.
-        let mut leaked = base;
+        let mut leaked = base.clone();
         leaked["heap_after_drop_bytes"] = serde_json::json!(16);
         current.insert(key.to_owned(), leaked);
         let leak_violations =
             check_memory_gate(&baseline, &current, "adotenv-compact-entries", 5, 64, 0);
         assert_eq!(leak_violations.len(), 1, "{leak_violations:?}");
         assert!(leak_violations[0].contains("heap_after_drop_bytes"));
+
+        // Missing baseline fields must also fail instead of silently skipping checks.
+        let mut bad_base = BTreeMap::new();
+        bad_base.insert(
+            key.to_owned(),
+            serde_json::json!({
+                "size": "8", "shape": "plain", "mode": "values",
+                "implementation": "adotenv-compact-entries"
+            }),
+        );
+        let mut ok_cur = BTreeMap::new();
+        ok_cur.insert(key.to_owned(), base);
+        let bad_base_violations =
+            check_memory_gate(&bad_base, &ok_cur, "adotenv-compact-entries", 5, 64, 0);
+        assert_eq!(bad_base_violations.len(), 1, "{bad_base_violations:?}");
+        assert!(bad_base_violations[0].contains("missing baseline fixture_sha256"));
     }
 
     #[test]
-    fn parse_rows_rejects_duplicates_and_validate_remote_out_enforces_simple_names() {
+    fn parse_rows_and_remote_validators_reject_malformed_inputs() {
         let row = "{\"size\":\"8\",\"shape\":\"plain\",\"mode\":\"values\",\"implementation\":\"adotenv\"}";
         assert!(parse_rows(row, "single").is_ok());
         assert!(parse_rows(&format!("{row}\n{row}\n"), "dup").is_err());
+        assert!(parse_rows("123\n", "non-object").is_err());
+        assert!(parse_rows("{\"size\":\"8\"}\n", "missing-fields").is_err());
 
         assert!(validate_remote_out("bench-compact-memory.jsonl").is_ok());
         assert!(validate_remote_out("").is_err());
         assert!(validate_remote_out("../evil.jsonl").is_err());
         assert!(validate_remote_out("bad name.jsonl").is_err());
+
+        assert!(validate_remote_root("/var/lib/benchq/adotenv-bench").is_ok());
+        assert!(validate_remote_root("/").is_err());
+        assert!(validate_remote_root("//").is_err());
+        assert!(validate_remote_root("/tmp/..").is_err());
+        assert!(validate_remote_root("~/bench").is_err());
     }
 }

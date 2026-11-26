@@ -905,6 +905,24 @@ struct PlannedRefEdit {
     is_value_edit: bool,
 }
 
+fn has_command_ancestor(refs: &[crate::Reference], mut parent: Option<usize>) -> bool {
+    let mut steps = 0usize;
+    while let Some(index) = parent {
+        if steps >= refs.len() {
+            break;
+        }
+        let Some(ancestor) = refs.get(index) else {
+            break;
+        };
+        if ancestor.kind == crate::ReferenceKind::Command {
+            return true;
+        }
+        parent = ancestor.parent;
+        steps += 1;
+    }
+    false
+}
+
 #[allow(clippy::too_many_arguments)]
 fn verify_reference_structure(
     orig_entry: crate::Entry<'_>,
@@ -930,6 +948,13 @@ fn verify_reference_structure(
             .as_ref()
             .and_then(|span| new_source.get(span.clone()));
         let renamed = orig_name == Some(old_key);
+        if renamed
+            && has_command_ancestor(&orig_refs, orig_ref.parent)
+            && (new_key.bytes().any(|b| matches!(b, b'\'' | b'"'))
+                || orig_name.is_some_and(|n| n.bytes().any(|b| matches!(b, b'\'' | b'"'))))
+        {
+            return Err(EditError::WouldChangeMeaning);
+        }
         let expected_name = if renamed { Some(new_key) } else { orig_name };
         let braced_ok =
             orig_ref.braced == new_ref.braced || (renamed && !orig_ref.braced && new_ref.braced);
@@ -1014,13 +1039,17 @@ fn verify_reference_entry(
         let mut total_removed = 0usize;
         for planned in item_edits.iter().filter(|planned| planned.is_value_edit) {
             let edit = &planned.edit;
-            let dec_start = crate::resolve::decoded_start_for_raw(orig_entry, edit.range.start)
-                .ok_or(EditError::WouldChangeMeaning)?;
-            let dec_end = crate::resolve::decoded_end_for_raw(orig_entry, edit.range.end)
-                .ok_or(EditError::WouldChangeMeaning)?;
-            let removed = dec_end
-                .checked_sub(dec_start)
-                .ok_or(EditError::WouldChangeMeaning)?;
+            let removed = if edit.range.is_empty() {
+                0
+            } else {
+                let dec_start = crate::resolve::decoded_start_for_raw(orig_entry, edit.range.start)
+                    .ok_or(EditError::WouldChangeMeaning)?;
+                let dec_end = crate::resolve::decoded_end_for_raw(orig_entry, edit.range.end)
+                    .ok_or(EditError::WouldChangeMeaning)?;
+                dec_end
+                    .checked_sub(dec_start)
+                    .ok_or(EditError::WouldChangeMeaning)?
+            };
             total_removed = total_removed
                 .checked_add(removed)
                 .ok_or(EditError::WouldChangeMeaning)?;

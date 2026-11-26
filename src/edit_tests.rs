@@ -2211,8 +2211,48 @@ fn rename_with_references_rejects_command_quote_break_and_handles_compose_empty_
         docker_truncate.rename_with_references("A", "B'C"),
         Err(EditError::WouldChangeMeaning)
     );
+    // Balanced quotes, single-quote-with-escape, and nested command ancestors must also fail.
+    let (py_balanced, _) = parse_with("A=1\nX=$(echo \"${A}\")\n", Dialect::PYTHON_DOTENV);
+    assert_eq!(
+        py_balanced.rename_with_references("A", "B\" ; id ; \"C"),
+        Err(EditError::WouldChangeMeaning)
+    );
+    let (docker_balanced, _) = parse_with("A=1\nX=$(echo '${A}')\n", Dialect::DOCKER_RAW);
+    assert_eq!(
+        docker_balanced.rename_with_references("A", "B';id;'C"),
+        Err(EditError::WouldChangeMeaning)
+    );
+    let (py_mixed_quote, _) = parse_with("A=1\nX=$(echo \"${A}'\" \\')\n", Dialect::PYTHON_DOTENV);
+    assert_eq!(
+        py_mixed_quote.rename_with_references("A", "B\"C"),
+        Err(EditError::WouldChangeMeaning)
+    );
+    let (py_nested_cmd, _) = parse_with(
+        "A=1\nX=$(echo \"${OUTER:-${A}}\")\n",
+        Dialect::PYTHON_DOTENV,
+    );
+    assert_eq!(
+        py_nested_cmd.rename_with_references("A", "B\" ; id ; \"C"),
+        Err(EditError::WouldChangeMeaning)
+    );
 
-    // P1 #2 & A2: Compose empty keys at item start and unclosed `${` at value end / EOF.
+    // Outside $(...), unquoted references still permit dialect-valid quote keys.
+    let (py_non_cmd, _) = parse_with("A=1\nX=${A}\n", Dialect::PYTHON_DOTENV);
+    let py_ok = py_non_cmd.rename_with_references("A", "B\"C").unwrap();
+    assert_eq!(py_ok.as_str(), "B\"C=1\nX=${B\"C}\n");
+    replay("A=1\nX=${A}\n", &py_ok);
+
+    let (docker_non_cmd, _) = parse_with("A=1\nX=${A}\n", Dialect::DOCKER_RAW);
+    let docker_ok = docker_non_cmd.rename_with_references("A", "B'C").unwrap();
+    assert_eq!(docker_ok.as_str(), "B'C=1\nX=${B'C}\n");
+    replay("A=1\nX=${A}\n", &docker_ok);
+}
+
+#[test]
+fn rename_with_references_handles_compose_empty_keys_and_duplicate_precedence() {
+    use crate::Dialect;
+
+    // Compose empty keys at item start and unclosed `${` at value end / EOF / append tail.
     for (src, expected, dialect) in [
         ("=1\nX=${}\n", "NEW=1\nX=${NEW}\n", Dialect::COMPOSE),
         ("A=\"${}\"=1\n", "A=\"${NEW}\"NEW=1\n", Dialect::COMPOSE),
@@ -2238,6 +2278,11 @@ fn rename_with_references_rejects_command_quote_break_and_handles_compose_empty_
         (
             "=1\nX=\"a\"${",
             "NEW=1\nX=\"a\"${NEW",
+            Dialect::COMPOSE.with_quoted_tail(crate::QuotedTail::Append),
+        ),
+        (
+            "=1\nX=\"${\"b",
+            "NEW=1\nX=\"${NEW\"b",
             Dialect::COMPOSE.with_quoted_tail(crate::QuotedTail::Append),
         ),
     ] {

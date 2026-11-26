@@ -542,6 +542,22 @@ fn check_rename_with_references(source: &str, value: &str, selector: u8, dialect
                 .and_then(|s| renamed.as_str().get(s.clone()));
             let was_renamed = orig_name == Some(entry.key());
             had_matching_ref |= was_renamed;
+            let mut ancestor = br.parent;
+            let mut in_command = false;
+            while let Some(idx) = ancestor {
+                if before_refs[idx].kind == adotenv::ReferenceKind::Command {
+                    in_command = true;
+                    break;
+                }
+                ancestor = before_refs[idx].parent;
+            }
+            if was_renamed && entry.key() != ref_key && in_command {
+                assert!(
+                    !ref_key.bytes().any(|b| matches!(b, b'\'' | b'"'))
+                        && !entry.key().bytes().any(|b| matches!(b, b'\'' | b'"')),
+                    "shell quote modified inside $(...)"
+                );
+            }
             let expected_name = if was_renamed {
                 Some(ref_key)
             } else {

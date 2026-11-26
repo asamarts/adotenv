@@ -151,9 +151,9 @@ struct TempFixture(PathBuf);
 
 impl TempFixture {
     fn new(contents: &str) -> Self {
-        let path = temporary_path();
-        fs::write(&path, contents).expect("write benchmark fixture");
-        Self(path)
+        let file = Self(temporary_path());
+        fs::write(&file.0, contents).expect("write benchmark fixture");
+        file
     }
 }
 

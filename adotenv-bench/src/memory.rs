@@ -344,9 +344,9 @@ pub fn run(
     }
     let fixture = fixture(size, shape);
     let temp_file = if mode == Mode::Load {
-        let path = temporary_path();
-        fs::write(&path, fixture.source()).map_err(|error| error.to_string())?;
-        Some(TempFile(path))
+        let file = TempFile(temporary_path());
+        fs::write(&file.0, fixture.source()).map_err(|error| error.to_string())?;
+        Some(file)
     } else {
         None
     };
@@ -537,8 +537,13 @@ mod tests {
         assert!(!Implementation::AdotenvCompactEntries.supports(Mode::Resolve));
     }
 
+    static COUNTERS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn compact_entries_memory_case_runs() {
+        let _guard = COUNTERS_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let report = run(
             Size::Eight,
             Shape::Plain,
@@ -612,6 +617,9 @@ mod tests {
 
     #[test]
     fn counting_allocator_counts_alloc_zeroed_realloc_and_dealloc_once() {
+        let _guard = COUNTERS_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let allocator = CountingAllocator;
         let baseline_current = COUNTERS.current();
         let baseline_allocs = COUNTERS.allocations();

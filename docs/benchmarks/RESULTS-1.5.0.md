@@ -85,14 +85,14 @@ The compact API is the 1.5.0 minor-release addition. It is opt-in:
 ```console
 cargo run --release -p adotenv-xtask -- queue \
   --remote-root /var/lib/benchq/adotenv-bench \
-  --out docs/benchmarks/compact-memory.jsonl \
-  --remote-out bench-compact-memory.jsonl \
+  --out docs/benchmarks/compact-memory-1.5.0.jsonl \
+  --remote-out bench-compact-memory-1.5.0.jsonl \
   --sizes 8,128,1k,10k,100k --shapes plain,long-line,empty \
   --modes values,load --compact --sync
 
 cargo run --release -p adotenv-xtask -- report \
-  --input docs/benchmarks/compact-memory.jsonl \
-  --out docs/benchmarks/compact-memory.md
+  --input docs/benchmarks/compact-memory-1.5.0.jsonl \
+  --out docs/benchmarks/compact-memory-1.5.0.md
 
 cargo run --release -p adotenv-xtask -- queue-speed \
   --remote-root /var/lib/benchq/adotenv-bench \
