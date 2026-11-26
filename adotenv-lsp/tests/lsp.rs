@@ -991,6 +991,31 @@ fn crlf_lf_only_dialects_and_bom_edge_cases_produce_valid_ranges() {
             lsp_types::Range::new(position(0, 0), position(0, 0))
         );
     }
+
+    // BOM before an astral character spans both UTF-16 code units (no surrogate split).
+    let astral_diags = diagnostics("\u{feff}😀=1\n", &uri(), &LspOptions::new());
+    let astral_bom = astral_diags
+        .iter()
+        .find(|d| code(d) == Some("dotenv.bom"))
+        .expect("bom diagnostic");
+    assert_eq!(
+        astral_bom.range,
+        lsp_types::Range::new(position(0, 0), position(0, 2))
+    );
+
+    // Unknown escape spanning into CRLF (`InsideCrLf`) snaps monotonically instead of (0, 0).
+    let crlf_escape = diagnostics("A=\"\\\r\n\"\n", &uri(), &LspOptions::new());
+    let esc = crlf_escape
+        .iter()
+        .find(|d| code(d) == Some("dotenv.unknown-escape"))
+        .expect("unknown-escape diagnostic");
+    assert_eq!(
+        esc.range,
+        lsp_types::Range::new(position(0, 3), position(0, 4))
+    );
+
+    // Bare key at EOF without trailing newline resolves definition at key end.
+    assert!(definition("HOST", &uri(), position(0, 4)).is_some());
 }
 
 #[test]
@@ -1170,4 +1195,152 @@ fn hover_escapes_multiline_quoted_keys() {
         panic!("expected markup hover");
     };
     assert!(markup.value.starts_with("`A\\n\\nB`"), "{}", markup.value);
+}
+
+#[test]
+fn completion_matches_parser_quotes_comments_and_escape_rules() {
+    let items_len = |source: &str, pos: Position, dialect: Dialect| -> usize {
+        let options = LspOptions::new().with_dialect(dialect);
+        let CompletionResponse::Array(items) = completion_with_options(source, pos, &options)
+        else {
+            panic!("expected completion array");
+        };
+        items.len()
+    };
+
+    // Mid-value apostrophes, quotes and backticks do not open quotes.
+    assert_eq!(
+        items_len("HOST=1\nMSG=it's $H\n", position(1, 11), Dialect::PORTABLE),
+        2
+    );
+    assert_eq!(
+        items_len(
+            "HOST=1\nMSG=a\"b # $H\n",
+            position(1, 12),
+            Dialect::PORTABLE
+        ),
+        0
+    );
+    assert_eq!(
+        items_len(
+            "HOST=1\nMSG=a`b $H\n",
+            position(1, 10),
+            Dialect::NODE_DOTENV
+        ),
+        2
+    );
+    // Mid-key quotes in Python do not swallow `=`.
+    assert_eq!(
+        items_len("HOST=1\nA\"B=foo\n", position(1, 6), Dialect::PYTHON_DOTENV),
+        0
+    );
+    // Unquoted `\$` and Node/Python `"\"$"` are NOT escaped; Compose `"\"$"` IS escaped;
+    // `${...}` operand disables backslash escaping.
+    assert_eq!(
+        items_len("HOST=1\nURL=\\$H\n", position(1, 7), Dialect::PORTABLE),
+        2
+    );
+    assert_eq!(
+        items_len(
+            "HOST=1\nURL=\"\\$H\"\n",
+            position(1, 8),
+            Dialect::NODE_DOTENV
+        ),
+        2
+    );
+    assert_eq!(
+        items_len(
+            "HOST=1\nURL=\"\\$H\"\n",
+            position(1, 8),
+            Dialect::PYTHON_DOTENV
+        ),
+        2
+    );
+    assert_eq!(
+        items_len("HOST=1\nURL=\"\\$H\"\n", position(1, 8), Dialect::COMPOSE),
+        0
+    );
+    assert_eq!(
+        items_len(
+            "HOST=1\nURL=\"${A:-\\$H\"\n",
+            position(1, 13),
+            Dialect::PORTABLE
+        ),
+        2
+    );
+    // `$` before `=` and invalid unbraced starts (`$100`, `$é`) do not trigger completion.
+    assert_eq!(
+        items_len("HOST=1\nBAD $H\n", position(1, 6), Dialect::PORTABLE),
+        0
+    );
+    assert_eq!(
+        items_len("HOST=1\nURL=$100\n", position(1, 8), Dialect::PORTABLE),
+        0
+    );
+    assert_eq!(
+        items_len("HOST=1\nURL=$é\n", position(1, 6), Dialect::PORTABLE),
+        0
+    );
+}
+
+#[test]
+fn completion_matches_dialect_comments_node_quotes_and_unclosed_recovery() {
+    let items_len = |source: &str, pos: Position, dialect: Dialect| -> usize {
+        let options = LspOptions::new().with_dialect(dialect);
+        let CompletionResponse::Array(items) = completion_with_options(source, pos, &options)
+        else {
+            panic!("expected completion array");
+        };
+        items.len()
+    };
+
+    // `export` is not stripped when `dialect.export == false`.
+    assert_eq!(
+        items_len("HOST=1\nexport H\n", position(1, 8), Dialect::DOCKER_RAW),
+        0
+    );
+    // Compose leading `#` after `= ` is value text; `quoted_comments` starts after `"`.
+    assert_eq!(
+        items_len("HOST=1\nURL= #$H\n", position(1, 8), Dialect::COMPOSE),
+        2
+    );
+    assert_eq!(
+        items_len("HOST=1\nURL=\"a\"#$H\n", position(1, 10), Dialect::COMPOSE),
+        0
+    );
+    assert_eq!(
+        items_len("HOST=1\nURL='a\\\\'$H\n", position(1, 11), Dialect::COMPOSE),
+        2
+    );
+    // Node `\"` before `#` closes the quote and enters an inline comment.
+    assert_eq!(
+        items_len(
+            "HOST=1\nURL=\"a\\\" # $H\n",
+            position(1, 13),
+            Dialect::NODE_DOTENV
+        ),
+        0
+    );
+    // Nearest unclosed quote wins and never shadows later valid entries.
+    assert_eq!(
+        items_len(
+            "HOST=1\nA=\"unclosed\nB='unclosed\n$H",
+            position(3, 2),
+            Dialect::PORTABLE
+        ),
+        0
+    );
+    assert_eq!(
+        items_len(
+            "BROKEN='unclosed\nHOST=1\nURL=$H\n",
+            position(2, 6),
+            Dialect::PORTABLE
+        ),
+        2
+    );
+    let ignore_malformed = Dialect::PORTABLE.with_malformed_lines(adotenv::MalformedLines::Ignore);
+    assert_eq!(
+        items_len("HOST=1\nURL='line1\n$H", position(2, 2), ignore_malformed),
+        0
+    );
 }

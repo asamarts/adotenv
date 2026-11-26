@@ -61,9 +61,13 @@ fn run() -> Result<()> {
     let (connection, io_threads) = Connection::stdio();
     let result = serve(&connection, options, ignore.as_ref());
     drop(connection);
-    let join_result = io_threads.join();
+    // Synchronize with lsp-server's writer thread before exiting on error:
+    // the writer locks stdout before receiving from its rendezvous channel, so
+    // acquiring stdout's lock after dropping `connection` waits for any queued
+    // error response to flush without blocking on the stdin reader thread.
+    let _ = std::io::stdout().lock();
     result?;
-    join_result?;
+    io_threads.join()?;
     Ok(())
 }
 
@@ -89,7 +93,18 @@ fn serve(
         ..ServerCapabilities::default()
     };
     let (init_id, initialization) = connection.initialize_start()?;
-    let _: InitializeParams = serde_json::from_value(initialization)?;
+    let _: InitializeParams = match serde_json::from_value(initialization) {
+        Ok(params) => params,
+        Err(error) => {
+            let _ = send_error(
+                connection,
+                init_id,
+                lsp_server::ErrorCode::InvalidParams,
+                &error.to_string(),
+            );
+            return Err(error.into());
+        }
+    };
     let init_result = InitializeResult {
         capabilities,
         server_info: Some(ServerInfo {
@@ -267,10 +282,10 @@ fn parse_args_from(arguments: impl IntoIterator<Item = String>) -> Result<Cli> {
 }
 
 fn load_policy(cli: &Cli) -> Result<(LspOptions, Option<IgnoredPaths>)> {
-    let start = env::current_dir()?;
     let config = if let Some(path) = &cli.config {
         Some(LintConfig::load(path)?)
     } else if cli.discover_lint_config {
+        let start = env::current_dir()?;
         load_effective_config(None, &start)?
     } else {
         None

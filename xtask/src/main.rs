@@ -298,8 +298,9 @@ fn create_temp_file(dir: &Path, prefix: &str, contents: &[u8]) -> Result<TempFil
         match OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(mut file) => {
                 let guard = TempFileGuard(path);
-                file.write_all(contents)
-                    .map_err(|error| error.to_string())?;
+                let write_result = file.write_all(contents);
+                drop(file);
+                write_result.map_err(|error| error.to_string())?;
                 return Ok(guard);
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
@@ -979,6 +980,22 @@ fn validate_local_out(path: &str) -> Result<()> {
         || out.is_dir()
     {
         return Err(format!("--out must be a non-directory file path: {path:?}"));
+    }
+    let mut ancestor = out.parent();
+    while let Some(dir) = ancestor {
+        if dir.as_os_str().is_empty() {
+            break;
+        }
+        if dir.exists() {
+            if !dir.is_dir() {
+                return Err(format!(
+                    "--out parent path is not a directory: {}",
+                    dir.display()
+                ));
+            }
+            break;
+        }
+        ancestor = dir.parent();
     }
     Ok(())
 }
@@ -2234,6 +2251,12 @@ mod tests {
         let out_md_str = out_md.to_string_lossy();
         assert!(validate_out_with_fingerprint(&out_md_str).is_ok());
         assert!(validate_speed_out(&out_md_str).is_err());
+
+        // File-as-ancestor is rejected upfront without mutating the filesystem.
+        let regular_file = dir.0.join("not-a-dir");
+        fs::write(&regular_file, "x").unwrap();
+        let bad_ancestor = regular_file.join("nested").join("out.jsonl");
+        assert!(validate_local_out(&bad_ancestor.to_string_lossy()).is_err());
 
         // Exclusive temp file creation avoids collisions and cleans up on drop.
         let guard = create_temp_file(&dir.0, "unit", b"A=1\n").unwrap();
