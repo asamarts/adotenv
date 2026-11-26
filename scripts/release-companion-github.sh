@@ -27,7 +27,9 @@ tag="${crate}-v${version}"
 notes="$(mktemp)"
 trap 'rm -f "$notes"' EXIT
 
-if ! gh release view "$tag" >/dev/null 2>&1; then
+if view_err="$(gh release view "$tag" 2>&1 >/dev/null)"; then
+  echo "::notice::release $tag already exists"
+elif grep -qi "release not found" <<<"$view_err"; then
   python3 scripts/release-extract-changelog.py "${crate} ${version}" > "$notes"
   gh release create "$tag" \
     --target "$target_sha" \
@@ -35,7 +37,8 @@ if ! gh release view "$tag" >/dev/null 2>&1; then
     --title "${crate} ${version}" \
     --notes-file "$notes"
 else
-  echo "::notice::release $tag already exists"
+  echo "::error::gh release view $tag failed: $view_err" >&2
+  exit 1
 fi
 
 gh release upload "$tag" "$crate_file" "$sha_file" --clobber

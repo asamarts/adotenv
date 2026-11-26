@@ -85,13 +85,13 @@ The reference validation host has 8 logical CPUs, 15 GiB of RAM, no swap, and a
 serialized single-slot `pueue` queue (`bench` group). When a queue service runs
 without access to user home directories, provision the toolchain, tool
 binaries, `CARGO_HOME`, and tracked-only source tree under a dedicated state
-root (`$BENCH_ROOT`):
+root (`$ADOTENV_BENCH_ROOT`):
 
-- `$BENCH_ROOT/toolchain` holds a Rust toolchain readable by the queue service;
-- `$BENCH_ROOT/bin/cargo-mutants` holds `cargo-mutants` 27.1.0;
-- `$BENCH_ROOT/cargo` is the `CARGO_HOME`; dependencies are fetched with
+- `$ADOTENV_BENCH_ROOT/toolchain` holds a Rust toolchain readable by the queue service;
+- `$ADOTENV_BENCH_ROOT/bin/cargo-mutants` holds `cargo-mutants` 27.1.0;
+- `$ADOTENV_BENCH_ROOT/cargo` is the `CARGO_HOME`; dependencies are fetched with
   `cargo fetch --locked`;
-- `$BENCH_ROOT/adotenv-src` is a tracked-only source tree.
+- `$ADOTENV_BENCH_ROOT/adotenv-src` is a tracked-only source tree.
 
 The first shard (0/4) used a 12 GiB address-space limit, two Cargo build jobs,
 one test thread and two mutation workers. It tested 102 mutants: **68 caught,
@@ -153,23 +153,23 @@ If the remote host is unavailable, use GitHub Actions. Do not fall back to a
 heavy local run.
 
 To refresh the tracked source and queue a bounded workspace test (with
-`BENCH_HOST`, `BENCH_ROOT`, `BENCH_GROUP` and optional `PUEUE_CONFIG_PATH`
-configured for your environment):
+`ADOTENV_BENCH_HOST`, `ADOTENV_BENCH_ROOT`, `ADOTENV_BENCH_GROUP` and optional
+`PUEUE_CONFIG_PATH` configured for your environment):
 
 ```console
 tmp=$(mktemp -d ~/.tmp/adotenv-remote.XXXXXX)
 git archive --format=tar.gz HEAD > "$tmp/src.tar.gz"
-ssh "$BENCH_HOST" "mkdir -p '$BENCH_ROOT/adotenv-src' \
-  && find '$BENCH_ROOT/adotenv-src' -mindepth 1 -maxdepth 1 -exec rm -rf {} +"
-ssh "$BENCH_HOST" "tar -xzf - -C '$BENCH_ROOT/adotenv-src'" < "$tmp/src.tar.gz"
+ssh -- "$ADOTENV_BENCH_HOST" "mkdir -p '$ADOTENV_BENCH_ROOT/adotenv-src' \
+  && find '$ADOTENV_BENCH_ROOT/adotenv-src' -mindepth 1 -maxdepth 1 -exec rm -rf {} +"
+ssh -- "$ADOTENV_BENCH_HOST" "tar -xzf - -C '$ADOTENV_BENCH_ROOT/adotenv-src'" < "$tmp/src.tar.gz"
 rm -rf "$tmp"
 
-ssh "$BENCH_HOST" "PUEUE_CONFIG_PATH='$PUEUE_CONFIG_PATH' pueue add \
-  --group '${BENCH_GROUP:-bench}' --working-directory '$BENCH_ROOT/adotenv-src' \
+ssh -- "$ADOTENV_BENCH_HOST" "${PUEUE_CONFIG_PATH:+PUEUE_CONFIG_PATH='$PUEUE_CONFIG_PATH' }pueue add \
+  --group '${ADOTENV_BENCH_GROUP:-bench}' --working-directory '$ADOTENV_BENCH_ROOT/adotenv-src' \
   --label adotenv-tests --print-task-id -- \
   \"ulimit -v 8388608; \
-    export HOME='$BENCH_ROOT' CARGO_HOME='$BENCH_ROOT/cargo' \
-      PATH='$BENCH_ROOT/bin:$BENCH_ROOT/toolchain/bin:/usr/bin:/bin' \
+    export HOME='$ADOTENV_BENCH_ROOT' CARGO_HOME='$ADOTENV_BENCH_ROOT/cargo' \
+      PATH='$ADOTENV_BENCH_ROOT/bin:$ADOTENV_BENCH_ROOT/toolchain/bin:/usr/bin:/bin' \
       CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2; \
     exec cargo test --workspace --all-features --locked\""
 ```
@@ -177,21 +177,21 @@ ssh "$BENCH_HOST" "PUEUE_CONFIG_PATH='$PUEUE_CONFIG_PATH' pueue add \
 Use the task id printed by `pueue add` to wait and collect the log:
 
 ```console
-PUEUE_CONFIG_PATH="$PUEUE_CONFIG_PATH" pueue wait <task>
-PUEUE_CONFIG_PATH="$PUEUE_CONFIG_PATH" pueue log <task>
+ssh -- "$ADOTENV_BENCH_HOST" "${PUEUE_CONFIG_PATH:+PUEUE_CONFIG_PATH='$PUEUE_CONFIG_PATH' }pueue wait <task>"
+ssh -- "$ADOTENV_BENCH_HOST" "${PUEUE_CONFIG_PATH:+PUEUE_CONFIG_PATH='$PUEUE_CONFIG_PATH' }pueue log <task>"
 ```
 
 For mutation testing, keep one worker and one test thread, and pass the
 shell command as a single quoted argument so `pueue` does not split on `;`:
 
 ```console
-ssh "$BENCH_HOST" "PUEUE_CONFIG_PATH='$PUEUE_CONFIG_PATH' pueue add \
-  --group '${BENCH_GROUP:-bench}' --working-directory '$BENCH_ROOT/adotenv-src' \
+ssh -- "$ADOTENV_BENCH_HOST" "${PUEUE_CONFIG_PATH:+PUEUE_CONFIG_PATH='$PUEUE_CONFIG_PATH' }pueue add \
+  --group '${ADOTENV_BENCH_GROUP:-bench}' --working-directory '$ADOTENV_BENCH_ROOT/adotenv-src' \
   --label adotenv-mutants --print-task-id -- \
   \"ulimit -v 8388608; \
-    export HOME='$BENCH_ROOT' CARGO_HOME='$BENCH_ROOT/cargo' \
-      CARGO='$BENCH_ROOT/toolchain/bin/cargo' \
-      PATH='$BENCH_ROOT/bin:$BENCH_ROOT/toolchain/bin:/usr/bin:/bin' \
+    export HOME='$ADOTENV_BENCH_ROOT' CARGO_HOME='$ADOTENV_BENCH_ROOT/cargo' \
+      CARGO='$ADOTENV_BENCH_ROOT/toolchain/bin/cargo' \
+      PATH='$ADOTENV_BENCH_ROOT/bin:$ADOTENV_BENCH_ROOT/toolchain/bin:/usr/bin:/bin' \
       CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1; \
     exec cargo mutants --workspace --all-features \
       --file src/references.rs --jobs 1 --timeout 120 \

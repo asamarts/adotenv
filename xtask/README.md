@@ -31,8 +31,8 @@ SSH using a serialized `pueue` queue. Pass the host and queue settings with CLI
 flags or environment variables:
 
 - `--host <host>` or `ADOTENV_BENCH_HOST` (required): SSH target host.
-- `--remote-root <path>` (required): absolute, non-root, non-home working
-  directory writable by the queue service.
+- `--remote-root <path>` or `ADOTENV_BENCH_ROOT` (required): absolute, non-root,
+  non-home working directory writable by the queue service.
 - `--pueue-config <path>` or `PUEUE_CONFIG_PATH` (optional): remote `pueue`
   configuration file.
 - `--group <name>` or `ADOTENV_BENCH_GROUP` (optional, default `bench`):
@@ -59,6 +59,7 @@ adotenv-xtask queue-speed --host "$ADOTENV_BENCH_HOST" \
 ```
 
 Use `--dry-run` to inspect the queued SSH command without contacting the remote
-host. Memory tasks write `bench-memory.jsonl` and its fingerprint; speed tasks
-write `bench-speed.txt`, `bench-speed.md` and the fingerprint. Neither path
-changes host-wide settings or other projects' queues.
+host. Memory tasks write `bench-memory.jsonl` and its fingerprint remotely and
+copy both to `--out`; speed tasks write `bench-speed.txt` and its fingerprint
+remotely, copy both to `--out`, and render the local Markdown sibling (derived
+from `--out`). Neither path changes host-wide settings or other projects' queues.
