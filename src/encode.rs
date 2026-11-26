@@ -915,13 +915,12 @@ fn inverse(context: &Context<'_>, value: &str, mode: InverseMode) -> Option<Stri
         search.ring[slot] = [None; 8];
     }
     let (path, end, _) = finish?;
-    Some(quoted_path(
-        search.links,
-        path,
-        &value[offsets[end]..],
-        mark,
-        close,
-    ))
+    let tail = if end == chars.len() {
+        String::new()
+    } else {
+        raw(&value[offsets[end]..], dialect)?
+    };
+    Some(quoted_path(search.links, path, &tail, mark, close))
 }
 
 fn suffix_budget(context: &Context<'_>) -> Result<Option<usize>, EncodeError> {
@@ -1200,34 +1199,54 @@ fn space(c: char, mode: Whitespace) -> bool {
     }
 }
 
+fn tail_raw_char(c: char, dialect: Dialect) -> Option<char> {
+    if dialect.normalize_newlines {
+        match c {
+            '\r' => None,
+            '\n' => (dialect.line_breaks == LineBreaks::Lf).then_some('\r'),
+            _ => Some(c),
+        }
+    } else if c == '\n' || (c == '\r' && dialect.line_breaks == LineBreaks::Universal) {
+        None
+    } else {
+        Some(c)
+    }
+}
+
 fn tail_starts(value: &str, chars: &[char], offsets: &[usize], dialect: Dialect) -> Vec<bool> {
     let mut valid = vec![false; chars.len() + 1];
-    let mut safe = chars.last().is_some_and(|c| !space(*c, dialect.whitespace));
+    let mut safe = chars.last().is_some_and(|c| {
+        tail_raw_char(*c, dialect).is_some_and(|raw_c| !space(raw_c, dialect.whitespace))
+    });
     let mut nonspace = false;
     for at in (0..chars.len()).rev() {
         let c = chars[at];
-        if c == '\n'
-            || (c == '\r' && dialect.line_breaks == LineBreaks::Universal)
-            || (dialect.syntax == Syntax::Node && matches!(c, '\u{2028}' | '\u{2029}'))
-        {
+        let Some(raw_c) = tail_raw_char(c, dialect) else {
+            safe = false;
+            continue;
+        };
+        if dialect.syntax == Syntax::Node && matches!(raw_c, '\u{2028}' | '\u{2029}') {
             safe = false;
         }
-        let previous = value[..offsets[at]].chars().next_back();
-        let comment = c == '#'
+        let previous = value[..offsets[at]]
+            .chars()
+            .next_back()
+            .and_then(|prev| tail_raw_char(prev, dialect));
+        let comment = raw_c == '#'
             && match dialect.inline_comments {
                 crate::InlineComments::None => false,
                 crate::InlineComments::AnyHash => true,
                 crate::InlineComments::Space => previous == Some(' '),
                 crate::InlineComments::Whitespace | crate::InlineComments::Python => {
-                    previous.is_some_and(|c| space(c, dialect.whitespace))
+                    previous.is_some_and(|prev| space(prev, dialect.whitespace))
                 }
             };
         // At the boundary a quote replaces the preceding cooked character.
         valid[at] = safe && nonspace && !comment;
-        if !space(c, dialect.whitespace) {
+        if !space(raw_c, dialect.whitespace) {
             nonspace = true;
             valid[at] = safe
-                && !(c == '#'
+                && !(raw_c == '#'
                     && (dialect.quoted_comments
                         || dialect.inline_comments == crate::InlineComments::AnyHash)
                     && dialect.inline_comments != crate::InlineComments::None);

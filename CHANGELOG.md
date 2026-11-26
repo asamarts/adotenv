@@ -22,6 +22,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `adotenv::encode`: mapped cooked LF to raw CR in `QuotedTail::Append`
+  inverse tail search (`tail_starts` / `inverse`) when `normalize_newlines`
+  and `LineBreaks::Lf` are enabled, fixing `EncodeError::Unrepresentable` on
+  long quoted prefixes with appended multiline tails.
 - `adotenv::edit`: replaced the `$(...)` command-ancestor denylist in
   `verify_reference_structure` with a strict allowlist (ASCII alphanumeric,
   `_`, and `.`) on renamed keys inside command substitutions, closing

@@ -1149,3 +1149,56 @@ fn append_tail_quotes_a_leading_hash_without_escaping_the_tail() {
     let value = "#x]]'\\07001k\\\nddd";
     assert_encodes(value, dialect);
 }
+
+#[test]
+fn append_tail_inverse_spells_normalized_lf_as_cr_past_short_prefixes() {
+    // Reproduces fuzz crash-708e9bd4e5a920419949f79e6dd3259765347025: under
+    // LineBreaks::Lf + normalize_newlines + QuotedTail::Append, an appended tail
+    // can encode cooked LF as raw CR even when the quoted prefix protecting `#`
+    // is longer than the short prefix search.
+    let dialect = Dialect {
+        inline_comments: InlineComments::AnyHash,
+        double_escapes: DoubleEscapes::LF.union(DoubleEscapes::TAB),
+        unknown_escapes: UnknownEscapes::Error,
+        single_escapes: SingleEscapes::None,
+        backticks: false,
+        colon: ColonSeparator::None,
+        keys: KeySyntax::Python,
+        bare_keys: BareKeys::Preserve,
+        raw_values: false,
+        line_breaks: LineBreaks::Lf,
+        bom: BomPolicy::Strip,
+        duplicates: Duplicates::Last,
+        quoted_tail: QuotedTail::Append,
+        multiline: Multiline::ALL.with_backtick(false),
+        whitespace: Whitespace::Python,
+        export: true,
+        quoted_keys: true,
+        quoted_comments: true,
+        normalize_newlines: true,
+        malformed_lines: MalformedLines::Error,
+        node_object_keys: false,
+        line_byte_limit: None,
+        ..Dialect::PYTHON_DOTENV
+    };
+    let witness = "'z\"\r3x\u{12}\u{12}\u{12}\u{12}\"\r+\\#'\"\r2x\"\r+\\2'\"\r2x;\"\r\\''";
+    assert!(assert_inverse(witness, dialect));
+    let value = "z\"\n3x\u{12}\u{12}\u{12}\u{12}\"\n+\\#\"\n2x\"\n+\\2'\"\n2x;\"\n\\''";
+    assert_encodes(value, dialect);
+
+    // Under InlineComments::Python, a cooked LF spelled as raw CR counts as
+    // whitespace before `#`, so `#` after `\n` stays inside the quoted body.
+    let py_comment = Dialect {
+        inline_comments: InlineComments::Python,
+        ..dialect
+    };
+    assert_encodes("prefix\"#body\n#tail\"'end", py_comment);
+
+    // Under Whitespace::Ascii, trailing raw CR in the appended tail is preserved
+    // via CR padding without being trimmed as whitespace.
+    let ascii_ws = Dialect {
+        whitespace: Whitespace::Ascii,
+        ..dialect
+    };
+    assert_encodes("prefix\"#body\"'tail\n", ascii_ws);
+}
