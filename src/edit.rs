@@ -905,30 +905,11 @@ struct PlannedRefEdit {
     is_value_edit: bool,
 }
 
-fn has_command_ancestor(refs: &[crate::Reference], mut parent: Option<usize>) -> bool {
-    let mut steps = 0usize;
-    while let Some(index) = parent {
-        if steps >= refs.len() {
-            break;
-        }
-        let Some(ancestor) = refs.get(index) else {
-            break;
-        };
-        if ancestor.kind == crate::ReferenceKind::Command {
-            return true;
-        }
-        parent = ancestor.parent;
-        steps += 1;
-    }
-    false
-}
-
 fn has_command_context(refs: &[crate::Reference], reference: &crate::Reference) -> bool {
-    has_command_ancestor(refs, reference.parent)
-        || refs.iter().any(|candidate| {
-            candidate.kind == crate::ReferenceKind::Command
-                && candidate.span.start < reference.span.start
-        })
+    refs.iter().any(|candidate| {
+        candidate.kind == crate::ReferenceKind::Command
+            && candidate.span.start < reference.span.start
+    })
 }
 
 fn is_safe_command_ref_key(key: &str) -> bool {
@@ -2626,6 +2607,15 @@ impl Document<'_> {
     /// Commands themselves have no name and are not renamed, but variable
     /// candidates nested inside their arguments are.
     ///
+    /// When a matching variable reference occurs inside or after a `$(`
+    /// command substitution in the same entry, both `key` and `new_key` must
+    /// satisfy a strict shell-safe allowlist (starting with an ASCII letter or
+    /// `_`, containing only ASCII alphanumerics, `_` or `.`, with no trailing
+    /// `.` or `..`). Keys outside this allowlist, such as POSIX positional
+    /// parameters (`0`, `1`), leading digits or dots, shell metacharacters, or
+    /// parameter-expansion operators, fail verification with
+    /// [`EditError::WouldChangeMeaning`].
+    ///
     /// The new key must be writable as a reference when the document has any
     /// matching candidates. A key containing `-`, `:`, `?` or `+` cannot be
     /// written as a reference name because the scanner treats those bytes as
@@ -2645,7 +2635,9 @@ impl Document<'_> {
     /// - [`EditError::InvalidKey`] when the dialect cannot spell `new_key`.
     /// - [`EditError::InvalidReferenceKey`] when a matching reference cannot
     ///   be rewritten to `new_key`.
-    /// - [`EditError::WouldChangeMeaning`] when the output fails verification.
+    /// - [`EditError::WouldChangeMeaning`] when the output fails verification,
+    ///   including when a matching reference inside or after `$(` uses a `key`
+    ///   or `new_key` outside the command-context allowlist.
     ///
     /// # Examples
     ///

@@ -210,7 +210,7 @@ fn command_micro(args: &[String]) -> Result<()> {
 fn command_speed(args: &[String]) -> Result<()> {
     let parsed = ParsedArgs::parse(args, &["--out", "--bench", "--filter"], &["--quick"])?;
     let out_arg = parsed.get("--out").unwrap_or("docs/benchmarks/speed.txt");
-    validate_local_out(out_arg)?;
+    validate_speed_out(out_arg)?;
     let out = PathBuf::from(out_arg);
     let bench = parsed.get("--bench").unwrap_or("competitors");
     validate_bench_target(bench)?;
@@ -327,6 +327,9 @@ fn command_report(args: &[String]) -> Result<()> {
     let parsed = ParsedArgs::parse(args, &["--input", "--out"], &[])?;
     let input = parsed.get("--input").ok_or("missing --input")?;
     let output = parsed.get("--out");
+    if let Some(output) = output {
+        validate_local_out(output)?;
+    }
     let text = fs::read_to_string(input).map_err(|error| error.to_string())?;
     let mut rows = Vec::new();
     for line in text.lines().filter(|line| !line.trim().is_empty()) {
@@ -382,6 +385,9 @@ fn command_compare(args: &[String]) -> Result<()> {
     let parsed = ParsedArgs::parse(args, &["--baseline", "--current", "--out"], &[])?;
     let baseline = parsed.get("--baseline").ok_or("missing --baseline")?;
     let current = parsed.get("--current").ok_or("missing --current")?;
+    if let Some(output) = parsed.get("--out") {
+        validate_local_out(output)?;
+    }
     let baseline = read_rows(baseline)?;
     let current = read_rows(current)?;
     let mut report = String::from(
@@ -907,6 +913,7 @@ fn first_non_dot_segment(path: &str) -> Option<&str> {
 fn validate_pueue_config(path: &str) -> Result<()> {
     if path.is_empty()
         || !path.starts_with('/')
+        || path.ends_with('/')
         || first_non_dot_segment(path).is_none()
         || path.split('/').any(|part| part == "..")
         || !path
@@ -921,12 +928,33 @@ fn validate_pueue_config(path: &str) -> Result<()> {
 fn validate_local_out(path: &str) -> Result<()> {
     let out = Path::new(path);
     if path.trim().is_empty()
+        || path.starts_with('-')
+        || path.bytes().any(|byte| byte.is_ascii_control())
+        || path == "."
+        || path == ".."
         || path.ends_with('/')
         || path.ends_with('\\')
+        || path.ends_with("/.")
+        || path.ends_with("\\.")
+        || path.ends_with("/..")
+        || path.ends_with("\\..")
         || out.file_name().is_none()
         || out.is_dir()
     {
         return Err(format!("--out must be a non-directory file path: {path:?}"));
+    }
+    Ok(())
+}
+
+fn validate_speed_out(path: &str) -> Result<()> {
+    validate_local_out(path)?;
+    if Path::new(path)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+    {
+        return Err(format!(
+            "--out for speed output must not end with .md (markdown report uses the .md sibling): {path:?}"
+        ));
     }
     Ok(())
 }
@@ -956,7 +984,11 @@ fn scp_local_arg(path: &Path) -> String {
         path.components().next(),
         Some(std::path::Component::Prefix(_))
     );
-    let first_sep = text.find(['/', '\\']);
+    let first_sep = if cfg!(windows) {
+        text.find(['/', '\\'])
+    } else {
+        text.find('/')
+    };
     let colon_before_sep = match (text.find(':'), first_sep) {
         (Some(colon), Some(sep)) => colon < sep,
         (Some(_), None) => true,
@@ -1134,7 +1166,7 @@ fn command_queue_speed(args: &[String]) -> Result<()> {
     )?;
     let remote = RemoteConfig::from_parsed(&parsed)?;
     let local_out = parsed.get("--out").unwrap_or("docs/benchmarks/speed.txt");
-    validate_local_out(local_out)?;
+    validate_speed_out(local_out)?;
     let remote_out = parsed.get("--remote-out").unwrap_or("bench-speed.txt");
     validate_remote_out(remote_out)?;
     let bench = parsed.get("--bench").unwrap_or("competitors");
@@ -1256,6 +1288,7 @@ fn validate_remote_root(remote_root: &str) -> Result<()> {
     let first = first_non_dot_segment(remote_root);
     if remote_root.is_empty()
         || !remote_root.starts_with('/')
+        || remote_root.ends_with('/')
         || first.is_none()
         || first == Some("home")
         || remote_root.split('/').any(|part| part == "..")
@@ -1982,8 +2015,10 @@ mod tests {
         assert!(validate_pueue_config("relative/pueue.yml").is_err());
         assert!(validate_pueue_config("/etc/../pueue.yml").is_err());
         assert!(validate_pueue_config("/.").is_err());
+        assert!(validate_pueue_config("/etc/pueue/").is_err());
         assert!(validate_pueue_config("/etc/bench path/pueue.yml").is_err());
         assert!(validate_pueue_config("/etc/bench*/pueue.yml").is_err());
+        assert!(validate_remote_root("/var/lib/bench/").is_err());
         assert!(validate_remote_root("/var/lib/bench ").is_err());
         assert!(validate_remote_root("/var/lib/*").is_err());
         assert!(validate_remote_root("/var/lib/a;id").is_err());
@@ -2007,9 +2042,28 @@ mod tests {
             "..",
             "/",
             "docs/benchmarks/",
+            "a/b/.",
+            "a/b/..",
+            "-out.json",
+            "foo\0bar.jsonl",
+            "foo\nbar.jsonl",
             env!("CARGO_MANIFEST_DIR"),
         ] {
             assert!(validate_local_out(bad_out).is_err(), "{bad_out:?}");
+        }
+        assert!(validate_speed_out("docs/benchmarks/speed.txt").is_ok());
+        assert!(validate_speed_out("docs/benchmarks/speed.md").is_err());
+        assert!(validate_speed_out("docs/benchmarks/speed.MD").is_err());
+        #[cfg(not(windows))]
+        {
+            assert_eq!(
+                scp_local_arg(Path::new(r"foo\bar:baz.jsonl")),
+                r"./foo\bar:baz.jsonl"
+            );
+            assert_eq!(
+                scp_local_arg(Path::new(r".\2026:00.jsonl")),
+                r"./.\2026:00.jsonl"
+            );
         }
         assert!(validate_simple_token("--group", "-bad").is_err());
         assert!(validate_simple_token("--group", ".").is_err());

@@ -215,8 +215,9 @@ metadata, BOM preservation, item counts, untouched values and command-context
 key allowlists):
 
 - `45699785407` (`265a0c6`, `1.7.0` readiness): 7 of 7 targets passed.
-- `45717314607` (`2e201ef`, PR #227), `45729274669` (`3e87068`, PR #230) and
-  `45740090801` (`a11391d`, PR #232): 7 of 7 targets passed on each run.
+- `45717314607` (`2e201ef`, PR #227, merged as `f3247a5`), `45729274669`
+  (`3e87068`, PR #230, merged as `2e49fa3`) and `45740090801` (`a11391d`,
+  PR #232): 7 of 7 targets passed on each run.
 - `45748121425` (`8af893f`, PR #235): `encoding` caught a real inverse-search
   gap (`crash-708e9bd4e5a920419949f79e6dd3259765347025`) where
   `QuotedTail::Append` under `normalize_newlines` and `LineBreaks::Lf` did not
@@ -224,9 +225,10 @@ key allowlists):
   (`de944b8`) fixed `tail_starts`/`inverse` and added regression tests.
 - `45750442018` (`de944b8`, pre-`1.7.2` release gate): 7 of 7 targets passed
   with zero crashes and zero timeouts.
-- `45755858881` (`b445f37`, PR #238 post-`1.7.2` audit fixes for CR-padding
-  `line_byte_limit` budgets and tightened `$(...)` command-context keys): 7 of 7
-  targets passed with zero crashes and zero timeouts.
+- `45755858881` (`b445f37`, PR #238, merged as `5067df6`, post-`1.7.2` audit
+  fixes for CR-padding `line_byte_limit` budgets and tightened `$(...)`
+  command-context keys): 7 of 7 targets passed with zero crashes and zero
+  timeouts.
 
 ## Mutation testing at 1.2.0
 
@@ -589,9 +591,9 @@ requirements; mutation campaigns do not run on the shared development host.
 ## Docs site smoke
 
 `.github/workflows/docs.yml` builds the mdBook site and runs the headless
-Chromium smoke suite (`scripts/docs-smoke/smoke.mjs`) automatically on docs
-pull requests and every push to `main`. It verifies nested navigation, every
-discovered benchmark chart and result page, chart controls and compact-vs-map
+Chromium smoke suite (`scripts/docs-smoke/smoke.mjs`) automatically on
+docs-path pull requests, docs-path pushes to `main` and manual dispatches. It
+verifies nested navigation, every discovered benchmark chart and result page, chart controls and compact-vs-map
 views, table sorting and filtering, selector help popovers, and mobile
 overflow and popover bounds (originally established on 2026-11-15 with
 `mdbook` 0.5.4 at commit `c6ae7b6`).
