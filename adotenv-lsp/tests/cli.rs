@@ -230,3 +230,33 @@ fn stdio_server_exits_nonzero_on_exit_without_shutdown() {
     let status = child.wait().unwrap();
     assert!(!status.success());
 }
+
+#[test]
+fn stdio_server_replies_invalid_params_and_exits_without_hanging_on_bad_initialize() {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_adotenv-lsp"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // Keep stdin open to verify the server does not deadlock in io_threads.join().
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+
+    write_lsp_message(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": "not-an-object"
+        }),
+    );
+    let response = read_lsp_message(&mut stdout);
+    assert_eq!(response["id"], 1);
+    assert_eq!(response["error"]["code"], -32602);
+
+    let status = child.wait().unwrap();
+    assert!(!status.success());
+    drop(stdin);
+}

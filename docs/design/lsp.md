@@ -44,8 +44,9 @@ and are verified to remain unchanged.
 
 Parser diagnostics are always enabled. `LspOptions::with_dialect` selects the
 parser dialect for every operation (including `BomPolicy::StripAll` multi-BOM
-and `BomPolicy::Error` position mapping, plus monotonic CRLF end-of-line mapping
-under `LineBreaks::Lf` dialects); the stdio server takes it from `--dialect`
+and `BomPolicy::Error` position mapping, full UTF-16 surrogate-pair BOM
+anchoring, and monotonic snapping for diagnostic spans landing inside CRLF such
+as `"\\\r\n"`); the stdio server takes it from `--dialect`
 (which overrides any config `dialect`) or from the loaded lint configuration.
 `LspOptions::with_parse_options` (and the stdio binary's `--max-input-bytes`,
 `--max-lines`, `--max-items` and `--max-diagnostics` flags) applies opt-in

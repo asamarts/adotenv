@@ -20,18 +20,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- `adotenv-lsp`: mapped CRLF `LineBreaks::Lf` item ends monotonically instead
-  of falling back to `(0, 0)` (preventing inverted ranges under Docker and
-  Compose dialects), fixed `BomPolicy::Error` column offsets and zero-width
-  BOM-only/BOM-newline diagnostic ranges, switched `rename_with_options` to
-  recovering parsing (preserving unrelated invalid lines while retaining limit
-  errors), narrowed `reference_at` to the containing entry, escaped multiline
-  keys in Markdown hover output, fixed multiline/backtick/Compose-colon/
-  Python-escape/raw-value/escaped-dollar/dotted-braced completion handling,
-  returned non-zero exit status on `exit` without `shutdown`, rejected
-  `didChange` for unopened documents while propagating transport errors, and
-  restricted URI ignore matching to `file://` URIs with Windows drive-letter
-  slash stripping.
+- `adotenv-lsp`: snapped `PositionError::InsideCrLf` spans (such as `"\\\r\n"`
+  escape diagnostics) monotonically to line end instead of falling back to
+  `(0, 0)`, anchored stripped BOM diagnostics to the full UTF-16 width of the
+  first visible character (avoiding surrogate-pair splits on astral characters),
+  fixed `BomPolicy::Error` column offsets and zero-width BOM-only/BOM-newline
+  diagnostic ranges, switched `rename_with_options` to recovering parsing
+  (preserving unrelated invalid lines while retaining limit errors), narrowed
+  `reference_at` to the containing entry (including bare keys at EOF without a
+  trailing newline), escaped multiline keys in Markdown hover output, aligned
+  completion context and escaped-dollar detection with core parser/reference
+  rules across multiline values, mid-value quotes, backticks, Compose colons,
+  `quoted_comments`, Python escapes, raw values, and braced dotted references,
+  returned `InvalidParams` and exited promptly without deadlocking on early
+  stdio errors, returned non-zero exit status on `exit` without `shutdown`,
+  rejected `didChange` for unopened documents while propagating transport
+  errors, and restricted URI ignore matching to `file://` URIs with Windows
+  drive-letter slash stripping.
 
 ## [1.7.3] - 2026-11-26
 
