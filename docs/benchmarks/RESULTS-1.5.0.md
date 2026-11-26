@@ -18,7 +18,8 @@ evidence; neither replaces the historical 1.4.1 map-based claim.
 <a class="bench-callout" href="speed-1.5.0.html"><strong>Speed chart</strong><span>Explore values and load timings by size, shape and mode.</span></a>
 </p>
 
-The compact representation was measured on `kbench` for memory from SHA
+The compact representation was measured on the dedicated Linux reference host
+for memory from SHA
 `0a9fc92` and for speed from SHA `79937cc`, using the same fixtures and
 comparable values/load modes as the [1.4.1 results](RESULTS-1.4.1.md). Version
 1.5.0 was tagged at `70f9762`. The memory source is the release candidate;
@@ -38,8 +39,9 @@ the speed source is a later benchmark-only commit. Raw evidence:
 | Memory | `0a9fc92` | `load1=0.09` |
 | Speed | `79937cc` | `load1=0.21` |
 
-Both runs used `kbench`, Intel Core i7-6700HQ (8 logical CPUs), Linux
-7.1.3-arch1-2, Rust 1.97.1, and the benchq/pueue `bench` group with one slot.
+Both runs used the dedicated quiet Linux x86_64 reference host (Intel Core
+i7-6700HQ, 8 logical CPUs, Linux 7.1.3-arch1-2, Rust 1.97.1) and a single-slot
+serialized queue (`bench` group, one slot).
 This historical 1.5.0 memory snapshot was recorded before
 `CountingAllocator::realloc` stopped double-counting growing reallocations;
 heap byte metrics and speed timings are unaffected, and the current post-fix CI
@@ -84,7 +86,8 @@ The compact API is the 1.5.0 minor-release addition. It is opt-in:
 
 ```console
 cargo run --release -p adotenv-xtask -- queue \
-  --remote-root /var/lib/benchq/adotenv-bench \
+  --host "$ADOTENV_BENCH_HOST" \
+  --remote-root "$ADOTENV_BENCH_ROOT" \
   --out docs/benchmarks/compact-memory-1.5.0.jsonl \
   --remote-out bench-compact-memory-1.5.0.jsonl \
   --sizes 8,128,1k,10k,100k --shapes plain,long-line,empty \
@@ -95,10 +98,11 @@ cargo run --release -p adotenv-xtask -- report \
   --out docs/benchmarks/compact-memory-1.5.0.md
 
 cargo run --release -p adotenv-xtask -- queue-speed \
-  --remote-root /var/lib/benchq/adotenv-bench \
+  --host "$ADOTENV_BENCH_HOST" \
+  --remote-root "$ADOTENV_BENCH_ROOT" \
   --out docs/benchmarks/speed-1.5.0.txt \
   --remote-out bench-speed-1.5.0.txt --bench competitors --sync
 ```
 
-Use the same `PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml` group and one-slot queue
-as every other publication run. Do not bypass the shared queue.
+Use the same single-slot serialized queue as every other publication run. Do
+not bypass the shared queue.

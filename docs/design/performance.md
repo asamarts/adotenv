@@ -190,8 +190,8 @@ CI separates deterministic internal gates from publication wall-time evidence:
   the map and compact memory gates on every PR. The harness smoke is
   non-gating; the memory gates are gating. The deterministic `Ir`/cycle gate
   runs in `det-perf`.
-- Competitor criterion and kbench wall-time results are advisory at PR time.
-  Only the deterministic gates block a change.
+- Competitor criterion and reference-host wall-time results are advisory at PR
+  time. Only the deterministic gates block a change.
 - Update the map and compact memory baselines only with an intentional,
   reviewed code change and fresh fingerprints. Do not update them to make a
   failing gate pass. The gungraun gate has no committed output; it always
@@ -199,8 +199,8 @@ CI separates deterministic internal gates from publication wall-time evidence:
 
 ### 1.4.1 comparable baseline
 
-The comparable matrix on `kbench` (five sizes, `plain`/`long-line`/`empty`,
-values and load) is recorded in
+The comparable matrix on the reference host (five sizes,
+`plain`/`long-line`/`empty`, values and load) is recorded in
 [`docs/benchmarks/speed.md`](../benchmarks/speed.md) and
 [`docs/benchmarks/memory-1.4.1.md`](../benchmarks/memory-1.4.1.md). The speed and memory
 snapshots share the final 1.4.1 baseline SHA `0649096`. Against the best
@@ -216,7 +216,7 @@ The retained result cannot become a strict win without changing the public
 sizes, and larger cells are already at the compact-tree floor. For 1.4.1 this is
 accepted as a no-loss result, not treated as a strict win. The compact values
 API (`CompactValues`, `parse_values_compact` and the compact load variants) has
-publication-grade `kbench` evaluations for the 1.5.0 release: memory at SHA
+publication-grade reference-host evaluations for the 1.5.0 release: memory at SHA
 `0a9fc92` wins retained heap in all 20 non-empty values/load cells, ties at zero
 bytes in the 10 empty cells, and wins peak heap and allocation count in all 30
 cells; speed at SHA `79937cc` wins all 25 values/load cells against the best

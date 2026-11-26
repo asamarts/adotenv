@@ -5,9 +5,9 @@ shared development host.
 
 ## Policy
 
-Run resource-heavy validation on `kbench` through the serialized `benchq`
-pueue queue, or in GitHub Actions. Do not run it on the shared development
-host.
+Run resource-heavy validation on a dedicated remote validation host through its
+single-slot serialized queue, or in GitHub Actions. Do not run it on the shared
+development host.
 
 Heavy validation includes:
 
@@ -73,25 +73,25 @@ cargo mutants --file src/references.rs --jobs 1 --timeout 120 \
   --gitignore true --baseline skip
 ```
 
-Do not override this with more than one mutation worker on kbench or any host
-without an aggregate memory limit. If a local test is unavoidable, use a
-temporary target directory, `CARGO_BUILD_JOBS=2`, `RUST_TEST_THREADS=1` and a
-memory cap such as `ulimit -v 8388608` (8 GiB). Stop the run if memory or load
-rises.
+Do not override this with more than one mutation worker on a remote validation
+host or any host without an aggregate memory limit. If a local test is
+unavoidable, use a temporary target directory, `CARGO_BUILD_JOBS=2`,
+`RUST_TEST_THREADS=1` and a memory cap such as `ulimit -v 8388608` (8 GiB).
+Stop the run if memory or load rises.
 
-## kbench procedure
+## Remote validation host procedure
 
-`kbench` currently has 8 CPUs, 15 GiB of RAM, no swap, a 442 GB disk, pueue
-4.0.4 and a serialized `bench` group with one slot. Its `benchq` daemon runs
-with `ProtectHome`, so it cannot use a toolchain under `/home`.
+The reference validation host has 8 logical CPUs, 15 GiB of RAM, no swap, and a
+serialized single-slot `pueue` queue (`bench` group). When a queue service runs
+without access to user home directories, provision the toolchain, tool
+binaries, `CARGO_HOME`, and tracked-only source tree under a dedicated state
+root (`$BENCH_ROOT`):
 
-The test environment was provisioned on 2026-11-18:
-
-- `/var/lib/benchq/toolchain` is a copy of Rust 1.97.0, readable by `benchq`;
-- `/var/lib/benchq/bin/cargo-mutants` is `cargo-mutants` 27.1.0;
-- `/var/lib/benchq/cargo` is the `CARGO_HOME`; dependencies were fetched with
+- `$BENCH_ROOT/toolchain` holds a Rust toolchain readable by the queue service;
+- `$BENCH_ROOT/bin/cargo-mutants` holds `cargo-mutants` 27.1.0;
+- `$BENCH_ROOT/cargo` is the `CARGO_HOME`; dependencies are fetched with
   `cargo fetch --locked`;
-- `/var/lib/benchq/adotenv-src` is a tracked-only source tree.
+- `$BENCH_ROOT/adotenv-src` is a tracked-only source tree.
 
 The first shard (0/4) used a 12 GiB address-space limit, two Cargo build jobs,
 one test thread and two mutation workers. It tested 102 mutants: **68 caught,
@@ -100,10 +100,11 @@ immediately after the task.
 
 The next shard (1/4) tested 102 mutants: **53 caught, 0 missed, 33 timeouts
 and 16 unviable**. During shard 2/4, one mutant test process reached **9.6 GiB
-RSS** and the 15 GiB host hit a global OOM. The benchq service peaked at
-14.5 GiB, the kernel killed the test process and restarted pueued; shard 3/4
-was stopped before it could repeat the failure. Two workers plus per-process
-limits were not enough because the limit is not an aggregate cgroup limit.
+RSS** and the 15 GiB host hit a global OOM. The queue service peaked at
+14.5 GiB, the kernel killed the test process and restarted the queue daemon;
+shard 3/4 was stopped before it could repeat the failure. Two workers plus
+per-process limits were not enough because the limit is not an aggregate cgroup
+limit.
 
 The one-worker, 8 GiB reruns completed:
 
@@ -117,7 +118,7 @@ is reviewed, not an infrastructure failure. The timeouts are scanner,
 delimiter and bit-mask mutants that do not terminate within 60 seconds; no
 finite test can catch them, and no product failure was demonstrated.
 
-Across all four kbench shards `src/parser.rs` completed with **695 mutants:
+Across all four remote shards `src/parser.rs` completed with **695 mutants:
 518 caught, 0 missed, 48 unviable and 129 timeouts**:
 
 - 0/4: 174 mutants; 116 caught, 0 missed, 24 unviable and 34 timeouts.
@@ -125,14 +126,14 @@ Across all four kbench shards `src/parser.rs` completed with **695 mutants:
 - 2/4: 174 mutants; 141 caught, 0 missed, 0 unviable and 33 timeouts.
 - 3/4: 173 mutants; 125 caught, 0 missed, 6 unviable and 42 timeouts.
 
-Remaining core and adapter shards also completed on kbench under the same
-one-worker / 8 GiB cap:
+Remaining core and adapter shards also completed on the remote validation host
+under the same one-worker / 8 GiB cap:
 
 - `adotenv-process`: 9 mutants; 5 caught, 4 Windows-only misses (covered by Windows CI).
 - `adotenv-config`: 10 mutants; 9 caught, 0 missed, 1 unviable.
 - `adotenv-figment`: 10 mutants; 10 caught, 0 missed after adding `Provider::metadata` assertions.
 - `src/limit.rs`: 9 mutants; 8 caught, 1 unviable, 0 missed, 0 timeouts after adding `Display`/`as_str` tests.
-- `src/serde_support.rs`: 68 mutants; 36 caught, 32 unviable, 0 missed, 0 timeouts after adding the `size_hint` visitor test and verifying 3/3 caught on kbench.
+- `src/serde_support.rs`: 68 mutants; 36 caught, 32 unviable, 0 missed, 0 timeouts after adding the `size_hint` visitor test and verifying 3/3 caught.
 - `src/parser/decode.rs` (0/2 and 1/2): 241 mutants; 151 caught, 66 missed, 13 unviable, 11 timeouts; targeted tests closed the genuine coverage gaps, confirmation shard 0/2 verified 93 caught, 8 missed (7 equivalent/defensive + 1 EOF bounds guard closed in follow-up) and 1 timeout, and confirmation shard 1/2 (120 mutants, `--timeout 120`) verified 94 caught, 1 unviable, 8 timeouts and 17 defensive/equivalent survivors (0 genuine gaps).
 - `1.6.0` core additions (`--in-diff`, 0/3 through 2/3): 259 mutants; 196 caught, 17 missed, 44 unviable, 2 timeouts; added regression tests for all 12 genuine survivors and confirmed 35 caught, 1 unviable, 0 missed and 0 timeouts across the 36-mutant confirmation rerun (208 caught, 5 equivalent/defensive survivors, 44 unviable, 2 timeouts in total).
 - `adotenv-lsp/src/lib.rs`: 146 mutants; 115 caught, 28 unviable, 0 timeouts, 3 equivalent survivors (0 genuine gaps) after adding 5 targeted regression assertions and 2-second transport test channel timeouts.
@@ -141,66 +142,66 @@ one-worker / 8 GiB cap:
 - `adotenv-cli/src/main.rs` (506 mutants across shards `0/2` and `1/2`): closed all 23 genuine gaps; 439 caught, 13 unviable, 9 infinite-loop timeouts, 19 Windows-only + 26 defensive/equivalent survivors (0 genuine gaps). Every published crate in the workspace has now completed sharded or full-file mutation runs.
 
 Note on timeouts: a clean single-threaded `adotenv` package test pass takes
-about 73-75 seconds on `kbench`. Use `--timeout 120` (rather than `--timeout 60`)
-for `adotenv` core shards so uncaught survivors report as `MISSED` instead of
-timing out at 60 seconds. Optional full-crate companion sweeps (`adotenv-lsp`,
-`adotenv-lint`, `adotenv-cli`) follow the same one-shard-at-a-time idle-queue
-procedure.
+about 73-75 seconds on the reference host. Use `--timeout 120` (rather than
+`--timeout 60`) for `adotenv` core shards so uncaught survivors report as
+`MISSED` instead of timing out at 60 seconds. Optional full-crate companion
+sweeps (`adotenv-lsp`, `adotenv-lint`, `adotenv-cli`) follow the same
+one-shard-at-a-time idle-queue procedure.
 
 If the prerequisites are ever removed, reprovision them before queueing.
-If kbench is unavailable, use GitHub Actions. Do not fall back to a heavy
-local run.
+If the remote host is unavailable, use GitHub Actions. Do not fall back to a
+heavy local run.
 
-To refresh the tracked source and queue a bounded workspace test:
+To refresh the tracked source and queue a bounded workspace test (with
+`BENCH_HOST`, `BENCH_ROOT`, `BENCH_GROUP` and optional `PUEUE_CONFIG_PATH`
+configured for your environment):
 
 ```console
-tmp=$(mktemp -d ~/.tmp/adotenv-kbench.XXXXXX)
+tmp=$(mktemp -d ~/.tmp/adotenv-remote.XXXXXX)
 git archive --format=tar.gz HEAD > "$tmp/src.tar.gz"
-ssh kbench 'sudo -n -u benchq sh -c "cd /var/lib/benchq \
-  && mkdir -p adotenv-src \
-  && find adotenv-src -mindepth 1 -maxdepth 1 -exec rm -rf {} +"'
-ssh kbench 'sudo -n -u benchq sh -c "cd /var/lib/benchq \
-  && tar -xzf - -C adotenv-src"' < "$tmp/src.tar.gz"
+ssh "$BENCH_HOST" "mkdir -p '$BENCH_ROOT/adotenv-src' \
+  && find '$BENCH_ROOT/adotenv-src' -mindepth 1 -maxdepth 1 -exec rm -rf {} +"
+ssh "$BENCH_HOST" "tar -xzf - -C '$BENCH_ROOT/adotenv-src'" < "$tmp/src.tar.gz"
 rm -rf "$tmp"
 
-ssh kbench 'PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add \
-  --group bench --working-directory /var/lib/benchq/adotenv-src \
+ssh "$BENCH_HOST" "PUEUE_CONFIG_PATH='$PUEUE_CONFIG_PATH' pueue add \
+  --group '${BENCH_GROUP:-bench}' --working-directory '$BENCH_ROOT/adotenv-src' \
   --label adotenv-tests --print-task-id -- \
-  "ulimit -v 8388608; \
-    export HOME=/var/lib/benchq CARGO_HOME=/var/lib/benchq/cargo \
-      PATH=/var/lib/benchq/bin:/var/lib/benchq/toolchain/bin:/usr/bin:/bin \
+  \"ulimit -v 8388608; \
+    export HOME='$BENCH_ROOT' CARGO_HOME='$BENCH_ROOT/cargo' \
+      PATH='$BENCH_ROOT/bin:$BENCH_ROOT/toolchain/bin:/usr/bin:/bin' \
       CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2; \
-    exec cargo test --workspace --all-features --locked"'
+    exec cargo test --workspace --all-features --locked\""
 ```
 
 Use the task id printed by `pueue add` to wait and collect the log:
 
 ```console
-PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue wait <task>
-PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue log <task>
+PUEUE_CONFIG_PATH="$PUEUE_CONFIG_PATH" pueue wait <task>
+PUEUE_CONFIG_PATH="$PUEUE_CONFIG_PATH" pueue log <task>
 ```
 
 For mutation testing, keep one worker and one test thread, and pass the
 shell command as a single quoted argument so `pueue` does not split on `;`:
 
 ```console
-ssh kbench 'PUEUE_CONFIG_PATH=/etc/benchq/pueue.yml pueue add \
-  --group bench --working-directory /var/lib/benchq/adotenv-src \
+ssh "$BENCH_HOST" "PUEUE_CONFIG_PATH='$PUEUE_CONFIG_PATH' pueue add \
+  --group '${BENCH_GROUP:-bench}' --working-directory '$BENCH_ROOT/adotenv-src' \
   --label adotenv-mutants --print-task-id -- \
-  "ulimit -v 8388608; \
-    export HOME=/var/lib/benchq CARGO_HOME=/var/lib/benchq/cargo \
-      CARGO=/var/lib/benchq/toolchain/bin/cargo \
-      PATH=/var/lib/benchq/bin:/var/lib/benchq/toolchain/bin:/usr/bin:/bin \
+  \"ulimit -v 8388608; \
+    export HOME='$BENCH_ROOT' CARGO_HOME='$BENCH_ROOT/cargo' \
+      CARGO='$BENCH_ROOT/toolchain/bin/cargo' \
+      PATH='$BENCH_ROOT/bin:$BENCH_ROOT/toolchain/bin:/usr/bin:/bin' \
       CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=1; \
     exec cargo mutants --workspace --all-features \
       --file src/references.rs --jobs 1 --timeout 120 \
-      --gitignore true --baseline skip"'
+      --gitignore true --baseline skip\""
 ```
 
 The two `--jobs` flags are different: the first after `cargo mutants` is the
 number of mutant workers, while `--jobs 2` in `.cargo/mutants.toml` is Cargo
-build parallelism. Pass a non-login command string (not `bash -lc`): the
-benchq account cannot read the login shell's `/home` profile, and
+build parallelism. Pass a non-login command string (not `bash -lc`): a
+hardened queue service account may not read user `/home` profiles, and
 `cargo mutants` needs `CARGO` set to the provisioned toolchain. `--in-place`
 is acceptable only in the dedicated remote checkout with one mutant worker;
 it avoids the per-worker copy but mutates the source tree.
@@ -217,8 +218,8 @@ same time as a benchmark, and do not submit the same campaign twice. Remove
 The full test matrix, fuzzing, benchmarks, conformance and the sharded mutation
 workflow run in GitHub Actions. The mutation workflow uses two workers and
 takes a tracked-only checkout, so it does not copy conformance build
-artifacts. If kbench is unavailable or not provisioned, use CI rather than the
-shared host.
+artifacts. If the remote host is unavailable or not provisioned, use CI rather
+than the shared host.
 
 Local cleanup after an interrupted campaign:
 

@@ -16,7 +16,9 @@ name: Release
 # Manual dispatch runs the CI quality gate. The `publish_linter`, `publish_lsp`,
 # `publish_config` and `publish_figment` inputs can additionally publish those
 # independent 0.x crates through crates.io Trusted Publishing (OIDC) without a
-# core tag; each path packages, attests and uploads its .crate.
+# core tag; each path verifies its CHANGELOG.md section, packages, attests,
+# uploads its .crate, and creates a permanent non-latest `<crate>-vX.Y.Z`
+# GitHub Release with its `.crate` and `.crate.sha256` assets attached.
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
@@ -332,6 +334,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.publish_linter == true
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
     permissions:
       contents: read
       id-token: write # crates.io Trusted Publishing
@@ -344,6 +348,7 @@ jobs:
         with:
           toolchain: stable
       - name: verify the linter version is unpublished
+        id: verify
         run: |
           set -euo pipefail
           version="$(
@@ -361,7 +366,9 @@ jobs:
             echo "::error::crates.io lookup for adotenv-lint $version returned HTTP $code"
             exit 1
           fi
-          echo "::notice::adotenv-lint $version is unpublished"
+          python3 scripts/release-extract-changelog.py "adotenv-lint $version" >/dev/null
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "::notice::adotenv-lint $version is unpublished and has changelog notes"
       - name: mint a short-lived crates.io token via OIDC
         uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1
         id: crates-auth
@@ -392,6 +399,8 @@ jobs:
       (needs.publish-linter.result == 'success' || needs.publish-linter.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
     permissions:
       contents: read
       id-token: write # crates.io Trusted Publishing
@@ -404,6 +413,7 @@ jobs:
         with:
           toolchain: stable
       - name: verify the lsp version is unpublished
+        id: verify
         run: |
           set -euo pipefail
           version="$(
@@ -421,7 +431,9 @@ jobs:
             echo "::error::crates.io version lookup for adotenv-lsp $version returned HTTP $code"
             exit 1
           fi
-          echo "::notice::adotenv-lsp $version is unpublished"
+          python3 scripts/release-extract-changelog.py "adotenv-lsp $version" >/dev/null
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "::notice::adotenv-lsp $version is unpublished and has changelog notes"
       - name: mint a short-lived crates.io token via OIDC
         uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1
         id: crates-auth
@@ -447,6 +459,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.publish_config == true
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
     permissions:
       contents: read
       id-token: write # crates.io Trusted Publishing
@@ -459,6 +473,7 @@ jobs:
         with:
           toolchain: stable
       - name: verify the config adapter version is unpublished
+        id: verify
         run: |
           set -euo pipefail
           version="$(
@@ -476,7 +491,9 @@ jobs:
             echo "::error::crates.io lookup for adotenv-config $version returned HTTP $code"
             exit 1
           fi
-          echo "::notice::adotenv-config $version is unpublished"
+          python3 scripts/release-extract-changelog.py "adotenv-config $version" >/dev/null
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "::notice::adotenv-config $version is unpublished and has changelog notes"
       - name: mint a short-lived crates.io token via OIDC
         uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1
         id: crates-auth
@@ -502,6 +519,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.publish_figment == true
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
     permissions:
       contents: read
       id-token: write # crates.io Trusted Publishing
@@ -514,6 +533,7 @@ jobs:
         with:
           toolchain: stable
       - name: verify the figment adapter version is unpublished
+        id: verify
         run: |
           set -euo pipefail
           version="$(
@@ -531,7 +551,9 @@ jobs:
             echo "::error::crates.io lookup for adotenv-figment $version returned HTTP $code"
             exit 1
           fi
-          echo "::notice::adotenv-figment $version is unpublished"
+          python3 scripts/release-extract-changelog.py "adotenv-figment $version" >/dev/null
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "::notice::adotenv-figment $version is unpublished and has changelog notes"
       - name: mint a short-lived crates.io token via OIDC
         uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1
         id: crates-auth
@@ -550,6 +572,98 @@ jobs:
           path: release-assets/*
           if-no-files-found: error
           retention-days: 14
+
+  github-release-linter:
+    name: GitHub Release (adotenv-lint)
+    needs: publish-linter
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_linter == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: download linter release assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-crates-linter
+          path: release-assets/adotenv-lint
+      - name: create companion GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.publish-linter.outputs.version }}
+        run: bash scripts/release-companion-github.sh adotenv-lint "$VERSION" release-assets/adotenv-lint
+
+  github-release-lsp:
+    name: GitHub Release (adotenv-lsp)
+    needs: publish-lsp
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_lsp == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: download lsp release assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-crates-lsp
+          path: release-assets/adotenv-lsp
+      - name: create companion GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.publish-lsp.outputs.version }}
+        run: bash scripts/release-companion-github.sh adotenv-lsp "$VERSION" release-assets/adotenv-lsp
+
+  github-release-config:
+    name: GitHub Release (adotenv-config)
+    needs: publish-config
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_config == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: download config release assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-crates-config
+          path: release-assets/adotenv-config
+      - name: create companion GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.publish-config.outputs.version }}
+        run: bash scripts/release-companion-github.sh adotenv-config "$VERSION" release-assets/adotenv-config
+
+  github-release-figment:
+    name: GitHub Release (adotenv-figment)
+    needs: publish-figment
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_figment == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: download figment release assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-crates-figment
+          path: release-assets/adotenv-figment
+      - name: create companion GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.publish-figment.outputs.version }}
+        run: bash scripts/release-companion-github.sh adotenv-figment "$VERSION" release-assets/adotenv-figment
 
   github-release:
     name: GitHub Release
@@ -575,21 +689,7 @@ jobs:
         run: |
           set -euo pipefail
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            python3 - "${TAG#v}" > notes.md <<'PY'
-          import re
-          import sys
-
-          version = sys.argv[1]
-          text = open("CHANGELOG.md", encoding="utf-8").read()
-          match = re.search(
-              rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)",
-              text,
-              re.MULTILINE | re.DOTALL,
-          )
-          if match is None or not match.group(1).strip():
-              raise SystemExit(f"CHANGELOG.md has no section for {version}")
-          print(match.group(1).strip())
-          PY
+            python3 scripts/release-extract-changelog.py "${TAG#v}" > notes.md
             gh release create "$TAG" --verify-tag --title "adotenv ${TAG#v}" --notes-file notes.md
           else
             echo "::notice::release $TAG already exists"

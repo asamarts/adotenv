@@ -6,8 +6,8 @@
 - Rust stable for Criterion and the workspace.
 - `valgrind` and the `gungraun-runner` matching the workspace `gungraun`
   version for deterministic benches.
-- For publication, SSH access to `kbench` and use of the shared benchq pueue
-  daemon. Never bypass the queue.
+- For publication, SSH access to a dedicated quiet Linux reference host with a
+  single-slot serialized `pueue` queue. Never bypass the queue.
 
 Set a private scratch directory on a shared host, for example
 `~/.tmp/adotenv-bench`, rather than using `/tmp` for build output.
@@ -41,7 +41,8 @@ measurements for bare-preserving `CompactEntries`. Run the compact matrix with
 
 ```console
 cargo run --release -p adotenv-xtask -- queue \
-  --remote-root /var/lib/benchq/adotenv-bench \
+  --host "$ADOTENV_BENCH_HOST" \
+  --remote-root "$ADOTENV_BENCH_ROOT" \
   --out docs/benchmarks/compact-memory.jsonl \
   --remote-out bench-compact-memory.jsonl \
   --sizes 8,128,1k,10k,100k --shapes plain,long-line,empty \
@@ -134,30 +135,35 @@ cargo run --release -p adotenv-xtask -- gate \
 Publication speed files, including `speed.txt`, `speed-1.5.0.txt` and
 `speed-1.6.0.txt`, are evidence and are not PR gates.
 
-## Publication run on kbench
+## Publication run on a reference host
 
-Build and queue both matrices from a clean commit. The remote root must be
-writable by the benchq daemon and should be on its state filesystem:
+Build and queue both matrices from a clean commit. Set `ADOTENV_BENCH_HOST`
+(or pass `--host`), `ADOTENV_BENCH_ROOT` (an absolute, non-root, non-home
+working directory writable by the queue service), and optional
+`PUEUE_CONFIG_PATH`, `ADOTENV_BENCH_GROUP` (default `bench`) and
+`ADOTENV_BENCH_USER`:
 
 ```console
 cargo run --release -p adotenv-xtask -- queue \
-  --remote-root /var/lib/benchq/adotenv-bench \
+  --host "$ADOTENV_BENCH_HOST" \
+  --remote-root "$ADOTENV_BENCH_ROOT" \
   --out docs/benchmarks/memory.jsonl \
   --sizes 8,128,1k,10k,100k --shapes plain,long-line,empty \
   --modes values,load,document,resolve --sync
 
 cargo run --release -p adotenv-xtask -- queue-speed \
-  --remote-root /var/lib/benchq/adotenv-bench \
+  --host "$ADOTENV_BENCH_HOST" \
+  --remote-root "$ADOTENV_BENCH_ROOT" \
   --out docs/benchmarks/speed.txt --sync
 ```
 
-The task is added to the shared `bench` group with one slot and waits for
-completion before copying results and fingerprints back. Do not run a second
-benchmark outside the queue. `--dry-run` shows the queued command without
-touching the host.
+The task is added to the single-slot serialized queue (`bench` group by
+default) and waits for completion before copying results and fingerprints back.
+Do not run a second benchmark outside the queue. `--dry-run` shows the queued
+command without touching the host.
 
 The queue path builds release memory/xtask binaries locally, installs them into
-benchq's state directory, and records the local git SHA through
+the configured remote working directory, and records the local git SHA through
 `ADOTENV_GIT_SHA`; the remote fingerprint also records remote CPU/OS/kernel and
 load.
 
@@ -176,7 +182,8 @@ duplicated parse is a useful manual check when changing the gate.
 ## Publication checklist
 
 1. Start from a clean commit.
-2. Run both matrices through `kbench`/benchq.
+2. Run both matrices on the dedicated reference host through its single-slot
+   serialized queue.
 3. Verify both fingerprint files describe the intended host and record load.
 4. Render the Markdown reports.
 5. Check all comparable cells and record tiers/tie/misses explicitly.

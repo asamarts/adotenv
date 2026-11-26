@@ -24,27 +24,41 @@ runs hyperfine over a generated fixture. `report` renders memory JSONL rows as
 a Markdown table. `compare` reports numeric deltas against a previous memory
 JSONL file, and `gate` enforces the deterministic memory baseline thresholds.
 
-## kbench
+## Remote queue
 
-`queue` accepts an absolute, benchq-readable working directory at
-`--remote-root`. With `--sync` it builds the release-mode memory and xtask
-binaries, copies them there, and queues a serialized task through the shared benchq
-daemon. The daemon runs as `benchq` with `ProtectHome`, `ProtectSystem=strict`
-and `PrivateTmp`, so the remote root must be writable by that user. On `kbench`
-use its state directory and passwordless `sudo -n -u benchq`:
+`queue` and `queue-speed` run benchmarks on a dedicated remote Linux host over
+SSH using a serialized `pueue` queue. Pass the host and queue settings with CLI
+flags or environment variables:
+
+- `--host <host>` or `ADOTENV_BENCH_HOST` (required): SSH target host.
+- `--remote-root <path>` (required): absolute, non-root, non-home working
+  directory writable by the queue service.
+- `--pueue-config <path>` or `PUEUE_CONFIG_PATH` (optional): remote `pueue`
+  configuration file.
+- `--group <name>` or `ADOTENV_BENCH_GROUP` (optional, default `bench`):
+  single-slot `pueue` group.
+- `--queue-user <user>` or `ADOTENV_BENCH_USER` (optional): remote service user
+  used with non-interactive `sudo` when syncing binaries into a restricted
+  state directory.
+
+With `--sync`, `queue` and `queue-speed` require a clean working tree so the
+queued result can be tied to the local git SHA, build the release binaries
+locally, install them into `--remote-root`, queue one serialized task, wait for
+completion, and copy back the outputs and provenance fingerprint:
 
 ```console
-adotenv-xtask queue --remote-root /var/lib/benchq/adotenv-bench \
+export ADOTENV_BENCH_HOST=<bench-host>
+export ADOTENV_BENCH_ROOT=/var/lib/bench-runner/adotenv-bench
+
+adotenv-xtask queue --host "$ADOTENV_BENCH_HOST" \
+  --remote-root "$ADOTENV_BENCH_ROOT" \
   --out docs/benchmarks/memory.jsonl --sync
-adotenv-xtask queue-speed --remote-root /var/lib/benchq/adotenv-bench \
+adotenv-xtask queue-speed --host "$ADOTENV_BENCH_HOST" \
+  --remote-root "$ADOTENV_BENCH_ROOT" \
   --out docs/benchmarks/speed.txt --sync
 ```
 
-The daemon configuration is `/etc/benchq/pueue.yml` and the group is `bench`
-with one parallel slot. `--sync` requires a clean working tree so the queued
-result can be tied to the local git SHA. Use `--dry-run` to inspect the queued
-command without contacting the host. Memory tasks write `bench-memory.jsonl`
-and its fingerprint; speed tasks write `bench-speed.txt`, `bench-speed.md` and
-the fingerprint. Both are copied back to the local path. The binary-copy path
-uses `sudo -n -u benchq`; it does not change host-wide settings or other
-projects' queues.
+Use `--dry-run` to inspect the queued SSH command without contacting the remote
+host. Memory tasks write `bench-memory.jsonl` and its fingerprint; speed tasks
+write `bench-speed.txt`, `bench-speed.md` and the fingerprint. Neither path
+changes host-wide settings or other projects' queues.

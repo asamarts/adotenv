@@ -76,14 +76,16 @@ Each raw result has a sibling `*.fingerprint.json`:
   "rustc": "rustc ...",
   "hyperfine": "hyperfine ...",
   "git_sha": "...",
-  "hostname": "...",
+  "hostname": "unknown",
   "load1": "..."
 }
 ```
 
 `git_sha` is the source commit used to build the benchmark binary. The remote
 queue path sets `ADOTENV_GIT_SHA` and `ADOTENV_RUSTC` from the local build, so a
-benchmark run is traceable even when the host is reached over SSH.
+benchmark run is traceable even when the host is reached over SSH. `hostname`
+is always emitted as `"unknown"` so published fingerprints do not expose
+private hostnames.
 
 ## Baseline and gate files
 
