@@ -6,6 +6,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `adotenv-lsp`: re-exported `BomPolicy` and `EditError`, added
+  `LspOptions::without_lint_options`, derived `Clone`/`PartialEq`/`Eq` on
+  `RenameError`, added CLI flags `--dialect`, `--max-items`, and
+  `--max-diagnostics`, advertised `serverInfo` in `initialize`, included
+  document versions in `textDocument/publishDiagnostics`, and wired runnable
+  crate and README doctests.
+- Planning docs: added `docs/design/1.8.0-plan.md` covering `adotenv-lsp 0.6.0`
+  stabilization (`#248`), `adotenv 1.8.0` core additions (`#249`, `#250`), and
+  `adotenv-lint 0.3.0` (`#251`).
+
+### Fixed
+
+- `adotenv-lsp`: mapped CRLF `LineBreaks::Lf` item ends monotonically instead
+  of falling back to `(0, 0)` (preventing inverted ranges under Docker and
+  Compose dialects), fixed `BomPolicy::Error` column offsets and zero-width
+  BOM-only/BOM-newline diagnostic ranges, switched `rename_with_options` to
+  recovering parsing (preserving unrelated invalid lines while retaining limit
+  errors), narrowed `reference_at` to the containing entry, escaped multiline
+  keys in Markdown hover output, fixed multiline/backtick/Compose-colon/
+  Python-escape/raw-value/escaped-dollar/dotted-braced completion handling,
+  returned non-zero exit status on `exit` without `shutdown`, rejected
+  `didChange` for unopened documents while propagating transport errors, and
+  restricted URI ignore matching to `file://` URIs with Windows drive-letter
+  slash stripping.
+
 ## [1.7.3] - 2026-11-26
 
 ### Fixed

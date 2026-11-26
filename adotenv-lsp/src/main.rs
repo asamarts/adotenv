@@ -2,22 +2,34 @@
 
 use std::{collections::HashMap, env, error::Error, path::PathBuf, process::ExitCode};
 
-use adotenv_lint::{load_effective_config, ConfigExplicit, IgnoredPaths, LintConfig, LintPolicy};
+use adotenv_lint::{
+    load_effective_config, parse_dialect, ConfigExplicit, IgnoredPaths, LintConfig, LintPolicy,
+};
 use adotenv_lsp::{
     apply_change_with_options, completion_with_options, definition_with_options, diagnostics,
     document_symbols_with_options, hover, references_with_options, rename_with_options,
-    workspace_symbols_with_options, LspOptions, ParseOptions,
+    workspace_symbols_with_options, Dialect, LspOptions, ParseOptions,
 };
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
     CompletionOptions, CompletionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DocumentSymbolParams, GotoDefinitionParams, HoverParams,
-    HoverProviderCapability, InitializeParams, OneOf, PublishDiagnosticsParams, ReferenceParams,
-    RenameParams, ServerCapabilities, SymbolInformation, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Uri, WorkspaceSymbolParams,
+    HoverProviderCapability, InitializeParams, InitializeResult, OneOf, PublishDiagnosticsParams,
+    ReferenceParams, RenameParams, ServerCapabilities, ServerInfo, SymbolInformation,
+    TextDocumentSyncCapability, TextDocumentSyncKind, Uri, WorkspaceSymbolParams,
 };
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
+
+struct DocumentState {
+    text: String,
+    version: Option<i32>,
+}
+
+enum NotificationError {
+    Malformed(Box<dyn Error + Send + Sync>),
+    Transport(Box<dyn Error + Send + Sync>),
+}
 
 fn main() -> ExitCode {
     match run() {
@@ -30,7 +42,9 @@ fn main() -> ExitCode {
 }
 
 const USAGE: &str = "adotenv-lsp [-h|--help] [--version] [--mask-values] \
+                     [--dialect <portable|node|python|compose|docker>] \
                      [--max-input-bytes <n>] [--max-lines <n>] \
+                     [--max-items <n>] [--max-diagnostics <n>] \
                      [--config <path> | --discover-lint-config]\n";
 
 fn run() -> Result<()> {
@@ -45,9 +59,11 @@ fn run() -> Result<()> {
     }
     let (options, ignore) = load_policy(&cli)?;
     let (connection, io_threads) = Connection::stdio();
-    serve(&connection, options, ignore.as_ref())?;
+    let result = serve(&connection, options, ignore.as_ref());
     drop(connection);
-    io_threads.join()?;
+    let join_result = io_threads.join();
+    result?;
+    join_result?;
     Ok(())
 }
 
@@ -72,14 +88,24 @@ fn serve(
         rename_provider: Some(OneOf::Left(true)),
         ..ServerCapabilities::default()
     };
-    let initialization = connection.initialize(serde_json::to_value(capabilities)?)?;
+    let (init_id, initialization) = connection.initialize_start()?;
     let _: InitializeParams = serde_json::from_value(initialization)?;
+    let init_result = InitializeResult {
+        capabilities,
+        server_info: Some(ServerInfo {
+            name: "adotenv-lsp".to_owned(),
+            version: Some(env!("CARGO_PKG_VERSION").to_owned()),
+        }),
+    };
+    connection.initialize_finish(init_id, serde_json::to_value(init_result)?)?;
 
-    let mut documents = HashMap::<String, String>::new();
+    let mut documents = HashMap::<String, DocumentState>::new();
+    let mut shutdown_received = false;
     for message in &connection.receiver {
         match message {
             Message::Request(request) => {
                 if connection.handle_shutdown(&request)? {
+                    shutdown_received = true;
                     break;
                 }
                 if let Err(error) = handle_request(connection, &request, &documents, options) {
@@ -92,14 +118,28 @@ fn serve(
                 }
             }
             Message::Notification(notification) => {
-                if let Err(error) =
-                    handle_notification(connection, &notification, &mut documents, options, ignore)
-                {
-                    let _ = error;
+                if notification.method == "exit" {
+                    break;
+                }
+                match handle_notification(
+                    connection,
+                    &notification,
+                    &mut documents,
+                    options,
+                    ignore,
+                ) {
+                    Ok(()) => {}
+                    Err(NotificationError::Malformed(error)) => {
+                        eprintln!("adotenv-lsp: ignored {}: {error}", notification.method);
+                    }
+                    Err(NotificationError::Transport(error)) => return Err(error),
                 }
             }
             Message::Response(_) => {}
         }
+    }
+    if !shutdown_received {
+        return Err("client exited before shutdown".into());
     }
     Ok(())
 }
@@ -107,8 +147,11 @@ fn serve(
 #[allow(clippy::struct_excessive_bools)]
 struct Cli {
     mask_values: bool,
+    dialect: Option<Dialect>,
     max_input_bytes: Option<usize>,
     max_lines: Option<usize>,
+    max_items: Option<usize>,
+    max_diagnostics: Option<usize>,
     config: Option<PathBuf>,
     discover_lint_config: bool,
     help: bool,
@@ -128,16 +171,23 @@ fn parse_args() -> Result<Cli> {
 }
 
 fn parse_limit(flag: &str, value: &str) -> Result<usize> {
+    if value.starts_with('+') {
+        return Err(format!("{flag} expects a non-negative integer: {value}").into());
+    }
     value
         .parse::<usize>()
         .map_err(|_| format!("{flag} expects a non-negative integer: {value}").into())
 }
 
+#[allow(clippy::too_many_lines)]
 fn parse_args_from(arguments: impl IntoIterator<Item = String>) -> Result<Cli> {
     let mut cli = Cli {
         mask_values: false,
+        dialect: None,
         max_input_bytes: None,
         max_lines: None,
+        max_items: None,
+        max_diagnostics: None,
         config: None,
         discover_lint_config: false,
         help: false,
@@ -150,6 +200,10 @@ fn parse_args_from(arguments: impl IntoIterator<Item = String>) -> Result<Cli> {
             "--version" => cli.version = true,
             "--mask-values" => cli.mask_values = true,
             "--discover-lint-config" => cli.discover_lint_config = true,
+            "--dialect" => {
+                let value = arguments.next().ok_or("--dialect requires a name")?;
+                cli.dialect = Some(parse_dialect(&value)?);
+            }
             "--max-input-bytes" => {
                 let value = arguments
                     .next()
@@ -160,6 +214,16 @@ fn parse_args_from(arguments: impl IntoIterator<Item = String>) -> Result<Cli> {
                 let value = arguments.next().ok_or("--max-lines requires a number")?;
                 cli.max_lines = Some(parse_limit("--max-lines", &value)?);
             }
+            "--max-items" => {
+                let value = arguments.next().ok_or("--max-items requires a number")?;
+                cli.max_items = Some(parse_limit("--max-items", &value)?);
+            }
+            "--max-diagnostics" => {
+                let value = arguments
+                    .next()
+                    .ok_or("--max-diagnostics requires a number")?;
+                cli.max_diagnostics = Some(parse_limit("--max-diagnostics", &value)?);
+            }
             "--config" => {
                 let value = arguments.next().ok_or("--config requires a path")?;
                 cli.config = Some(PathBuf::from(value));
@@ -169,6 +233,9 @@ fn parse_args_from(arguments: impl IntoIterator<Item = String>) -> Result<Cli> {
                     return Err(format!("unexpected argument: {extra}").into());
                 }
             }
+            other if other.starts_with("--dialect=") => {
+                cli.dialect = Some(parse_dialect(&other["--dialect=".len()..])?);
+            }
             other if other.starts_with("--max-input-bytes=") => {
                 cli.max_input_bytes = Some(parse_limit(
                     "--max-input-bytes",
@@ -177,6 +244,15 @@ fn parse_args_from(arguments: impl IntoIterator<Item = String>) -> Result<Cli> {
             }
             other if other.starts_with("--max-lines=") => {
                 cli.max_lines = Some(parse_limit("--max-lines", &other["--max-lines=".len()..])?);
+            }
+            other if other.starts_with("--max-items=") => {
+                cli.max_items = Some(parse_limit("--max-items", &other["--max-items=".len()..])?);
+            }
+            other if other.starts_with("--max-diagnostics=") => {
+                cli.max_diagnostics = Some(parse_limit(
+                    "--max-diagnostics",
+                    &other["--max-diagnostics=".len()..],
+                )?);
             }
             other if other.starts_with("--config=") => {
                 cli.config = Some(PathBuf::from(&other["--config=".len()..]));
@@ -206,17 +282,33 @@ fn load_policy(cli: &Cli) -> Result<(LspOptions, Option<IgnoredPaths>)> {
     if let Some(limit) = cli.max_lines {
         parse_options = parse_options.with_max_lines(limit);
     }
+    if let Some(limit) = cli.max_items {
+        parse_options = parse_options.with_max_items(limit);
+    }
+    if let Some(limit) = cli.max_diagnostics {
+        parse_options = parse_options.with_max_diagnostics(limit);
+    }
     let mut options = LspOptions::default()
         .with_mask_values(cli.mask_values)
         .with_parse_options(parse_options);
+    if let Some(dialect) = cli.dialect {
+        options = options.with_dialect(dialect);
+    }
     let Some(config) = config else {
         return Ok((options, None));
     };
     // Parser diagnostics already publish duplicate-key findings. A config
     // file should not duplicate them unless it explicitly selects the rule.
     let mut policy = LintPolicy::default();
+    if let Some(dialect) = cli.dialect {
+        policy.dialect = dialect;
+    }
     policy.lint = policy.lint.with_duplicate_keys(false);
-    config.apply(&mut policy, ConfigExplicit::default());
+    let explicit = ConfigExplicit {
+        dialect: cli.dialect.is_some(),
+        ..ConfigExplicit::default()
+    };
+    config.apply(&mut policy, explicit);
     options = options
         .with_dialect(policy.dialect)
         .with_lint_options(policy.lint);
@@ -229,36 +321,57 @@ fn load_policy(cli: &Cli) -> Result<(LspOptions, Option<IgnoredPaths>)> {
 fn handle_notification(
     connection: &Connection,
     notification: &Notification,
-    documents: &mut HashMap<String, String>,
+    documents: &mut HashMap<String, DocumentState>,
     options: LspOptions,
     ignore: Option<&IgnoredPaths>,
-) -> Result<()> {
+) -> std::result::Result<(), NotificationError> {
     match notification.method.as_str() {
         "textDocument/didOpen" => {
             let params: DidOpenTextDocumentParams =
-                serde_json::from_value(notification.params.clone())?;
+                serde_json::from_value(notification.params.clone())
+                    .map_err(|error| NotificationError::Malformed(error.into()))?;
             let uri = params.text_document.uri;
-            documents.insert(uri.as_str().to_owned(), params.text_document.text);
-            publish_diagnostics(connection, &uri, documents, options, ignore)?;
+            documents.insert(
+                uri.as_str().to_owned(),
+                DocumentState {
+                    text: params.text_document.text,
+                    version: Some(params.text_document.version),
+                },
+            );
+            publish_diagnostics(connection, &uri, documents, options, ignore)
+                .map_err(NotificationError::Transport)?;
         }
         "textDocument/didChange" => {
             let params: DidChangeTextDocumentParams =
-                serde_json::from_value(notification.params.clone())?;
+                serde_json::from_value(notification.params.clone())
+                    .map_err(|error| NotificationError::Malformed(error.into()))?;
             let uri = params.text_document.uri;
-            let mut text = documents.get(uri.as_str()).cloned().unwrap_or_default();
+            let Some(existing) = documents.get(uri.as_str()) else {
+                return Err(NotificationError::Malformed(
+                    "change received for an unopened document".into(),
+                ));
+            };
+            let mut text = existing.text.clone();
             for change in params.content_changes {
                 text = apply_change_with_options(&text, change.range, &change.text, &options)
-                    .ok_or("invalid incremental document change")?;
+                    .ok_or_else(|| {
+                        NotificationError::Malformed("invalid incremental document change".into())
+                    })?;
             }
-            documents.insert(uri.as_str().to_owned(), text);
-            publish_diagnostics(connection, &uri, documents, options, ignore)?;
+            if let Some(doc) = documents.get_mut(uri.as_str()) {
+                doc.text = text;
+                doc.version = Some(params.text_document.version);
+            }
+            publish_diagnostics(connection, &uri, documents, options, ignore)
+                .map_err(NotificationError::Transport)?;
         }
         "textDocument/didClose" => {
             let params: DidCloseTextDocumentParams =
-                serde_json::from_value(notification.params.clone())?;
+                serde_json::from_value(notification.params.clone())
+                    .map_err(|error| NotificationError::Malformed(error.into()))?;
             let uri = params.text_document.uri;
             documents.remove(uri.as_str());
-            publish_empty_diagnostics(connection, &uri)?;
+            publish_empty_diagnostics(connection, &uri).map_err(NotificationError::Transport)?;
         }
         _ => {}
     }
@@ -268,30 +381,42 @@ fn handle_notification(
 fn publish_diagnostics(
     connection: &Connection,
     uri: &Uri,
-    documents: &HashMap<String, String>,
+    documents: &HashMap<String, DocumentState>,
     options: LspOptions,
     ignore: Option<&IgnoredPaths>,
 ) -> Result<()> {
-    if ignored_uri(uri, ignore) {
-        return publish_empty_diagnostics(connection, uri);
-    }
-    let text = documents
+    let doc = documents
         .get(uri.as_str())
         .ok_or("diagnostics requested for an unopened document")?;
-    send_diagnostics(connection, uri, diagnostics(text, uri, &options))
+    if ignored_uri(uri, ignore) {
+        return send_diagnostics(connection, uri, Vec::new(), doc.version);
+    }
+    send_diagnostics(
+        connection,
+        uri,
+        diagnostics(&doc.text, uri, &options),
+        doc.version,
+    )
 }
 
 fn ignored_uri(uri: &Uri, ignore: Option<&IgnoredPaths>) -> bool {
     let Some(ignore) = ignore else {
         return false;
     };
+    if !uri
+        .scheme()
+        .is_some_and(|scheme| scheme.as_str().eq_ignore_ascii_case("file"))
+    {
+        return false;
+    }
     ignore.is_ignored(&decoded_uri_path(uri.path().as_str()))
 }
 
 /// Decodes the percent-escaped path component of a file URI for glob matching.
 ///
 /// `uri.path()` keeps escapes such as `%20`, while ignore patterns are written
-/// with the real path spelling. Invalid escapes or invalid UTF-8 fall back to
+/// with the real path spelling. Windows drive-letter paths (`/C:/...`) have
+/// their leading slash stripped. Invalid escapes or invalid UTF-8 fall back to
 /// the original path rather than suppressing diagnostics unexpectedly.
 fn decoded_uri_path(raw: &str) -> PathBuf {
     let bytes = raw.as_bytes();
@@ -310,7 +435,27 @@ fn decoded_uri_path(raw: &str) -> PathBuf {
         decoded.push(bytes[index]);
         index += 1;
     }
-    String::from_utf8(decoded).map_or_else(|_| PathBuf::from(raw), PathBuf::from)
+    String::from_utf8(decoded).map_or_else(
+        |_| PathBuf::from(raw),
+        |text| {
+            let trimmed = strip_windows_drive_slash(&text);
+            PathBuf::from(trimmed)
+        },
+    )
+}
+
+fn strip_windows_drive_slash(path: &str) -> &str {
+    let bytes = path.as_bytes();
+    if bytes.len() >= 4
+        && bytes[0] == b'/'
+        && bytes[1].is_ascii_alphabetic()
+        && bytes[2] == b':'
+        && (bytes[3] == b'/' || bytes[3] == b'\\')
+    {
+        &path[1..]
+    } else {
+        path
+    }
 }
 
 fn hex_value(byte: u8) -> Option<u8> {
@@ -323,15 +468,16 @@ fn hex_value(byte: u8) -> Option<u8> {
 }
 
 fn publish_empty_diagnostics(connection: &Connection, uri: &Uri) -> Result<()> {
-    send_diagnostics(connection, uri, Vec::new())
+    send_diagnostics(connection, uri, Vec::new(), None)
 }
 
 fn send_diagnostics(
     connection: &Connection,
     uri: &Uri,
     diagnostics: Vec<lsp_types::Diagnostic>,
+    version: Option<i32>,
 ) -> Result<()> {
-    let params = PublishDiagnosticsParams::new(uri.clone(), diagnostics, None);
+    let params = PublishDiagnosticsParams::new(uri.clone(), diagnostics, version);
     connection
         .sender
         .send(Message::Notification(Notification::new(
@@ -346,16 +492,17 @@ fn send_diagnostics(
 fn handle_request(
     connection: &Connection,
     request: &Request,
-    documents: &HashMap<String, String>,
+    documents: &HashMap<String, DocumentState>,
     options: LspOptions,
 ) -> Result<()> {
     match request.method.as_str() {
         "textDocument/completion" => {
             let params: CompletionParams = serde_json::from_value(request.params.clone())?;
             let uri = &params.text_document_position.text_document.uri;
-            let text = documents
+            let text = &documents
                 .get(uri.as_str())
-                .ok_or("completion requested for an unopened document")?;
+                .ok_or("completion requested for an unopened document")?
+                .text;
             send_ok(
                 connection,
                 request.id.clone(),
@@ -373,9 +520,10 @@ fn handle_request(
         "textDocument/documentSymbol" => {
             let params: DocumentSymbolParams = serde_json::from_value(request.params.clone())?;
             let uri = &params.text_document.uri;
-            let text = documents
+            let text = &documents
                 .get(uri.as_str())
-                .ok_or("document symbols requested for an unopened document")?;
+                .ok_or("document symbols requested for an unopened document")?
+                .text;
             send_ok(
                 connection,
                 request.id.clone(),
@@ -385,9 +533,10 @@ fn handle_request(
         "textDocument/definition" => {
             let params: GotoDefinitionParams = serde_json::from_value(request.params.clone())?;
             let uri = &params.text_document_position_params.text_document.uri;
-            let text = documents
+            let text = &documents
                 .get(uri.as_str())
-                .ok_or("definition requested for an unopened document")?;
+                .ok_or("definition requested for an unopened document")?
+                .text;
             send_ok(
                 connection,
                 request.id.clone(),
@@ -402,9 +551,10 @@ fn handle_request(
         "textDocument/hover" => {
             let params: HoverParams = serde_json::from_value(request.params.clone())?;
             let uri = &params.text_document_position_params.text_document.uri;
-            let text = documents
+            let text = &documents
                 .get(uri.as_str())
-                .ok_or("hover requested for an unopened document")?;
+                .ok_or("hover requested for an unopened document")?
+                .text;
             send_ok(
                 connection,
                 request.id.clone(),
@@ -419,9 +569,10 @@ fn handle_request(
             let params: ReferenceParams = serde_json::from_value(request.params.clone())?;
             let position = params.text_document_position;
             let uri = &position.text_document.uri;
-            let text = documents
+            let text = &documents
                 .get(uri.as_str())
-                .ok_or("references requested for an unopened document")?;
+                .ok_or("references requested for an unopened document")?
+                .text;
             send_ok(
                 connection,
                 request.id.clone(),
@@ -438,9 +589,10 @@ fn handle_request(
             let params: RenameParams = serde_json::from_value(request.params.clone())?;
             let position = params.text_document_position;
             let uri = &position.text_document.uri;
-            let text = documents
+            let text = &documents
                 .get(uri.as_str())
-                .ok_or("rename requested for an unopened document")?;
+                .ok_or("rename requested for an unopened document")?
+                .text;
             match rename_with_options(text, uri, position.position, &params.new_name, &options) {
                 Ok(edit) => send_ok(connection, request.id.clone(), &edit),
                 Err(error) => send_error(
@@ -461,14 +613,16 @@ fn handle_request(
 }
 
 fn workspace_symbol_response(
-    documents: &HashMap<String, String>,
+    documents: &HashMap<String, DocumentState>,
     query: &str,
     options: &LspOptions,
 ) -> Vec<SymbolInformation> {
     let mut symbols = Vec::new();
-    for (uri_text, text) in documents {
+    for (uri_text, doc) in documents {
         if let Ok(uri) = uri_text.parse::<Uri>() {
-            symbols.extend(workspace_symbols_with_options(text, &uri, query, options));
+            symbols.extend(workspace_symbols_with_options(
+                &doc.text, &uri, query, options,
+            ));
         }
     }
     symbols.sort_by(|left, right| {
@@ -524,8 +678,11 @@ mod tests {
     fn cli_with_config(config: Option<PathBuf>) -> Cli {
         Cli {
             mask_values: false,
+            dialect: None,
             max_input_bytes: None,
             max_lines: None,
+            max_items: None,
+            max_diagnostics: None,
             config,
             discover_lint_config: false,
             help: false,
@@ -575,21 +732,61 @@ mod tests {
     }
 
     #[test]
-    fn parses_limit_flags_and_forwards_to_parse_options() {
-        let cli = parse_args_from(args(&["--max-input-bytes", "4096", "--max-lines=128"])).unwrap();
+    fn parses_limit_and_dialect_flags_and_forwards_to_options() {
+        let cli = parse_args_from(args(&[
+            "--dialect",
+            "compose",
+            "--max-input-bytes",
+            "4096",
+            "--max-lines=128",
+            "--max-items",
+            "64",
+            "--max-diagnostics=16",
+        ]))
+        .unwrap();
+        assert_eq!(cli.dialect, Some(Dialect::COMPOSE));
         assert_eq!(cli.max_input_bytes, Some(4096));
         assert_eq!(cli.max_lines, Some(128));
+        assert_eq!(cli.max_items, Some(64));
+        assert_eq!(cli.max_diagnostics, Some(16));
         let (options, _) = load_policy(&cli).unwrap();
+        assert_eq!(options.dialect, Dialect::COMPOSE);
         assert_eq!(options.parse_options.max_input_bytes, Some(4096));
         assert_eq!(options.parse_options.max_lines, Some(128));
+        assert_eq!(options.parse_options.max_items, Some(64));
+        assert_eq!(options.parse_options.max_diagnostics, Some(16));
 
-        let cli_eq = parse_args_from(args(&["--max-input-bytes=64", "--max-lines", "4"])).unwrap();
+        let cli_eq = parse_args_from(args(&[
+            "--dialect=docker",
+            "--max-input-bytes=64",
+            "--max-lines",
+            "4",
+            "--max-items=8",
+            "--max-diagnostics",
+            "2",
+        ]))
+        .unwrap();
+        assert_eq!(cli_eq.dialect, Some(Dialect::DOCKER_RAW));
         assert_eq!(cli_eq.max_input_bytes, Some(64));
         assert_eq!(cli_eq.max_lines, Some(4));
+        assert_eq!(cli_eq.max_items, Some(8));
+        assert_eq!(cli_eq.max_diagnostics, Some(2));
 
+        // Explicit --dialect overrides config dialect.
+        let file = TempFile::new("dialect-override", "dialect = \"python\"\n");
+        let mut override_cli = cli_with_config(Some(file.0.clone()));
+        override_cli.dialect = Some(Dialect::NODE_DOTENV);
+        let (override_options, _) = load_policy(&override_cli).unwrap();
+        assert_eq!(override_options.dialect, Dialect::NODE_DOTENV);
+
+        assert!(parse_args_from(args(&["--dialect"])).is_err());
+        assert!(parse_args_from(args(&["--dialect=unknown"])).is_err());
         assert!(parse_args_from(args(&["--max-input-bytes"])).is_err());
         assert!(parse_args_from(args(&["--max-lines"])).is_err());
+        assert!(parse_args_from(args(&["--max-items"])).is_err());
+        assert!(parse_args_from(args(&["--max-diagnostics"])).is_err());
         assert!(parse_args_from(args(&["--max-input-bytes=abc"])).is_err());
+        assert!(parse_args_from(args(&["--max-input-bytes=+10"])).is_err());
         assert!(parse_args_from(args(&["--max-lines=-1"])).is_err());
     }
 
@@ -690,6 +887,16 @@ mod tests {
         let ignore = IgnoredPaths::new(&["my dir/**".to_owned()]).unwrap();
         let uri: lsp_types::Uri = "file:///tmp/my%20dir/.env".parse().unwrap();
         assert!(ignored_uri(&uri, Some(&ignore)));
+        // Non-file URIs are never suppressed by filesystem ignore globs.
+        let untitled: lsp_types::Uri = "untitled:my%20dir/.env".parse().unwrap();
+        assert!(!ignored_uri(&untitled, Some(&ignore)));
+        // Windows drive-letter URIs strip the leading slash.
+        let win_uri: lsp_types::Uri = "file:///c%3A/my%20dir/.env".parse().unwrap();
+        assert!(ignored_uri(&win_uri, Some(&ignore)));
+        assert_eq!(
+            decoded_uri_path("/c%3A/proj/.env"),
+            PathBuf::from("c:/proj/.env")
+        );
         assert_eq!(
             decoded_uri_path("/tmp/my%20dir%2fsub%2F.env"),
             PathBuf::from("/tmp/my dir/sub/.env")
@@ -761,6 +968,8 @@ mod tests {
             serde_json::json!({ "capabilities": {} }),
         );
         let result = init.response_result.unwrap();
+        assert_eq!(result["serverInfo"]["name"], "adotenv-lsp");
+        assert_eq!(result["serverInfo"]["version"], env!("CARGO_PKG_VERSION"));
         let caps = &result["capabilities"];
         assert_eq!(caps["textDocumentSync"], 2);
         assert_eq!(
@@ -799,6 +1008,7 @@ mod tests {
             .unwrap();
         let diags = recv_diagnostics(&client);
         assert_eq!(diags.uri.as_str(), uri);
+        assert_eq!(diags.version, Some(1));
         assert_eq!(diags.diagnostics.len(), 1);
 
         // Ignored URI publishes empty diagnostics
@@ -819,6 +1029,7 @@ mod tests {
             .unwrap();
         let skipped_diags = recv_diagnostics(&client);
         assert_eq!(skipped_diags.uri.as_str(), skip_uri);
+        assert_eq!(skipped_diags.version, Some(1));
         assert_eq!(skipped_diags.diagnostics, Vec::new());
 
         // didChange (incremental removal of invalid line) -> clean diagnostics
@@ -839,7 +1050,20 @@ mod tests {
             )))
             .unwrap();
         let updated = recv_diagnostics(&client);
+        assert_eq!(updated.version, Some(2));
         assert_eq!(updated.diagnostics, Vec::new());
+
+        // didChange for an unopened document is ignored without fabricating a buffer.
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "textDocument/didChange".to_owned(),
+                serde_json::json!({
+                    "textDocument": { "uri": "file:///tmp/ghost.env", "version": 1 },
+                    "contentChanges": [{ "text": "GHOST=1\n" }]
+                }),
+            )))
+            .unwrap();
 
         // Invalid incremental change & unknown notification & unexpected response are ignored cleanly
         client
@@ -1018,6 +1242,7 @@ mod tests {
             )))
             .unwrap();
         let closed = recv_diagnostics(&client);
+        assert_eq!(closed.version, None);
         assert_eq!(closed.diagnostics, Vec::new());
 
         // Shutdown + exit
@@ -1032,6 +1257,36 @@ mod tests {
             .unwrap();
 
         thread.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn serve_returns_error_on_exit_without_shutdown() {
+        let (server, client) = Connection::memory();
+        let thread = std::thread::spawn(move || serve(&server, LspOptions::new(), None));
+
+        let init = send_req(
+            &client,
+            1,
+            "initialize",
+            serde_json::json!({ "capabilities": {} }),
+        );
+        assert!(init.response_result.is_ok());
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "initialized".to_owned(),
+                serde_json::json!({}),
+            )))
+            .unwrap();
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                "exit".to_owned(),
+                serde_json::Value::Null,
+            )))
+            .unwrap();
+
+        assert!(thread.join().unwrap().is_err());
     }
 
     #[test]

@@ -6,24 +6,34 @@ use std::{
     process::{Command, Stdio},
 };
 
-fn temp_path(name: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!(
-        "adotenv-lsp-cli-{name}-{}-{}.toml",
-        std::process::id(),
-        std::thread::current().name().unwrap_or("main")
-    ))
+struct TempFile(std::path::PathBuf);
+
+impl TempFile {
+    fn new(name: &str, contents: &str) -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "adotenv-lsp-cli-{name}-{}-{}.toml",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("main")
+        ));
+        fs::write(&path, contents).unwrap();
+        Self(path)
+    }
+}
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
 }
 
 #[test]
 fn invalid_explicit_config_fails_before_the_server_starts() {
-    let path = temp_path("invalid");
-    fs::write(&path, "unknown = true\n").unwrap();
+    let file = TempFile::new("invalid", "unknown = true\n");
     let output = Command::new(env!("CARGO_BIN_EXE_adotenv-lsp"))
         .arg("--config")
-        .arg(&path)
+        .arg(&file.0)
         .output()
         .unwrap();
-    let _ = fs::remove_file(&path);
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("unknown field"), "{stderr}");
@@ -48,8 +58,11 @@ fn help_and_version_flags_exit_successfully() {
         .unwrap();
     assert!(help.status.success());
     let stdout = String::from_utf8_lossy(&help.stdout);
+    assert!(stdout.contains("--dialect"));
     assert!(stdout.contains("--max-input-bytes"));
     assert!(stdout.contains("--max-lines"));
+    assert!(stdout.contains("--max-items"));
+    assert!(stdout.contains("--max-diagnostics"));
 
     let version = Command::new(env!("CARGO_BIN_EXE_adotenv-lsp"))
         .arg("--version")
@@ -110,6 +123,11 @@ fn stdio_server_handles_initialize_diagnostics_hover_and_shutdown() {
     );
     let init = read_lsp_message(&mut stdout);
     assert_eq!(init["id"], 1);
+    assert_eq!(init["result"]["serverInfo"]["name"], "adotenv-lsp");
+    assert_eq!(
+        init["result"]["serverInfo"]["version"],
+        env!("CARGO_PKG_VERSION")
+    );
     assert_eq!(
         init["result"]["capabilities"]["hoverProvider"].as_bool(),
         Some(true)
@@ -140,6 +158,7 @@ fn stdio_server_handles_initialize_diagnostics_hover_and_shutdown() {
     );
     let diag = read_lsp_message(&mut stdout);
     assert_eq!(diag["method"], "textDocument/publishDiagnostics");
+    assert_eq!(diag["params"]["version"], 1);
     assert_eq!(
         diag["params"]["diagnostics"][0]["code"],
         "dotenv.limit-exceeded"
@@ -167,4 +186,47 @@ fn stdio_server_handles_initialize_diagnostics_hover_and_shutdown() {
     drop(stdin);
     let status = child.wait().unwrap();
     assert!(status.success());
+}
+
+#[test]
+fn stdio_server_exits_nonzero_on_exit_without_shutdown() {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_adotenv-lsp"))
+        .args(["--dialect", "python"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+
+    write_lsp_message(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": { "capabilities": {} }
+        }),
+    );
+    let _ = read_lsp_message(&mut stdout);
+    write_lsp_message(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "initialized",
+            "params": {}
+        }),
+    );
+    write_lsp_message(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "exit",
+            "params": null
+        }),
+    );
+    drop(stdin);
+    let status = child.wait().unwrap();
+    assert!(!status.success());
 }

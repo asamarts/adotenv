@@ -11,6 +11,29 @@
 //! values can be masked with [`LspOptions::with_mask_values`], the parser
 //! dialect can be selected with [`LspOptions::with_dialect`], and linter
 //! findings can be enabled with [`LspOptions::with_lint_options`].
+//!
+//! # Examples
+//!
+//! ```
+//! use adotenv_lsp::{diagnostics, hover, rename, KeyCase, LintOptions, LspOptions};
+//! use lsp_types::{Position, Uri};
+//!
+//! let uri: Uri = "file:///tmp/.env".parse().unwrap();
+//! let source = "HOST=localhost\nURL=${HOST}/api\n";
+//! let options = LspOptions::new()
+//!     .with_mask_values(true)
+//!     .with_lint_options(
+//!         LintOptions::new()
+//!             .with_duplicate_keys(false)
+//!             .with_key_case(KeyCase::Upper),
+//!     );
+//!
+//! assert!(diagnostics(source, &uri, &options).is_empty());
+//! assert!(hover(source, Position::new(0, 0), &options).is_some());
+//!
+//! let edit = rename(source, &uri, Position::new(0, 0), "SERVER").unwrap();
+//! assert_eq!(edit.changes.unwrap()[&uri].len(), 2);
+//! ```
 
 use std::{
     collections::{BTreeSet, HashMap},
@@ -18,11 +41,13 @@ use std::{
 };
 
 use adotenv::{
-    parse_strict_with_options, parse_with_options, BomPolicy, ColumnEncoding, Document, EditError,
-    EditOptions, Entry, InlineComments, LineIndex, Position as ParserPosition, Reference,
+    parse_with_options, ColonSeparator, ColumnEncoding, Diagnostic, DiagnosticCode, Document,
+    EditOptions, Entry, InlineComments, ItemKind, LineEnding, LineIndex,
+    Position as ParserPosition, PositionError, Reference, SingleEscapes, Syntax,
 };
 pub use adotenv::{
-    Dialect, EqualsSpacing, LimitExceeded, LimitKind, ParseOptions, QuoteStyle, Severity,
+    BomPolicy, Dialect, EditError, EqualsSpacing, LimitExceeded, LimitKind, ParseOptions,
+    QuoteStyle, Severity,
 };
 use adotenv_lint::lint;
 pub use adotenv_lint::{KeyCase, LintOptions, Rule};
@@ -32,6 +57,10 @@ use lsp_types::{
     GotoDefinitionResponse, Hover, HoverContents, Location, MarkupContent, MarkupKind,
     NumberOrString, Position, Range, SymbolInformation, SymbolKind, TextEdit, Uri, WorkspaceEdit,
 };
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+mod readme_doctests {}
 
 /// Options for LSP operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -88,6 +117,13 @@ impl LspOptions {
         self
     }
 
+    /// Disables linter findings, leaving only parser diagnostics enabled.
+    #[must_use]
+    pub const fn without_lint_options(mut self) -> Self {
+        self.lint = None;
+        self
+    }
+
     /// Sets opt-in [`ParseOptions`] bounds applied when parsing documents.
     #[must_use]
     pub const fn with_parse_options(mut self, parse_options: ParseOptions) -> Self {
@@ -97,7 +133,7 @@ impl LspOptions {
 }
 
 /// A failed rename request.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RenameError {
     /// No declaration or reference exists at the requested position.
@@ -210,13 +246,36 @@ pub fn completion_with_options(
     let Some(offset) = mapped.offset(position) else {
         return CompletionResponse::Array(Vec::new());
     };
-    let line_start = text[..offset]
-        .rfind(['\n', '\r'])
-        .map_or(0, |index| index + 1);
-    let content_start = if line_start == 0 {
+    let (document, _) = parse_with_options(text, options.dialect, options.parse_options);
+    let unterminated_start = unterminated_multiline_start(&document, text, offset, options.dialect);
+    let enclosing_item = if unterminated_start.is_some() {
+        None
+    } else {
+        document.items().find(|item| {
+            let span = item.span();
+            span.contains(&offset)
+                || (offset == text.len()
+                    && span.end == offset
+                    && item.line_ending() == LineEnding::None)
+        })
+    };
+    if enclosing_item.is_some_and(|item| item.kind() == ItemKind::Comment) {
+        return CompletionResponse::Array(Vec::new());
+    }
+    let scan_start = unterminated_start.unwrap_or_else(|| {
+        enclosing_item.map_or_else(
+            || {
+                text[..offset]
+                    .rfind(['\n', '\r'])
+                    .map_or(0, |index| index + 1)
+            },
+            |item| item.span().start,
+        )
+    });
+    let content_start = if scan_start == 0 {
         mapped.bom_bytes.min(offset)
     } else {
-        line_start
+        scan_start
     };
     let prefix = &text[content_start..offset];
     let trimmed = prefix.trim_start();
@@ -224,28 +283,35 @@ pub fn completion_with_options(
         return CompletionResponse::Array(Vec::new());
     }
     let context = CompletionContext::of(prefix, options.dialect);
-    if context.comment || context.in_single_quote {
+    if context.comment || context.in_literal_quote {
         // A `#` outside quotes can start a comment depending on the dialect,
-        // and a `$` in a single-quoted value is literal text, not a reference.
+        // and a `$` in a single-quoted or backtick-quoted value is literal text.
         return CompletionResponse::Array(Vec::new());
     }
     let key_prefix = trimmed
         .strip_prefix("export")
         .map_or(trimmed, |rest| rest.trim_start_matches([' ', '\t']));
-    let at_key_start = !key_prefix.contains('=')
+    let at_key_start = !context.saw_separator
         && !key_prefix.contains('#')
         && !key_prefix.chars().any(char::is_whitespace);
     let after_reference = prefix.rfind('$').is_some_and(|dollar| {
+        if is_escaped_dollar(prefix, dollar, options.dialect) {
+            return false;
+        }
         let tail = &prefix[dollar + 1..];
-        let name = tail.strip_prefix('{').unwrap_or(tail);
-        name.chars()
-            .all(|character| character.is_alphanumeric() || character == '_')
+        if let Some(braced) = tail.strip_prefix('{') {
+            braced
+                .chars()
+                .all(|character| character.is_alphanumeric() || matches!(character, '_' | '.'))
+        } else {
+            tail.chars()
+                .all(|character| character.is_alphanumeric() || character == '_')
+        }
     });
     if !at_key_start && !after_reference {
         return CompletionResponse::Array(Vec::new());
     }
 
-    let (document, _) = parse_with_options(text, options.dialect, options.parse_options);
     let mut keys = BTreeSet::new();
     for entry in document.entries() {
         keys.insert(entry.key().to_owned());
@@ -263,34 +329,117 @@ pub fn completion_with_options(
     )
 }
 
+fn unterminated_multiline_start(
+    document: &Document<'_>,
+    text: &str,
+    offset: usize,
+    dialect: Dialect,
+) -> Option<usize> {
+    let multiline = dialect.multiline;
+    if !(multiline.single || multiline.double || (dialect.backticks && multiline.backtick)) {
+        return None;
+    }
+    document
+        .items()
+        .take_while(|item| item.span().start < offset)
+        .filter(|item| item.invalid_code() == Some(DiagnosticCode::UnterminatedQuote))
+        .find_map(|item| {
+            let quote_byte = item
+                .diagnostic()
+                .and_then(|diag| text.as_bytes().get(diag.span().start).copied())?;
+            let spans_lines = match quote_byte {
+                b'\'' => multiline.single,
+                b'"' => multiline.double,
+                b'`' => dialect.backticks && multiline.backtick,
+                _ => false,
+            };
+            spans_lines.then_some(item.span().start)
+        })
+}
+
+fn is_escaped_dollar(prefix: &str, dollar: usize, dialect: Dialect) -> bool {
+    if dialect.raw_values {
+        return false;
+    }
+    let before = &prefix[..dollar];
+    if dialect.syntax == Syntax::Compose {
+        let dollars = before
+            .bytes()
+            .rev()
+            .take_while(|byte| *byte == b'$')
+            .count();
+        return dollars % 2 == 1;
+    }
+    let backslashes = before
+        .bytes()
+        .rev()
+        .take_while(|byte| *byte == b'\\')
+        .count();
+    backslashes % 2 == 1
+}
+
 #[derive(Debug, Default)]
 struct CompletionContext {
     comment: bool,
-    in_single_quote: bool,
+    in_literal_quote: bool,
+    saw_separator: bool,
 }
 
 impl CompletionContext {
-    /// Scans the prefix of the current line without parsing the whole value.
-    /// Double-quoted text can contain `#` and apostrophes literally, and the
-    /// dialect decides whether a `#` starts an inline comment.
+    /// Scans the prefix of the current item from its start to the cursor.
+    /// Respects dialect quote delimiters, single-quote escapes, backticks,
+    /// colon separators, raw values and inline-comment rules.
     fn of(prefix: &str, dialect: Dialect) -> Self {
         #[derive(Clone, Copy, PartialEq, Eq)]
         enum Quote {
             None,
             Single,
             Double,
+            Backtick,
         }
 
         let mut quote = Quote::None;
         let mut escaped = false;
-        let mut saw_equals = false;
-        for (index, character) in prefix.char_indices() {
-            match quote {
-                Quote::Single => {
-                    if character == '\'' {
-                        quote = Quote::None;
-                    }
+        let mut saw_separator = false;
+        let mut chars = prefix.char_indices().peekable();
+        while let Some((index, character)) = chars.next() {
+            if dialect.raw_values {
+                if !saw_separator && is_assignment_separator(character, chars.peek(), dialect) {
+                    saw_separator = true;
+                } else if character == '#' && inline_comment_starts(prefix, index, dialect) {
+                    return Self {
+                        comment: true,
+                        in_literal_quote: false,
+                        saw_separator,
+                    };
                 }
+                continue;
+            }
+            match quote {
+                Quote::Single => match dialect.single_escapes {
+                    SingleEscapes::QuoteAndBackslash => {
+                        if escaped {
+                            escaped = false;
+                        } else if character == '\\' {
+                            escaped = true;
+                        } else if character == '\'' {
+                            quote = Quote::None;
+                        }
+                    }
+                    SingleEscapes::Quote => {
+                        if character == '\\' && chars.peek().is_some_and(|(_, next)| *next == '\'')
+                        {
+                            let _ = chars.next();
+                        } else if character == '\'' {
+                            quote = Quote::None;
+                        }
+                    }
+                    _ => {
+                        if character == '\'' {
+                            quote = Quote::None;
+                        }
+                    }
+                },
                 Quote::Double => {
                     if escaped {
                         escaped = false;
@@ -300,14 +449,25 @@ impl CompletionContext {
                         quote = Quote::None;
                     }
                 }
+                Quote::Backtick => {
+                    if character == '`' {
+                        quote = Quote::None;
+                    }
+                }
                 Quote::None => match character {
                     '\'' => quote = Quote::Single,
                     '"' => quote = Quote::Double,
-                    '=' => saw_equals = true,
+                    '`' if dialect.backticks && saw_separator => quote = Quote::Backtick,
+                    _ if !saw_separator
+                        && is_assignment_separator(character, chars.peek(), dialect) =>
+                    {
+                        saw_separator = true;
+                    }
                     '#' if inline_comment_starts(prefix, index, dialect) => {
                         return Self {
                             comment: true,
-                            in_single_quote: false,
+                            in_literal_quote: false,
+                            saw_separator,
                         };
                     }
                     _ => {}
@@ -316,8 +476,27 @@ impl CompletionContext {
         }
         Self {
             comment: false,
-            in_single_quote: saw_equals && quote == Quote::Single,
+            in_literal_quote: saw_separator && matches!(quote, Quote::Single | Quote::Backtick),
+            saw_separator,
         }
+    }
+}
+
+fn is_assignment_separator(
+    character: char,
+    next: Option<&(usize, char)>,
+    dialect: Dialect,
+) -> bool {
+    if character == '=' {
+        return true;
+    }
+    if character != ':' {
+        return false;
+    }
+    match dialect.colon {
+        ColonSeparator::Any => true,
+        ColonSeparator::Whitespace => next.is_some_and(|(_, ch)| ch.is_whitespace()),
+        _ => false,
     }
 }
 
@@ -546,15 +725,27 @@ fn longest_backtick_run(text: &str) -> usize {
 }
 
 fn format_markdown_inline_code(text: &str) -> String {
-    let fence_len = longest_backtick_run(text) + 1;
-    let fence = "`".repeat(fence_len);
-    let needs_pad = text.starts_with('`')
-        || text.ends_with('`')
-        || (text.starts_with(' ') && text.ends_with(' ') && text.bytes().any(|b| b != b' '));
-    if needs_pad {
-        format!("{fence} {text} {fence}")
+    let escaped;
+    let content = if text.contains(['\n', '\r']) {
+        escaped = text
+            .replace("\r\n", "\\n")
+            .replace('\n', "\\n")
+            .replace('\r', "\\r");
+        escaped.as_str()
     } else {
-        format!("{fence}{text}{fence}")
+        text
+    };
+    let fence_len = longest_backtick_run(content) + 1;
+    let fence = "`".repeat(fence_len);
+    let needs_pad = content.starts_with('`')
+        || content.ends_with('`')
+        || (content.starts_with(' ')
+            && content.ends_with(' ')
+            && content.bytes().any(|b| b != b' '));
+    if needs_pad {
+        format!("{fence} {content} {fence}")
+    } else {
+        format!("{fence}{content}{fence}")
     }
 }
 
@@ -639,15 +830,18 @@ pub fn rename(
 
 /// Renames a key declaration and its literal references using `options`.
 ///
-/// This is [`rename`] with an explicit dialect and parse limits.
+/// This is [`rename`] with an explicit dialect and parse limits. Unrelated
+/// invalid lines are preserved through recovering parsing and verified to
+/// remain unchanged.
 ///
 /// # Errors
 ///
-/// Returns [`RenameError::NoSymbol`] when the document cannot be parsed or
-/// `position` is not on a key or reference, and [`RenameError::Edit`] when a
-/// configured parse limit is exceeded ([`EditError::Limit`]), the rename is
-/// invalid, or matching references exist and the new key cannot be written as a
-/// variable reference.
+/// Returns [`RenameError::NoSymbol`] when `position` is not on a key or
+/// reference, and [`RenameError::Edit`] when a configured parse limit is
+/// exceeded ([`EditError::Limit`]), the rename is invalid, matching references
+/// exist and the new key cannot be written as a variable reference, or
+/// verification fails (including `$(...)` command-context allowlist
+/// rejections).
 pub fn rename_with_options(
     text: &str,
     uri: &Uri,
@@ -655,12 +849,10 @@ pub fn rename_with_options(
     new_name: &str,
     options: &LspOptions,
 ) -> Result<WorkspaceEdit, RenameError> {
-    let document = parse_strict_with_options(text, options.dialect, options.parse_options)
-        .map_err(|diagnostic| {
-            diagnostic.limit().map_or(RenameError::NoSymbol, |limit| {
-                RenameError::Edit(EditError::Limit(limit))
-            })
-        })?;
+    let (document, diagnostics) = parse_with_options(text, options.dialect, options.parse_options);
+    if let Some(limit) = diagnostics.iter().find_map(Diagnostic::limit) {
+        return Err(RenameError::Edit(EditError::Limit(limit)));
+    }
     let mapped = Mapped::new_for_dialect(text, options.dialect);
     let offset = mapped.offset(position).ok_or(RenameError::NoSymbol)?;
     let old_name = name_at(&document, offset)
@@ -701,11 +893,12 @@ fn entry_at<'a>(document: &'a Document<'_>, offset: usize) -> Option<Entry<'a>> 
 
 fn reference_at(document: &Document<'_>, offset: usize) -> Option<Reference> {
     // An outer operator or command span contains every nested reference.
-    // Select the deepest candidate so a position inside `${OUTER:-$INNER}`
-    // resolves to `INNER`, not to the containing form.
-    document
-        .entries()
-        .flat_map(Entry::references)
+    // Select the deepest candidate in the containing entry so a position
+    // inside `${OUTER:-$INNER}` resolves to `INNER`, not the containing form.
+    let entry = entry_at(document, offset)?;
+    entry
+        .references()
+        .into_iter()
         .filter(|reference| reference.span.contains(&offset))
         .max_by_key(|reference| reference.depth)
 }
@@ -725,19 +918,26 @@ struct Mapped<'a> {
     index: LineIndex<'a>,
     bom_chars: usize,
     bom_bytes: usize,
+    has_visible_line0_char: bool,
 }
 
 impl<'a> Mapped<'a> {
     fn new_for_dialect(text: &'a str, dialect: Dialect) -> Self {
         let bom_chars = match dialect.bom {
             BomPolicy::StripAll => text.chars().take_while(|ch| *ch == '\u{feff}').count(),
-            BomPolicy::Keep => 0,
+            BomPolicy::Keep | BomPolicy::Error => 0,
             _ => usize::from(text.starts_with('\u{feff}')),
         };
+        let bom_bytes = bom_chars * '\u{feff}'.len_utf8();
+        let has_visible_line0_char = text
+            .get(bom_bytes..)
+            .and_then(|rest| rest.chars().next())
+            .is_some_and(|ch| ch != '\n' && ch != '\r');
         Self {
             index: LineIndex::new(text),
             bom_chars,
-            bom_bytes: bom_chars * '\u{feff}'.len_utf8(),
+            bom_bytes,
+            has_visible_line0_char,
         }
     }
 
@@ -755,7 +955,9 @@ impl<'a> Mapped<'a> {
     fn range(&self, span: std::ops::Range<usize>) -> Range {
         if self.bom_bytes > 0 && span.start == 0 && span.end == self.bom_bytes {
             // The byte-order mark has no visible width. Anchor its diagnostic
-            // to the first visible character instead of a zero-width range.
+            // to the first visible character on line 0 when one exists;
+            // otherwise keep a valid zero-width range at (0, 0).
+            let end_character = u32::from(self.has_visible_line0_char);
             return Range::new(
                 Position {
                     line: 0,
@@ -763,7 +965,7 @@ impl<'a> Mapped<'a> {
                 },
                 Position {
                     line: 0,
-                    character: 1,
+                    character: end_character,
                 },
             );
         }
@@ -771,7 +973,17 @@ impl<'a> Mapped<'a> {
     }
 
     fn position(&self, offset: usize) -> Position {
-        match self.index.to_position(offset, ColumnEncoding::Utf16) {
+        let resolved = match self.index.to_position(offset, ColumnEncoding::Utf16) {
+            Ok(position) => Ok(position),
+            // Dialects with `LineBreaks::Lf` (such as Docker and Compose) end a
+            // line's content span between `\r` and `\n` on CRLF inputs; snap
+            // monotonically to the end of that line instead of (0, 0).
+            Err(PositionError::InsideCrLf) if offset > 0 => {
+                self.index.to_position(offset - 1, ColumnEncoding::Utf16)
+            }
+            Err(error) => Err(error),
+        };
+        match resolved {
             Ok(position) => {
                 let column = if position.line == 0 && self.bom_chars > 0 {
                     position.column.saturating_sub(self.bom_chars)

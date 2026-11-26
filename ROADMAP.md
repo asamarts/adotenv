@@ -111,6 +111,15 @@ companion work are recorded there.
 9. Maintain the compact values API. Compact parsing/loading and compact memory
    now have deterministic gates, and compact speed evidence is published. The
    1.4.1 map-based claim remains historical release evidence.
+10. Execute the [1.8.0 and LSP stabilization plan](docs/design/1.8.0-plan.md):
+    graduate `adotenv-lsp` to a semver-checked `0.6.0` release
+    ([#248](https://github.com/asamarts/adotenv/issues/248)), ship additive
+    `1.8.0` core capabilities (`CompactEntries` loaders, bounded
+    `format`/`sort`/edit helpers, `LineIndex::with_bom_policy`, and the
+    remaining After-1.0 edge cases;
+    [#249](https://github.com/asamarts/adotenv/issues/249),
+    [#250](https://github.com/asamarts/adotenv/issues/250)), and follow up with
+    `adotenv-lint 0.3.0` ([#251](https://github.com/asamarts/adotenv/issues/251)).
 
 ## 1.0 criteria
 
@@ -163,6 +172,7 @@ All met for 1.0.0:
 | [1.4.1-plan.md](docs/design/1.4.1-plan.md) | 1.4.1 benchmark and hardening plan |
 | [1.5.0-plan.md](docs/design/1.5.0-plan.md) | 1.5.0 compact values plan |
 | [1.6.0-plan.md](docs/design/1.6.0-plan.md) | 1.6.0 limits, edits and compact entries plan |
+| [1.8.0-plan.md](docs/design/1.8.0-plan.md) | 1.8.0 core and LSP stabilization plan |
 | [releases.md](docs/design/releases.md) | Release history and plan links |
 | [heavy-validation.md](docs/design/heavy-validation.md) | Resource policy for heavy validation runs |
 
