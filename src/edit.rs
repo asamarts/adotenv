@@ -2607,14 +2607,20 @@ impl Document<'_> {
     /// Commands themselves have no name and are not renamed, but variable
     /// candidates nested inside their arguments are.
     ///
-    /// When a matching variable reference occurs inside or after a `$(`
-    /// command substitution in the same entry, both `key` and `new_key` must
-    /// satisfy a strict shell-safe allowlist (starting with an ASCII letter or
-    /// `_`, containing only ASCII alphanumerics, `_` or `.`, with no trailing
-    /// `.` or `..`). Keys outside this allowlist, such as POSIX positional
-    /// parameters (`0`, `1`), leading digits or dots, shell metacharacters, or
-    /// parameter-expansion operators, fail verification with
-    /// [`EditError::WouldChangeMeaning`].
+    /// When `key != new_key` and a matching variable reference occurs inside or
+    /// after a `$(` command substitution in the same entry, both `key` and
+    /// `new_key` must satisfy a strict shell-safe allowlist (starting with an
+    /// ASCII letter or `_`, containing only ASCII alphanumerics, `_` or `.`,
+    /// with no trailing `.` or `..`). Scanner operator and delimiter bytes
+    /// (`-`, `:`, `?`, `+`, `{`, `}`, `$`, `\`) in `new_key` fail earlier
+    /// during planning with [`EditError::InvalidReferenceKey`]; all other keys
+    /// outside the command-context allowlist, such as POSIX positional
+    /// parameters (`0`, `1`), leading digits or dots, quotes, whitespace,
+    /// shell metacharacters, non-scanner expansion operators (`=`, `%`, `#`,
+    /// `/`), or a non-allowlist `key`, fail verification with
+    /// [`EditError::WouldChangeMeaning`]. When `key == new_key`, this method
+    /// delegates directly to [`Document::rename_with_options`] as a no-op
+    /// without rewriting or verifying references.
     ///
     /// The new key must be writable as a reference when the document has any
     /// matching candidates. A key containing `-`, `:`, `?` or `+` cannot be
