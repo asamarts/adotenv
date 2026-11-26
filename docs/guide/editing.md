@@ -61,9 +61,18 @@ assert_eq!(
 
 A simple new name keeps an unbraced `$OLD` reference unbraced. A name that
 cannot be written unbraced, such as one containing `.`, becomes `${NEW}`.
-Operator characters such as `-`, `:`, `?` and `+` cannot be written in a
-reference name, so a key containing them can be renamed only when no reference
-uses it; otherwise the result is `EditError::InvalidReferenceKey`.
+When matching references exist, planning fails with
+`EditError::InvalidReferenceKey` if the new key is empty (for example under
+`Dialect::COMPOSE`), contains ASCII control bytes or reference
+operator/delimiter bytes (`-`, `:`, `?`, `+`, `{`, `}`, `$`, `\`), contains a
+quote delimiter matching an enclosing value's quotes (`'`, `"`, `` ` ``), or
+requires bracing on an escaped unbraced reference (such as `\$OLD`). When
+`key != new_key` and a matching reference occurs inside or after a `$(` command
+substitution in the same entry, both keys must satisfy a strict shell-safe
+allowlist (starting with an ASCII letter or `_`, containing only ASCII
+alphanumerics, `_` or `.`, with no trailing `.` or `..`), or verification fails
+with `EditError::WouldChangeMeaning`. Keys with no matching references can use
+those characters normally.
 
 Inserted lines use the line ending that is most common in the document, or LF
 when it has none. At the end of a file without a final line ending, including

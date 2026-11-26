@@ -26,7 +26,7 @@ local workspace baseline (94.4 percent of regions and 94.8 percent of lines on
 | `compare.rs`, `limit.rs`, `parser/unicode.rs` | 100.0% | 100.0% |
 | `compact.rs` | 99.6% | 99.5% |
 | `parser/docker.rs` | 99.4% | 99.3% |
-| `example.rs` | 99.1% | 98.8% |
+| `example.rs` | 99.0% | 98.8% |
 | `structure.rs` | 98.5% | 99.0% |
 | `parser/decode.rs` | 98.5% | 99.4% |
 | `position.rs` | 98.1% | 98.2% |
@@ -41,8 +41,8 @@ local workspace baseline (94.4 percent of regions and 94.8 percent of lines on
 | `parser/python.rs` | 95.5% | 94.5% |
 | `edit.rs` | 95.4% | 97.1% |
 | `references.rs` | 94.8% | 95.3% |
-| `serde_support.rs` | 94.4% | 98.3% |
-| `parser/compose.rs` | 94.2% | 94.0% |
+| `serde_support.rs` | 94.3% | 98.3% |
+| `parser/compose.rs` | 94.1% | 94.0% |
 | `parser/node.rs` | 94.0% | 97.0% |
 | `load.rs` | 88.6% | 89.4% |
 | `exec.rs` | 88.5% | 88.8% |
