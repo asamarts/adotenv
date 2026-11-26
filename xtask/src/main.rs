@@ -285,21 +285,12 @@ fn command_cli(args: &[String]) -> Result<()> {
     let shape =
         Shape::from_label(parsed.get("--shape").unwrap_or("plain")).ok_or("unknown shape")?;
     ensure_parent(&out)?;
-    let status = Command::new(cargo())
-        .args(["build", "--release", "-p", "adotenv-cli", "--locked"])
-        .status()
-        .map_err(|error| error.to_string())?;
-    if !status.success() {
-        return Err(format!("building adotenv-cli exited with {status}"));
-    }
-    let root = workspace_root()?;
-    let binary = root.join("target").join("release").join(if cfg!(windows) {
-        "adotenv-cli.exe"
-    } else {
-        "adotenv-cli"
-    });
+    let binary = build_release_binary("adotenv-cli", "adotenv-cli")?;
     let fixture = adotenv_bench::fixture(size, shape);
-    let path = root.join("target").join("bench-cli.env");
+    let temp_dir = binary
+        .parent()
+        .map_or_else(std::env::temp_dir, Path::to_path_buf);
+    let path = temp_dir.join("bench-cli.env");
     fs::write(&path, fixture.source()).map_err(|error| error.to_string())?;
     let command = format!(
         "{} check {}",
@@ -914,6 +905,7 @@ fn validate_pueue_config(path: &str) -> Result<()> {
     if path.is_empty()
         || !path.starts_with('/')
         || path.ends_with('/')
+        || path.ends_with("/.")
         || first_non_dot_segment(path).is_none()
         || path.split('/').any(|part| part == "..")
         || !path
@@ -940,6 +932,7 @@ fn validate_local_out(path: &str) -> Result<()> {
         || path.ends_with("\\..")
         || out.file_name().is_none()
         || out.is_dir()
+        || out.with_extension("fingerprint.json").is_dir()
     {
         return Err(format!("--out must be a non-directory file path: {path:?}"));
     }
@@ -948,12 +941,19 @@ fn validate_local_out(path: &str) -> Result<()> {
 
 fn validate_speed_out(path: &str) -> Result<()> {
     validate_local_out(path)?;
-    if Path::new(path)
+    let out = Path::new(path);
+    if out
         .extension()
         .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
     {
         return Err(format!(
             "--out for speed output must not end with .md (markdown report uses the .md sibling): {path:?}"
+        ));
+    }
+    if out.with_extension("md").is_dir() {
+        return Err(format!(
+            "--out markdown sibling path is a directory: {}",
+            out.with_extension("md").display()
         ));
     }
     Ok(())
@@ -1101,6 +1101,9 @@ fn command_queue(args: &[String]) -> Result<()> {
     let parsed_shapes = parse_shapes(shapes)?;
     let parsed_modes = parse_modes(modes)?;
     let dry_run = parsed.has("--dry-run");
+    if !dry_run {
+        ensure_parent(Path::new(local_out))?;
+    }
     if parsed.has("--sync") && !dry_run {
         sync_binaries(&remote)?;
     }
@@ -1192,6 +1195,9 @@ fn command_queue_speed(args: &[String]) -> Result<()> {
         }
     }
     let dry_run = parsed.has("--dry-run");
+    if !dry_run {
+        ensure_parent(Path::new(local_out))?;
+    }
     if parsed.has("--sync") && !dry_run {
         sync_speed_binaries(&remote, bench)?;
     }
@@ -1289,6 +1295,7 @@ fn validate_remote_root(remote_root: &str) -> Result<()> {
     if remote_root.is_empty()
         || !remote_root.starts_with('/')
         || remote_root.ends_with('/')
+        || remote_root.ends_with("/.")
         || first.is_none()
         || first == Some("home")
         || remote_root.split('/').any(|part| part == "..")
@@ -1364,6 +1371,27 @@ fn copy_binary(remote: &RemoteConfig, binary: &Path, name: &str) -> Result<()> {
     Ok(())
 }
 
+fn extract_cargo_executable(stdout: &str, target_name: &str) -> Result<PathBuf> {
+    let mut executable = None;
+    for line in stdout.lines() {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if value.get("reason").and_then(serde_json::Value::as_str) == Some("compiler-artifact")
+            && value
+                .get("target")
+                .and_then(|target| target.get("name"))
+                .and_then(serde_json::Value::as_str)
+                == Some(target_name)
+        {
+            if let Some(path) = value.get("executable").and_then(serde_json::Value::as_str) {
+                executable = Some(PathBuf::from(path));
+            }
+        }
+    }
+    executable.ok_or_else(|| format!("cargo did not report an executable for {target_name}"))
+}
+
 fn build_bench_binary(bench: &str) -> Result<PathBuf> {
     let output = Command::new(cargo())
         .args([
@@ -1381,48 +1409,35 @@ fn build_bench_binary(bench: &str) -> Result<PathBuf> {
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).into_owned());
     }
-    let mut executable = None;
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
-            continue;
-        };
-        if value.get("reason").and_then(serde_json::Value::as_str) == Some("compiler-artifact")
-            && value
-                .get("target")
-                .and_then(|target| target.get("name"))
-                .and_then(serde_json::Value::as_str)
-                == Some(bench)
-        {
-            if let Some(path) = value.get("executable").and_then(serde_json::Value::as_str) {
-                executable = Some(PathBuf::from(path));
-            }
-        }
-    }
-    executable.ok_or_else(|| format!("cargo did not report an executable for {bench}"))
+    extract_cargo_executable(&String::from_utf8_lossy(&output.stdout), bench)
 }
 
-fn build_xtask_binary() -> Result<PathBuf> {
-    let status = Command::new(cargo())
+fn build_release_binary(package: &str, bin: &str) -> Result<PathBuf> {
+    let output = Command::new(cargo())
         .args([
             "build",
             "--release",
             "-p",
-            "adotenv-xtask",
+            package,
             "--bin",
-            "adotenv-xtask",
+            bin,
             "--locked",
+            "--message-format=json",
         ])
-        .status()
+        .output()
         .map_err(|error| error.to_string())?;
-    if !status.success() {
-        return Err(format!("building adotenv-xtask exited with {status}"));
+    if !output.status.success() {
+        return Err(format!(
+            "building {bin} exited with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
-    let root = workspace_root()?;
-    Ok(root.join("target").join("release").join(if cfg!(windows) {
-        "adotenv-xtask.exe"
-    } else {
-        "adotenv-xtask"
-    }))
+    extract_cargo_executable(&String::from_utf8_lossy(&output.stdout), bin)
+}
+
+fn build_xtask_binary() -> Result<PathBuf> {
+    build_release_binary("adotenv-xtask", "adotenv-xtask")
 }
 
 fn sync_binaries(remote: &RemoteConfig) -> Result<()> {
@@ -1443,12 +1458,6 @@ fn ensure_parent(path: &Path) -> Result<()> {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
     Ok(())
-}
-
-fn workspace_root() -> Result<&'static Path> {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .ok_or_else(|| "xtask has no parent".to_owned())
 }
 
 fn ensure_task_succeeded(remote: &RemoteConfig, task: &str) -> Result<()> {
@@ -1473,28 +1482,7 @@ fn ensure_task_succeeded(remote: &RemoteConfig, task: &str) -> Result<()> {
 }
 
 fn build_memory_binary() -> Result<PathBuf> {
-    let status = Command::new(cargo())
-        .args([
-            "build",
-            "--release",
-            "-p",
-            "adotenv-bench",
-            "--bin",
-            "memory",
-            "--locked",
-        ])
-        .status()
-        .map_err(|error| error.to_string())?;
-    if !status.success() {
-        return Err(format!("building memory binary exited with {status}"));
-    }
-    let root = workspace_root()?;
-    let name = if cfg!(windows) {
-        "memory.exe"
-    } else {
-        "memory"
-    };
-    Ok(root.join("target").join("release").join(name))
+    build_release_binary("adotenv-bench", "memory")
 }
 
 fn implementations(compact: bool) -> Vec<Implementation> {
@@ -2016,9 +2004,11 @@ mod tests {
         assert!(validate_pueue_config("/etc/../pueue.yml").is_err());
         assert!(validate_pueue_config("/.").is_err());
         assert!(validate_pueue_config("/etc/pueue/").is_err());
+        assert!(validate_pueue_config("/etc/pueue/.").is_err());
         assert!(validate_pueue_config("/etc/bench path/pueue.yml").is_err());
         assert!(validate_pueue_config("/etc/bench*/pueue.yml").is_err());
         assert!(validate_remote_root("/var/lib/bench/").is_err());
+        assert!(validate_remote_root("/var/lib/bench/.").is_err());
         assert!(validate_remote_root("/var/lib/bench ").is_err());
         assert!(validate_remote_root("/var/lib/*").is_err());
         assert!(validate_remote_root("/var/lib/a;id").is_err());
@@ -2054,6 +2044,13 @@ mod tests {
         assert!(validate_speed_out("docs/benchmarks/speed.txt").is_ok());
         assert!(validate_speed_out("docs/benchmarks/speed.md").is_err());
         assert!(validate_speed_out("docs/benchmarks/speed.MD").is_err());
+        let cargo_json = r#"{"reason":"compiler-artifact","target":{"name":"adotenv"},"executable":null}
+{"reason":"compiler-artifact","target":{"name":"memory"},"executable":"/custom/target/release/memory"}"#;
+        assert_eq!(
+            extract_cargo_executable(cargo_json, "memory").unwrap(),
+            PathBuf::from("/custom/target/release/memory")
+        );
+        assert!(extract_cargo_executable(cargo_json, "missing").is_err());
         #[cfg(not(windows))]
         {
             assert_eq!(
