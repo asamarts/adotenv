@@ -157,6 +157,12 @@ Releases within 1.x keep the API. These fixes change results:
   `name`), rejects shell-quote changes on renamed references nested inside
   `$(...)` command substitutions, and fixes empty-key Compose renames around
   unclosed `${` and `QuotedTail::Append` boundaries.
+- 1.7.2: `Document::rename_with_references` enforces a strict allowlist (ASCII
+  alphanumeric, `_` and `.`) on renamed keys (`old_key` and `new_key`) nested
+  inside `$(...)` command substitutions, rejecting shell metacharacters,
+  parameter-expansion assignments, indirect expansions, array subscripts, globs
+  and non-ASCII whitespace; `encode_value_with` also maps normalized LF to CR
+  in `QuotedTail::Append` inverse tail search under `LineBreaks::Lf`.
 
 ## From 0.11
 
