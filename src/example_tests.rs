@@ -225,3 +225,67 @@ fn example_keeps_moved_comment_separate_on_lf_only_trailing_cr() {
     let (cr_doc, _) = parse_with("A=1 # note\r", universal);
     assert_eq!(cr_doc.example(), "A=\r# note\r");
 }
+
+#[test]
+fn compose_post_quote_bare_text_becomes_a_comment_while_assignments_stay() {
+    for (source, expected) in [
+        ("A=\"secret\"tail\n", "A=\"\"\n#\n"),
+        ("A=\"secret\"   tail\n", "A=\"\"\n   #\n"),
+        ("A='secret'tail\n", "A=\"\"\n#\n"),
+        ("A=\"secret\"tail", "A=\"\"\n#"),
+        ("A=\"secret\"export tail\n", "A=\"\"\n#\n"),
+        ("A=\"1\" B=\"2\"tail\n", "A=\"\"\n B=\"\"\n#\n"),
+        ("A=\"secret\"B=secret2\n", "A=\"\"\nB=\n"),
+        ("A=\"secret\" B=secret2\n", "A=\"\"\n B=\n"),
+        ("A=\"secret\" # note\n", "A=\"\" # note\n"),
+        ("A=\"secret\"#note\n", "A=\"\"#note\n"),
+        (
+            "BARE\nA=\"secret\"tail\nBARE2\n",
+            "BARE\nA=\"\"\n#\nBARE2\n",
+        ),
+    ] {
+        let (doc, _) = parse_with(source, Dialect::COMPOSE);
+        let example = doc.example();
+        assert_eq!(example, expected, "{source:?}");
+        assert!(
+            !example.contains("secret") && !example.contains("tail"),
+            "{source:?} leaked into {example:?}"
+        );
+        let (after, _) = parse_with(&example, Dialect::COMPOSE);
+        assert!(
+            !after
+                .items()
+                .any(|item| matches!(item.kind(), ItemKind::Invalid | ItemKind::Ignored)),
+            "{source:?} produced invalid example {example:?}"
+        );
+    }
+
+    // BomPolicy::Error produces a LineEnding::None invalid BOM item before a
+    // standalone bare key; that bare key is not post-quote text and stays bare.
+    let bom_err = Dialect::COMPOSE.with_bom(crate::BomPolicy::Error);
+    let (doc, _) = parse_with("\u{feff}BARE\nA=\"secret\"tail\n", bom_err);
+    assert_eq!(doc.example(), "\u{feff}#\nBARE\nA=\"\"\n#\n");
+
+    // In custom Node + NextStatement dialects, LS/PS (\u{2028}/\u{2029}) ends
+    // the line with LineEnding::None, so a bare key on the next line stays bare.
+    let node_next = Dialect::NODE_DOTENV.with_quoted_tail(crate::QuotedTail::NextStatement);
+    for (source, expected) in [
+        (
+            "A=\"secret\" # note\u{2028}BARE\n",
+            "A=\"\" # note\n\u{2028}BARE\n",
+        ),
+        ("A=\"secret\"\u{2028}BARE\n", "A=\"\"\n\u{2028}BARE\n"),
+        (
+            "A=\"secret\"tail\u{2029}BARE\n",
+            "A=\"\"\n#\n\u{2029}BARE\n",
+        ),
+    ] {
+        let (doc, _) = parse_with(source, node_next);
+        let example = doc.example();
+        assert_eq!(example, expected, "{source:?}");
+        assert!(!example.contains("secret") && !example.contains("tail"));
+        let (after, _) = parse_with(&example, node_next);
+        assert_eq!(after.unique("A").unwrap().value(), Some(""));
+        assert_eq!(after.unique("BARE").unwrap().state(), AssignmentState::Bare);
+    }
+}

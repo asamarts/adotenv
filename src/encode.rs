@@ -604,6 +604,12 @@ fn encode_raw(context: &mut Context<'_>) -> Result<(String, Quote), EncodeError>
 
 fn appended_body_end(context: &mut Context<'_>, quote: Quote) -> Option<usize> {
     context.scratch.clear();
+    // Keep a leading U+FEFF key intact in native fragments, matching
+    // `exact_native`.
+    let offset = usize::from(!context.eof);
+    if !context.eof {
+        context.scratch.push('\n');
+    }
     context.scratch.push_str(context.before);
     if context.needs_eq {
         context.scratch.push('=');
@@ -622,7 +628,7 @@ fn appended_body_end(context: &mut Context<'_>, quote: Quote) -> Option<usize> {
     } else {
         native_entry(
             &document,
-            context.before.len() + usize::from(context.needs_eq),
+            offset + context.before.len() + usize::from(context.needs_eq),
         )?
     };
     if entry.quote() != quote {

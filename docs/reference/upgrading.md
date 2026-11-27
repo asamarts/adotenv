@@ -171,6 +171,16 @@ Releases within 1.x keep the API. These fixes change results:
   `encode_value_with` and `Document::set` also account for the mandatory
   trailing CR-padding byte under `LineBreaks::Lf` and `line_byte_limit` in
   `QuotedTail::Append` inverse search.
+- 1.8.0 (unreleased): `Document::deserialize` and
+  `LoadedEnvironment::deserialize` parse non-string scalar map keys (such as
+  `BTreeMap<u16, String>` and `BTreeMap<bool, String>`) with the same rules as
+  values; `Document::example` emits bare text following a Compose closing quote
+  on the same physical line (`A="x"tail\n`) as a `#` comment (`A=""\n#\n`) to
+  prevent accidental secret tails from leaking while keeping explicit second
+  assigned declarations (`A="x" B=2\n` -> `A=""\n B=\n`); and
+  `Document::format` stays idempotent under `LineBreaks::Lf` (including custom
+  `line_byte_limit`) when quote normalization combines with trailing-whitespace
+  trimming or `FinalNewline::Remove`.
 
 ## From 0.11
 

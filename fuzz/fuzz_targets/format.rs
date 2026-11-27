@@ -4,8 +4,8 @@
 use std::collections::BTreeMap;
 
 use adotenv::{
-    parse_with, BlankLines, DiagnosticCode, Dialect, EqualsSpacing, ExpandOptions, ExpandScope,
-    FinalNewline, FormatOptions, InlineComments, ItemKind, QuoteStyle, TextEdit,
+    parse_with, BlankLines, Dialect, EqualsSpacing, ExpandOptions, ExpandScope, FinalNewline,
+    FormatOptions, InlineComments, ItemKind, QuoteStyle, TextEdit,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -131,22 +131,31 @@ fn check_example(document: &adotenv::Document<'_>) {
         return;
     }
     let example = document.example();
-    let (after, _) = parse_with(&example, document.dialect());
-    // If the first line is over the byte cap, the parser cannot classify a
-    // leading BOM on the original line. The example may shorten that line, so
-    // the normalized output can classify it; this is not a lost value.
-    let overlong_first_line = document.items().any(|item| {
-        item.diagnostic().is_some_and(|diagnostic| {
-            diagnostic.code() == DiagnosticCode::LineTooLong && diagnostic.span().start == 0
-        })
-    });
-    if !overlong_first_line {
-        assert_eq!(document.bom_span(), after.bom_span());
+    // `Document::example` may insert `""` placeholders (for colons, inline
+    // comments under `quoted_comments`, multiline values, or same-line items),
+    // which can expand a line beyond a tight `line_byte_limit`. Re-parse with
+    // the line cap lifted to check structural and redaction invariants.
+    let (after, _) = parse_with(&example, document.dialect().with_line_byte_limit(None));
+    assert_eq!(document.bom_span(), after.bom_span());
+    let mut prev_quoted_same_line = false;
+    let mut expected = Vec::new();
+    for item in document.items() {
+        let post_quote_same_line = prev_quoted_same_line;
+        prev_quoted_same_line = document.dialect().quoted_tail
+            == adotenv::QuotedTail::NextStatement
+            && item.kind() == ItemKind::Entry
+            && item.line_ending() == adotenv::LineEnding::None
+            && !(document.dialect().syntax == adotenv::Syntax::Node
+                && document.source()[item.span().end..].starts_with(['\u{2028}', '\u{2029}']))
+            && item.entry().is_some_and(|entry| {
+                entry.quote() != adotenv::Quote::None && entry.inline_comment().is_none()
+            });
+        if let Some(entry) = item.entry() {
+            if !entry.key().is_empty() && !(post_quote_same_line && entry.value_span().is_none()) {
+                expected.push(entry);
+            }
+        }
     }
-    let expected: Vec<_> = document
-        .entries()
-        .filter(|entry| !entry.key().is_empty())
-        .collect();
     assert_eq!(expected.len(), after.entries().len());
     for (left, right) in expected.into_iter().zip(after.entries()) {
         assert_eq!(left.key(), right.key());
@@ -165,16 +174,9 @@ fn check_example(document: &adotenv::Document<'_>) {
             }
         }
     }
-    if !document
+    assert!(!after
         .items()
-        .any(|item| matches!(item.kind(), ItemKind::Invalid | ItemKind::Ignored))
-    {
-        // An already-invalid source can keep an over-cap comment; only a
-        // valid source must produce a fully valid example.
-        assert!(!after
-            .items()
-            .any(|item| matches!(item.kind(), ItemKind::Invalid | ItemKind::Ignored)));
-    }
+        .any(|item| matches!(item.kind(), ItemKind::Invalid | ItemKind::Ignored)));
     for item in document
         .items()
         .filter(|item| item.kind() == ItemKind::Comment)
@@ -409,9 +411,13 @@ fuzz_target!(|bytes: &[u8]| {
         Dialect::PYTHON_DOTENV,
         Dialect::COMPOSE,
         Dialect::DOCKER_RAW,
-        // A capped custom dialect exercises quote planning after spacing and
-        // trimming shorten the same line.
+        // Capped custom dialects exercise quote planning after spacing and
+        // trimming shorten the same line, including LF-only line breaks.
         Dialect::PORTABLE.with_line_byte_limit(Some(16)),
+        Dialect::PORTABLE
+            .with_line_breaks(adotenv::LineBreaks::Lf)
+            .with_line_byte_limit(Some(16)),
+        Dialect::COMPOSE.with_line_byte_limit(Some(16)),
     ] {
         let (document, _) = parse_with(source, dialect);
         check_structure(source, &document);

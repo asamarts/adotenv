@@ -554,21 +554,31 @@ impl Document<'_> {
         let requoted: BTreeSet<usize> = edits.iter().map(|edit| edit.range.start).collect();
         self.plan_equals_spacing(*options, &requoted, &mut edits);
         let removed = self.plan_blank_lines(*options, &mut edits);
+        sort_and_check_edits(&mut edits)?;
         if options.trim_trailing_whitespace {
+            let mut trim_edits = Vec::new();
             self.plan_trailing_whitespace(
                 &removed,
                 options.final_newline == FinalNewline::Ensure,
-                &mut edits,
+                &edits,
+                &mut trim_edits,
             );
-            self.plan_final_cr_trim(*options, &mut edits);
+            if !trim_edits.is_empty() {
+                edits.extend(trim_edits);
+                sort_and_check_edits(&mut edits)?;
+            }
+            let mut final_cr_edits = Vec::new();
+            self.plan_final_cr_trim(*options, &edits, &mut final_cr_edits);
+            if !final_cr_edits.is_empty() {
+                edits.extend(final_cr_edits);
+                sort_and_check_edits(&mut edits)?;
+            }
         }
-        self.plan_final_newline(*options, &removed, &mut edits);
-        edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
-        if edits
-            .windows(2)
-            .any(|pair| pair[1].range.start < pair[0].range.end)
-        {
-            return Err(EditError::WouldChangeMeaning);
+        let mut newline_edits = Vec::new();
+        self.plan_final_newline(*options, &removed, &edits, &mut newline_edits);
+        if !newline_edits.is_empty() {
+            edits.extend(newline_edits);
+            sort_and_check_edits(&mut edits)?;
         }
         let mut removed: Vec<bool> = (0..self.items().len())
             .map(|id| removed.get(id).copied().unwrap_or(false))
@@ -798,6 +808,7 @@ impl Document<'_> {
         &self,
         removed: &[bool],
         ensure_final_newline: bool,
+        planned_edits: &[TextEdit],
         edits: &mut Vec<TextEdit>,
     ) {
         let kept: Vec<_> = self
@@ -843,7 +854,7 @@ impl Document<'_> {
             match item.kind() {
                 ItemKind::Blank | ItemKind::Comment | ItemKind::Entry => {
                     let content = item.content_span();
-                    let trimmed = trim_end(self.source(), content.clone());
+                    let trimmed = trim_end(self.source(), planned_edits, content.clone());
                     if item.kind() == ItemKind::Blank
                         && ending == crate::LineEnding::None
                         && trimmed == content.start
@@ -867,7 +878,12 @@ impl Document<'_> {
     /// CR. `plan_trailing_whitespace` leaves lines that end with a CR alone,
     /// but removing that CR in the same pass would expose the trailing
     /// whitespace and make a second format pass change the output.
-    fn plan_final_cr_trim(&self, options: FormatOptions, edits: &mut Vec<TextEdit>) {
+    fn plan_final_cr_trim(
+        &self,
+        options: FormatOptions,
+        planned_edits: &[TextEdit],
+        edits: &mut Vec<TextEdit>,
+    ) {
         if options.final_newline != FinalNewline::Remove {
             return;
         }
@@ -882,7 +898,10 @@ impl Document<'_> {
         }
         let source = self.source();
         let end = source.len().saturating_sub(1);
-        if source[..end].ends_with('\n') || source[..end].ends_with('\r') {
+        if matches!(
+            effective_last_byte_before(source, planned_edits, 0, end),
+            Some(b'\n' | b'\r')
+        ) {
             // The final newline is not removed in this pass, so its line keeps
             // its trailing whitespace.
             return;
@@ -890,7 +909,7 @@ impl Document<'_> {
         match item.kind() {
             ItemKind::Blank | ItemKind::Comment | ItemKind::Entry => {
                 let content = item.content_span();
-                let trimmed = trim_end(self.source(), content.clone());
+                let trimmed = trim_end(self.source(), planned_edits, content.clone());
                 if trimmed != content.end {
                     push(self.source(), edits, trimmed..content.end, String::new());
                 }
@@ -903,27 +922,31 @@ impl Document<'_> {
         &self,
         options: FormatOptions,
         removed: &[bool],
+        planned_edits: &[TextEdit],
         edits: &mut Vec<TextEdit>,
     ) {
         let source = self.source();
         match options.final_newline {
             FinalNewline::Preserve => {}
             FinalNewline::Ensure => {
-                // Collapsing a trailing blank run can expose an earlier line
-                // ending at the end of the output; adding another one would
-                // add a blank line or join a lone CR into a CRLF.
-                let end = self
+                // Collapsing a trailing blank run or re-quoting a value can
+                // expose a line ending at the end of the last kept item;
+                // adding another LF would add a blank line or join a lone CR
+                // into a CRLF. Check only within the last kept item's own span
+                // so a trimmed whitespace-only final line still gets its LF.
+                let last_kept = self
                     .items()
                     .rev()
-                    .find(|item| !removed.get(item.id()).copied().unwrap_or(false))
-                    .map_or(source.len(), |item| item.span().end);
-                let output_end = &source[..end];
-                if !source.is_empty()
-                    && self.items().next().is_some()
-                    && !output_end.ends_with('\n')
-                    && !output_end.ends_with('\r')
-                {
-                    push(source, edits, source.len()..source.len(), "\n".into());
+                    .find(|item| !removed.get(item.id()).copied().unwrap_or(false));
+                if let Some(item) = last_kept {
+                    let span = item.span();
+                    let ends_with_break = matches!(
+                        effective_last_byte_before(source, planned_edits, span.start, span.end),
+                        Some(b'\n' | b'\r')
+                    );
+                    if !ends_with_break {
+                        push(source, edits, source.len()..source.len(), "\n".into());
+                    }
                 }
             }
             FinalNewline::Remove => {
@@ -945,10 +968,13 @@ impl Document<'_> {
                         // In an LF-only dialect a CR at the end is itself a
                         // line ending. Removing one final ending can expose
                         // another ending, or turn a trailing value CR into one.
-                        // Keep the source unchanged rather than removing one
-                        // ending per pass.
-                        let remainder_ends_with_line_ending =
-                            source[..end].ends_with('\n') || source[..end].ends_with('\r');
+                        // Inspect the post-edit byte before `end` so a value
+                        // re-quoted in the same pass does not falsely block
+                        // removal on the first pass.
+                        let remainder_ends_with_line_ending = matches!(
+                            effective_last_byte_before(source, planned_edits, 0, end),
+                            Some(b'\n' | b'\r')
+                        );
                         if !remainder_ends_with_line_ending {
                             push(source, edits, end..source.len(), String::new());
                         }
@@ -957,6 +983,47 @@ impl Document<'_> {
             }
         }
     }
+}
+
+fn sort_and_check_edits(edits: &mut [TextEdit]) -> Result<(), EditError> {
+    edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
+    if edits
+        .windows(2)
+        .any(|pair| pair[1].range.start < pair[0].range.end)
+    {
+        return Err(EditError::WouldChangeMeaning);
+    }
+    Ok(())
+}
+
+fn effective_last_byte_before(
+    source: &str,
+    sorted_edits: &[TextEdit],
+    start_bound: usize,
+    mut offset: usize,
+) -> Option<u8> {
+    let mut index = sorted_edits.partition_point(|edit| edit.range.end <= offset);
+    debug_assert!(sorted_edits
+        .get(index)
+        .map_or(true, |edit| edit.range.start >= offset));
+    while offset > start_bound {
+        if index > 0 {
+            let edit = &sorted_edits[index - 1];
+            if edit.range.end == offset {
+                if let Some(&byte) = edit.replacement.as_bytes().last() {
+                    return Some(byte);
+                }
+                if edit.range.start <= start_bound {
+                    return None;
+                }
+                offset = edit.range.start;
+                index -= 1;
+                continue;
+            }
+        }
+        return Some(source.as_bytes()[offset - 1]);
+    }
+    None
 }
 
 fn push(
@@ -970,15 +1037,18 @@ fn push(
     }
 }
 
-fn trim_end(source: &str, content: core::ops::Range<usize>) -> usize {
+fn trim_end(source: &str, sorted_edits: &[TextEdit], content: core::ops::Range<usize>) -> usize {
     let mut end = content.end;
     while end > content.start && matches!(source.as_bytes()[end - 1], b' ' | b'\t') {
         end -= 1;
     }
     // Exposing a CR that was followed by horizontal whitespace would change how
-    // the next parse recognizes a mixed CR/LF line ending. Leave that line
-    // untouched instead of making the formatter non-idempotent.
-    if end != content.end && end > content.start && source.as_bytes()[end - 1] == b'\r' {
+    // the next parse recognizes a mixed CR/LF line ending. Check the post-edit
+    // byte before `end` so a value re-quoted in the same pass does not falsely
+    // block trimming and make the formatter non-idempotent.
+    if end != content.end
+        && effective_last_byte_before(source, sorted_edits, content.start, end) == Some(b'\r')
+    {
         return content.end;
     }
     end
@@ -1188,7 +1258,7 @@ fn trim_horizontal(text: &str) -> &str {
 mod tests {
     use alloc::{string::String, vec::Vec};
 
-    use super::{check_items, culprits, owners, Check};
+    use super::{check_items, culprits, effective_last_byte_before, owners, Check};
     use crate::{parse_strict, Document, TextEdit};
 
     // The ids of the items of `left` that do not read the same in `right`.
@@ -1283,5 +1353,43 @@ mod tests {
             check(5..9, Some(9), true, true),
         ];
         assert_eq!(culprits(&checks).into_iter().collect::<Vec<_>>(), [1]);
+    }
+
+    #[test]
+    fn effective_last_byte_before_handles_bounds_deletions_and_insertions() {
+        let source = "A=1\r  ";
+        assert_eq!(effective_last_byte_before(source, &[], 0, 0), None);
+        assert_eq!(effective_last_byte_before(source, &[], 4, 4), None);
+        assert_eq!(effective_last_byte_before(source, &[], 0, 4), Some(b'\r'));
+
+        // Adjacent deletions reaching `start_bound` return `None`.
+        let deletions = [
+            TextEdit {
+                range: 0..2,
+                replacement: String::new(),
+            },
+            TextEdit {
+                range: 2..4,
+                replacement: String::new(),
+            },
+        ];
+        assert_eq!(effective_last_byte_before(source, &deletions, 0, 4), None);
+        assert_eq!(effective_last_byte_before(source, &deletions, 2, 4), None);
+
+        // Zero-length insertion before a deletion supplies the effective last byte.
+        let insert_then_delete = [
+            TextEdit {
+                range: 2..2,
+                replacement: String::from("\""),
+            },
+            TextEdit {
+                range: 2..4,
+                replacement: String::new(),
+            },
+        ];
+        assert_eq!(
+            effective_last_byte_before(source, &insert_then_delete, 0, 4),
+            Some(b'"')
+        );
     }
 }

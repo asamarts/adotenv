@@ -442,7 +442,7 @@ impl<'de> Deserialize<'de> for Identifier {
     }
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 struct Unit;
 
 #[test]
@@ -515,4 +515,297 @@ fn map_access_reports_remaining_size_hint() {
     let doc = parse_strict("A=1\nB=2\n").unwrap();
     let hints: Hints = doc.deserialize().unwrap();
     assert_eq!(hints.0, [Some(2), Some(1), Some(0)]);
+}
+
+#[test]
+fn non_string_scalar_map_keys_deserialize_like_values() {
+    use alloc::collections::BTreeMap;
+
+    #[derive(Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+    struct PortKey(u16);
+
+    let ports: BTreeMap<u16, String> = parse_strict("8080=http\n443=https\n")
+        .unwrap()
+        .deserialize()
+        .unwrap();
+    assert_eq!(ports.get(&8080).map(String::as_str), Some("http"));
+    assert_eq!(ports.get(&443).map(String::as_str), Some("https"));
+
+    let signed: BTreeMap<i8, String> = parse_strict("-5=low\n12=high\n")
+        .unwrap()
+        .deserialize()
+        .unwrap();
+    assert_eq!(signed.get(&-5).map(String::as_str), Some("low"));
+    assert_eq!(signed.get(&12).map(String::as_str), Some("high"));
+
+    let flags: BTreeMap<bool, String> = parse_strict("true=yes\nfalse=no\n")
+        .unwrap()
+        .deserialize()
+        .unwrap();
+    assert_eq!(flags.get(&true).map(String::as_str), Some("yes"));
+    assert_eq!(flags.get(&false).map(String::as_str), Some("no"));
+
+    let chars: BTreeMap<char, String> = parse_strict("a=alpha\nb=beta\n")
+        .unwrap()
+        .deserialize()
+        .unwrap();
+    assert_eq!(chars.get(&'a').map(String::as_str), Some("alpha"));
+    assert_eq!(chars.get(&'b').map(String::as_str), Some("beta"));
+
+    let newtypes: BTreeMap<PortKey, String> =
+        parse_strict("80=web\n").unwrap().deserialize().unwrap();
+    assert_eq!(newtypes.get(&PortKey(80)).map(String::as_str), Some("web"));
+
+    let optional: BTreeMap<Option<u16>, String> =
+        parse_strict("8080=http\n").unwrap().deserialize().unwrap();
+    assert_eq!(optional.get(&Some(8080)).map(String::as_str), Some("http"));
+}
+
+#[test]
+fn float_bytes_and_non_scalar_map_keys_follow_scalar_rules() {
+    use alloc::collections::BTreeMap;
+
+    struct FloatEntry(Vec<(f64, String)>);
+    impl<'de> serde::Deserialize<'de> for FloatEntry {
+        fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            struct Visitor;
+            impl<'de> serde::de::Visitor<'de> for Visitor {
+                type Value = FloatEntry;
+                fn expecting(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                    f.write_str("float-keyed map")
+                }
+                fn visit_map<A: serde::de::MapAccess<'de>>(
+                    self,
+                    mut map: A,
+                ) -> Result<Self::Value, A::Error> {
+                    let mut out = Vec::new();
+                    while let Some(pair) = map.next_entry::<f64, String>()? {
+                        out.push(pair);
+                    }
+                    Ok(FloatEntry(out))
+                }
+            }
+            deserializer.deserialize_map(Visitor)
+        }
+    }
+
+    struct BytesEntry(Vec<(Bytes, String)>);
+    impl<'de> serde::Deserialize<'de> for BytesEntry {
+        fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            struct Visitor;
+            impl<'de> serde::de::Visitor<'de> for Visitor {
+                type Value = BytesEntry;
+                fn expecting(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                    f.write_str("bytes-keyed map")
+                }
+                fn visit_map<A: serde::de::MapAccess<'de>>(
+                    self,
+                    mut map: A,
+                ) -> Result<Self::Value, A::Error> {
+                    let mut out = Vec::new();
+                    while let Some(pair) = map.next_entry::<Bytes, String>()? {
+                        out.push(pair);
+                    }
+                    Ok(BytesEntry(out))
+                }
+            }
+            deserializer.deserialize_map(Visitor)
+        }
+    }
+
+    #[derive(Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+    #[serde(untagged)]
+    enum UntaggedKey {
+        Number(u16),
+        Text(String),
+    }
+
+    struct ByteBufEntry(Vec<(ByteBuf, String)>);
+    impl<'de> serde::Deserialize<'de> for ByteBufEntry {
+        fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            struct Visitor;
+            impl<'de> serde::de::Visitor<'de> for Visitor {
+                type Value = ByteBufEntry;
+                fn expecting(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                    f.write_str("byte-buf-keyed map")
+                }
+                fn visit_map<A: serde::de::MapAccess<'de>>(
+                    self,
+                    mut map: A,
+                ) -> Result<Self::Value, A::Error> {
+                    let mut out = Vec::new();
+                    while let Some(pair) = map.next_entry::<ByteBuf, String>()? {
+                        out.push(pair);
+                    }
+                    Ok(ByteBufEntry(out))
+                }
+            }
+            deserializer.deserialize_map(Visitor)
+        }
+    }
+
+    let floats: FloatEntry = parse_strict("1.5=ok\n").unwrap().deserialize().unwrap();
+    assert_eq!(floats.0, alloc::vec![(1.5, "ok".to_string())]);
+
+    let bytes_entries: BytesEntry = parse_strict("k=v\n").unwrap().deserialize().unwrap();
+    assert_eq!(
+        bytes_entries.0,
+        alloc::vec![(Bytes(b"k".to_vec()), "v".to_string())]
+    );
+
+    let byte_buf_entries: ByteBufEntry = parse_strict("k=v\n").unwrap().deserialize().unwrap();
+    assert_eq!(
+        byte_buf_entries.0,
+        alloc::vec![(ByteBuf(b"k".to_vec()), "v".to_string())]
+    );
+
+    let untagged: BTreeMap<UntaggedKey, String> =
+        parse_strict("8080=http\n").unwrap().deserialize().unwrap();
+    assert_eq!(
+        untagged
+            .get(&UntaggedKey::Text("8080".to_string()))
+            .map(String::as_str),
+        Some("http")
+    );
+}
+
+#[test]
+fn non_scalar_and_unit_map_keys_report_key_context() {
+    use alloc::collections::BTreeMap;
+
+    #[derive(Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+    enum KeyEnum {
+        One,
+    }
+
+    #[derive(Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+    struct TupleKey(String, String);
+
+    #[derive(Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+    struct StructKey {
+        a: String,
+    }
+
+    let doc = parse_strict("key=val\n").unwrap();
+    for (error, expected) in [
+        (
+            doc.deserialize::<BTreeMap<Vec<u8>, String>>().unwrap_err(),
+            "not a sequence",
+        ),
+        (
+            doc.deserialize::<BTreeMap<(String, String), String>>()
+                .unwrap_err(),
+            "not a tuple",
+        ),
+        (
+            doc.deserialize::<BTreeMap<TupleKey, String>>().unwrap_err(),
+            "not a tuple struct",
+        ),
+        (
+            doc.deserialize::<BTreeMap<BTreeMap<String, String>, String>>()
+                .unwrap_err(),
+            "not a map",
+        ),
+        (
+            doc.deserialize::<BTreeMap<StructKey, String>>()
+                .unwrap_err(),
+            "not a struct",
+        ),
+        (
+            doc.deserialize::<BTreeMap<KeyEnum, String>>().unwrap_err(),
+            "not an enum",
+        ),
+    ] {
+        assert_eq!(error.line(), 1);
+        assert_eq!(error.key(), Some("key"));
+        assert!(error.message().contains("scalar key"), "{error}");
+        assert!(error.message().contains(expected), "{error}");
+    }
+
+    for error in [
+        doc.deserialize::<BTreeMap<(), String>>().unwrap_err(),
+        doc.deserialize::<BTreeMap<Unit, String>>().unwrap_err(),
+    ] {
+        assert_eq!(error.line(), 1);
+        assert_eq!(error.key(), Some("key"));
+        assert!(error.message().contains("empty unit"), "{error}");
+    }
+}
+
+#[test]
+fn flatten_preserves_strings_and_supports_deserialize_with_for_typed_fields() {
+    use alloc::collections::BTreeMap;
+    use core::str::FromStr;
+
+    fn from_str<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+        T: FromStr,
+        T::Err: core::fmt::Display,
+    {
+        let text = String::deserialize(deserializer)?;
+        text.parse().map_err(serde::de::Error::custom)
+    }
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct WithRest {
+        host: String,
+        #[serde(flatten)]
+        rest: BTreeMap<String, String>,
+    }
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    #[serde(try_from = "String")]
+    struct StringPort(u16);
+
+    impl TryFrom<String> for StringPort {
+        type Error = core::num::ParseIntError;
+
+        fn try_from(value: String) -> Result<Self, Self::Error> {
+            value.parse().map(Self)
+        }
+    }
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct FlattenedTyped {
+        #[serde(deserialize_with = "from_str")]
+        port: u16,
+        #[serde(deserialize_with = "from_str")]
+        debug: bool,
+        alt_port: StringPort,
+        tag: char,
+    }
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct Outer {
+        host: String,
+        #[serde(flatten)]
+        inner: FlattenedTyped,
+    }
+
+    // Flattened String maps keep numeric and boolean literals as strings.
+    let doc = parse_strict("host=localhost\nport=8080\ndebug=true\n").unwrap();
+    let with_rest: WithRest = doc.deserialize().unwrap();
+    assert_eq!(with_rest.host, "localhost");
+    assert_eq!(with_rest.rest.get("port").map(String::as_str), Some("8080"));
+    assert_eq!(
+        with_rest.rest.get("debug").map(String::as_str),
+        Some("true")
+    );
+
+    let doc =
+        parse_strict("host=localhost\nport=8080\ndebug=true\nalt_port=9090\ntag=x\n").unwrap();
+    let outer: Outer = doc.deserialize().unwrap();
+    assert_eq!(
+        outer,
+        Outer {
+            host: "localhost".to_string(),
+            inner: FlattenedTyped {
+                port: 8080,
+                debug: true,
+                alt_port: StringPort(9090),
+                tag: 'x',
+            },
+        }
+    );
 }

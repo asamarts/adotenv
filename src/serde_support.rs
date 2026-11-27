@@ -2,9 +2,9 @@
 //! `serde` feature.
 //!
 //! The effective declarations are presented as a map from key to literal
-//! value. A value converts to a scalar type when the target asks for one;
-//! sequences, nested maps and structs, tuples and enums are rejected. A value
-//! or key that does not convert reports the line of its declaration.
+//! value. Keys and values convert to scalar types when the target asks for
+//! one; sequences, nested maps and structs, tuples and enums are rejected. A
+//! value or key that does not convert reports the line of its declaration.
 
 use alloc::{
     format,
@@ -29,13 +29,12 @@ use crate::{Document, Mask, REDACTED};
 ///   and its key. A value consumed through `#[serde(flatten)]` is decoded
 ///   after map access; serde then reports line `0` and no key for that value.
 /// - A key that does not convert, such as an unknown field under
-///   `#[serde(deny_unknown_fields)]`, has the line of its declaration and its
-///   key. Keys are always passed as strings, so any key read into a map with
-///   non-string keys, such as `BTreeMap<u16, String>`, fails this way, even
-///   `8080`.
+///   `#[serde(deny_unknown_fields)]` or a map key that does not parse into a
+///   scalar target type such as `u16`, has the line of its declaration and its
+///   key.
 /// - An error about the whole map, such as a missing field, has line `0` and
 ///   no key.
-/// - From a loaded environment loaded without origins, a value error has
+/// - From a loaded environment loaded without origins, a key or value error has
 ///   line `0` but still names the key.
 ///
 /// Its `Display` is `line {line}: {message} (key "{key}")`, without the
@@ -217,18 +216,19 @@ impl Document<'_> {
     /// `${HOST}` is the text `${HOST}`. Keys the target type does not name are
     /// ignored unless it uses `#[serde(deny_unknown_fields)]`.
     ///
-    /// The top level must be a struct or a map. Each value converts like this:
+    /// The top level must be a struct or a map. Each key and value converts
+    /// like this:
     ///
-    /// | Target type | Accepted values |
+    /// | Target type | Accepted text |
     /// |---|---|
-    /// | `String` | Any value |
+    /// | `String` | Any text |
     /// | `bool` | Exactly `true` or `false` |
     /// | Integers and floats | Rust's `FromStr` syntax for the type |
     /// | `char` | Exactly one character |
-    /// | `Option<T>` | `None` when the key is absent, otherwise `Some` of the converted value |
-    /// | `()` and unit structs | An empty value |
+    /// | `Option<T>` | For struct fields, `None` when the key is absent, otherwise `Some` of the converted value; for map keys, `Some` of the converted key |
+    /// | `()` and unit structs | Empty text |
     /// | Newtype structs | The rule of the inner type |
-    /// | Bytes, as requested by `serde_bytes::ByteBuf` | The UTF-8 bytes of the value |
+    /// | Bytes, as requested by `serde_bytes::ByteBuf` | The UTF-8 bytes |
     ///
     /// An empty value is still present: `PORT=` read as `Option<u16>` is an
     /// error, not `None`. Sequences, nested maps and structs, tuples and enums
@@ -238,10 +238,17 @@ impl Document<'_> {
     /// variant, so `value=hello` can deserialize as `Text("hello")`. Deserialize
     /// a `String` and convert it yourself when a field needs another shape.
     ///
-    /// Map keys are passed as strings, so a map with non-string keys, such as
-    /// `BTreeMap<u16, String>`, fails. Fields inside `#[serde(flatten)]` also
-    /// receive every value as a string, so only fields that accept a string,
-    /// such as `String`, work there.
+    /// Map keys use the same scalar conversion rules as values, so maps such as
+    /// `BTreeMap<u16, String>` or `BTreeMap<bool, String>` parse their keys
+    /// directly. Fields inside `#[serde(flatten)]` are buffered by Serde
+    /// through `deserialize_any`, which preserves every literal key and value
+    /// as a string so flattened `String` fields and `BTreeMap<String, String>`
+    /// maps keep values like `8080` or `true` intact. Types that Serde can read
+    /// from a buffered string (`String`, `char`, `serde_bytes::ByteBuf`) work
+    /// directly inside `#[serde(flatten)]`; for numeric or boolean fields
+    /// inside `#[serde(flatten)]`, parse from a string with
+    /// `#[serde(deserialize_with = ...)]` or a `#[serde(try_from = "String")]`
+    /// wrapper.
     ///
     /// # Errors
     ///
@@ -421,7 +428,7 @@ impl<'de> MapAccess<'de> for EntriesAccess {
         };
         let context = key.clone();
         self.current = Some((key.clone(), value, line));
-        seed.deserialize(KeyDeserializer { key, line })
+        seed.deserialize(ScalarDeserializer::key(key, line))
             .map(Some)
             .map_err(|error| error.with_context(line, context))
     }
@@ -434,9 +441,9 @@ impl<'de> MapAccess<'de> for EntriesAccess {
             return Err(DeserializeError::new("value requested without a key"));
         };
         // Conversions that run after the value is read, such as
-        // `#[serde(try_from = "String")]`, fail outside `ValueDeserializer`.
+        // `#[serde(try_from = "String")]`, fail outside `ScalarDeserializer`.
         let context = key.clone();
-        seed.deserialize(ValueDeserializer { key, value, line })
+        seed.deserialize(ScalarDeserializer::value(key, value, line))
             .map_err(|error| error.with_context(line, context))
     }
 
@@ -445,43 +452,43 @@ impl<'de> MapAccess<'de> for EntriesAccess {
     }
 }
 
-struct KeyDeserializer {
+struct ScalarDeserializer {
     key: String,
+    value: Option<String>,
     line: usize,
 }
 
-impl<'de> Deserializer<'de> for KeyDeserializer {
-    type Error = DeserializeError;
-
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where
-        V: Visitor<'de>,
-    {
-        let Self { key, line } = self;
-        visitor
-            .visit_str(&key)
-            .map_err(|error: DeserializeError| error.with_context(line, key))
+impl ScalarDeserializer {
+    fn key(key: String, line: usize) -> Self {
+        Self {
+            key,
+            value: None,
+            line,
+        }
     }
 
-    serde::forward_to_deserialize_any! {
-        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
-        bytes byte_buf option unit unit_struct newtype_struct seq tuple
-        tuple_struct map struct enum identifier ignored_any
+    fn value(key: String, value: String, line: usize) -> Self {
+        Self {
+            key,
+            value: Some(value),
+            line,
+        }
     }
-}
 
-struct ValueDeserializer {
-    key: String,
-    value: String,
-    line: usize,
-}
+    fn text(&self) -> &str {
+        self.value.as_deref().unwrap_or(&self.key)
+    }
 
-impl ValueDeserializer {
+    fn non_scalar(&self, shape: &str) -> DeserializeError {
+        let kind = if self.value.is_some() { "value" } else { "key" };
+        self.invalid(&format!("a scalar {kind}, not {shape}"))
+    }
+
     fn invalid(&self, expected: &str) -> DeserializeError {
         DeserializeError::at(
             self.line,
             self.key.clone(),
-            format!("expected {expected}, found {:?}", self.value),
+            format!("expected {expected}, found {:?}", self.text()),
         )
     }
 
@@ -496,23 +503,25 @@ macro_rules! deserialize_number {
         where
             V: Visitor<'de>,
         {
-            let value = self.value.parse::<$ty>().map_err(|_| self.invalid($name))?;
+            let value = self
+                .text()
+                .parse::<$ty>()
+                .map_err(|_| self.invalid($name))?;
             let result = visitor.$visit(value);
             self.context(result)
         }
     };
 }
 
-impl<'de> Deserializer<'de> for ValueDeserializer {
+impl<'de> Deserializer<'de> for ScalarDeserializer {
     type Error = DeserializeError;
 
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        visitor
-            .visit_str(&self.value)
-            .map_err(|error: DeserializeError| error.with_context(self.line, self.key.clone()))
+        let result = visitor.visit_str(self.text());
+        self.context(result)
     }
 
     fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -520,7 +529,7 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
         V: Visitor<'de>,
     {
         let value = self
-            .value
+            .text()
             .parse::<bool>()
             .map_err(|_| self.invalid("a boolean"))?;
         let result = visitor.visit_bool(value);
@@ -544,7 +553,7 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        let mut chars = self.value.chars();
+        let mut chars = self.text().chars();
         let (Some(character), None) = (chars.next(), chars.next()) else {
             return Err(self.invalid("one character"));
         };
@@ -556,7 +565,7 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_str(&self.value);
+        let result = visitor.visit_str(self.text());
         self.context(result)
     }
 
@@ -571,7 +580,7 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_bytes(self.value.as_bytes());
+        let result = visitor.visit_bytes(self.text().as_bytes());
         self.context(result)
     }
 
@@ -586,15 +595,14 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        let result = visitor.visit_some(self);
-        result
+        visitor.visit_some(self)
     }
 
     fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        if self.value.is_empty() {
+        if self.text().is_empty() {
             visitor.visit_unit()
         } else {
             Err(self.invalid("an empty unit"))
@@ -627,14 +635,14 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        Err(self.invalid("a scalar value, not a sequence"))
+        Err(self.non_scalar("a sequence"))
     }
 
     fn deserialize_tuple<V>(self, _len: usize, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        Err(self.invalid("a scalar value, not a tuple"))
+        Err(self.non_scalar("a tuple"))
     }
 
     fn deserialize_tuple_struct<V>(
@@ -646,14 +654,14 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        Err(self.invalid("a scalar value, not a tuple struct"))
+        Err(self.non_scalar("a tuple struct"))
     }
 
     fn deserialize_map<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
-        Err(self.invalid("a scalar value, not a map"))
+        Err(self.non_scalar("a map"))
     }
 
     fn deserialize_struct<V>(
@@ -665,7 +673,7 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        Err(self.invalid("a scalar value, not a struct"))
+        Err(self.non_scalar("a struct"))
     }
 
     fn deserialize_enum<V>(
@@ -677,7 +685,7 @@ impl<'de> Deserializer<'de> for ValueDeserializer {
     where
         V: Visitor<'de>,
     {
-        Err(self.invalid("a scalar value, not an enum"))
+        Err(self.non_scalar("an enum"))
     }
 
     fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value, Self::Error>

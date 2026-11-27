@@ -55,18 +55,18 @@ let config: Config = loaded.deserialize()?;
 ## Conversion rules
 
 The top level is a struct or a map. Keys and values are the decoded literal
-text. Each value converts like this:
+text. Each key and value converts like this:
 
-| Target type | Accepted values |
+| Target type | Accepted text |
 |---|---|
-| `String` | Any value |
+| `String` | Any text |
 | `bool` | Exactly `true` or `false` |
 | Integers and floats | Rust's `FromStr` syntax for that type |
 | `char` | Exactly one character |
-| `Option<T>` | `None` when the key is absent, otherwise `Some` of the converted value |
-| Unit and unit structs | An empty value |
+| `Option<T>` | For struct fields, `None` when the key is absent, otherwise `Some` of the converted value; for map keys, `Some` of the converted key |
+| Unit and unit structs | Empty text |
 | Newtype structs | The inner type's rule |
-| Bytes, as requested by `serde_bytes::ByteBuf` | The value's UTF-8 bytes |
+| Bytes, as requested by `serde_bytes::ByteBuf` | The UTF-8 bytes |
 
 An empty value is still present: `PORT=` into `Option<u16>` is an error, not
 `None`. Sequences, nested maps and structs, tuples and enums are rejected,
@@ -76,10 +76,61 @@ choose a string-compatible variant, so `value=hello` may deserialize as
 `Text("hello")`. Deserialize a `String` and convert it yourself when a field
 needs another shape.
 
-Map keys are passed as strings, so a map with non-string keys, such as
-`BTreeMap<u16, String>`, fails even for a key like `8080`. Fields inside
-`#[serde(flatten)]` also receive every value as a string, so only fields that
-accept a string, such as `String`, work there.
+Map keys use the same scalar conversion rules as values, so maps with
+non-string scalar keys parse directly:
+
+```rust
+use std::collections::BTreeMap;
+
+let doc = adotenv::parse_strict("8080=http\n443=https\n").unwrap();
+let ports: BTreeMap<u16, String> = doc.deserialize().unwrap();
+assert_eq!(ports[&8080], "http");
+assert_eq!(ports[&443], "https");
+```
+
+Fields inside `#[serde(flatten)]` are buffered by Serde through
+`deserialize_any` before the flattened target sees them. Because `.env` files
+do not distinguish strings from numbers syntactically, buffered keys and values
+stay strings so flattened `String` fields and `BTreeMap<String, String>` maps
+keep values like `8080` or `true` intact. Types that Serde can read from a
+buffered string (`String`, `char`, `serde_bytes::ByteBuf`) work directly inside
+`#[serde(flatten)]`. For numeric or boolean fields inside `#[serde(flatten)]`,
+parse from a string with `#[serde(deserialize_with = ...)]` (or a
+`#[serde(try_from = "String")]` wrapper):
+
+```rust
+use std::str::FromStr;
+use serde::Deserialize;
+
+fn from_str<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: FromStr,
+    T::Err: std::fmt::Display,
+{
+    String::deserialize(deserializer)?
+        .parse()
+        .map_err(serde::de::Error::custom)
+}
+
+#[derive(Deserialize)]
+struct Server {
+    #[serde(deserialize_with = "from_str")]
+    port: u16,
+}
+
+#[derive(Deserialize)]
+struct Config {
+    host: String,
+    #[serde(flatten)]
+    server: Server,
+}
+
+let doc = adotenv::parse_strict("host=localhost\nport=8080\n").unwrap();
+let config: Config = doc.deserialize().unwrap();
+assert_eq!(config.host, "localhost");
+assert_eq!(config.server.port, 8080);
+```
 
 ## Errors
 
@@ -89,11 +140,11 @@ accept a string, such as `String`, work there.
   declaration.
 - In a loaded environment, the line comes from the retained origin, and the
   file is not reported; pass the key to `LoadedEnvironment::origin` to find
-  it. With `LoadOptions::with_origins(false)` the line is `0`, but a value
-  error still names the key.
+  it. With `LoadOptions::with_origins(false)` the line is `0`, but a key or
+  value error still names the key.
 - A key that does not convert, such as an unknown field under
-  `#[serde(deny_unknown_fields)]` or any key of a map with non-string keys,
-  reports its line and key.
+  `#[serde(deny_unknown_fields)]` or a map key that fails to parse into its
+  target scalar type, reports its line and key.
 - An error about the whole map, such as a missing field, has line `0` and no
   key.
 - A value consumed through `#[serde(flatten)]` is decoded after map access;

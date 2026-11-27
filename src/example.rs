@@ -31,12 +31,14 @@ impl Document<'_> {
     /// never get a placeholder. In a custom dialect where an inline comment
     /// cannot follow an empty value, the comment moves to its own line.
     ///
-    /// Invalid statements, ignored statements and entries with an empty key
-    /// become `#` comments that keep only their indentation and line ending, so
-    /// no value text from them can leak into the output. Statements that shared
-    /// one physical line are put on separate lines, and each is handled on its
-    /// own. In Compose, text right after a closing quote is the next statement,
-    /// so `A="x"tail` gives `A=""` and a bare `tail` on the next line.
+    /// Invalid statements, ignored statements, entries with an empty key, and
+    /// bare text following a closing quote on the same physical line (under
+    /// [`QuotedTail::NextStatement`](crate::QuotedTail::NextStatement), such as
+    /// Compose) become `#` comments that keep only their indentation and line
+    /// ending, so no value text from them can leak into the output. For
+    /// example, in Compose `A="x"tail\n` gives `A=""\n#\n`, while a second
+    /// assigned statement on the same line such as `A="x" B=2\n` is put on its
+    /// own line with its value removed (`A=""\n B=\n`).
     ///
     /// Comments are kept verbatim, including anything secret written in them.
     /// The result is meant for examples and documentation, not for use as a
@@ -73,7 +75,17 @@ impl Document<'_> {
             cursor = 3;
         }
         let mut items = self.items().peekable();
+        let mut prev_quoted_same_line = false;
         while let Some(item) = items.next() {
+            let post_quote_same_line = prev_quoted_same_line;
+            prev_quoted_same_line = self.dialect().quoted_tail == crate::QuotedTail::NextStatement
+                && item.kind() == ItemKind::Entry
+                && item.line_ending() == crate::LineEnding::None
+                && !(self.dialect().syntax == crate::Syntax::Node
+                    && source[item.span().end..].starts_with(['\u{2028}', '\u{2029}']))
+                && item.entry().is_some_and(|entry| {
+                    entry.quote() != crate::Quote::None && entry.inline_comment().is_none()
+                });
             let mut span = item.span();
             let mut content = item.content_span();
             if bom_in_item && span.start == 0 {
@@ -87,61 +99,21 @@ impl Document<'_> {
             match item.kind() {
                 ItemKind::Entry => {
                     let entry = item.entry().expect("entry item has an entry view");
-                    if entry.key().is_empty() {
+                    if entry.key().is_empty()
+                        || (post_quote_same_line && entry.value_span().is_none())
+                    {
                         push_commented(&mut output, source, span.clone(), content.clone());
                     } else if let Some(value) = entry.value_span() {
-                        // Keep only the declaration prefix, an optional safe
-                        // placeholder, an inline comment and the final line
-                        // ending. This drops multiline value bodies and any
-                        // trailing text without exposing it as a new value.
-                        output.push_str(&source[span.start..value.start]);
-                        let tokens = entry.tokens();
-                        let colon_separator = tokens
-                            .eq
-                            .as_ref()
-                            .is_some_and(|eq| &source[eq.clone()] == ":");
-                        let multiline_value = source[value.clone()]
-                            .bytes()
-                            .any(|byte| matches!(byte, b'\n' | b'\r'));
-                        let same_line_next =
-                            item.line_ending() == crate::LineEnding::None && items.peek().is_some();
-                        let quoted_comment =
-                            entry.inline_comment().is_some() && self.dialect().quoted_comments;
-                        if !self.dialect().raw_values
-                            && (colon_separator
-                                || multiline_value
-                                || same_line_next
-                                || quoted_comment)
-                        {
-                            output.push_str("\"\"");
-                        }
-                        let ending = item.line_ending();
-                        if let Some(comment) = &tokens.inline_comment {
-                            if self.dialect().inline_comments == InlineComments::Space
-                                && !self.dialect().quoted_comments
-                            {
-                                // This custom grammar cannot attach a comment to
-                                // an empty value; retain it on the next line.
-                                moved_comment = true;
-                                let break_str = if ending == crate::LineEnding::None
-                                    || (self.dialect().line_breaks == crate::LineBreaks::Lf
-                                        && ending == crate::LineEnding::Cr)
-                                {
-                                    "\n"
-                                } else {
-                                    ending.as_str()
-                                };
-                                output.push_str(break_str);
-                                output.push_str(&source[comment.clone()]);
-                                output.push_str(break_str);
-                            } else {
-                                output.push_str(&source[tokens.trailing_space.clone()]);
-                                output.push_str(&source[comment.clone()]);
-                                output.push_str(ending.as_str());
-                            }
-                        } else {
-                            output.push_str(ending.as_str());
-                        }
+                        moved_comment = push_assigned_example(
+                            &mut output,
+                            source,
+                            self.dialect(),
+                            item,
+                            entry,
+                            span.start,
+                            value,
+                            items.peek().is_some(),
+                        );
                     } else {
                         output.push_str(&source[span.clone()]);
                     }
@@ -179,4 +151,60 @@ fn push_commented(
     output.push_str(&source[span.start..content.start + indent]);
     output.push('#');
     output.push_str(&source[content.end..span.end]);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_assigned_example(
+    output: &mut String,
+    source: &str,
+    dialect: crate::Dialect,
+    item: crate::Item<'_>,
+    entry: crate::Entry<'_>,
+    start: usize,
+    value: core::ops::Range<usize>,
+    has_next: bool,
+) -> bool {
+    // Keep only the declaration prefix, an optional safe placeholder, an inline
+    // comment and the final line ending. This drops multiline value bodies and
+    // any trailing text without exposing it as a new value.
+    output.push_str(&source[start..value.start]);
+    let tokens = entry.tokens();
+    let colon_separator = tokens
+        .eq
+        .as_ref()
+        .is_some_and(|eq| &source[eq.clone()] == ":");
+    let multiline_value = source[value]
+        .bytes()
+        .any(|byte| matches!(byte, b'\n' | b'\r'));
+    let same_line_next = item.line_ending() == crate::LineEnding::None && has_next;
+    let quoted_comment = entry.inline_comment().is_some() && dialect.quoted_comments;
+    if !dialect.raw_values
+        && (colon_separator || multiline_value || same_line_next || quoted_comment)
+    {
+        output.push_str("\"\"");
+    }
+    let ending = item.line_ending();
+    if let Some(comment) = &tokens.inline_comment {
+        if dialect.inline_comments == InlineComments::Space && !dialect.quoted_comments {
+            // This custom grammar cannot attach a comment to an empty value;
+            // retain it on the next line.
+            let break_str = if ending == crate::LineEnding::None
+                || (dialect.line_breaks == crate::LineBreaks::Lf && ending == crate::LineEnding::Cr)
+            {
+                "\n"
+            } else {
+                ending.as_str()
+            };
+            output.push_str(break_str);
+            output.push_str(&source[comment.clone()]);
+            output.push_str(break_str);
+            return true;
+        }
+        output.push_str(&source[tokens.trailing_space.clone()]);
+        output.push_str(&source[comment.clone()]);
+        output.push_str(ending.as_str());
+    } else {
+        output.push_str(ending.as_str());
+    }
+    false
 }
