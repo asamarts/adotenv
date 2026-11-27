@@ -539,7 +539,7 @@ impl Entry<'_> {
     /// candidate equals the corresponding one from [`Self::references`],
     /// except that parent indices address the returned list.
     pub(crate) fn references_within_depth(self, max_depth: usize) -> Vec<Reference> {
-        self.scan_references(max_depth, None)
+        self.scan_references(max_depth, None, None)
             .expect("an unbounded reference scan cannot exceed its limit")
     }
 
@@ -550,13 +550,29 @@ impl Entry<'_> {
         max_depth: usize,
         max_references: usize,
     ) -> Result<Vec<Reference>, ScanLimit> {
-        self.scan_references(max_depth, Some(max_references))
+        self.scan_references(max_depth, Some(max_references), None)
+    }
+
+    /// Like [`Self::references_within_depth_bounded`], with an explicit
+    /// delimiter-nesting cap decoupled from the remaining candidate count so
+    /// multi-entry budgets remain order-invariant.
+    pub(crate) fn references_within_budget(
+        self,
+        max_references: usize,
+        delimiter_depth_limit: usize,
+    ) -> Result<Vec<Reference>, ScanLimit> {
+        self.scan_references(
+            usize::MAX,
+            Some(max_references),
+            Some(delimiter_depth_limit),
+        )
     }
 
     fn scan_references(
         self,
         max_depth: usize,
         max_references: Option<usize>,
+        delimiter_depth_limit: Option<usize>,
     ) -> Result<Vec<Reference>, ScanLimit> {
         let tokens = self.tokens();
         let Some(body) = tokens.body.clone() else {
@@ -581,12 +597,14 @@ impl Entry<'_> {
         }
         pending.push((body, self.quote(), Level::TOP, true));
         let closes = Closes {
-            limit: max_references.map(|limit| {
-                if max_depth == usize::MAX {
-                    limit.saturating_mul(2).max(64).saturating_add(2)
-                } else {
-                    max_depth.saturating_add(2)
-                }
+            limit: delimiter_depth_limit.or_else(|| {
+                max_references.map(|limit| {
+                    if max_depth == usize::MAX {
+                        limit.saturating_mul(2).max(64).saturating_add(2)
+                    } else {
+                        max_depth.saturating_add(2)
+                    }
+                })
             }),
             cache_limit: max_references,
             ..Closes::default()

@@ -471,8 +471,9 @@ let config: Config = doc.deserialize()?;
 ```
 
 Strings, booleans, numbers, characters, options and unit or newtype shapes are
-converted from literal values. Sequences, tuples, nested structs and maps, and
-enums are rejected.
+converted from literal values, and map targets also parse non-string scalar
+keys (such as `BTreeMap<u16, String>` or `BTreeMap<bool, String>`) with the
+same rules. Sequences, tuples, nested structs and maps, and enums are rejected.
 Value-conversion errors carry the source line and key, and their messages
 include the value.
 
@@ -568,8 +569,8 @@ let config = config::Config::builder()
 - Parsing does not read files, environment variables or commands.
 - Retained documents keep token and item metadata. Use `ParseOptions` to bound
   input bytes, physical lines, items and diagnostics for untrusted input, and
-  `EditOptions` to bound edited output bytes, output lines and verification
-  parsing; the limits are opt-in.
+  `EditOptions` to bound edited output bytes, output lines, scanned references
+  (`max_references`) and verification parsing; the limits are opt-in.
   The loader's `LoadOptions::with_limits` also bounds the read itself.
 - `Debug` output of documents, items, entries, edit and format results,
   comparisons, loaded environments and entries, resolved values, lookup

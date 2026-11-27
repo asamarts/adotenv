@@ -1281,8 +1281,9 @@ pub(crate) fn scan_entry_references(
 ) -> Result<Vec<crate::Reference>, LimitExceeded> {
     if let Some(limit) = max_references {
         let remaining = limit.saturating_sub(*scanned_references);
+        let delimiter_depth_limit = limit.saturating_mul(2).max(64).saturating_add(2);
         let found = entry
-            .references_within_depth_bounded(usize::MAX, remaining)
+            .references_within_budget(remaining, delimiter_depth_limit)
             .map_err(|limit_err| match limit_err {
                 ScanLimit::TooManyReferences | ScanLimit::DepthExceeded => {
                     LimitExceeded::new(LimitKind::References, limit, limit.saturating_add(1))

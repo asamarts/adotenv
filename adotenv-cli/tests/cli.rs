@@ -3701,4 +3701,14 @@ fn cli_1_8_limits_bounded_fmt_compact_paths_bom_and_compose_example() {
         );
         assert_eq!(stdout(&run_cascade), "from-base|local");
     }
+
+    // `set - --dialect=bogus val` treats `-` as the file positional so `--dialect=bogus`
+    // is not parsed as a global option and `set` reports the stdin refusal cleanly.
+    let set_stdin_flag = run(&["set", "-", "--dialect=bogus", "val"]);
+    assert_eq!(set_stdin_flag.status.code(), Some(2));
+    assert!(
+        stderr(&set_stdin_flag).contains("set cannot write standard input"),
+        "{}",
+        stderr(&set_stdin_flag)
+    );
 }

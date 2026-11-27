@@ -82,13 +82,19 @@
 //! | [`load_files_with_options`] | File list, chosen [`LoadOptions`] | [`LoadedEnvironment`] |
 //! | [`load_cascade_values`] | Cascade, Portable dialect | [`LoadedValues`] |
 //! | [`load_cascade_values_with`] | Cascade, chosen dialect | [`LoadedValues`] |
+//! | [`load_cascade_values_with_options`] | Cascade, chosen [`LoadOptions`] | [`LoadedValues`] |
+//! | [`load_values`] | File list, chosen dialect | [`LoadedValues`] |
+//! | [`load_values_with_options`] | File list, chosen [`LoadOptions`] | [`LoadedValues`] |
 //! | [`load_cascade_values_compact`] | Cascade, Portable dialect | [`CompactValues`] |
 //! | [`load_cascade_values_compact_with`] | Cascade, chosen dialect | [`CompactValues`] |
-//! | [`load_values`] | File list, chosen dialect | [`LoadedValues`] |
+//! | [`load_cascade_values_compact_with_options`] | Cascade, chosen [`LoadOptions`] | [`CompactValues`] |
 //! | [`load_values_compact`] | File list, chosen dialect | [`CompactValues`] |
+//! | [`load_values_compact_with_options`] | File list, chosen [`LoadOptions`] | [`CompactValues`] |
 //! | [`load_cascade_entries_compact`] | Cascade, Portable dialect | [`CompactEntries`] |
 //! | [`load_cascade_entries_compact_with`] | Cascade, chosen dialect | [`CompactEntries`] |
+//! | [`load_cascade_entries_compact_with_options`] | Cascade, chosen [`LoadOptions`] | [`CompactEntries`] |
 //! | [`load_entries_compact`] | File list, chosen dialect | [`CompactEntries`] |
+//! | [`load_entries_compact_with_options`] | File list, chosen [`LoadOptions`] | [`CompactEntries`] |
 //!
 //! A [`LoadedEnvironment`] holds the final values sorted by key and, by
 //! default, the [`LoadOrigin`] of each one: its file, the byte span of its

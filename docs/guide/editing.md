@@ -185,8 +185,10 @@ parsing for untrusted edits, pass `EditOptions` to `Document::edit_with_options`
 `comment_with_options`, `uncomment_with_options` or `set_export_with_options`.
 Byte and line budgets are checked from the planned `TextEdit`s before allocating
 the output string, and `EditOptions::max_references` caps total reference
-candidates scanned by `rename_with_references_with_options` (returning
-`EditError::Limit` with `LimitKind::References`).
+candidates scanned by `rename_with_references_with_options` and
+`Document::sort_with_options` (see
+[Formatting and sorting](../design/formatting.md#limits)), returning
+`EditError::Limit` with `LimitKind::References`.
 
 ## Applying text edits
 
