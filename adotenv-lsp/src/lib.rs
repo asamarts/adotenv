@@ -58,8 +58,9 @@ use std::{
 };
 
 use adotenv::{
-    parse_with_options, ColonSeparator, Diagnostic, DiagnosticCode, DoubleEscapes, EditOptions,
-    Entry, InlineComments, ItemKind, LineEnding, Quote, Reference, SingleEscapes, Syntax,
+    parse_owned_with_options, parse_with_options, ColonSeparator, Diagnostic, DiagnosticCode,
+    DoubleEscapes, EditOptions, Entry, InlineComments, ItemKind, LineEnding, Quote, Reference,
+    SingleEscapes, Syntax,
 };
 pub use adotenv::{
     BlankLines, BomPolicy, Dialect, Document, EditError, EqualsSpacing, FinalNewline, FormatError,
@@ -146,6 +147,18 @@ impl PositionEncoding {
             .iter()
             .find_map(Self::from_lsp_kind)
             .unwrap_or(Self::Utf16)
+    }
+}
+
+impl fmt::Display for PositionEncoding {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl From<PositionEncoding> for PositionEncodingKind {
+    fn from(encoding: PositionEncoding) -> Self {
+        encoding.to_lsp_kind()
     }
 }
 
@@ -328,7 +341,7 @@ impl From<LimitExceeded> for FormattingError {
 }
 
 /// A failed document-synchronization operation on a [`Session`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum SessionError {
     /// The target URI is not currently open in the session.
@@ -366,10 +379,8 @@ impl ParsedDocument {
     /// Parses `source` once under `options` and builds its coordinate map.
     #[must_use]
     pub fn parse(source: impl Into<String>, options: LspOptions) -> Self {
-        let source = source.into();
         let (document, parse_diagnostics) =
-            parse_with_options(&source, options.dialect, options.parse_options);
-        let document = document.into_owned();
+            parse_owned_with_options(source.into(), options.dialect, options.parse_options);
         let lines = LineMap::new(
             document.source(),
             options.dialect,
@@ -420,25 +431,30 @@ impl ParsedDocument {
     /// If every change in `changes` is valid, `self` is replaced with the
     /// re-parsed result and `true` is returned. If any change is invalid,
     /// `self` is left unchanged and `false` is returned.
+    #[must_use]
     pub fn apply_changes(&mut self, changes: &[TextDocumentContentChangeEvent]) -> bool {
         if changes.is_empty() {
             return true;
         }
         let mut text = self.source().to_owned();
-        for (index, change) in changes.iter().enumerate() {
-            let applied = if index == 0 {
-                self.lines
-                    .apply_change_in_place(&mut text, change.range, &change.text)
-            } else if change.range.is_none() {
-                text.clear();
-                text.push_str(&change.text);
-                true
-            } else {
-                let map = LineMap::new(&text, self.options.dialect, self.options.position_encoding);
-                map.apply_change_in_place(&mut text, change.range, &change.text)
-            };
-            if !applied {
+        if let [only] = changes {
+            if !self
+                .lines
+                .apply_change_in_place(&mut text, only.range, &only.text)
+            {
                 return false;
+            }
+        } else {
+            let mut map = self.lines.clone();
+            for change in changes {
+                if !map.apply_change_and_update(
+                    &mut text,
+                    change.range,
+                    &change.text,
+                    self.options.dialect,
+                ) {
+                    return false;
+                }
             }
         }
         *self = Self::parse(text, self.options);
@@ -775,14 +791,7 @@ impl ParsedDocument {
         let edits =
             self.document
                 .rename_with_references_with_options(&old_name, new_name, edit_options)?;
-        let changes = edits
-            .edits()
-            .iter()
-            .map(|edit| TextEdit {
-                range: self.lines.range(text, edit.range.clone()),
-                new_text: edit.replacement.clone(),
-            })
-            .collect::<Vec<_>>();
+        let changes = self.text_edits_from_verified(edits.edits(), edits.as_str());
         Ok(WorkspaceEdit {
             changes: Some(HashMap::from([(uri.clone(), changes)])),
             ..WorkspaceEdit::default()
@@ -833,16 +842,16 @@ impl ParsedDocument {
                 policy = policy.with_final_newline(FinalNewline::Preserve);
             }
         }
+        self.apply_format_policy(policy)
+    }
+
+    fn apply_format_policy(&self, policy: FormatOptions) -> Result<Vec<TextEdit>, FormattingError> {
         // `adotenv::Document::format` intentionally keeps `QuoteStyle::Unquoted`
         // separate from other trivia rewrites; when combined (for example via
-        // editor `insertFinalNewline` or `trimTrailingWhitespace`), run
-        // unquoting first and apply the remaining options in a second pass.
-        let needs_two_pass = policy.quote_style == QuoteStyle::Unquoted
-            && (policy.equals_spacing != EqualsSpacing::Preserve
-                || policy.trim_trailing_whitespace
-                || policy.blank_lines != BlankLines::Preserve
-                || policy.final_newline != FinalNewline::Preserve);
-        if needs_two_pass {
+        // editor `insertFinalNewline`, `trimTrailingWhitespace`, or lint
+        // policy), run unquoting first and apply the remaining options in a
+        // second pass.
+        if needs_two_pass_unquote(policy) {
             let unquote_only = FormatOptions::default().with_quote_style(QuoteStyle::Unquoted);
             let pass1 = self.document.format(&unquote_only)?;
             let rest_policy = policy.with_quote_style(QuoteStyle::Preserve);
@@ -853,21 +862,19 @@ impl ParsedDocument {
                     self.options.dialect,
                     self.options.parse_options,
                 )?;
-                return Ok(self.text_edits_from(pass2.edits()));
+                return Ok(self.text_edits_from_verified(pass2.edits(), pass2.as_str()));
             }
-            check_output_parse_limits(
-                pass1.as_str(),
-                self.options.dialect,
-                self.options.parse_options,
-            )?;
-            let (mid_doc, _) = parse_with_options(
+            let (mid_doc, mid_diags) = parse_with_options(
                 pass1.as_str(),
                 self.options.dialect,
                 self.options.parse_options,
             );
+            if let Some(limit) = mid_diags.iter().find_map(Diagnostic::limit) {
+                return Err(FormattingError::Limit(limit));
+            }
             let pass2 = mid_doc.format(&rest_policy)?;
             if pass2.is_empty() {
-                return Ok(self.text_edits_from(pass1.edits()));
+                return Ok(self.text_edits_from_verified(pass1.edits(), pass1.as_str()));
             }
             check_output_parse_limits(
                 pass2.as_str(),
@@ -885,18 +892,37 @@ impl ParsedDocument {
             self.options.dialect,
             self.options.parse_options,
         )?;
-        Ok(self.text_edits_from(formatted.edits()))
+        Ok(self.text_edits_from_verified(formatted.edits(), formatted.as_str()))
     }
 
-    fn text_edits_from(&self, edits: &[adotenv::TextEdit]) -> Vec<TextEdit> {
+    fn text_edits_from_verified(
+        &self,
+        edits: &[adotenv::TextEdit],
+        verified_output: &str,
+    ) -> Vec<TextEdit> {
+        if edits.is_empty() {
+            return Vec::new();
+        }
         let text = self.source();
-        edits
-            .iter()
-            .map(|edit| TextEdit {
-                range: self.lines.range(text, edit.range.clone()),
+        let mut mapped = Vec::with_capacity(edits.len());
+        for edit in edits {
+            let (Some(start), Some(end)) = (
+                self.lines.exact_position(text, edit.range.start),
+                self.lines.exact_position(text, edit.range.end),
+            ) else {
+                // An edit endpoint lands at an offset that LSP coordinates
+                // cannot represent directly (for example strictly between `\r`
+                // and `\n` under a `LineBreaks::Lf` dialect such as Docker
+                // raw). Fall back to one BOM-preserving full-document edit so
+                // the client buffer matches `adotenv`'s verified output.
+                return vec![self.bom_preserving_full_edit(verified_output)];
+            };
+            mapped.push(TextEdit {
+                range: Range::new(start, end),
                 new_text: edit.replacement.clone(),
-            })
-            .collect()
+            });
+        }
+        mapped
     }
 
     fn bom_preserving_full_edit(&self, output: &str) -> TextEdit {
@@ -907,7 +933,10 @@ impl ParsedDocument {
             .unwrap_or(output)
             .to_owned();
         TextEdit {
-            range: self.lines.range(text, visible_start..text.len()),
+            range: Range::new(
+                self.lines.position(text, visible_start),
+                self.lines.position(text, text.len()),
+            ),
             new_text: replacement,
         }
     }
@@ -961,22 +990,35 @@ impl ParsedDocument {
                 }
             }
             for (fix, matching_diags) in grouped {
-                let Ok(result) = apply_fix(&self.document, &fix) else {
-                    continue;
+                let edits = match &fix {
+                    Fix::Format(policy) if needs_two_pass_unquote(*policy) => {
+                        let Ok(edits) = self.apply_format_policy(*policy) else {
+                            continue;
+                        };
+                        edits
+                    }
+                    _ => {
+                        let Ok(result) = apply_fix(&self.document, &fix) else {
+                            continue;
+                        };
+                        if result.edits().is_empty() {
+                            continue;
+                        }
+                        if check_output_parse_limits(
+                            result.as_str(),
+                            self.options.dialect,
+                            self.options.parse_options,
+                        )
+                        .is_err()
+                        {
+                            continue;
+                        }
+                        self.text_edits_from_verified(result.edits(), result.as_str())
+                    }
                 };
-                if result.edits().is_empty() {
+                if edits.is_empty() {
                     continue;
                 }
-                if check_output_parse_limits(
-                    result.as_str(),
-                    self.options.dialect,
-                    self.options.parse_options,
-                )
-                .is_err()
-                {
-                    continue;
-                }
-                let edits = self.text_edits_from(result.edits());
                 actions.push(CodeActionOrCommand::CodeAction(CodeAction {
                     title: fix_title(&fix),
                     kind: Some(CodeActionKind::QUICKFIX),
@@ -1015,6 +1057,12 @@ impl ParsedDocument {
     }
 
     fn build_fix_all_edits(&self, fixes: &[Fix]) -> Option<Vec<TextEdit>> {
+        if let Some(policy) = fixes.iter().find_map(|fix| match fix {
+            Fix::Format(policy) if needs_two_pass_unquote(*policy) => Some(*policy),
+            _ => None,
+        }) {
+            return self.build_two_pass_fix_all_edits(fixes, policy);
+        }
         match apply_batch(&self.document, fixes) {
             Ok(batch) => {
                 if batch.is_empty() {
@@ -1029,7 +1077,7 @@ impl ParsedDocument {
                 if batch.stages().len() == 1 {
                     let stage_edits = batch.stages()[0].edits();
                     if !stage_edits.is_empty() {
-                        return Some(self.text_edits_from(stage_edits));
+                        return Some(self.text_edits_from_verified(stage_edits, batch.output()));
                     }
                 }
                 // Multi-stage edits are relative to intermediate outputs; emit
@@ -1050,10 +1098,71 @@ impl ParsedDocument {
                     self.options.parse_options,
                 )
                 .ok()?;
-                Some(self.text_edits_from(result.edits()))
+                Some(self.text_edits_from_verified(result.edits(), result.as_str()))
             }
             Err(_) => None,
         }
+    }
+
+    fn build_two_pass_fix_all_edits(
+        &self,
+        fixes: &[Fix],
+        policy: FormatOptions,
+    ) -> Option<Vec<TextEdit>> {
+        if fixes
+            .iter()
+            .all(|fix| matches!(fix, Fix::Format(other) if *other == policy))
+        {
+            return self
+                .apply_format_policy(policy)
+                .ok()
+                .filter(|edits| !edits.is_empty());
+        }
+        let preserved_fixes: Vec<Fix> = fixes
+            .iter()
+            .map(|fix| match fix {
+                Fix::Format(other) if *other == policy => {
+                    Fix::Format(policy.with_quote_style(QuoteStyle::Preserve))
+                }
+                other => other.clone(),
+            })
+            .collect();
+        let batch = apply_batch(&self.document, &preserved_fixes).ok()?;
+        let (mid_doc, mid_diags) = parse_with_options(
+            batch.output(),
+            self.options.dialect,
+            self.options.parse_options,
+        );
+        if mid_diags.iter().any(|diag| diag.limit().is_some()) {
+            return None;
+        }
+        let unquote_only = FormatOptions::default().with_quote_style(QuoteStyle::Unquoted);
+        let pass_b = mid_doc.format(&unquote_only).ok()?;
+        if pass_b.is_empty() {
+            if batch.is_empty() {
+                return None;
+            }
+            if batch.stages().len() == 1 {
+                let stage_edits = batch.stages()[0].edits();
+                if !stage_edits.is_empty() {
+                    return Some(self.text_edits_from_verified(stage_edits, batch.output()));
+                }
+            }
+            return Some(vec![self.bom_preserving_full_edit(batch.output())]);
+        }
+        check_output_parse_limits(
+            pass_b.as_str(),
+            self.options.dialect,
+            self.options.parse_options,
+        )
+        .ok()?;
+        if batch.is_empty() {
+            return Some(self.text_edits_from_verified(pass_b.edits(), pass_b.as_str()));
+        }
+        if pass_b.as_str() == self.source() {
+            return None;
+        }
+        Some(vec![self.bom_preserving_full_edit(pass_b.as_str())])
     }
 }
 
@@ -2120,11 +2229,22 @@ fn format_markdown_code(text: &str) -> String {
     }
 }
 
+const fn needs_two_pass_unquote(policy: FormatOptions) -> bool {
+    matches!(policy.quote_style, QuoteStyle::Unquoted)
+        && (!matches!(policy.equals_spacing, EqualsSpacing::Preserve)
+            || policy.trim_trailing_whitespace
+            || !matches!(policy.blank_lines, BlankLines::Preserve)
+            || !matches!(policy.final_newline, FinalNewline::Preserve))
+}
+
 fn name_at<'a>(document: &'a Document<'_>, offset: usize) -> Option<&'a str> {
     if let Some(reference) = reference_at(document, offset) {
         return reference_name(document, &reference);
     }
     let entry = entry_at(document, offset)?;
+    if entry.key().is_empty() {
+        return None;
+    }
     let key = entry.key_span();
     (key.start..=key.end)
         .contains(&offset)
@@ -2134,20 +2254,39 @@ fn name_at<'a>(document: &'a Document<'_>, offset: usize) -> Option<&'a str> {
 fn entry_at<'a>(document: &'a Document<'_>, offset: usize) -> Option<Entry<'a>> {
     document.entries().find(|entry| {
         entry.line_span().contains(&offset)
-            || (offset == document.source().len() && entry.key_span().end == offset)
+            || (offset == document.source().len() && entry.line_span().end == offset)
     })
 }
 
 fn reference_at(document: &Document<'_>, offset: usize) -> Option<Reference> {
-    // An outer operator or command span contains every nested reference.
-    // Select the deepest candidate in the containing entry so a position
-    // inside `${OUTER:-$INNER}` resolves to `INNER`, not the containing form.
+    // Match a reference only when `offset` sits inside or immediately at the
+    // end of its identifier (`reference.name`) span so literal operator
+    // fallback text in `${VAR:-fallback}` is never misattributed to `VAR`,
+    // while `$VAR|` at end-of-identifier/EOF and `${OUTER:-$INNER}` nested
+    // references resolve consistently across all operations.
     let entry = entry_at(document, offset)?;
-    entry
-        .references()
-        .into_iter()
-        .filter(|reference| reference.span.contains(&offset))
+    let references = entry.references();
+    references
+        .iter()
+        .filter(|reference| {
+            reference
+                .name
+                .as_ref()
+                .is_some_and(|name| !name.is_empty() && name.contains(&offset))
+        })
         .max_by_key(|reference| reference.depth)
+        .or_else(|| {
+            references
+                .iter()
+                .filter(|reference| {
+                    reference
+                        .name
+                        .as_ref()
+                        .is_some_and(|name| !name.is_empty() && name.end == offset)
+                })
+                .max_by_key(|reference| reference.depth)
+        })
+        .cloned()
 }
 
 fn reference_name<'a>(document: &'a Document<'_>, reference: &Reference) -> Option<&'a str> {
@@ -2174,14 +2313,25 @@ struct LineMap {
 
 impl LineMap {
     fn new(text: &str, dialect: Dialect, encoding: PositionEncoding) -> Self {
+        let mut map = Self {
+            lines: Vec::new(),
+            bom_bytes: 0,
+            first_visible_line0_width: 0,
+            encoding,
+        };
+        map.rebuild(text, dialect);
+        map
+    }
+
+    fn rebuild(&mut self, text: &str, dialect: Dialect) {
+        self.lines.clear();
         let bytes = text.as_bytes();
-        let mut lines = Vec::new();
         let mut start = 0usize;
         let mut offset = 0usize;
         while offset < bytes.len() {
             match bytes[offset] {
                 b'\r' | b'\n' => {
-                    lines.push((start, offset));
+                    self.lines.push((start, offset));
                     if bytes[offset] == b'\r' && bytes.get(offset + 1) == Some(&b'\n') {
                         offset += 2;
                     } else {
@@ -2192,29 +2342,26 @@ impl LineMap {
                 _ => offset += 1,
             }
         }
-        lines.push((start, text.len()));
+        self.lines.push((start, text.len()));
+        self.update_line0_bom(text, dialect);
+    }
 
+    fn update_line0_bom(&mut self, text: &str, dialect: Dialect) {
         let bom_chars = match dialect.bom {
             BomPolicy::StripAll => text.chars().take_while(|ch| *ch == '\u{feff}').count(),
             BomPolicy::Keep | BomPolicy::Error => 0,
             _ => usize::from(text.starts_with('\u{feff}')),
         };
-        let bom_bytes = bom_chars * '\u{feff}'.len_utf8();
-        let first_visible_line0_width = text
-            .get(bom_bytes..)
+        self.bom_bytes = bom_chars * '\u{feff}'.len_utf8();
+        self.first_visible_line0_width = text
+            .get(self.bom_bytes..)
             .and_then(|rest| rest.chars().next())
             .filter(|ch| *ch != '\n' && *ch != '\r')
-            .map_or(0, |ch| match encoding {
+            .map_or(0, |ch| match self.encoding {
                 PositionEncoding::Utf8 => u32::try_from(ch.len_utf8()).unwrap_or(1),
                 PositionEncoding::Utf16 => u32::try_from(ch.len_utf16()).unwrap_or(1),
                 PositionEncoding::Utf32 => 1,
             });
-        Self {
-            lines,
-            bom_bytes,
-            first_visible_line0_width,
-            encoding,
-        }
     }
 
     fn content_start(&self, line: usize) -> usize {
@@ -2298,6 +2445,61 @@ impl LineMap {
         true
     }
 
+    fn apply_change_and_update(
+        &mut self,
+        text: &mut String,
+        range: Option<Range>,
+        replacement: &str,
+        dialect: Dialect,
+    ) -> bool {
+        let Some(range) = range else {
+            text.clear();
+            text.push_str(replacement);
+            self.rebuild(text, dialect);
+            return true;
+        };
+        if range.start > range.end {
+            return false;
+        }
+        let Some(start) = self.offset(text, range.start) else {
+            return false;
+        };
+        let Some(end) = self.offset(text, range.end) else {
+            return false;
+        };
+        if start > end || end > text.len() {
+            return false;
+        }
+        text.replace_range(start..end, replacement);
+        if range.start.line == range.end.line && !replacement.contains(['\n', '\r']) {
+            if let Ok(line) = usize::try_from(range.start.line) {
+                let old_len = end - start;
+                let new_len = replacement.len();
+                if new_len >= old_len {
+                    let delta = new_len - old_len;
+                    self.lines[line].1 += delta;
+                    for (line_start, line_end) in &mut self.lines[line + 1..] {
+                        *line_start += delta;
+                        *line_end += delta;
+                    }
+                } else {
+                    let delta = old_len - new_len;
+                    self.lines[line].1 -= delta;
+                    for (line_start, line_end) in &mut self.lines[line + 1..] {
+                        *line_start -= delta;
+                        *line_end -= delta;
+                    }
+                }
+                if line == 0 {
+                    self.update_line0_bom(text, dialect);
+                }
+                return true;
+            }
+        }
+        self.rebuild(text, dialect);
+        true
+    }
+
     fn apply_change(&self, text: &str, range: Option<Range>, replacement: &str) -> Option<String> {
         if range.is_none() {
             return Some(replacement.to_owned());
@@ -2305,6 +2507,40 @@ impl LineMap {
         let mut output = text.to_owned();
         self.apply_change_in_place(&mut output, range, replacement)
             .then_some(output)
+    }
+
+    /// Converts a UTF-8 byte offset to an exact LSP `Position`, returning
+    /// `None` if `offset` cannot be addressed cleanly in LSP coordinates (out
+    /// of bounds, mid-UTF-8 character, inside a stripped leading BOM, or
+    /// strictly between `\r` and `\n` of a CRLF line ending).
+    fn exact_position(&self, text: &str, offset: usize) -> Option<Position> {
+        if offset > text.len() || !text.is_char_boundary(offset) {
+            return None;
+        }
+        let line = self
+            .lines
+            .partition_point(|&(start, _)| start <= offset)
+            .saturating_sub(1);
+        let (_, line_end) = self.lines[line];
+        if offset > line_end {
+            return None;
+        }
+        let content_start = self.content_start(line);
+        if offset < content_start {
+            return None;
+        }
+        let column = match self.encoding {
+            PositionEncoding::Utf8 => offset - content_start,
+            PositionEncoding::Utf16 => text[content_start..offset]
+                .chars()
+                .map(char::len_utf16)
+                .sum(),
+            PositionEncoding::Utf32 => text[content_start..offset].chars().count(),
+        };
+        Some(Position {
+            line: u32::try_from(line).ok()?,
+            character: u32::try_from(column).ok()?,
+        })
     }
 
     fn range(&self, text: &str, span: std::ops::Range<usize>) -> Range {
@@ -2366,5 +2602,54 @@ impl LineMap {
             line: u32::try_from(line).unwrap_or(u32::MAX),
             character: u32::try_from(column).unwrap_or(u32::MAX),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exact_position_rejects_inside_crlf_bom_and_mid_char_and_falls_back_cleanly() {
+        // Strictly inside `\r\n` (byte 4 of `"A=1\r\n"`) is not exactly addressable.
+        let crlf_text = "A=1\r\n";
+        let map = LineMap::new(crlf_text, Dialect::PORTABLE, PositionEncoding::Utf16);
+        assert_eq!(map.exact_position(crlf_text, 3), Some(Position::new(0, 3)));
+        assert_eq!(map.exact_position(crlf_text, 4), None);
+        assert_eq!(map.exact_position(crlf_text, 5), Some(Position::new(1, 0)));
+
+        // Inside stripped BOM (bytes 0..3 of `"\u{feff}A=1\n"`) is not addressable.
+        let bom_text = "\u{feff}A=1\n";
+        let bom_map = LineMap::new(bom_text, Dialect::PORTABLE, PositionEncoding::Utf16);
+        assert_eq!(bom_map.exact_position(bom_text, 0), None);
+        assert_eq!(bom_map.exact_position(bom_text, 1), None);
+        assert_eq!(
+            bom_map.exact_position(bom_text, 3),
+            Some(Position::new(0, 0))
+        );
+
+        // Mid-UTF-8 character byte is rejected.
+        let emoji_text = "A=😀\n";
+        let emoji_map = LineMap::new(emoji_text, Dialect::PORTABLE, PositionEncoding::Utf16);
+        assert_eq!(emoji_map.exact_position(emoji_text, 3), None);
+        assert_eq!(
+            emoji_map.exact_position(emoji_text, 6),
+            Some(Position::new(0, 4))
+        );
+
+        // When a verified edit endpoint is not exactly addressable (e.g. inside `\r\n`),
+        // `text_edits_from_verified` falls back to one BOM-preserving full-document edit
+        // whose application reproduces `verified_output` verbatim.
+        let doc = ParsedDocument::parse("\u{feff}A=1\r\n", LspOptions::new());
+        let synthetic = vec![adotenv::TextEdit {
+            range: 5..7,
+            replacement: "\"1\\r\"".to_owned(),
+        }];
+        let fallback = doc.text_edits_from_verified(&synthetic, "\u{feff}A=\"1\\r\"\n");
+        assert_eq!(fallback.len(), 1);
+        let applied = doc
+            .apply_change(Some(fallback[0].range), &fallback[0].new_text)
+            .unwrap();
+        assert_eq!(applied.source(), "\u{feff}A=\"1\\r\"\n");
     }
 }

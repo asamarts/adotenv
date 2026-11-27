@@ -2096,3 +2096,289 @@ fn hover_inline_comment_boundary_and_linemap_edge_cases() {
         );
     }
 }
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn crlf_in_lf_only_dialects_emits_exact_verified_edits_without_corruption() {
+    let apply_all = |src: &str, edits: &[lsp_types::TextEdit], options: &LspOptions| -> String {
+        let mut out = src.to_owned();
+        for edit in edits.iter().rev() {
+            out = apply_change(&out, Some(edit.range), &edit.new_text, options).unwrap();
+        }
+        out
+    };
+
+    // 1. Built-in `Dialect::DOCKER_RAW` (`LineBreaks::Lf`) + rename on `"a\r\n"` (CRLF line
+    // ending) and `"a\r\r\n"` (key `"a\r"` with lone CR inside key before CRLF ending).
+    let docker = LspOptions::new().with_dialect(Dialect::DOCKER_RAW);
+    let edit_crlf = rename("a\r\n", &uri(), position(0, 0), "B", &docker).unwrap();
+    assert_eq!(
+        apply_all("a\r\n", &edit_crlf.changes.unwrap()[&uri()], &docker),
+        "B\r\n"
+    );
+    let edit_cr_in_key = rename("a\r\r\n", &uri(), position(0, 0), "B", &docker).unwrap();
+    assert_eq!(
+        apply_all("a\r\r\n", &edit_cr_in_key.changes.unwrap()[&uri()], &docker),
+        "B\r\n"
+    );
+
+    // 2. Built-in `Dialect::DOCKER_RAW` + code_actions (`KeyCase::Upper`) on `"a\r\r\n"`.
+    // Must produce `"A\r\r\n"` without corrupting or duplicating `\r`.
+    let docker_lint = docker.with_lint_options(
+        LintOptions::new()
+            .with_duplicate_keys(false)
+            .with_key_case(KeyCase::Upper),
+    );
+    let full = Range::new(position(0, 0), position(4, 0));
+    let actions = code_actions(
+        "a\r\r\n",
+        &uri(),
+        full,
+        &CodeActionContext::default(),
+        &docker_lint,
+    );
+    assert_eq!(actions.len(), 2);
+    for action in &actions {
+        let CodeActionOrCommand::CodeAction(ca) = action else {
+            panic!("expected code action");
+        };
+        let edits = &ca.edit.as_ref().unwrap().changes.as_ref().unwrap()[&uri()];
+        assert_eq!(apply_all("a\r\r\n", edits, &docker_lint), "A\r\r\n");
+    }
+
+    // 3. Custom `LineBreaks::Lf` dialect + formatting (`QuoteStyle::Double`) on `"A=1\r\r\n"`.
+    // Value is `"1\r"` followed by CRLF line ending; applied LSP edit must match verified output.
+    let lf_only = LspOptions::new()
+        .with_dialect(Dialect::PORTABLE.with_line_breaks(adotenv::LineBreaks::Lf))
+        .with_format_options(FormatOptions::default().with_quote_style(QuoteStyle::Double));
+    let fmt_edits = formatting("A=1\r\r\n", &FormattingOptions::default(), &lf_only).unwrap();
+    assert_eq!(
+        apply_all("A=1\r\r\n", &fmt_edits, &lf_only),
+        "A=\"1\\r\"\r\n"
+    );
+
+    // 4. Same under a leading BOM preserves the BOM and CRLF line ending.
+    let bom_src = "\u{feff}A=1\r\r\n";
+    let bom_edits = formatting(bom_src, &FormattingOptions::default(), &lf_only).unwrap();
+    assert_eq!(
+        apply_all(bom_src, &bom_edits, &lf_only),
+        "\u{feff}A=\"1\\r\"\r\n"
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn reference_boundary_alignment_unquoted_code_actions_and_incremental_linemap() {
+    let apply_all = |src: &str, edits: &[lsp_types::TextEdit], options: &LspOptions| -> String {
+        let mut out = src.to_owned();
+        for edit in edits.iter().rev() {
+            out = apply_change(&out, Some(edit.range), &edit.new_text, options).unwrap();
+        }
+        out
+    };
+
+    // Unbraced `$HOST` end-of-identifier cursor works both mid-file and at EOF.
+    for src in ["HOST=1\nURL=$HOST\n", "HOST=1\nURL=$HOST"] {
+        assert!(definition(src, &uri(), position(1, 9), &opts()).is_some());
+        let hov = hover(src, position(1, 9), &opts()).unwrap();
+        let HoverContents::Markup(m) = hov.contents else {
+            panic!("expected markup");
+        };
+        assert!(m.value.contains("`${HOST}`"), "{}", m.value);
+        assert_eq!(
+            references(src, &uri(), position(1, 9), true, &opts()).len(),
+            2
+        );
+        assert!(prepare_rename(src, position(1, 9), &opts()).is_some());
+        assert!(rename(src, &uri(), position(1, 9), "SERVER", &opts()).is_ok());
+    }
+
+    // Adjacent `$A$B` resolves `$A` at `A|` (col 6) and `$B` at `B` (col 7) and `B|` (col 8).
+    let adj = "A=1\nB=2\nX=$A$B\n";
+    assert_eq!(
+        prepare_rename(adj, position(2, 4), &opts()),
+        Some(PrepareRenameResponse::RangeWithPlaceholder {
+            range: Range::new(position(2, 3), position(2, 4)),
+            placeholder: "A".to_owned(),
+        })
+    );
+    assert_eq!(
+        prepare_rename(adj, position(2, 5), &opts()),
+        Some(PrepareRenameResponse::RangeWithPlaceholder {
+            range: Range::new(position(2, 5), position(2, 6)),
+            placeholder: "B".to_owned(),
+        })
+    );
+    assert_eq!(
+        prepare_rename(adj, position(2, 6), &opts()),
+        Some(PrepareRenameResponse::RangeWithPlaceholder {
+            range: Range::new(position(2, 5), position(2, 6)),
+            placeholder: "B".to_owned(),
+        })
+    );
+
+    // Operator fallback text in `${HOST:-fallback}` is never misattributed to `HOST`.
+    let op = "HOST=localhost\nURL=${HOST:-fallback}\n";
+    assert_eq!(definition(op, &uri(), position(1, 15), &opts()), None);
+    assert_eq!(
+        references(op, &uri(), position(1, 15), true, &opts()),
+        Vec::new()
+    );
+    assert_eq!(prepare_rename(op, position(1, 15), &opts()), None);
+    assert_eq!(
+        rename(op, &uri(), position(1, 15), "SERVER", &opts()),
+        Err(RenameError::NoSymbol)
+    );
+    let fallback_hover = hover(op, position(1, 15), &opts()).unwrap();
+    let HoverContents::Markup(m) = fallback_hover.contents else {
+        panic!("expected markup");
+    };
+    assert!(m.value.contains("`URL`"), "{}", m.value);
+
+    // Empty Compose key (`=1\n`) is rejected consistently across all symbol ops.
+    let compose = LspOptions::new().with_dialect(Dialect::COMPOSE);
+    assert_eq!(definition("=1\n", &uri(), position(0, 0), &compose), None);
+    assert_eq!(
+        references("=1\n", &uri(), position(0, 0), true, &compose),
+        Vec::new()
+    );
+    assert_eq!(prepare_rename("=1\n", position(0, 0), &compose), None);
+    assert_eq!(
+        rename("=1\n", &uri(), position(0, 0), "A", &compose),
+        Err(RenameError::NoSymbol)
+    );
+
+    // `code_actions` applies `QuoteStyle::Unquoted` even when combined with trivia/rename/sort rules.
+    let unquote_combo = LspOptions::new().with_lint_options(
+        LintOptions::new()
+            .with_duplicate_keys(false)
+            .with_key_case(KeyCase::Upper)
+            .with_key_order(true)
+            .with_quote_style(QuoteStyle::Unquoted)
+            .with_trim_trailing_whitespace(true),
+    );
+    let full = Range::new(position(0, 0), position(10, 0));
+    let combo_src = "\u{feff}b=\"two\"  \na=\"one\"  \n";
+    let actions = code_actions(
+        combo_src,
+        &uri(),
+        full,
+        &CodeActionContext::default(),
+        &unquote_combo,
+    );
+    let format_qf = actions
+        .iter()
+        .find_map(|item| match item {
+            CodeActionOrCommand::CodeAction(a)
+                if a.kind == Some(CodeActionKind::QUICKFIX)
+                    && a.title.contains("Format document") =>
+            {
+                Some(a)
+            }
+            _ => None,
+        })
+        .expect("format quickfix for unquoted + trim");
+    let qf_edits = &format_qf.edit.as_ref().unwrap().changes.as_ref().unwrap()[&uri()];
+    assert_eq!(
+        apply_all(combo_src, qf_edits, &unquote_combo),
+        "\u{feff}b=two\na=one\n"
+    );
+
+    let fix_all = actions
+        .iter()
+        .find_map(|item| match item {
+            CodeActionOrCommand::CodeAction(a)
+                if a.kind == Some(CodeActionKind::SOURCE_FIX_ALL) =>
+            {
+                Some(a)
+            }
+            _ => None,
+        })
+        .expect("source.fixAll for unquoted + rename + sort + trim");
+    let fa_edits = &fix_all.edit.as_ref().unwrap().changes.as_ref().unwrap()[&uri()];
+    assert_eq!(
+        apply_all(combo_src, fa_edits, &unquote_combo),
+        "\u{feff}A=one\nB=two\n"
+    );
+
+    // Format-only `source.fixAll` with `QuoteStyle::Unquoted` + `trim_trailing_whitespace`
+    // also works when an unrelated invalid line is present.
+    let fmt_only_unquote = LspOptions::new().with_lint_options(
+        LintOptions::new()
+            .with_duplicate_keys(false)
+            .with_quote_style(QuoteStyle::Unquoted)
+            .with_trim_trailing_whitespace(true),
+    );
+    let broken_unquote = "BAD KEY=1\nA=\"plain\"  \n";
+    let broken_actions = code_actions(
+        broken_unquote,
+        &uri(),
+        full,
+        &CodeActionContext {
+            only: Some(vec![CodeActionKind::SOURCE_FIX_ALL]),
+            ..CodeActionContext::default()
+        },
+        &fmt_only_unquote,
+    );
+    assert_eq!(broken_actions.len(), 1);
+    let CodeActionOrCommand::CodeAction(ba) = &broken_actions[0] else {
+        panic!("expected action");
+    };
+    let ba_edits = &ba.edit.as_ref().unwrap().changes.as_ref().unwrap()[&uri()];
+    assert_eq!(
+        apply_all(broken_unquote, ba_edits, &fmt_only_unquote),
+        "BAD KEY=1\nA=plain\n"
+    );
+
+    // Incremental LineMap batch updates match sequential `apply_change` across BOM, Unicode, and newlines.
+    let strip_all = LspOptions::new().with_dialect(Dialect::PORTABLE.with_bom(BomPolicy::StripAll));
+    let initial = "\u{feff}A=1\nB=😀\nC=3\n";
+    let batch = vec![
+        // Shrink line 0
+        TextDocumentContentChangeEvent {
+            range: Some(Range::new(position(0, 2), position(0, 3))),
+            range_length: None,
+            text: String::new(),
+        },
+        // Grow line 0 (insert value + extra BOM at col 0 under StripAll)
+        TextDocumentContentChangeEvent {
+            range: Some(Range::new(position(0, 0), position(0, 0))),
+            range_length: None,
+            text: "\u{feff}PREFIX_".to_owned(),
+        },
+        // Edit line 1 after emoji (UTF-16 col 4)
+        TextDocumentContentChangeEvent {
+            range: Some(Range::new(position(1, 4), position(1, 4))),
+            range_length: None,
+            text: "_END".to_owned(),
+        },
+        // Insert newline on line 1
+        TextDocumentContentChangeEvent {
+            range: Some(Range::new(position(1, 2), position(1, 2))),
+            range_length: None,
+            text: "x\nD=".to_owned(),
+        },
+        // Edit shifted line 3 (`C=3`)
+        TextDocumentContentChangeEvent {
+            range: Some(Range::new(position(3, 2), position(3, 3))),
+            range_length: None,
+            text: "99".to_owned(),
+        },
+    ];
+    let mut seq = initial.to_owned();
+    for change in &batch {
+        seq = apply_change(&seq, change.range, &change.text, &strip_all).unwrap();
+    }
+    let mut doc = ParsedDocument::parse(initial, strip_all);
+    assert!(doc.apply_changes(&batch));
+    assert_eq!(doc.source(), seq);
+
+    // PositionEncoding Display & From<PositionEncoding> for PositionEncodingKind.
+    assert_eq!(PositionEncoding::Utf8.to_string(), "utf-8");
+    assert_eq!(PositionEncoding::Utf16.to_string(), "utf-16");
+    assert_eq!(PositionEncoding::Utf32.to_string(), "utf-32");
+    assert_eq!(
+        PositionEncodingKind::from(PositionEncoding::Utf32),
+        PositionEncodingKind::UTF32
+    );
+}
