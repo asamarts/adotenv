@@ -1446,9 +1446,9 @@ mod tests {
         // formatting trims trailing whitespace on line 0.
         assert_eq!(by_id(10)["result"].as_array().unwrap().len(), 1);
         // codeAction offers quickfix + source.fixAll for `host` -> `HOST`.
-        assert!(!by_id(11)["result"].as_array().unwrap().is_empty());
+        assert_ne!(by_id(11)["result"], serde_json::json!([]));
         // Ignored URI returns no code actions.
-        assert!(by_id(12)["result"].as_array().unwrap().is_empty());
+        assert_eq!(by_id(12)["result"], serde_json::json!([]));
         assert_eq!(by_id(13)["error"]["code"], error_code::REQUEST_FAILED);
         assert_eq!(by_id(14)["error"]["code"], error_code::METHOD_NOT_FOUND);
         assert_eq!(by_id(15)["result"], Value::Null);

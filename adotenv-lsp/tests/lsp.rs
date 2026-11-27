@@ -1466,9 +1466,10 @@ fn formatting_honors_lsp_options_lint_policy_and_parse_limits() {
         insert_final_newline: Some(false),
         ..FormattingOptions::default()
     };
-    assert!(formatting("A=1   \nB=2", &no_changes, &opts())
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        formatting("A=1   \nB=2", &no_changes, &opts()).unwrap(),
+        Vec::new()
+    );
 
     // Lint policy quote_style = Unquoted works without forced extra flags.
     let unquoted_lint = LspOptions::new()
@@ -1523,7 +1524,10 @@ fn code_actions_provide_quickfixes_source_fix_all_and_bom_preservation() {
     // Without lint policy, code actions are empty.
     let all_range = Range::new(position(0, 0), position(5, 0));
     let empty_ctx = CodeActionContext::default();
-    assert!(code_actions("b=2  \na=1  \n", &uri(), all_range, &empty_ctx, &opts()).is_empty());
+    assert_eq!(
+        code_actions("b=2  \na=1  \n", &uri(), all_range, &empty_ctx, &opts()),
+        Vec::new()
+    );
 
     // Multi-issue BOM document produces deduplicated quickfixes + BOM-safe source.fixAll.
     let source = "\u{feff}b=2  \na=1  \n";
@@ -1799,7 +1803,10 @@ fn formatting_supports_two_pass_unquoted_and_preserves_remove_final_newline() {
     // Explicit FinalNewline::Ensure is downgraded to Preserve when insertFinalNewline = false.
     let ensure_nl = LspOptions::new()
         .with_format_options(FormatOptions::default().with_final_newline(FinalNewline::Ensure));
-    assert!(formatting("A=1", &false_nl, &ensure_nl).unwrap().is_empty());
+    assert_eq!(
+        formatting("A=1", &false_nl, &ensure_nl).unwrap(),
+        Vec::new()
+    );
 }
 
 #[test]
@@ -1860,14 +1867,16 @@ fn code_actions_cap_quickfixes_and_cover_bom_limits_and_filter_edge_cases() {
 
     // Inverted range returns empty.
     let inverted = Range::new(position(2, 0), position(1, 0));
-    assert!(code_actions(
-        "a=1\n",
-        &uri(),
-        inverted,
-        &CodeActionContext::default(),
-        &lint_upper
-    )
-    .is_empty());
+    assert_eq!(
+        code_actions(
+            "a=1\n",
+            &uri(),
+            inverted,
+            &CodeActionContext::default(),
+            &lint_upper
+        ),
+        Vec::new()
+    );
 
     // `only` filtering edge cases.
     let filter = |kinds: Vec<CodeActionKind>| {
@@ -1966,14 +1975,16 @@ fn code_actions_cap_quickfixes_and_cover_bom_limits_and_filter_edge_cases() {
 
     // Parse limit exceeded on input or expanding output suppresses code actions.
     let input_limited = lint_upper.with_parse_options(ParseOptions::new().with_max_lines(1));
-    assert!(code_actions(
-        "a=1\nb=2\n",
-        &uri(),
-        full,
-        &CodeActionContext::default(),
-        &input_limited
-    )
-    .is_empty());
+    assert_eq!(
+        code_actions(
+            "a=1\nb=2\n",
+            &uri(),
+            full,
+            &CodeActionContext::default(),
+            &input_limited
+        ),
+        Vec::new()
+    );
 
     let output_limited = LspOptions::new()
         .with_lint_options(
@@ -1982,14 +1993,16 @@ fn code_actions_cap_quickfixes_and_cover_bom_limits_and_filter_edge_cases() {
                 .with_equals_spacing(EqualsSpacing::Spaces),
         )
         .with_parse_options(ParseOptions::new().with_max_input_bytes(4));
-    assert!(code_actions(
-        "A=1\n",
-        &uri(),
-        full,
-        &CodeActionContext::default(),
-        &output_limited
-    )
-    .is_empty());
+    assert_eq!(
+        code_actions(
+            "A=1\n",
+            &uri(),
+            full,
+            &CodeActionContext::default(),
+            &output_limited
+        ),
+        Vec::new()
+    );
 
     // Colliding quickfix (`a=1` -> `A` when `A=2` exists) is cleanly omitted without panicking.
     let colliding = code_actions(
@@ -1999,7 +2012,7 @@ fn code_actions_cap_quickfixes_and_cover_bom_limits_and_filter_edge_cases() {
         &CodeActionContext::default(),
         &lint_upper,
     );
-    assert!(colliding.is_empty());
+    assert_eq!(colliding, Vec::new());
 }
 
 #[test]
