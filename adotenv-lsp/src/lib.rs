@@ -1,21 +1,31 @@
 //! Language Server Protocol support for `adotenv` documents.
 //!
-//! The library is transport-free: callers pass source text and an LSP
-//! [`Uri`], and receive LSP types. The binary in this crate adapts the
-//! functions to stdio using `lsp-server`.
+//! The library is transport-free: embedders can either call the stateless
+//! operations over source text and an [`LspOptions`] policy, or retain a
+//! [`ParsedDocument`] / [`Session`] so documents are parsed and line-indexed
+//! once per open or edit instead of on every request. The default-on `stdio`
+//! feature builds the `adotenv-lsp` binary with a bounded JSON-RPC 2.0
+//! `Content-Length` stdio transport; disable default features to depend only on
+//! the transport-free library.
 //!
-//! The operations are conservative. Definition follows keys and literal
-//! `$VAR`/`${VAR}` references; rename uses
-//! `Document::rename_with_references_with_options` so the declaration and its
-//! literal references change together under the configured parse limits. Hover
-//! values can be masked with [`LspOptions::with_mask_values`], the parser
-//! dialect can be selected with [`LspOptions::with_dialect`], and linter
-//! findings can be enabled with [`LspOptions::with_lint_options`].
+//! All operations are conservative and never read the process environment or
+//! execute commands. Definition, references, `prepareRename` and rename follow
+//! keys and literal `$VAR`/`${VAR}` references; rename uses
+//! `Document::rename_with_references_with_options`, formatting uses
+//! `Document::format`, and code actions apply verified fixes from
+//! `adotenv-lint`. Hover values can be masked with
+//! [`LspOptions::with_mask_values`], the parser dialect can be selected with
+//! [`LspOptions::with_dialect`], position coordinates support UTF-16 (the LSP
+//! 3.17 default), UTF-8 and UTF-32 via [`LspOptions::with_position_encoding`],
+//! and linter findings and quick fixes can be enabled with
+//! [`LspOptions::with_lint_options`].
 //!
 //! # Examples
 //!
 //! ```
-//! use adotenv_lsp::{diagnostics, hover, rename, KeyCase, LintOptions, LspOptions};
+//! use adotenv_lsp::{
+//!     diagnostics, hover, rename, KeyCase, LintOptions, LspOptions, ParsedDocument,
+//! };
 //! use lsp_types::{Position, Uri};
 //!
 //! let uri: Uri = "file:///tmp/.env".parse().unwrap();
@@ -28,11 +38,18 @@
 //!             .with_key_case(KeyCase::Upper),
 //!     );
 //!
+//! // Stateless helpers take `&LspOptions` consistently:
 //! assert!(diagnostics(source, &uri, &options).is_empty());
 //! assert!(hover(source, Position::new(0, 0), &options).is_some());
 //!
-//! let edit = rename(source, &uri, Position::new(0, 0), "SERVER").unwrap();
+//! // Stateful `ParsedDocument` parses and builds its line map once:
+//! let doc = ParsedDocument::parse(source, options);
+//! assert!(doc.prepare_rename(Position::new(1, 7)).is_some());
+//! let edit = doc.rename(&uri, Position::new(0, 0), "SERVER").unwrap();
 //! assert_eq!(edit.changes.unwrap()[&uri].len(), 2);
+//!
+//! let stat = rename(source, &uri, Position::new(0, 0), "SERVER", &options).unwrap();
+//! assert_eq!(stat.changes.unwrap()[&uri].len(), 2);
 //! ```
 
 use std::{
@@ -41,26 +58,96 @@ use std::{
 };
 
 use adotenv::{
-    parse_with_options, ColonSeparator, ColumnEncoding, Diagnostic, DiagnosticCode, Document,
-    DoubleEscapes, EditOptions, Entry, InlineComments, ItemKind, LineEnding, LineIndex,
-    Position as ParserPosition, PositionError, Quote, Reference, SingleEscapes, Syntax,
+    parse_with_options, ColonSeparator, Diagnostic, DiagnosticCode, DoubleEscapes, EditOptions,
+    Entry, InlineComments, ItemKind, LineEnding, Quote, Reference, SingleEscapes, Syntax,
 };
 pub use adotenv::{
-    BomPolicy, Dialect, EditError, EqualsSpacing, LimitExceeded, LimitKind, ParseOptions,
-    QuoteStyle, Severity,
+    BlankLines, BomPolicy, Dialect, Document, EditError, EqualsSpacing, FinalNewline, FormatError,
+    FormatOptions, LimitExceeded, LimitKind, ParseOptions, QuoteStyle, Severity,
 };
-use adotenv_lint::lint;
+use adotenv_lint::{apply_batch, apply_fix, apply_fixes, lint, Finding, Fix, LintError};
 pub use adotenv_lint::{KeyCase, LintOptions, Rule};
 use lsp_types::{
+    CodeAction, CodeActionContext, CodeActionKind, CodeActionOrCommand, CodeActionResponse,
     CompletionItem, CompletionItemKind, CompletionResponse, Diagnostic as LspDiagnostic,
     DiagnosticRelatedInformation, DiagnosticSeverity, DocumentSymbol, DocumentSymbolResponse,
-    GotoDefinitionResponse, Hover, HoverContents, Location, MarkupContent, MarkupKind,
-    NumberOrString, Position, Range, SymbolInformation, SymbolKind, TextEdit, Uri, WorkspaceEdit,
+    FormattingOptions, GotoDefinitionResponse, Hover, HoverContents, Location, MarkupContent,
+    MarkupKind, NumberOrString, Position, PositionEncodingKind, PrepareRenameResponse, Range,
+    SymbolInformation, SymbolKind, TextDocumentContentChangeEvent, TextEdit, Uri, WorkspaceEdit,
 };
 
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]
 mod readme_doctests {}
+
+/// Maximum number of distinct `quickfix` actions computed per `codeAction`
+/// request to avoid quadratic verification cost on very large selections.
+/// `source.fixAll` still applies all auto-fixable findings in one batch.
+const MAX_QUICKFIX_ACTIONS: usize = 64;
+
+/// Column coordinate encoding used for LSP positions and ranges.
+///
+/// Matches LSP 3.17 [`PositionEncodingKind`]: UTF-16 is the mandatory default,
+/// while UTF-8 and UTF-32 (Unicode scalar values) can be negotiated with
+/// clients advertising `general.positionEncodings`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+pub enum PositionEncoding {
+    /// UTF-8 code units (bytes).
+    Utf8,
+    /// UTF-16 code units (the LSP 3.17 default).
+    #[default]
+    Utf16,
+    /// UTF-32 code units (Unicode scalar values).
+    Utf32,
+}
+
+impl PositionEncoding {
+    /// Returns the LSP 3.17 encoding tag (`"utf-8"`, `"utf-16"`, or `"utf-32"`).
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Utf8 => "utf-8",
+            Self::Utf16 => "utf-16",
+            Self::Utf32 => "utf-32",
+        }
+    }
+
+    /// Converts this encoding to its [`PositionEncodingKind`].
+    #[must_use]
+    pub const fn to_lsp_kind(self) -> PositionEncodingKind {
+        match self {
+            Self::Utf8 => PositionEncodingKind::UTF8,
+            Self::Utf16 => PositionEncodingKind::UTF16,
+            Self::Utf32 => PositionEncodingKind::UTF32,
+        }
+    }
+
+    /// Parses a [`PositionEncodingKind`] advertised by an LSP client.
+    #[must_use]
+    pub fn from_lsp_kind(kind: &PositionEncodingKind) -> Option<Self> {
+        match kind.as_str() {
+            "utf-8" => Some(Self::Utf8),
+            "utf-16" => Some(Self::Utf16),
+            "utf-32" => Some(Self::Utf32),
+            _ => None,
+        }
+    }
+
+    /// Picks the highest-priority supported encoding from a client's
+    /// `general.positionEncodings` preference list, defaulting to
+    /// [`PositionEncoding::Utf16`] per LSP 3.17 when omitted or unrecognized.
+    #[must_use]
+    pub fn negotiate(client_encodings: Option<&[PositionEncodingKind]>) -> Self {
+        let Some(encodings) = client_encodings else {
+            return Self::Utf16;
+        };
+        encodings
+            .iter()
+            .find_map(Self::from_lsp_kind)
+            .unwrap_or(Self::Utf16)
+    }
+}
 
 /// Options for LSP operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -73,8 +160,17 @@ pub struct LspOptions {
     pub dialect: Dialect,
     /// Optional linter policy. Parser diagnostics remain enabled.
     pub lint: Option<LintOptions>,
-    /// Optional parser bounds applied to every document parse.
+    /// Optional base formatting policy used by [`formatting`].
+    ///
+    /// When `None`, formatting derives its base policy from [`Self::lint`] if
+    /// present, or otherwise trims trailing whitespace and ensures a final
+    /// newline while preserving assignment spacing, quotes and blank lines.
+    pub format: Option<FormatOptions>,
+    /// Optional parser bounds applied to every document parse and edit output.
     pub parse_options: ParseOptions,
+    /// Coordinate encoding used for LSP positions and ranges. Defaults to
+    /// [`PositionEncoding::Utf16`].
+    pub position_encoding: PositionEncoding,
 }
 
 impl Default for LspOptions {
@@ -84,15 +180,17 @@ impl Default for LspOptions {
 }
 
 impl LspOptions {
-    /// Returns Portable parsing, visible hover values, no linter and no parse
-    /// limits.
+    /// Returns Portable parsing, visible hover values, UTF-16 coordinates, no
+    /// linter, no custom format policy and no parse limits.
     #[must_use]
     pub const fn new() -> Self {
         Self {
             mask_values: false,
             dialect: Dialect::PORTABLE,
             lint: None,
+            format: None,
             parse_options: ParseOptions::new(),
+            position_encoding: PositionEncoding::Utf16,
         }
     }
 
@@ -110,24 +208,47 @@ impl LspOptions {
         self
     }
 
-    /// Enables an explicit linter policy for diagnostics.
+    /// Enables an explicit linter policy for diagnostics and code actions.
     #[must_use]
     pub const fn with_lint_options(mut self, lint: LintOptions) -> Self {
         self.lint = Some(lint);
         self
     }
 
-    /// Disables linter findings, leaving only parser diagnostics enabled.
+    /// Disables linter findings and quick fixes, leaving parser diagnostics enabled.
     #[must_use]
     pub const fn without_lint_options(mut self) -> Self {
         self.lint = None;
         self
     }
 
-    /// Sets opt-in [`ParseOptions`] bounds applied when parsing documents.
+    /// Sets an explicit base [`FormatOptions`] policy for [`formatting`].
+    #[must_use]
+    pub const fn with_format_options(mut self, format: FormatOptions) -> Self {
+        self.format = Some(format);
+        self
+    }
+
+    /// Clears any explicit formatting policy, falling back to [`Self::lint`]
+    /// or default whitespace/final-newline formatting.
+    #[must_use]
+    pub const fn without_format_options(mut self) -> Self {
+        self.format = None;
+        self
+    }
+
+    /// Sets opt-in [`ParseOptions`] bounds applied when parsing documents and
+    /// verifying edits.
     #[must_use]
     pub const fn with_parse_options(mut self, parse_options: ParseOptions) -> Self {
         self.parse_options = parse_options;
+        self
+    }
+
+    /// Sets the LSP position encoding used for line/character coordinates.
+    #[must_use]
+    pub const fn with_position_encoding(mut self, encoding: PositionEncoding) -> Self {
+        self.position_encoding = encoding;
         self
     }
 }
@@ -166,54 +287,1061 @@ impl From<EditError> for RenameError {
     }
 }
 
+/// A failed document-formatting request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FormattingError {
+    /// Formatting was refused by `adotenv`.
+    Format(FormatError),
+    /// A configured parse or output limit was exceeded.
+    Limit(LimitExceeded),
+}
+
+impl fmt::Display for FormattingError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Format(error) => write!(formatter, "formatting refused: {error}"),
+            Self::Limit(limit) => write!(formatter, "formatting refused: {limit}"),
+        }
+    }
+}
+
+impl std::error::Error for FormattingError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Format(error) => Some(error),
+            Self::Limit(_) => None,
+        }
+    }
+}
+
+impl From<FormatError> for FormattingError {
+    fn from(error: FormatError) -> Self {
+        Self::Format(error)
+    }
+}
+
+impl From<LimitExceeded> for FormattingError {
+    fn from(limit: LimitExceeded) -> Self {
+        Self::Limit(limit)
+    }
+}
+
+/// A failed document-synchronization operation on a [`Session`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SessionError {
+    /// The target URI is not currently open in the session.
+    NotOpen,
+    /// An incremental content change had an invalid line, character boundary,
+    /// split UTF-16 surrogate or inverted range.
+    InvalidChange,
+}
+
+impl fmt::Display for SessionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotOpen => formatter.write_str("document is not open in session"),
+            Self::InvalidChange => formatter.write_str("invalid incremental document change"),
+        }
+    }
+}
+
+impl std::error::Error for SessionError {}
+
+/// A parsed, line-indexed document handle for repeated LSP queries.
+///
+/// Parsing and line-map construction run once in [`ParsedDocument::parse`] and
+/// again only when edits are applied through [`ParsedDocument::apply_change`]
+/// or [`ParsedDocument::apply_changes`].
+#[derive(Debug, Clone)]
+pub struct ParsedDocument {
+    document: Document<'static>,
+    parse_diagnostics: Vec<Diagnostic>,
+    lines: LineMap,
+    options: LspOptions,
+}
+
+impl ParsedDocument {
+    /// Parses `source` once under `options` and builds its coordinate map.
+    #[must_use]
+    pub fn parse(source: impl Into<String>, options: LspOptions) -> Self {
+        let source = source.into();
+        let (document, parse_diagnostics) =
+            parse_with_options(&source, options.dialect, options.parse_options);
+        let document = document.into_owned();
+        let lines = LineMap::new(
+            document.source(),
+            options.dialect,
+            options.position_encoding,
+        );
+        Self {
+            document,
+            parse_diagnostics,
+            lines,
+            options,
+        }
+    }
+
+    /// Returns the raw UTF-8 source text owned by this document.
+    #[must_use]
+    pub fn source(&self) -> &str {
+        self.document.source()
+    }
+
+    /// Returns the [`LspOptions`] active for this document.
+    #[must_use]
+    pub const fn options(&self) -> LspOptions {
+        self.options
+    }
+
+    /// Returns the underlying parsed [`Document`].
+    #[must_use]
+    pub const fn document(&self) -> &Document<'static> {
+        &self.document
+    }
+
+    /// Applies one LSP content change and returns a newly parsed document.
+    ///
+    /// A `None` range replaces the whole document. A ranged change uses the
+    /// configured [`PositionEncoding`] with LSP 3.17 §3.1.1 column clamping
+    /// (`character` past end-of-line clamps to end-of-line). Returns `None`
+    /// when a line is out of bounds, a range is inverted, a UTF-16 column
+    /// splits a surrogate pair, or a UTF-8 column lands inside a multi-byte
+    /// character.
+    #[must_use]
+    pub fn apply_change(&self, range: Option<Range>, replacement: &str) -> Option<Self> {
+        let updated = self.lines.apply_change(self.source(), range, replacement)?;
+        Some(Self::parse(updated, self.options))
+    }
+
+    /// Applies a batch of LSP content changes atomically.
+    ///
+    /// If every change in `changes` is valid, `self` is replaced with the
+    /// re-parsed result and `true` is returned. If any change is invalid,
+    /// `self` is left unchanged and `false` is returned.
+    pub fn apply_changes(&mut self, changes: &[TextDocumentContentChangeEvent]) -> bool {
+        if changes.is_empty() {
+            return true;
+        }
+        let mut text = self.source().to_owned();
+        for (index, change) in changes.iter().enumerate() {
+            let applied = if index == 0 {
+                self.lines
+                    .apply_change_in_place(&mut text, change.range, &change.text)
+            } else if change.range.is_none() {
+                text.clear();
+                text.push_str(&change.text);
+                true
+            } else {
+                let map = LineMap::new(&text, self.options.dialect, self.options.position_encoding);
+                map.apply_change_in_place(&mut text, change.range, &change.text)
+            };
+            if !applied {
+                return false;
+            }
+        }
+        *self = Self::parse(text, self.options);
+        true
+    }
+
+    fn limit_error(&self) -> Option<LimitExceeded> {
+        self.parse_diagnostics.iter().find_map(Diagnostic::limit)
+    }
+
+    /// Converts parser diagnostics (and optional linter findings) into LSP
+    /// diagnostics.
+    #[must_use]
+    pub fn diagnostics(&self, uri: &Uri) -> Vec<LspDiagnostic> {
+        let text = self.source();
+        let mut output = self
+            .parse_diagnostics
+            .iter()
+            .map(|diagnostic| {
+                let related_information = diagnostic.secondary_span().map(|span| {
+                    vec![DiagnosticRelatedInformation {
+                        location: Location::new(uri.clone(), self.lines.range(text, span)),
+                        message: "related source location".to_owned(),
+                    }]
+                });
+                LspDiagnostic {
+                    range: self.lines.range(text, diagnostic.span()),
+                    severity: Some(severity(diagnostic.severity())),
+                    code: Some(NumberOrString::String(
+                        diagnostic.code().as_str().to_owned(),
+                    )),
+                    source: Some("adotenv".to_owned()),
+                    message: diagnostic.message().to_owned(),
+                    related_information,
+                    ..LspDiagnostic::default()
+                }
+            })
+            .collect::<Vec<_>>();
+        if self.limit_error().is_none() {
+            if let Some(lint_options) = self.options.lint {
+                output.extend(
+                    lint(&self.document, lint_options)
+                        .into_iter()
+                        .map(|finding| finding_to_lsp_diagnostic(text, &self.lines, &finding)),
+                );
+            }
+        }
+        output
+    }
+
+    /// Returns completion items for declared keys at a key position or after
+    /// `$`/`${`.
+    #[must_use]
+    pub fn completion(&self, position: Position) -> CompletionResponse {
+        let text = self.source();
+        let Some(offset) = self.lines.offset(text, position) else {
+            return CompletionResponse::Array(Vec::new());
+        };
+        let Some((prefix, context)) = completion_context_at(
+            &self.document,
+            text,
+            offset,
+            self.lines.bom_bytes,
+            self.options.dialect,
+        ) else {
+            return CompletionResponse::Array(Vec::new());
+        };
+        let trimmed = prefix.trim_start();
+        let key_prefix = if self.options.dialect.export {
+            strip_export_prefix(trimmed)
+        } else {
+            trimmed
+        };
+        let at_key_start = !context.saw_separator
+            && !key_prefix.contains('#')
+            && !key_prefix.chars().any(char::is_whitespace);
+        let value_prefix = &prefix[context.value_start.min(prefix.len())..];
+        let after_reference = context.saw_separator
+            && value_prefix.rfind('$').is_some_and(|dollar| {
+                if is_escaped_dollar(
+                    value_prefix,
+                    dollar,
+                    context.value_quote,
+                    self.options.dialect,
+                ) {
+                    return false;
+                }
+                let tail = &value_prefix[dollar + 1..];
+                if let Some(braced) = tail.strip_prefix('{') {
+                    braced.chars().all(|character| {
+                        character.is_alphanumeric() || matches!(character, '_' | '.')
+                    })
+                } else {
+                    is_unbraced_reference_prefix(tail)
+                }
+            });
+        if !at_key_start && !after_reference {
+            return CompletionResponse::Array(Vec::new());
+        }
+
+        let mut keys = BTreeSet::new();
+        for entry in self.document.entries() {
+            keys.insert(entry.key().to_owned());
+        }
+        CompletionResponse::Array(
+            keys.into_iter()
+                .map(|key| CompletionItem {
+                    label: key.clone(),
+                    kind: Some(CompletionItemKind::VARIABLE),
+                    detail: Some("declared .env key".to_owned()),
+                    insert_text: Some(key),
+                    ..CompletionItem::default()
+                })
+                .collect(),
+        )
+    }
+
+    /// Returns an outline of the document's declared keys. Values are never
+    /// included.
+    #[must_use]
+    #[allow(deprecated)]
+    pub fn document_symbols(&self) -> DocumentSymbolResponse {
+        let text = self.source();
+        DocumentSymbolResponse::Nested(
+            self.document
+                .entries()
+                .map(|entry| DocumentSymbol {
+                    name: entry.key().to_owned(),
+                    detail: None,
+                    kind: SymbolKind::KEY,
+                    tags: None,
+                    deprecated: None,
+                    range: self
+                        .lines
+                        .range(text, entry_content_span(&self.document, entry)),
+                    selection_range: self.lines.range(text, entry.key_span()),
+                    children: None,
+                })
+                .collect(),
+        )
+    }
+
+    /// Returns workspace symbols for declared keys in this document matching
+    /// `query` case-insensitively. Values are never included.
+    #[must_use]
+    #[allow(deprecated)]
+    pub fn workspace_symbols(&self, uri: &Uri, query: &str) -> Vec<SymbolInformation> {
+        let text = self.source();
+        let query = query.to_lowercase();
+        self.document
+            .entries()
+            .filter(|entry| query.is_empty() || entry.key().to_lowercase().contains(&query))
+            .map(|entry| SymbolInformation {
+                name: entry.key().to_owned(),
+                kind: SymbolKind::KEY,
+                tags: None,
+                deprecated: None,
+                location: Location::new(
+                    uri.clone(),
+                    self.lines
+                        .range(text, entry_content_span(&self.document, entry)),
+                ),
+                container_name: None,
+            })
+            .collect()
+    }
+
+    /// Finds the declaration of the key or reference at `position`.
+    #[must_use]
+    pub fn definition(&self, uri: &Uri, position: Position) -> Option<GotoDefinitionResponse> {
+        let text = self.source();
+        let offset = self.lines.offset(text, position)?;
+        let name = name_at(&self.document, offset)?;
+        let entry = self.document.get_entry(name)?;
+        Some(GotoDefinitionResponse::Scalar(Location::new(
+            uri.clone(),
+            self.lines.range(text, entry.key_span()),
+        )))
+    }
+
+    /// Returns hover information for a key or reference.
+    #[must_use]
+    pub fn hover(&self, position: Position) -> Option<Hover> {
+        let text = self.source();
+        let offset = self.lines.offset(text, position)?;
+        if let Some(reference) = reference_at(&self.document, offset) {
+            let name = reference_name(&self.document, &reference)?;
+            let target = self.document.get_entry(name).map_or_else(
+                || "; unresolved".to_owned(),
+                |entry| format!("; declared on line {}", entry.line()),
+            );
+            return Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: format!(
+                        "{}{target}",
+                        format_markdown_inline_code(&format!("${{{name}}}"))
+                    ),
+                }),
+                range: Some(self.lines.range(text, reference.span)),
+            });
+        }
+        let entry = entry_at(&self.document, offset)?;
+        if entry
+            .tokens()
+            .inline_comment
+            .as_ref()
+            .is_some_and(|comment| comment.start <= offset && offset <= comment.end)
+        {
+            return None;
+        }
+        let value = match entry.value() {
+            Some(_) if self.options.mask_values => "`<redacted>`".to_owned(),
+            Some(value) => format_markdown_code(value),
+            None => "`<bare>`".to_owned(),
+        };
+        Some(Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: format!(
+                    "{} on line {} ({:?})\n\nValue: {value}",
+                    format_markdown_inline_code(entry.key()),
+                    entry.line(),
+                    entry.state()
+                ),
+            }),
+            range: Some(self.lines.range(text, entry.key_span())),
+        })
+    }
+
+    /// Finds declarations and value references for the symbol at `position`.
+    ///
+    /// Reference locations cover each reference's identifier (`reference.name`)
+    /// span rather than an enclosing `${VAR:-default}` operator expression,
+    /// matching [`Self::definition`] and [`Self::prepare_rename`].
+    #[must_use]
+    pub fn references(
+        &self,
+        uri: &Uri,
+        position: Position,
+        include_declaration: bool,
+    ) -> Vec<Location> {
+        let text = self.source();
+        let Some(offset) = self.lines.offset(text, position) else {
+            return Vec::new();
+        };
+        let Some(name) = name_at(&self.document, offset) else {
+            return Vec::new();
+        };
+        let mut locations = Vec::new();
+        for entry in self.document.entries() {
+            if entry.key() == name && include_declaration {
+                locations.push(Location::new(
+                    uri.clone(),
+                    self.lines.range(text, entry.key_span()),
+                ));
+            }
+            for reference in entry.references() {
+                if reference_name(&self.document, &reference) == Some(name) {
+                    let span = reference.name.unwrap_or(reference.span);
+                    locations.push(Location::new(uri.clone(), self.lines.range(text, span)));
+                }
+            }
+        }
+        locations
+    }
+
+    /// Validates whether `position` names a uniquely declared renameable key
+    /// or a reference to one, returning its exact symbol range and placeholder
+    /// text.
+    #[must_use]
+    pub fn prepare_rename(&self, position: Position) -> Option<PrepareRenameResponse> {
+        if self.limit_error().is_some() {
+            return None;
+        }
+        let text = self.source();
+        let offset = self.lines.offset(text, position)?;
+        if let Some(reference) = reference_at(&self.document, offset) {
+            let name_span = reference.name.filter(|span| !span.is_empty())?;
+            if !(name_span.start..=name_span.end).contains(&offset) {
+                return None;
+            }
+            let name = text.get(name_span.clone())?;
+            self.document.unique(name).ok()?;
+            return Some(PrepareRenameResponse::RangeWithPlaceholder {
+                range: self.lines.range(text, name_span),
+                placeholder: name.to_owned(),
+            });
+        }
+        let entry = entry_at(&self.document, offset)?;
+        if entry.key().is_empty() {
+            return None;
+        }
+        let key_span = entry.key_span();
+        if !(key_span.start..=key_span.end).contains(&offset) {
+            return None;
+        }
+        self.document.unique(entry.key()).ok()?;
+        Some(PrepareRenameResponse::RangeWithPlaceholder {
+            range: self.lines.range(text, key_span),
+            placeholder: entry.key().to_owned(),
+        })
+    }
+
+    /// Renames a key declaration and its literal references using
+    /// `Document::rename_with_references_with_options`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RenameError::NoSymbol`] when `position` is not on a key or
+    /// reference, and [`RenameError::Edit`] when a configured parse limit is
+    /// exceeded ([`EditError::Limit`]), the rename is invalid, matching
+    /// references exist and the new key cannot be written as a variable
+    /// reference, or verification fails (including `$(...)` command-context
+    /// allowlist rejections).
+    pub fn rename(
+        &self,
+        uri: &Uri,
+        position: Position,
+        new_name: &str,
+    ) -> Result<WorkspaceEdit, RenameError> {
+        if let Some(limit) = self.limit_error() {
+            return Err(RenameError::Edit(EditError::Limit(limit)));
+        }
+        let text = self.source();
+        let offset = self
+            .lines
+            .offset(text, position)
+            .ok_or(RenameError::NoSymbol)?;
+        let old_name = name_at(&self.document, offset)
+            .ok_or(RenameError::NoSymbol)?
+            .to_owned();
+        let edit_options = EditOptions::new().with_parse_limits(self.options.parse_options);
+        let edits =
+            self.document
+                .rename_with_references_with_options(&old_name, new_name, edit_options)?;
+        let changes = edits
+            .edits()
+            .iter()
+            .map(|edit| TextEdit {
+                range: self.lines.range(text, edit.range.clone()),
+                new_text: edit.replacement.clone(),
+            })
+            .collect::<Vec<_>>();
+        Ok(WorkspaceEdit {
+            changes: Some(HashMap::from([(uri.clone(), changes)])),
+            ..WorkspaceEdit::default()
+        })
+    }
+
+    /// Formats the document using `Document::format`, honoring [`LspOptions`]
+    /// and LSP [`FormattingOptions`].
+    ///
+    /// `FormattingOptions::trim_trailing_whitespace` and
+    /// `FormattingOptions::insert_final_newline` override the base policy
+    /// (preserving an explicit [`FinalNewline::Remove`] when
+    /// `insert_final_newline` is `Some(false)`). `FormattingOptions::trim_final_newlines`
+    /// is not mapped because `adotenv::FormatOptions` models blank-line
+    /// collapsing ([`BlankLines::Collapse`]) rather than trailing-only trimming.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FormattingError::Limit`] when the document or formatted output
+    /// exceeds configured [`ParseOptions`] limits, and
+    /// [`FormattingError::Format`] when `Document::format` refuses the edit.
+    pub fn formatting(
+        &self,
+        formatting_options: &FormattingOptions,
+    ) -> Result<Vec<TextEdit>, FormattingError> {
+        if let Some(limit) = self.limit_error() {
+            return Err(FormattingError::Limit(limit));
+        }
+        let mut policy = if let Some(explicit) = self.options.format {
+            explicit
+        } else if let Some(lint_options) = self.options.lint {
+            FormatOptions::default()
+                .with_equals_spacing(lint_options.equals_spacing)
+                .with_quote_style(lint_options.quote_style)
+                .with_trim_trailing_whitespace(lint_options.trim_trailing_whitespace)
+        } else {
+            FormatOptions::default()
+                .with_trim_trailing_whitespace(true)
+                .with_final_newline(FinalNewline::Ensure)
+        };
+        if let Some(trim) = formatting_options.trim_trailing_whitespace {
+            policy = policy.with_trim_trailing_whitespace(trim);
+        }
+        if let Some(insert_final) = formatting_options.insert_final_newline {
+            if insert_final {
+                policy = policy.with_final_newline(FinalNewline::Ensure);
+            } else if policy.final_newline == FinalNewline::Ensure {
+                policy = policy.with_final_newline(FinalNewline::Preserve);
+            }
+        }
+        // `adotenv::Document::format` intentionally keeps `QuoteStyle::Unquoted`
+        // separate from other trivia rewrites; when combined (for example via
+        // editor `insertFinalNewline` or `trimTrailingWhitespace`), run
+        // unquoting first and apply the remaining options in a second pass.
+        let needs_two_pass = policy.quote_style == QuoteStyle::Unquoted
+            && (policy.equals_spacing != EqualsSpacing::Preserve
+                || policy.trim_trailing_whitespace
+                || policy.blank_lines != BlankLines::Preserve
+                || policy.final_newline != FinalNewline::Preserve);
+        if needs_two_pass {
+            let unquote_only = FormatOptions::default().with_quote_style(QuoteStyle::Unquoted);
+            let pass1 = self.document.format(&unquote_only)?;
+            let rest_policy = policy.with_quote_style(QuoteStyle::Preserve);
+            if pass1.is_empty() {
+                let pass2 = self.document.format(&rest_policy)?;
+                check_output_parse_limits(
+                    pass2.as_str(),
+                    self.options.dialect,
+                    self.options.parse_options,
+                )?;
+                return Ok(self.text_edits_from(pass2.edits()));
+            }
+            check_output_parse_limits(
+                pass1.as_str(),
+                self.options.dialect,
+                self.options.parse_options,
+            )?;
+            let (mid_doc, _) = parse_with_options(
+                pass1.as_str(),
+                self.options.dialect,
+                self.options.parse_options,
+            );
+            let pass2 = mid_doc.format(&rest_policy)?;
+            if pass2.is_empty() {
+                return Ok(self.text_edits_from(pass1.edits()));
+            }
+            check_output_parse_limits(
+                pass2.as_str(),
+                self.options.dialect,
+                self.options.parse_options,
+            )?;
+            if pass2.as_str() == self.source() {
+                return Ok(Vec::new());
+            }
+            return Ok(vec![self.bom_preserving_full_edit(pass2.as_str())]);
+        }
+        let formatted = self.document.format(&policy)?;
+        check_output_parse_limits(
+            formatted.as_str(),
+            self.options.dialect,
+            self.options.parse_options,
+        )?;
+        Ok(self.text_edits_from(formatted.edits()))
+    }
+
+    fn text_edits_from(&self, edits: &[adotenv::TextEdit]) -> Vec<TextEdit> {
+        let text = self.source();
+        edits
+            .iter()
+            .map(|edit| TextEdit {
+                range: self.lines.range(text, edit.range.clone()),
+                new_text: edit.replacement.clone(),
+            })
+            .collect()
+    }
+
+    fn bom_preserving_full_edit(&self, output: &str) -> TextEdit {
+        let text = self.source();
+        let visible_start = self.lines.bom_bytes.min(text.len());
+        let replacement = output
+            .strip_prefix(&text[..visible_start])
+            .unwrap_or(output)
+            .to_owned();
+        TextEdit {
+            range: self.lines.range(text, visible_start..text.len()),
+            new_text: replacement,
+        }
+    }
+
+    /// Returns verified quick-fix and `source.fixAll` code actions derived from
+    /// configured [`LintOptions`].
+    ///
+    /// At most 64 distinct `quickfix` actions are materialized per request to
+    /// keep large selections bounded; `source.fixAll` still applies all
+    /// auto-fixable findings in one batch.
+    #[must_use]
+    pub fn code_actions(
+        &self,
+        uri: &Uri,
+        range: Range,
+        context: &CodeActionContext,
+    ) -> CodeActionResponse {
+        let Some(lint_options) = self.options.lint else {
+            return Vec::new();
+        };
+        if self.limit_error().is_some() || range.start > range.end {
+            return Vec::new();
+        }
+        let only = context.only.as_deref();
+        let want_quickfix = code_action_kind_requested(only, &CodeActionKind::QUICKFIX);
+        let want_fix_all = code_action_kind_requested(only, &CodeActionKind::SOURCE_FIX_ALL);
+        if !want_quickfix && !want_fix_all {
+            return Vec::new();
+        }
+        let findings = lint(&self.document, lint_options);
+        if findings.is_empty() {
+            return Vec::new();
+        }
+        let text = self.source();
+        let mut actions = Vec::new();
+
+        if want_quickfix {
+            let mut grouped: Vec<(Fix, Vec<LspDiagnostic>)> = Vec::new();
+            for finding in &findings {
+                let Some(fix) = finding.fix() else {
+                    continue;
+                };
+                let diag = finding_to_lsp_diagnostic(text, &self.lines, finding);
+                if !ranges_overlap(diag.range, range) {
+                    continue;
+                }
+                if let Some((_, existing_diags)) = grouped.iter_mut().find(|(f, _)| f == fix) {
+                    existing_diags.push(diag);
+                } else if grouped.len() < MAX_QUICKFIX_ACTIONS {
+                    grouped.push((fix.clone(), vec![diag]));
+                }
+            }
+            for (fix, matching_diags) in grouped {
+                let Ok(result) = apply_fix(&self.document, &fix) else {
+                    continue;
+                };
+                if result.edits().is_empty() {
+                    continue;
+                }
+                if check_output_parse_limits(
+                    result.as_str(),
+                    self.options.dialect,
+                    self.options.parse_options,
+                )
+                .is_err()
+                {
+                    continue;
+                }
+                let edits = self.text_edits_from(result.edits());
+                actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                    title: fix_title(&fix),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: Some(matching_diags),
+                    edit: Some(WorkspaceEdit {
+                        changes: Some(HashMap::from([(uri.clone(), edits)])),
+                        ..WorkspaceEdit::default()
+                    }),
+                    is_preferred: Some(true),
+                    ..CodeAction::default()
+                }));
+            }
+        }
+
+        if want_fix_all {
+            let all_fixes: Vec<Fix> = findings
+                .iter()
+                .filter_map(|finding| finding.fix().cloned())
+                .collect();
+            if !all_fixes.is_empty() {
+                if let Some(edits) = self.build_fix_all_edits(&all_fixes) {
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: "Fix all auto-fixable lint issues".to_owned(),
+                        kind: Some(CodeActionKind::SOURCE_FIX_ALL),
+                        edit: Some(WorkspaceEdit {
+                            changes: Some(HashMap::from([(uri.clone(), edits)])),
+                            ..WorkspaceEdit::default()
+                        }),
+                        ..CodeAction::default()
+                    }));
+                }
+            }
+        }
+
+        actions
+    }
+
+    fn build_fix_all_edits(&self, fixes: &[Fix]) -> Option<Vec<TextEdit>> {
+        match apply_batch(&self.document, fixes) {
+            Ok(batch) => {
+                if batch.is_empty() {
+                    return None;
+                }
+                check_output_parse_limits(
+                    batch.output(),
+                    self.options.dialect,
+                    self.options.parse_options,
+                )
+                .ok()?;
+                if batch.stages().len() == 1 {
+                    let stage_edits = batch.stages()[0].edits();
+                    if !stage_edits.is_empty() {
+                        return Some(self.text_edits_from(stage_edits));
+                    }
+                }
+                // Multi-stage edits are relative to intermediate outputs; emit
+                // one BOM-preserving replacement covering the visible document.
+                Some(vec![self.bom_preserving_full_edit(batch.output())])
+            }
+            Err(LintError::Parse) => {
+                // `apply_batch` re-parses strictly between stages; when
+                // unrelated invalid lines exist, fall back to a single
+                // verified batch via `apply_fixes` if the fixes are compatible.
+                let result = apply_fixes(&self.document, fixes).ok()?;
+                if result.edits().is_empty() {
+                    return None;
+                }
+                check_output_parse_limits(
+                    result.as_str(),
+                    self.options.dialect,
+                    self.options.parse_options,
+                )
+                .ok()?;
+                Some(self.text_edits_from(result.edits()))
+            }
+            Err(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct OpenDocument {
+    uri: Uri,
+    parsed: ParsedDocument,
+    version: Option<i32>,
+}
+
+/// Stateful multi-document LSP workspace session.
+///
+/// Stores open [`ParsedDocument`] buffers keyed by URI string together with
+/// their latest document versions so repeated queries avoid re-parsing and
+/// `workspace/symbol` aggregates across every open document deterministically.
+#[derive(Debug, Clone)]
+pub struct Session {
+    options: LspOptions,
+    documents: HashMap<String, OpenDocument>,
+}
+
+impl Session {
+    /// Creates an empty session using `options`.
+    #[must_use]
+    pub fn new(options: LspOptions) -> Self {
+        Self {
+            options,
+            documents: HashMap::new(),
+        }
+    }
+
+    /// Returns the [`LspOptions`] active for this session.
+    #[must_use]
+    pub const fn options(&self) -> LspOptions {
+        self.options
+    }
+
+    /// Returns the number of currently open documents.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.documents.len()
+    }
+
+    /// Returns `true` when no documents are open.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.documents.is_empty()
+    }
+
+    /// Opens or replaces a document in the session, parsing and indexing it
+    /// once.
+    pub fn open(&mut self, uri: Uri, version: Option<i32>, text: impl Into<String>) {
+        let key = uri.as_str().to_owned();
+        let parsed = ParsedDocument::parse(text, self.options);
+        self.documents.insert(
+            key,
+            OpenDocument {
+                uri,
+                parsed,
+                version,
+            },
+        );
+    }
+
+    /// Applies a batch of LSP content changes atomically to an open document
+    /// and updates its version.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError::NotOpen`] if `uri` is not open, or
+    /// [`SessionError::InvalidChange`] if any change fails (leaving the stored
+    /// document and version untouched).
+    pub fn change(
+        &mut self,
+        uri: &Uri,
+        version: Option<i32>,
+        changes: &[TextDocumentContentChangeEvent],
+    ) -> Result<(), SessionError> {
+        let doc = self
+            .documents
+            .get_mut(uri.as_str())
+            .ok_or(SessionError::NotOpen)?;
+        if !doc.parsed.apply_changes(changes) {
+            return Err(SessionError::InvalidChange);
+        }
+        doc.version = version;
+        Ok(())
+    }
+
+    /// Closes a document and returns whether it was open.
+    pub fn close(&mut self, uri: &Uri) -> bool {
+        self.documents.remove(uri.as_str()).is_some()
+    }
+
+    /// Returns the cached [`ParsedDocument`] for `uri`, when open.
+    #[must_use]
+    pub fn document(&self, uri: &Uri) -> Option<&ParsedDocument> {
+        self.documents.get(uri.as_str()).map(|doc| &doc.parsed)
+    }
+
+    /// Returns the latest LSP document version for `uri`, when open and
+    /// versioned.
+    #[must_use]
+    pub fn version(&self, uri: &Uri) -> Option<i32> {
+        self.documents.get(uri.as_str()).and_then(|doc| doc.version)
+    }
+
+    /// Aggregates workspace symbols matching `query` across all open
+    /// documents, sorted deterministically by name, URI and start position.
+    #[must_use]
+    pub fn workspace_symbols(&self, query: &str) -> Vec<SymbolInformation> {
+        let mut symbols = Vec::new();
+        for doc in self.documents.values() {
+            symbols.extend(doc.parsed.workspace_symbols(&doc.uri, query));
+        }
+        symbols.sort_by(|left, right| {
+            left.name
+                .cmp(&right.name)
+                .then_with(|| left.location.uri.as_str().cmp(right.location.uri.as_str()))
+                .then_with(|| left.location.range.start.cmp(&right.location.range.start))
+        });
+        symbols
+    }
+}
+
 /// Converts parser diagnostics into LSP diagnostics.
 ///
 /// Parser diagnostics are always included. Linter findings are added when
-/// `options.lint` contains an explicit policy.
+/// `options.lint` contains an explicit policy and no parse limit was exceeded.
 #[must_use]
 pub fn diagnostics(text: &str, uri: &Uri, options: &LspOptions) -> Vec<LspDiagnostic> {
-    let (document, diagnostics) = parse_with_options(text, options.dialect, options.parse_options);
-    let mapped = Mapped::new_for_dialect(text, options.dialect);
-    let mut output = diagnostics
-        .into_iter()
-        .map(|diagnostic| {
-            let related_information = diagnostic.secondary_span().map(|span| {
-                vec![DiagnosticRelatedInformation {
-                    location: Location::new(uri.clone(), mapped.range(span)),
-                    message: "related source location".to_owned(),
-                }]
-            });
-            LspDiagnostic {
-                range: mapped.range(diagnostic.span()),
-                severity: Some(severity(diagnostic.severity())),
-                code: Some(NumberOrString::String(
-                    diagnostic.code().as_str().to_owned(),
-                )),
-                source: Some("adotenv".to_owned()),
-                message: diagnostic.message().to_owned(),
-                related_information,
-                ..LspDiagnostic::default()
-            }
-        })
-        .collect::<Vec<_>>();
-    if let Some(lint_options) = options.lint {
-        output.extend(
-            lint(&document, lint_options)
-                .into_iter()
-                .map(|finding| LspDiagnostic {
-                    range: mapped.range(finding.span()),
-                    severity: Some(severity(finding.severity())),
-                    code: Some(NumberOrString::String(format!(
-                        "adotenv-lint.{}",
-                        finding.rule().as_str()
-                    ))),
-                    source: Some("adotenv-lint".to_owned()),
-                    message: finding.message().to_owned(),
-                    ..LspDiagnostic::default()
-                }),
-        );
-    }
-    output
+    ParsedDocument::parse(text, *options).diagnostics(uri)
+}
+
+/// Returns completion items for declared keys using `options`.
+///
+/// The same list is returned for a key position and after `$`/`${`; clients
+/// can filter it using their normal completion prefix.
+#[must_use]
+pub fn completion(text: &str, position: Position, options: &LspOptions) -> CompletionResponse {
+    ParsedDocument::parse(text, *options).completion(position)
+}
+
+/// Returns an outline of the document's declared keys using `options`.
+///
+/// Each entry becomes a [`SymbolKind::KEY`] symbol. The range covers the
+/// declaration and the selection range covers its key. Values are never
+/// included in the symbol data.
+#[must_use]
+pub fn document_symbols(text: &str, options: &LspOptions) -> DocumentSymbolResponse {
+    ParsedDocument::parse(text, *options).document_symbols()
+}
+
+/// Returns workspace symbols for declared keys in one document using `options`.
+///
+/// `query` is matched case-insensitively against the key. The result uses flat
+/// [`SymbolInformation`] values so clients without hierarchical symbol support
+/// can consume it. Values are never included.
+#[must_use]
+pub fn workspace_symbols(
+    text: &str,
+    uri: &Uri,
+    query: &str,
+    options: &LspOptions,
+) -> Vec<SymbolInformation> {
+    ParsedDocument::parse(text, *options).workspace_symbols(uri, query)
+}
+
+/// Applies one LSP content change to a document string using `options`.
+///
+/// A `None` range replaces the whole document. A ranged change uses the
+/// configured [`PositionEncoding`] (UTF-16 by default) with BOM-adjusted line 0
+/// columns and LSP 3.17 §3.1.1 end-of-line clamping (`character > line_len`
+/// clamps to the end of that line). Returns `None` when a line is out of
+/// bounds, the range is inverted, a UTF-16 column splits a surrogate pair, or a
+/// UTF-8 column lands inside a multi-byte character.
+#[must_use]
+pub fn apply_change(
+    text: &str,
+    range: Option<Range>,
+    replacement: &str,
+    options: &LspOptions,
+) -> Option<String> {
+    let lines = LineMap::new(text, options.dialect, options.position_encoding);
+    lines.apply_change(text, range, replacement)
+}
+
+/// Finds the declaration of the key or reference at `position` using `options`.
+#[must_use]
+pub fn definition(
+    text: &str,
+    uri: &Uri,
+    position: Position,
+    options: &LspOptions,
+) -> Option<GotoDefinitionResponse> {
+    ParsedDocument::parse(text, *options).definition(uri, position)
+}
+
+/// Returns hover information for a key or reference using `options`.
+#[must_use]
+pub fn hover(text: &str, position: Position, options: &LspOptions) -> Option<Hover> {
+    ParsedDocument::parse(text, *options).hover(position)
+}
+
+/// Finds declarations and value references for the symbol at `position` using
+/// `options`.
+///
+/// Reference locations span each reference's identifier (`reference.name`)
+/// rather than an enclosing `${VAR:-default}` operator expression.
+#[must_use]
+pub fn references(
+    text: &str,
+    uri: &Uri,
+    position: Position,
+    include_declaration: bool,
+    options: &LspOptions,
+) -> Vec<Location> {
+    ParsedDocument::parse(text, *options).references(uri, position, include_declaration)
+}
+
+/// Validates whether `position` names a uniquely declared renameable key or
+/// reference using `options`.
+#[must_use]
+pub fn prepare_rename(
+    text: &str,
+    position: Position,
+    options: &LspOptions,
+) -> Option<PrepareRenameResponse> {
+    ParsedDocument::parse(text, *options).prepare_rename(position)
+}
+
+/// Renames a key declaration and its literal references using `options`.
+///
+/// The symbol may be selected from a declaration key or from a `$VAR`/`${VAR}`
+/// reference. Unrelated invalid lines are preserved through recovering parsing
+/// and verified to remain unchanged.
+///
+/// # Errors
+///
+/// Returns [`RenameError::NoSymbol`] when `position` is not on a key or
+/// reference, and [`RenameError::Edit`] when a configured parse limit is
+/// exceeded ([`EditError::Limit`]), the rename is invalid, matching references
+/// exist and the new key cannot be written as a variable reference, or
+/// verification fails (including `$(...)` command-context allowlist
+/// rejections).
+pub fn rename(
+    text: &str,
+    uri: &Uri,
+    position: Position,
+    new_name: &str,
+    options: &LspOptions,
+) -> Result<WorkspaceEdit, RenameError> {
+    ParsedDocument::parse(text, *options).rename(uri, position, new_name)
+}
+
+/// Formats a document using `Document::format`, honoring `options` and LSP
+/// `formatting_options`.
+///
+/// `FormattingOptions::trim_final_newlines` is not mapped; use
+/// [`FormatOptions::with_blank_lines`] with [`BlankLines::Collapse`] instead.
+///
+/// # Errors
+///
+/// Returns [`FormattingError::Limit`] when the document or formatted output
+/// exceeds configured [`ParseOptions`] limits, and
+/// [`FormattingError::Format`] when `Document::format` refuses the edit.
+pub fn formatting(
+    text: &str,
+    formatting_options: &FormattingOptions,
+    options: &LspOptions,
+) -> Result<Vec<TextEdit>, FormattingError> {
+    ParsedDocument::parse(text, *options).formatting(formatting_options)
+}
+
+/// Returns verified quick-fix and `source.fixAll` code actions derived from
+/// configured [`LintOptions`].
+///
+/// At most 64 distinct `quickfix` actions are returned per request;
+/// `source.fixAll` applies all auto-fixable findings in one batch.
+#[must_use]
+pub fn code_actions(
+    text: &str,
+    uri: &Uri,
+    range: Range,
+    context: &CodeActionContext,
+    options: &LspOptions,
+) -> CodeActionResponse {
+    ParsedDocument::parse(text, *options).code_actions(uri, range, context)
 }
 
 fn severity(severity: Severity) -> DiagnosticSeverity {
@@ -224,77 +1352,64 @@ fn severity(severity: Severity) -> DiagnosticSeverity {
     }
 }
 
-/// Returns completion items for declared keys.
-///
-/// The same list is returned for a key position and after `$`/`${`; clients
-/// can filter it using their normal completion prefix.
-#[must_use]
-pub fn completion(text: &str, position: Position) -> CompletionResponse {
-    completion_with_options(text, position, &LspOptions::new())
+fn finding_to_lsp_diagnostic(text: &str, lines: &LineMap, finding: &Finding) -> LspDiagnostic {
+    LspDiagnostic {
+        range: lines.range(text, finding.span()),
+        severity: Some(severity(finding.severity())),
+        code: Some(NumberOrString::String(format!(
+            "adotenv-lint.{}",
+            finding.rule().as_str()
+        ))),
+        source: Some("adotenv-lint".to_owned()),
+        message: finding.message().to_owned(),
+        ..LspDiagnostic::default()
+    }
 }
 
-/// Returns completion items for declared keys using `options`.
-///
-/// This is [`completion`] with an explicit dialect and policy.
-#[must_use]
-pub fn completion_with_options(
-    text: &str,
-    position: Position,
-    options: &LspOptions,
-) -> CompletionResponse {
-    let mapped = Mapped::new_for_dialect(text, options.dialect);
-    let Some(offset) = mapped.offset(position) else {
-        return CompletionResponse::Array(Vec::new());
-    };
-    let (document, _) = parse_with_options(text, options.dialect, options.parse_options);
-    let Some((prefix, context)) =
-        completion_context_at(&document, text, offset, mapped.bom_bytes, options.dialect)
-    else {
-        return CompletionResponse::Array(Vec::new());
-    };
-    let trimmed = prefix.trim_start();
-    let key_prefix = if options.dialect.export {
-        strip_export_prefix(trimmed)
-    } else {
-        trimmed
-    };
-    let at_key_start = !context.saw_separator
-        && !key_prefix.contains('#')
-        && !key_prefix.chars().any(char::is_whitespace);
-    let value_prefix = &prefix[context.value_start.min(prefix.len())..];
-    let after_reference = context.saw_separator
-        && value_prefix.rfind('$').is_some_and(|dollar| {
-            if is_escaped_dollar(value_prefix, dollar, context.value_quote, options.dialect) {
-                return false;
-            }
-            let tail = &value_prefix[dollar + 1..];
-            if let Some(braced) = tail.strip_prefix('{') {
-                braced
-                    .chars()
-                    .all(|character| character.is_alphanumeric() || matches!(character, '_' | '.'))
-            } else {
-                is_unbraced_reference_prefix(tail)
-            }
-        });
-    if !at_key_start && !after_reference {
-        return CompletionResponse::Array(Vec::new());
+fn fix_title(fix: &Fix) -> String {
+    match fix {
+        Fix::Rename { key, .. } => format!("Rename key to `{key}`"),
+        Fix::Sort => "Sort keys in each group".to_owned(),
+        Fix::Format(_) => "Format document according to lint policy".to_owned(),
+        _ => "Apply lint fix".to_owned(),
     }
+}
 
-    let mut keys = BTreeSet::new();
-    for entry in document.entries() {
-        keys.insert(entry.key().to_owned());
+fn code_action_kind_requested(only: Option<&[CodeActionKind]>, candidate: &CodeActionKind) -> bool {
+    let Some(only) = only else {
+        return true;
+    };
+    let candidate = candidate.as_str();
+    only.iter().any(|requested| {
+        let prefix = requested.as_str();
+        prefix.is_empty()
+            || candidate == prefix
+            || (candidate.starts_with(prefix)
+                && candidate.as_bytes().get(prefix.len()) == Some(&b'.'))
+    })
+}
+
+fn ranges_overlap(left: Range, right: Range) -> bool {
+    left.start <= right.end && right.start <= left.end
+}
+
+fn check_output_parse_limits(
+    output: &str,
+    dialect: Dialect,
+    parse_options: ParseOptions,
+) -> Result<(), LimitExceeded> {
+    if parse_options.max_input_bytes.is_none()
+        && parse_options.max_lines.is_none()
+        && parse_options.max_items.is_none()
+        && parse_options.max_diagnostics.is_none()
+    {
+        return Ok(());
     }
-    CompletionResponse::Array(
-        keys.into_iter()
-            .map(|key| CompletionItem {
-                label: key.clone(),
-                kind: Some(CompletionItemKind::VARIABLE),
-                detail: Some("declared .env key".to_owned()),
-                insert_text: Some(key),
-                ..CompletionItem::default()
-            })
-            .collect(),
-    )
+    let (_, diagnostics) = parse_with_options(output, dialect, parse_options);
+    if let Some(limit) = diagnostics.iter().find_map(Diagnostic::limit) {
+        return Err(limit);
+    }
+    Ok(())
 }
 
 fn completion_context_at<'a>(
@@ -956,212 +2071,6 @@ fn inline_comment_starts(prefix: &str, index: usize, body_start: usize, dialect:
     }
 }
 
-/// Returns an outline of the document's declared keys.
-///
-/// Each entry becomes a [`SymbolKind::KEY`] symbol. The range covers the
-/// declaration and the selection range covers its key. Values are never
-/// included in the symbol data.
-#[must_use]
-#[allow(deprecated)]
-pub fn document_symbols(text: &str) -> DocumentSymbolResponse {
-    document_symbols_with_options(text, &LspOptions::new())
-}
-
-/// Returns an outline of the document's declared keys using `options`.
-///
-/// This is [`document_symbols`] with an explicit dialect.
-#[must_use]
-#[allow(deprecated)]
-pub fn document_symbols_with_options(text: &str, options: &LspOptions) -> DocumentSymbolResponse {
-    let (document, _) = parse_with_options(text, options.dialect, options.parse_options);
-    let mapped = Mapped::new_for_dialect(text, options.dialect);
-    DocumentSymbolResponse::Nested(
-        document
-            .entries()
-            .map(|entry| DocumentSymbol {
-                name: entry.key().to_owned(),
-                detail: None,
-                kind: SymbolKind::KEY,
-                tags: None,
-                deprecated: None,
-                range: mapped.range(entry_content_span(&document, entry)),
-                selection_range: mapped.range(entry.key_span()),
-                children: None,
-            })
-            .collect(),
-    )
-}
-
-/// Returns workspace symbols for declared keys in one document.
-///
-/// `query` is matched case-insensitively against the key. The result uses flat
-/// [`SymbolInformation`] values so clients without hierarchical symbol support
-/// can consume it. Values are never included.
-#[must_use]
-#[allow(deprecated)]
-pub fn workspace_symbols(text: &str, uri: &Uri, query: &str) -> Vec<SymbolInformation> {
-    workspace_symbols_with_options(text, uri, query, &LspOptions::new())
-}
-
-/// Returns workspace symbols for declared keys using `options`.
-///
-/// This is [`workspace_symbols`] with an explicit dialect.
-#[must_use]
-#[allow(deprecated)]
-pub fn workspace_symbols_with_options(
-    text: &str,
-    uri: &Uri,
-    query: &str,
-    options: &LspOptions,
-) -> Vec<SymbolInformation> {
-    let (document, _) = parse_with_options(text, options.dialect, options.parse_options);
-    let mapped = Mapped::new_for_dialect(text, options.dialect);
-    let query = query.to_lowercase();
-    document
-        .entries()
-        .filter(|entry| query.is_empty() || entry.key().to_lowercase().contains(&query))
-        .map(|entry| SymbolInformation {
-            name: entry.key().to_owned(),
-            kind: SymbolKind::KEY,
-            tags: None,
-            deprecated: None,
-            location: Location::new(
-                uri.clone(),
-                mapped.range(entry_content_span(&document, entry)),
-            ),
-            container_name: None,
-        })
-        .collect()
-}
-
-/// Applies one LSP content change to a document string.
-///
-/// A `None` range replaces the whole document. A ranged change uses UTF-16
-/// line and column coordinates, including the same BOM-adjusted columns as the
-/// rest of this crate. Returns `None` when the range is out of bounds.
-#[must_use]
-pub fn apply_change(text: &str, range: Option<Range>, replacement: &str) -> Option<String> {
-    apply_change_with_options(text, range, replacement, &LspOptions::new())
-}
-
-/// Applies one LSP content change to a document string using `options`.
-///
-/// This is [`apply_change`] with an explicit dialect, matching the BOM policy
-/// used for position mapping across the rest of the crate (including
-/// [`BomPolicy::StripAll`] and [`BomPolicy::Keep`]).
-#[must_use]
-pub fn apply_change_with_options(
-    text: &str,
-    range: Option<Range>,
-    replacement: &str,
-    options: &LspOptions,
-) -> Option<String> {
-    let Some(range) = range else {
-        return Some(replacement.to_owned());
-    };
-    let mapped = Mapped::new_for_dialect(text, options.dialect);
-    let start = mapped.offset(range.start)?;
-    let end = mapped.offset(range.end)?;
-    if start > end || end > text.len() {
-        return None;
-    }
-    let mut output = text.to_owned();
-    output.replace_range(start..end, replacement);
-    Some(output)
-}
-
-/// Finds the declaration of the key or reference at `position`.
-#[must_use]
-pub fn definition(text: &str, uri: &Uri, position: Position) -> Option<GotoDefinitionResponse> {
-    definition_with_options(text, uri, position, &LspOptions::new())
-}
-
-/// Finds the declaration of the key or reference at `position` using `options`.
-///
-/// This is [`definition`] with an explicit dialect.
-#[must_use]
-pub fn definition_with_options(
-    text: &str,
-    uri: &Uri,
-    position: Position,
-    options: &LspOptions,
-) -> Option<GotoDefinitionResponse> {
-    let (document, _) = parse_with_options(text, options.dialect, options.parse_options);
-    let mapped = Mapped::new_for_dialect(text, options.dialect);
-    let offset = mapped.offset(position)?;
-    let name = name_at(&document, offset)?;
-    let entry = document.get_entry(name)?;
-    Some(GotoDefinitionResponse::Scalar(Location::new(
-        uri.clone(),
-        mapped.range(entry.key_span()),
-    )))
-}
-
-/// Returns hover information for a key or reference.
-#[must_use]
-pub fn hover(text: &str, position: Position, options: &LspOptions) -> Option<Hover> {
-    let (document, _) = parse_with_options(text, options.dialect, options.parse_options);
-    let mapped = Mapped::new_for_dialect(text, options.dialect);
-    let offset = mapped.offset(position)?;
-    if let Some(reference) = reference_at(&document, offset) {
-        let name = reference_name(&document, &reference)?;
-        let target = document.get_entry(name).map_or_else(
-            || "; unresolved".to_owned(),
-            |entry| format!("; declared on line {}", entry.line()),
-        );
-        return Some(Hover {
-            contents: HoverContents::Markup(MarkupContent {
-                kind: MarkupKind::Markdown,
-                value: format!(
-                    "{}{target}",
-                    format_markdown_inline_code(&format!("${{{name}}}"))
-                ),
-            }),
-            range: Some(mapped.range(reference.span.clone())),
-        });
-    }
-    let entry = entry_at(&document, offset)?;
-    if entry
-        .tokens()
-        .inline_comment
-        .as_ref()
-        .is_some_and(|comment| comment.contains(&offset))
-    {
-        return None;
-    }
-    let value = match entry.value() {
-        Some(_) if options.mask_values => "`<redacted>`".to_owned(),
-        Some(value) => format_markdown_code(value),
-        None => "`<bare>`".to_owned(),
-    };
-    Some(Hover {
-        contents: HoverContents::Markup(MarkupContent {
-            kind: MarkupKind::Markdown,
-            value: format!(
-                "{} on line {} ({:?})\n\nValue: {value}",
-                format_markdown_inline_code(entry.key()),
-                entry.line(),
-                entry.state()
-            ),
-        }),
-        range: Some(mapped.range(entry.key_span())),
-    })
-}
-
-fn longest_backtick_run(text: &str) -> usize {
-    let mut longest = 0usize;
-    let mut current = 0usize;
-    for byte in text.bytes() {
-        if byte == b'`' {
-            current += 1;
-            longest = longest.max(current);
-        } else {
-            current = 0;
-        }
-    }
-    longest
-}
-
 fn format_markdown_inline_code(text: &str) -> String {
     let escaped;
     let content = if text.contains(['\n', '\r']) {
@@ -1187,6 +2096,20 @@ fn format_markdown_inline_code(text: &str) -> String {
     }
 }
 
+fn longest_backtick_run(text: &str) -> usize {
+    let mut longest = 0usize;
+    let mut current = 0usize;
+    for byte in text.bytes() {
+        if byte == b'`' {
+            current += 1;
+            longest = longest.max(current);
+        } else {
+            current = 0;
+        }
+    }
+    longest
+}
+
 fn format_markdown_code(text: &str) -> String {
     if text.contains(['\n', '\r']) {
         let fence_len = longest_backtick_run(text).max(2) + 1;
@@ -1195,121 +2118,6 @@ fn format_markdown_code(text: &str) -> String {
     } else {
         format_markdown_inline_code(text)
     }
-}
-
-/// Finds declarations and value references for the symbol at `position`.
-#[must_use]
-pub fn references(
-    text: &str,
-    uri: &Uri,
-    position: Position,
-    include_declaration: bool,
-) -> Vec<Location> {
-    references_with_options(text, uri, position, include_declaration, &LspOptions::new())
-}
-
-/// Finds declarations and value references for the symbol at `position` using
-/// `options`.
-///
-/// This is [`references`] with an explicit dialect.
-#[must_use]
-pub fn references_with_options(
-    text: &str,
-    uri: &Uri,
-    position: Position,
-    include_declaration: bool,
-    options: &LspOptions,
-) -> Vec<Location> {
-    let (document, _) = parse_with_options(text, options.dialect, options.parse_options);
-    let mapped = Mapped::new_for_dialect(text, options.dialect);
-    let Some(offset) = mapped.offset(position) else {
-        return Vec::new();
-    };
-    let Some(name) = name_at(&document, offset) else {
-        return Vec::new();
-    };
-    let mut locations = Vec::new();
-    for entry in document.entries() {
-        if entry.key() == name && include_declaration {
-            locations.push(Location::new(uri.clone(), mapped.range(entry.key_span())));
-        }
-        for reference in entry.references() {
-            if reference_name(&document, &reference) == Some(name) {
-                locations.push(Location::new(
-                    uri.clone(),
-                    mapped.range(reference.span.clone()),
-                ));
-            }
-        }
-    }
-    locations
-}
-
-/// Renames a key declaration and its literal references.
-///
-/// The symbol may be selected from a declaration key or from a `$VAR`/`${VAR}`
-/// reference. The result uses the verified text edits returned by
-/// `Document::rename_with_references_with_options`.
-///
-/// # Errors
-///
-/// Returns [`RenameError::NoSymbol`] when `position` is not on a key or
-/// reference, and [`RenameError::Edit`] when the rename is invalid or, with
-/// matching references present, a new key cannot be written as a variable
-/// reference.
-pub fn rename(
-    text: &str,
-    uri: &Uri,
-    position: Position,
-    new_name: &str,
-) -> Result<WorkspaceEdit, RenameError> {
-    rename_with_options(text, uri, position, new_name, &LspOptions::new())
-}
-
-/// Renames a key declaration and its literal references using `options`.
-///
-/// This is [`rename`] with an explicit dialect and parse limits. Unrelated
-/// invalid lines are preserved through recovering parsing and verified to
-/// remain unchanged.
-///
-/// # Errors
-///
-/// Returns [`RenameError::NoSymbol`] when `position` is not on a key or
-/// reference, and [`RenameError::Edit`] when a configured parse limit is
-/// exceeded ([`EditError::Limit`]), the rename is invalid, matching references
-/// exist and the new key cannot be written as a variable reference, or
-/// verification fails (including `$(...)` command-context allowlist
-/// rejections).
-pub fn rename_with_options(
-    text: &str,
-    uri: &Uri,
-    position: Position,
-    new_name: &str,
-    options: &LspOptions,
-) -> Result<WorkspaceEdit, RenameError> {
-    let (document, diagnostics) = parse_with_options(text, options.dialect, options.parse_options);
-    if let Some(limit) = diagnostics.iter().find_map(Diagnostic::limit) {
-        return Err(RenameError::Edit(EditError::Limit(limit)));
-    }
-    let mapped = Mapped::new_for_dialect(text, options.dialect);
-    let offset = mapped.offset(position).ok_or(RenameError::NoSymbol)?;
-    let old_name = name_at(&document, offset)
-        .ok_or(RenameError::NoSymbol)?
-        .to_owned();
-    let edit_options = EditOptions::new().with_parse_limits(options.parse_options);
-    let edits = document.rename_with_references_with_options(&old_name, new_name, edit_options)?;
-    let changes = edits
-        .edits()
-        .iter()
-        .map(|edit| TextEdit {
-            range: mapped.range(edit.range.clone()),
-            new_text: edit.replacement.clone(),
-        })
-        .collect::<Vec<_>>();
-    Ok(WorkspaceEdit {
-        changes: Some(HashMap::from([(uri.clone(), changes)])),
-        ..WorkspaceEdit::default()
-    })
 }
 
 fn name_at<'a>(document: &'a Document<'_>, offset: usize) -> Option<&'a str> {
@@ -1353,51 +2161,158 @@ fn entry_content_span(document: &Document<'_>, entry: Entry<'_>) -> std::ops::Ra
         .map_or_else(|| entry.line_span(), adotenv::Item::content_span)
 }
 
-struct Mapped<'a> {
-    index: LineIndex<'a>,
-    bom_chars: usize,
+/// Owned line-offset map that converts between UTF-8 byte offsets and LSP
+/// line/character positions under UTF-8, UTF-16 or UTF-32 without borrowing
+/// the source text.
+#[derive(Debug, Clone)]
+struct LineMap {
+    lines: Vec<(usize, usize)>,
     bom_bytes: usize,
-    first_visible_line0_utf16: u32,
+    first_visible_line0_width: u32,
+    encoding: PositionEncoding,
 }
 
-impl<'a> Mapped<'a> {
-    fn new_for_dialect(text: &'a str, dialect: Dialect) -> Self {
+impl LineMap {
+    fn new(text: &str, dialect: Dialect, encoding: PositionEncoding) -> Self {
+        let bytes = text.as_bytes();
+        let mut lines = Vec::new();
+        let mut start = 0usize;
+        let mut offset = 0usize;
+        while offset < bytes.len() {
+            match bytes[offset] {
+                b'\r' | b'\n' => {
+                    lines.push((start, offset));
+                    if bytes[offset] == b'\r' && bytes.get(offset + 1) == Some(&b'\n') {
+                        offset += 2;
+                    } else {
+                        offset += 1;
+                    }
+                    start = offset;
+                }
+                _ => offset += 1,
+            }
+        }
+        lines.push((start, text.len()));
+
         let bom_chars = match dialect.bom {
             BomPolicy::StripAll => text.chars().take_while(|ch| *ch == '\u{feff}').count(),
             BomPolicy::Keep | BomPolicy::Error => 0,
             _ => usize::from(text.starts_with('\u{feff}')),
         };
         let bom_bytes = bom_chars * '\u{feff}'.len_utf8();
-        let first_visible_line0_utf16 = text
+        let first_visible_line0_width = text
             .get(bom_bytes..)
             .and_then(|rest| rest.chars().next())
             .filter(|ch| *ch != '\n' && *ch != '\r')
-            .map_or(0, |ch| u32::try_from(ch.len_utf16()).unwrap_or(1));
+            .map_or(0, |ch| match encoding {
+                PositionEncoding::Utf8 => u32::try_from(ch.len_utf8()).unwrap_or(1),
+                PositionEncoding::Utf16 => u32::try_from(ch.len_utf16()).unwrap_or(1),
+                PositionEncoding::Utf32 => 1,
+            });
         Self {
-            index: LineIndex::new(text),
-            bom_chars,
+            lines,
             bom_bytes,
-            first_visible_line0_utf16,
+            first_visible_line0_width,
+            encoding,
         }
     }
 
-    fn offset(&self, position: Position) -> Option<usize> {
+    fn content_start(&self, line: usize) -> usize {
+        if line == 0 {
+            self.bom_bytes
+        } else {
+            self.lines[line].0
+        }
+    }
+
+    /// Converts an LSP `Position` to a valid UTF-8 byte offset in `text`.
+    ///
+    /// Adopts LSP 3.17 §3.1.1 clamping: when `position.line` is valid and
+    /// `position.character` exceeds the line's visible length, clamps to the
+    /// end of that line. Out-of-bounds lines, split UTF-16 surrogates, and
+    /// mid-character UTF-8 byte columns return `None`.
+    fn offset(&self, text: &str, position: Position) -> Option<usize> {
         let line = usize::try_from(position.line).ok()?;
-        let mut column = usize::try_from(position.character).ok()?;
-        if line == 0 && self.bom_chars > 0 {
-            column = column.checked_add(self.bom_chars)?;
+        let &(_, line_end) = self.lines.get(line)?;
+        let content_start = self.content_start(line);
+        let content = &text[content_start..line_end];
+        let target_col = usize::try_from(position.character).ok()?;
+        match self.encoding {
+            PositionEncoding::Utf8 => {
+                if target_col >= content.len() {
+                    Some(line_end)
+                } else if content.is_char_boundary(target_col) {
+                    Some(content_start + target_col)
+                } else {
+                    None
+                }
+            }
+            PositionEncoding::Utf16 => {
+                let mut col = 0usize;
+                for (byte_offset, ch) in content.char_indices() {
+                    if col == target_col {
+                        return Some(content_start + byte_offset);
+                    }
+                    col += ch.len_utf16();
+                    if col > target_col {
+                        return None;
+                    }
+                }
+                Some(line_end)
+            }
+            PositionEncoding::Utf32 => {
+                for (col, (byte_offset, _)) in content.char_indices().enumerate() {
+                    if col == target_col {
+                        return Some(content_start + byte_offset);
+                    }
+                }
+                Some(line_end)
+            }
         }
-        self.index
-            .to_offset(ParserPosition { line, column }, ColumnEncoding::Utf16)
-            .ok()
     }
 
-    fn range(&self, span: std::ops::Range<usize>) -> Range {
+    fn apply_change_in_place(
+        &self,
+        text: &mut String,
+        range: Option<Range>,
+        replacement: &str,
+    ) -> bool {
+        let Some(range) = range else {
+            text.clear();
+            text.push_str(replacement);
+            return true;
+        };
+        if range.start > range.end {
+            return false;
+        }
+        let Some(start) = self.offset(text, range.start) else {
+            return false;
+        };
+        let Some(end) = self.offset(text, range.end) else {
+            return false;
+        };
+        if start > end || end > text.len() {
+            return false;
+        }
+        text.replace_range(start..end, replacement);
+        true
+    }
+
+    fn apply_change(&self, text: &str, range: Option<Range>, replacement: &str) -> Option<String> {
+        if range.is_none() {
+            return Some(replacement.to_owned());
+        }
+        let mut output = text.to_owned();
+        self.apply_change_in_place(&mut output, range, replacement)
+            .then_some(output)
+    }
+
+    fn range(&self, text: &str, span: std::ops::Range<usize>) -> Range {
         if self.bom_bytes > 0 && span.start == 0 && span.end == self.bom_bytes {
             // The byte-order mark has no visible width. Anchor its diagnostic
-            // to the full UTF-16 width of the first visible character on line 0
-            // (so surrogate pairs are not split), or (0, 0)..(0, 0) when line 0
-            // has no visible character.
+            // to the full encoded width of the first visible character on line
+            // 0 (so surrogate pairs or multi-byte chars are not split), or
+            // (0, 0)..(0, 0) when line 0 has no visible character.
             return Range::new(
                 Position {
                     line: 0,
@@ -1405,40 +2320,51 @@ impl<'a> Mapped<'a> {
                 },
                 Position {
                     line: 0,
-                    character: self.first_visible_line0_utf16,
+                    character: self.first_visible_line0_width,
                 },
             );
         }
-        Range::new(self.position(span.start), self.position(span.end))
+        Range::new(
+            self.position(text, span.start),
+            self.position(text, span.end),
+        )
     }
 
-    fn position(&self, offset: usize) -> Position {
-        let resolved = match self.index.to_position(offset, ColumnEncoding::Utf16) {
-            Ok(position) => Ok(position),
-            // A diagnostic span can land between `\r` and `\n` of a CRLF line
-            // ending (for example an unknown escape `\\\r\n`); snap
-            // monotonically to the end of that line instead of (0, 0).
-            Err(PositionError::InsideCrLf) if offset > 0 => {
-                self.index.to_position(offset - 1, ColumnEncoding::Utf16)
-            }
-            Err(error) => Err(error),
-        };
-        match resolved {
-            Ok(position) => {
-                let column = if position.line == 0 && self.bom_chars > 0 {
-                    position.column.saturating_sub(self.bom_chars)
-                } else {
-                    position.column
-                };
-                Position {
-                    line: u32::try_from(position.line).unwrap_or(u32::MAX),
-                    character: u32::try_from(column).unwrap_or(u32::MAX),
+    fn position(&self, text: &str, offset: usize) -> Position {
+        if offset > text.len() {
+            return Position::new(0, 0);
+        }
+        let line = self
+            .lines
+            .partition_point(|&(start, _)| start <= offset)
+            .saturating_sub(1);
+        let (_, line_end) = self.lines[line];
+        // A diagnostic span can land between `\r` and `\n` of a CRLF line
+        // ending (for example an unknown escape `\\\r\n`); snap monotonically
+        // to the end of that line instead of falling back to (0, 0).
+        let clamped = offset.min(line_end);
+        let content_start = self.content_start(line);
+        let column = if clamped <= content_start {
+            0
+        } else {
+            match self.encoding {
+                PositionEncoding::Utf8 => clamped - content_start,
+                PositionEncoding::Utf16 | PositionEncoding::Utf32 => {
+                    if !text.is_char_boundary(clamped) {
+                        return Position::new(0, 0);
+                    }
+                    let prefix = &text[content_start..clamped];
+                    match self.encoding {
+                        PositionEncoding::Utf16 => prefix.chars().map(char::len_utf16).sum(),
+                        PositionEncoding::Utf32 => prefix.chars().count(),
+                        PositionEncoding::Utf8 => unreachable!(),
+                    }
                 }
             }
-            Err(_) => Position {
-                line: 0,
-                character: 0,
-            },
+        };
+        Position {
+            line: u32::try_from(line).unwrap_or(u32::MAX),
+            character: u32::try_from(column).unwrap_or(u32::MAX),
         }
     }
 }

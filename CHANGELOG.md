@@ -32,12 +32,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `adotenv-process`: added `validate_compact_entries` and
   `apply_compact_entries` for `CompactEntries` (skipping bare `None` entries and
   validating/applying assigned entries).
-- `adotenv-lsp`: re-exported `BomPolicy` and `EditError`, added
-  `LspOptions::without_lint_options`, derived `Clone`/`PartialEq`/`Eq` on
-  `RenameError`, added CLI flags `--dialect`, `--max-items`, and
-  `--max-diagnostics`, advertised `serverInfo` in `initialize`, included
-  document versions in `textDocument/publishDiagnostics`, and wired runnable
-  crate and README doctests.
 - Planning docs: added `docs/design/1.8.0-plan.md` covering `adotenv-lsp 0.6.0`
   stabilization (`#248`), `adotenv 1.8.0` core additions (`#249`, `#250`), and
   `adotenv-lint 0.3.0` (`#251`).
@@ -50,23 +44,83 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `\u{feff}` keys in `QuotedTail::Append` native tail encoding, and updated
   `Document::example` to emit bare text following a Compose closing quote on the
   same physical line as a `#` comment (`A="x"tail\n` -> `A=""\n#\n`) while
-  keeping explicit second assigned declarations.
-- `adotenv-lsp`: snapped `PositionError::InsideCrLf` spans (such as `"\\\r\n"`
-  escape diagnostics) monotonically to line end instead of falling back to
-  `(0, 0)`, anchored stripped BOM diagnostics to the full UTF-16 width of the
-  first visible character (avoiding surrogate-pair splits on astral characters),
-  fixed `BomPolicy::Error` column offsets and zero-width BOM-only/BOM-newline
-  diagnostic ranges, switched `rename_with_options` to recovering parsing
-  (preserving unrelated invalid lines while retaining limit errors), narrowed
-  `reference_at` to the containing entry (including bare keys at EOF without a
-  trailing newline), escaped multiline keys in Markdown hover output, aligned
-  completion context and escaped-dollar detection with core parser/reference
-  rules across multiline values, mid-value quotes, backticks, Compose colons,
-  `quoted_comments`, Python escapes, raw values, and braced dotted references,
-  returned `InvalidParams` and exited promptly without deadlocking on early
-  stdio errors, returned non-zero exit status on `exit` without `shutdown`,
-  rejected `didChange` for unopened documents while propagating transport
-  errors, and restricted URI ignore matching to `file://` URIs with Windows
+  keeping explicit second assigned declarations and safe inline-comment
+  placeholders under custom `QuotedTail::NextStatement` dialects.
+- `adotenv`: hardened `src/references.rs` `Closes` memoization so escaped
+  command operators (`\-`, `"\-"`, `\$(-)`, `\${-}`) and depth `max_depth + 1`
+  fillers stay linear without clamping explicit finite `max_depth` bounds.
+
+## [adotenv-lsp 0.6.0] - 2026-11-27
+
+### Breaking Changes
+
+- Unified the stateless library API so all 12 free functions (`diagnostics`,
+  `completion`, `document_symbols`, `workspace_symbols`, `apply_change`,
+  `definition`, `hover`, `references`, `prepare_rename`, `rename`, `formatting`,
+  and `code_actions`) accept `&LspOptions` consistently; removed the seven
+  redundant `*_with_options` wrappers (`completion_with_options`,
+  `document_symbols_with_options`, `workspace_symbols_with_options`,
+  `apply_change_with_options`, `definition_with_options`,
+  `references_with_options`, and `rename_with_options`). Migrate callers by
+  passing `&LspOptions::new()` (or your existing `&options`) to the base
+  function name.
+- `references` now returns each reference's exact identifier (`reference.name`)
+  span rather than the full enclosing `${VAR:-default}` operator span, matching
+  `definition`, `prepare_rename`, and `rename`.
+- `apply_change` and coordinate lookups now adopt LSP 3.17 §3.1.1 end-of-line
+  clamping (`character > line_len` on a valid line clamps to line end instead of
+  returning `None`). Out-of-bounds lines, inverted ranges, split UTF-16
+  surrogates, and mid-character UTF-8 byte offsets still return `None`.
+
+### Added
+
+- Stateful `ParsedDocument` and `Session` handles (`SessionError`) that parse
+  and line-index each document once per open/change and serve repeated LSP
+  requests without re-parsing, including atomic multi-edit `apply_changes` /
+  `Session::change` rollback on invalid changes.
+- `textDocument/prepareRename` (`prepare_rename`), `textDocument/formatting`
+  (`formatting`, `FormattingError`, `LspOptions::with_format_options` /
+  `without_format_options`), and `textDocument/codeAction` (`code_actions`,
+  supporting `quickfix` and BOM-preserving `source.fixAll` backed by
+  `adotenv-lint`).
+- LSP 3.17 `positionEncoding` negotiation (`PositionEncoding::{Utf8, Utf16,
+  Utf32}`, `LspOptions::with_position_encoding`) across both library and stdio
+  server.
+- Bounded synchronous JSON-RPC 2.0 `Content-Length` stdio transport replacing
+  `lsp-server` (8 KiB header-line limit, 32-header cap, 16 MiB default payload
+  limit configurable via `--max-message-bytes`) enforced before allocating
+  payload buffers, plus proper `ServerNotInitialized` (`-32002`) and
+  post-`shutdown` `InvalidRequest` (`-32600`) handling.
+- Default-on `stdio` feature gating the `adotenv-lsp` binary and optional
+  `serde`/`serde_json` dependencies so library embedders using
+  `default-features = false` build only the transport-free library.
+- Workspace-folder config discovery for `--discover-lint-config` (checking
+  `InitializeParams::workspace_folders`, then `root_uri`, then launch cwd).
+- Re-exported `BlankLines`, `BomPolicy`, `Document`, `EditError`,
+  `FinalNewline`, `FormatError`, and `FormatOptions`; added
+  `LspOptions::without_lint_options`; derived `Clone`/`PartialEq`/`Eq` on
+  `RenameError`; added CLI flags `--dialect`, `--max-items`,
+  `--max-diagnostics`, and `--max-message-bytes`; advertised `serverInfo` and
+  versioned diagnostics; and added `--package adotenv-lsp` to CI
+  `cargo semver-checks`.
+
+### Changed
+
+- Lowered `adotenv-lsp` MSRV from Rust 1.85 to Rust 1.81 (matching `adotenv`)
+  after removing edition-2024 `lsp-server`, relaxed `lsp-types = "0.97"`, and
+  bumped dependency floors to `adotenv 1.7.3` and `adotenv-lint 0.2.3`.
+
+### Fixed
+
+- Snapped `InsideCrLf` diagnostic spans monotonically to line end, anchored
+  stripped BOM diagnostics to the full encoded width of the first visible
+  character across UTF-8/UTF-16/UTF-32, fixed `BomPolicy::Error` and BOM-only
+  diagnostic ranges, switched `rename` to recovering parsing, narrowed
+  `reference_at` to the containing entry, escaped multiline keys in Markdown
+  hover, aligned completion quote/comment/escape/command-nesting rules with core
+  `adotenv`, returned `InvalidParams` and exited promptly on bad `initialize`,
+  exited non-zero on `exit` before `shutdown`, rejected `didChange` on unopened
+  URIs, and restricted URI ignore matching to `file://` URIs with Windows
   drive-letter slash stripping.
 
 ## [1.7.3] - 2026-11-26

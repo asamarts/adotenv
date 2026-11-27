@@ -14,7 +14,7 @@ The current release provides:
 - optional file loading with values, origins and reports;
 - optional serde, process, CLI and `config`/Figment adapters;
 - the optional `adotenv-lint` policy companion;
-- the optional `adotenv-lsp` editor companion prototype.
+- the optional `adotenv-lsp` language server and transport-free LSP library.
 
 ## Current status
 
@@ -165,7 +165,7 @@ All met for 1.0.0:
 | [performance.md](docs/design/performance.md) | Benchmarks, memory and budgets |
 | [feature-decisions.md](docs/design/feature-decisions.md) | Adopt, defer and reject decisions |
 | [format-contract.md](docs/design/format-contract.md) | Shared public shapes with ayaml |
-| [lsp.md](docs/design/lsp.md) | Language server prototype and limitations |
+| [lsp.md](docs/design/lsp.md) | Language server design, protocol and transport |
 | [1.0-readiness.md](docs/design/1.0-readiness.md) | Release evidence checklist |
 | [1.0-fix-round.md](docs/design/1.0-fix-round.md) | Pre-1.0 audit fixes and decisions |
 | [1.1-audit.md](docs/design/1.1-audit.md) | 1.1 audit findings and fixes |

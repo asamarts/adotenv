@@ -41,7 +41,8 @@ cargo test -p adotenv --features load,serde --locked
 cargo audit --deny warnings
 cargo deny check
 cargo semver-checks check-release --package adotenv --package adotenv-process \
-  --package adotenv-config --package adotenv-figment --package adotenv-lint
+  --package adotenv-config --package adotenv-figment --package adotenv-lint \
+  --package adotenv-lsp
 cargo package -p adotenv --locked
 python3 conformance/check_adotenv.py --setup
 ```
@@ -52,14 +53,15 @@ The workflow also:
   `load,serde`, no default features, and no default features with `serde`,
   plus the adapters with `load`;
 - runs the tests on Linux, macOS and Windows;
-- builds `adotenv`, `adotenv-process`, `adotenv-cli`, `adotenv-lint` and
-  `adotenv-figment` with Rust 1.81, `adotenv-lsp` with Rust 1.85 and
-  `adotenv-config` with Rust 1.88;
+- builds `adotenv`, `adotenv-process`, `adotenv-cli`, `adotenv-lint`,
+  `adotenv-lsp` (default features and `--no-default-features`) and
+  `adotenv-figment` with Rust 1.81, and `adotenv-config` with Rust 1.88;
 - builds the core for the `thumbv7em-none-eabi` target without default
   features;
 - resolves the published workspace dependencies to their lowest compatible
-  versions on nightly and runs their test suite; the LSP prototype has its own
-  1.85 MSRV check;
+  versions on nightly and runs their test suite (`adotenv-lsp` is excluded
+  because `lsp-types` 0.97 declares 2018-era minimum versions that do not build
+  under nightly `-Z minimal-versions`);
 - checks that every package includes its license files;
 - runs the `gungraun` `det_parse` benchmark smoke test, checks the memory
   regression gates with `adotenv-xtask gate` against both
@@ -145,17 +147,17 @@ cargo mutants --file src/parser.rs --file src/edit.rs --file src/format.rs \
 
 ## Supported Rust versions and semver
 
-The minimum supported Rust version is 1.81. The `adotenv-lsp` prototype requires
-Rust 1.85 because its LSP transport uses the 2024 edition. `adotenv-config`
-follows the minimum of `config`, currently 1.88. A minimum version rises only
-in a minor release.
+The minimum supported Rust version is 1.81 across `adotenv`, `adotenv-process`,
+`adotenv-cli`, `adotenv-lint`, `adotenv-lsp` and `adotenv-figment`.
+`adotenv-config` follows the minimum of `config`, currently 1.88. A minimum
+version rises only in a minor release.
 
 The public API follows semantic versioning. Enums and structs that may grow
 are non-exhaustive, and options are set through builders. CI runs
-`cargo semver-checks` for the five published library crates against their
-latest published versions. The LSP prototype is published but remains outside
-the semver gate while its API is unstable. Breaking releases list their changes
-and a migration guide in the changelog; see
+`cargo semver-checks` for all six published library crates (`adotenv`,
+`adotenv-process`, `adotenv-config`, `adotenv-figment`, `adotenv-lint` and
+`adotenv-lsp`) against their latest published versions. Breaking releases list
+their changes and a migration guide in the changelog; see
 [Upgrading to 1.0](../reference/upgrading.md).
 
 ## Supply chain
