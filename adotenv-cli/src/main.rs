@@ -223,7 +223,10 @@ fn extract_global_options(args: &mut Vec<String>) -> Result<GlobalOptions, ()> {
                 index = end;
                 continue;
             }
-            if stop_at_first_positional && !args[index].starts_with('-') {
+            if stop_at_first_positional
+                && !args[index].starts_with("--max-output-bytes=")
+                && !args[index].starts_with("--max-output-lines=")
+            {
                 positional_seen = true;
             }
             index += 1;

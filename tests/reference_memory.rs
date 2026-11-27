@@ -194,3 +194,59 @@ fn rename_with_references_verification_bounds_delimiter_scan() {
         "rename verification delimiter scan grew the resident set by {growth} bytes"
     );
 }
+
+#[test]
+fn max_references_delimiter_depth_cap_is_order_invariant() {
+    // Under max_references = 50, the documented delimiter depth cap is 50 * 2 + 2 = 102.
+    // An 80-paren nested command has delimiter depth 81 (<= 102) and 1 reference, while
+    // 40 `$X` references leave remaining = 10 (< 32). The delimiter depth cap must stay
+    // derived from the configured limit (102), not from remaining (which would shrink to 66),
+    // so both entry orders succeed identically in sort_with_options and
+    // rename_with_references_with_options.
+    let nested = format!("A=$(echo {}x{})\n", "(".repeat(80), ")".repeat(80));
+    let refs = format!("B={}\n", "$X".repeat(40));
+    let opts = EditOptions::new().with_max_references(50);
+
+    let sorted_order = format!("X=1\n{nested}{refs}");
+    let unsorted_order = format!("X=1\n{refs}{nested}");
+
+    let sorted_doc = adotenv::parse_strict(&sorted_order).unwrap();
+    let unsorted_doc = adotenv::parse_strict(&unsorted_order).unwrap();
+
+    assert_eq!(
+        sorted_doc.sort_with_options(opts).unwrap().as_str(),
+        format!("{nested}X=1\n{refs}")
+    );
+    assert_eq!(
+        unsorted_doc.sort_with_options(opts).unwrap().as_str(),
+        format!("{nested}X=1\n{refs}")
+    );
+
+    let renamed_sorted = sorted_doc
+        .rename_with_references_with_options("X", "Y", opts)
+        .unwrap();
+    let renamed_unsorted = unsorted_doc
+        .rename_with_references_with_options("X", "Y", opts)
+        .unwrap();
+    assert_eq!(
+        renamed_sorted.as_str(),
+        format!("Y=1\n{nested}B={}\n", "$Y".repeat(40))
+    );
+    assert_eq!(
+        renamed_unsorted.as_str(),
+        format!("Y=1\nB={}\n{nested}", "$Y".repeat(40))
+    );
+
+    // Depth 103 (> 102) still fails cleanly with LimitKind::References.
+    let too_deep = format!(
+        "B={}\nA=$(echo {}x{})\n",
+        "$X".repeat(40),
+        "(".repeat(102),
+        ")".repeat(102)
+    );
+    let too_deep_doc = adotenv::parse_strict(&too_deep).unwrap();
+    assert!(matches!(
+        too_deep_doc.sort_with_options(opts),
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::References
+    ));
+}

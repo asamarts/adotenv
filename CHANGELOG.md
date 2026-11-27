@@ -66,10 +66,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   placeholders under custom `QuotedTail::NextStatement` dialects.
 - `adotenv`: hardened `src/references.rs` `Closes` memoization so escaped
   command operators (`\-`, `"\-"`, `\$(-)`, `\${-}`) and depth `max_depth + 1`
-  fillers stay linear without clamping explicit finite `max_depth` bounds, and
+  fillers stay linear without clamping explicit finite `max_depth` bounds,
   enforced `EditOptions::max_references` across reference-rename verification
   passes (`verify_reference_rename`, `verify_reference_structure`, and
-  `reference_counts_bounded`).
+  `reference_counts_bounded`), and kept the `EditOptions::max_references`
+  delimiter-depth cap derived from the configured limit rather than remaining
+  budget so `sort_with_options` and `rename_with_references_with_options` stay
+  order-invariant.
 - `adotenv-cli`: snapped `InsideCrLf` diagnostic offsets cleanly to line end in
   `check` human/`--source`/GitHub output, aligned `fmt --sort` on partially
   invalid files with `fmt` without `--sort` (formatting valid groups and exiting

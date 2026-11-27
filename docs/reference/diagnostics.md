@@ -28,9 +28,9 @@ limit kind, configured maximum and observed size or count.
 `parse` returns the diagnostics ordered by the start of their spans. Spans are
 byte ranges into the original source, byte-order mark included. Lines count
 LF, CRLF and a lone CR as line ends in every dialect, as `LineIndex` and
-`Entry::line` do. CLI human and GitHub columns on line 1 do not count a leading
-byte-order mark; use `LineIndex::without_bom` for the same columns in the
-library.
+`Entry::line` do. CLI human and GitHub columns on line 1 hide stripped leading
+byte-order marks; use `LineIndex::without_bom` or
+`LineIndex::with_bom_policy(dialect.bom)` for the same columns in the library.
 
 ## Severities
 
