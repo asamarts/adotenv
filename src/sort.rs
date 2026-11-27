@@ -113,6 +113,7 @@ impl Document<'_> {
     /// ```
     pub fn sort(&self) -> Result<FormatResult, FormatError> {
         self.sort_with_options(EditOptions::new())
+            .map_err(|_| FormatError::WouldChangeMeaning)
     }
 
     /// Sorts the declarations of each blank-line group by key, enforcing
@@ -126,36 +127,32 @@ impl Document<'_> {
     ///
     /// # Errors
     ///
-    /// Returns [`FormatError::WouldChangeMeaning`] under the same rules as
-    /// [`Document::sort`], and [`FormatError::Limit`] when a configured
+    /// Returns [`EditError::WouldChangeMeaning`] under the same verification
+    /// rules as [`Document::sort`], and [`EditError::Limit`] when a configured
     /// [`EditOptions`] limit is exceeded.
     ///
     /// # Examples
     ///
     /// ```
-    /// use adotenv::{EditOptions, FormatError, LimitKind};
+    /// use adotenv::{EditError, EditOptions, LimitKind};
     ///
     /// let doc = adotenv::parse_strict("B=$A$A\nA=1\n")?;
     /// let err = doc
     ///     .sort_with_options(EditOptions::new().with_max_references(1))
     ///     .unwrap_err();
-    /// assert!(matches!(err, FormatError::Limit(limit) if limit.kind() == LimitKind::References));
+    /// assert!(matches!(err, EditError::Limit(limit) if limit.kind() == LimitKind::References));
     ///
     /// let ok = doc.sort_with_options(EditOptions::new().with_max_references(2))?;
     /// assert_eq!(ok.as_str(), "B=$A$A\nA=1\n");
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn sort_with_options(&self, options: EditOptions) -> Result<FormatResult, FormatError> {
+    pub fn sort_with_options(&self, options: EditOptions) -> Result<FormatResult, EditError> {
         crate::edit::check_planned_output_limits(
             self.source(),
             &[],
             self.dialect().line_breaks,
             options,
-        )
-        .map_err(|error| match error {
-            EditError::Limit(limit) => FormatError::Limit(limit),
-            _ => FormatError::WouldChangeMeaning,
-        })?;
+        )?;
         let mut scanned_references = 0usize;
         let mut plans: Vec<Plan> = Vec::new();
         for (index, group) in self.groups().enumerate() {
@@ -180,7 +177,7 @@ impl Document<'_> {
                         self.dialect(),
                         options.parse_limits,
                     )
-                    .map_err(FormatError::Limit)?;
+                    .map_err(EditError::Limit)?;
                 }
                 return Ok(FormatResult::from_parts(
                     Vec::new(),
@@ -201,7 +198,7 @@ impl Document<'_> {
                 self.dialect(),
                 options.parse_limits,
             )
-            .map_err(FormatError::Limit)?;
+            .map_err(EditError::Limit)?;
             let checks = check_groups(self, &parsed, &plans);
             if checks.iter().all(|check| check.same) {
                 let edits = plans
@@ -219,7 +216,7 @@ impl Document<'_> {
             }
             plans.retain(|plan| !culprits.contains(&plan.index));
         }
-        Err(FormatError::WouldChangeMeaning)
+        Err(EditError::WouldChangeMeaning)
     }
 
     fn plan_group(
@@ -228,7 +225,7 @@ impl Document<'_> {
         group: crate::Group<'_>,
         max_references: Option<usize>,
         scanned_references: &mut usize,
-    ) -> Result<Option<Plan>, FormatError> {
+    ) -> Result<Option<Plan>, EditError> {
         let items: Vec<Item<'_>> = group.items().collect();
         let entries: Vec<Entry<'_>> = items.iter().filter_map(|item| item.entry()).collect();
         if entries.len() < 2
@@ -369,14 +366,14 @@ fn reference_order(
     source: &str,
     max_references: Option<usize>,
     scanned_references: &mut usize,
-) -> Result<Option<Vec<usize>>, FormatError> {
+) -> Result<Option<Vec<usize>>, EditError> {
     // (dependent, dependency) pairs between entries of this group, by
     // source ordinal. Every reference candidate counts, eligible or not,
     // so the order is safe under any reference rules.
     let mut references = BTreeSet::new();
     for (index, entry) in entries.iter().enumerate() {
         let found = crate::edit::scan_entry_references(*entry, max_references, scanned_references)
-            .map_err(FormatError::Limit)?;
+            .map_err(EditError::Limit)?;
         for reference in found {
             if reference.kind != ReferenceKind::Variable {
                 continue;

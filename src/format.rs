@@ -386,18 +386,18 @@ impl FormatResult {
     }
 }
 
-/// The reason [`Document::format`], [`Document::format_with_options`],
-/// [`Document::sort`] or [`Document::sort_with_options`] refused to return a
+/// The reason [`Document::format`] or [`Document::sort`] refused to return a
 /// result.
 ///
-/// Formatting and sorting refuse with [`FormatError::WouldChangeMeaning`]
-/// rather than return output that reads differently from the source. Before
-/// refusing, they leave out every change that does not verify and check the
-/// output again, a bounded number of times. No known input still fails after
-/// that, so that variant is a safeguard: handle it like any other failure, for
-/// example by keeping the file as it is. The `_with_options` variants also
-/// return [`FormatError::Limit`] when a configured [`EditOptions`] bound is
-/// exceeded.
+/// Both methods refuse rather than return output that reads differently from
+/// the source. Before they refuse, they leave out every change that does not
+/// verify and check the output again, a bounded number of times. No known
+/// input still fails after that, so this error is a safeguard: handle it like
+/// any other failure, for example by keeping the file as it is.
+///
+/// [`Document::format_with_options`] and [`Document::sort_with_options`]
+/// return [`EditError`] instead so configured [`EditOptions`] limits can report
+/// a structured [`LimitExceeded`] payload through [`EditError::Limit`].
 ///
 /// # Examples
 ///
@@ -425,9 +425,6 @@ pub enum FormatError {
     /// The output, parsed again, would change a declaration, a comment or the
     /// item structure.
     WouldChangeMeaning,
-    /// The planned output, reference scan, or verification parse exceeded a
-    /// configured [`EditOptions`] limit.
-    Limit(LimitExceeded),
 }
 
 impl fmt::Display for FormatError {
@@ -436,7 +433,6 @@ impl fmt::Display for FormatError {
             Self::WouldChangeMeaning => {
                 formatter.write_str("formatting would change document meaning")
             }
-            Self::Limit(limit) => write!(formatter, "formatting exceeded limit: {limit}"),
         }
     }
 }
@@ -510,6 +506,7 @@ impl Document<'_> {
     /// ```
     pub fn format(&self, options: &FormatOptions) -> Result<FormatResult, FormatError> {
         self.format_with_options(options, EditOptions::new())
+            .map_err(|_| FormatError::WouldChangeMeaning)
     }
 
     /// Formats the layout of this document as `options` select, enforcing
@@ -523,14 +520,14 @@ impl Document<'_> {
     ///
     /// # Errors
     ///
-    /// Returns [`FormatError::WouldChangeMeaning`] under the same rules as
-    /// [`Document::format`], and [`FormatError::Limit`] when a configured
-    /// [`EditOptions`] limit is exceeded.
+    /// Returns [`EditError::WouldChangeMeaning`] under the same verification
+    /// rules as [`Document::format`], and [`EditError::Limit`] when a
+    /// configured [`EditOptions`] limit is exceeded.
     ///
     /// # Examples
     ///
     /// ```
-    /// use adotenv::{EditOptions, FormatError, FormatOptions, LimitKind};
+    /// use adotenv::{EditError, EditOptions, FormatOptions, LimitKind};
     ///
     /// let doc = adotenv::parse_strict("PORT=8080\n")?;
     /// let err = doc
@@ -539,14 +536,14 @@ impl Document<'_> {
     ///         EditOptions::new().with_max_output_bytes(10),
     ///     )
     ///     .unwrap_err();
-    /// assert!(matches!(err, FormatError::Limit(limit) if limit.kind() == LimitKind::OutputBytes));
+    /// assert!(matches!(err, EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn format_with_options(
         &self,
         options: &FormatOptions,
         edit_options: EditOptions,
-    ) -> Result<FormatResult, FormatError> {
+    ) -> Result<FormatResult, EditError> {
         let mut edits = Vec::new();
         self.plan_quotes(
             *options,
@@ -571,7 +568,7 @@ impl Document<'_> {
             .windows(2)
             .any(|pair| pair[1].range.start < pair[0].range.end)
         {
-            return Err(FormatError::WouldChangeMeaning);
+            return Err(EditError::WouldChangeMeaning);
         }
         let mut removed: Vec<bool> = (0..self.items().len())
             .map(|id| removed.get(id).copied().unwrap_or(false))
@@ -587,18 +584,14 @@ impl Document<'_> {
                 &edits,
                 self.dialect().line_breaks,
                 edit_options,
-            )
-            .map_err(|error| match error {
-                EditError::Limit(limit) => FormatError::Limit(limit),
-                _ => FormatError::WouldChangeMeaning,
-            })?;
+            )?;
             let output = apply(self.source(), &edits);
             let formatted = crate::parser::parse_document_with_options(
                 &output,
                 self.dialect(),
                 edit_options.parse_limits,
             )
-            .map_err(FormatError::Limit)?;
+            .map_err(EditError::Limit)?;
             let checks = check_items(
                 self,
                 &formatted,
@@ -621,7 +614,7 @@ impl Document<'_> {
             edits.retain(|_| kept.next().unwrap_or(true));
             owners.retain(|owner| !culprits.contains(owner));
         }
-        Err(FormatError::WouldChangeMeaning)
+        Err(EditError::WouldChangeMeaning)
     }
 
     fn plan_equals_spacing(
@@ -705,7 +698,7 @@ impl Document<'_> {
         options: FormatOptions,
         edits: &mut Vec<TextEdit>,
         byte_cap: Option<(LimitKind, usize)>,
-    ) -> Result<(), FormatError> {
+    ) -> Result<(), EditError> {
         let preferred = match options.quote_style {
             QuoteStyle::Preserve => return Ok(()),
             QuoteStyle::Double => Quote::Double,
@@ -759,7 +752,7 @@ impl Document<'_> {
             if let Some((kind, limit)) = byte_cap {
                 min_required = min_required.saturating_add(decoded.len());
                 if min_required > limit {
-                    return Err(FormatError::Limit(LimitExceeded::new(
+                    return Err(EditError::Limit(LimitExceeded::new(
                         kind,
                         limit,
                         min_required,

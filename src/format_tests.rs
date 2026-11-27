@@ -723,7 +723,7 @@ fn quote_planning_is_idempotent_after_trailing_whitespace_trimming() {
 
 #[test]
 fn format_with_options_enforces_output_parse_and_pre_encode_limits() {
-    use crate::{EditOptions, LimitKind};
+    use crate::{EditError, EditOptions, LimitKind};
 
     // Expanding format: exact byte cap passes, 1 byte tighter fails.
     let doc = parse_strict("A=1\n").unwrap();
@@ -743,7 +743,7 @@ fn format_with_options_enforces_output_parse_and_pre_encode_limits() {
     assert!(
         matches!(
             err,
-            FormatError::Limit(limit)
+            EditError::Limit(limit)
                 if limit.kind() == LimitKind::OutputBytes
                     && limit.limit() == 5
                     && limit.observed() == 6
@@ -752,7 +752,7 @@ fn format_with_options_enforces_output_parse_and_pre_encode_limits() {
     );
     assert_eq!(
         err.to_string(),
-        "formatting exceeded limit: output-bytes limit 5 exceeded with observed 6"
+        "edit exceeded limit: output-bytes limit 5 exceeded with observed 6"
     );
 
     // Shrinking format fits tighter output cap even though original source is larger.
@@ -770,7 +770,7 @@ fn format_with_options_enforces_output_parse_and_pre_encode_limits() {
             &FormatOptions::normalize_groups(),
             EditOptions::new().with_max_output_bytes(6),
         ),
-        Err(FormatError::Limit(limit)) if limit.kind() == LimitKind::OutputBytes
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::OutputBytes
     ));
 
     // Pre-encode byte cap in plan_quotes rejects oversized decoded value before re-encoding.
@@ -785,7 +785,7 @@ fn format_with_options_enforces_output_parse_and_pre_encode_limits() {
         .unwrap_err();
     assert!(matches!(
         pre_encode,
-        FormatError::Limit(limit)
+        EditError::Limit(limit)
             if limit.kind() == LimitKind::OutputBytes
                 && limit.limit() == 32
                 && limit.observed() == 64
@@ -801,7 +801,7 @@ fn format_with_options_enforces_output_parse_and_pre_encode_limits() {
         .unwrap_err();
     assert!(matches!(
         cumulative,
-        FormatError::Limit(limit)
+        EditError::Limit(limit)
             if limit.kind() == LimitKind::OutputBytes
                 && limit.limit() == 15
                 && limit.observed() == 18
@@ -810,7 +810,7 @@ fn format_with_options_enforces_output_parse_and_pre_encode_limits() {
 
 #[test]
 fn format_with_options_enforces_line_and_parse_limits() {
-    use crate::{EditOptions, LimitKind, ParseOptions};
+    use crate::{EditError, EditOptions, LimitKind, ParseOptions};
 
     let doc = parse_strict("A=1\n").unwrap();
 
@@ -821,7 +821,7 @@ fn format_with_options_enforces_line_and_parse_limits() {
             &FormatOptions::default().with_quote_style(QuoteStyle::Single),
             EditOptions::new().with_max_output_lines(1),
         ),
-        Err(FormatError::Limit(limit))
+        Err(EditError::Limit(limit))
             if limit.kind() == LimitKind::Lines && limit.limit() == 1 && limit.observed() == 2
     ));
     let expanded = escaped
@@ -848,14 +848,14 @@ fn format_with_options_enforces_line_and_parse_limits() {
                 .with_max_output_bytes(20)
                 .with_parse_limits(ParseOptions::new().with_max_input_bytes(5)),
         ),
-        Err(FormatError::Limit(limit)) if limit.kind() == LimitKind::InputBytes
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::InputBytes
     ));
     assert!(matches!(
         doc.format_with_options(
             &FormatOptions::default(),
             EditOptions::new().with_parse_limits(ParseOptions::new().with_max_items(0)),
         ),
-        Err(FormatError::Limit(limit)) if limit.kind() == LimitKind::Items
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::Items
     ));
     let dup = parse("A=1\nA=2\n").0;
     assert!(matches!(
@@ -863,6 +863,6 @@ fn format_with_options_enforces_line_and_parse_limits() {
             &FormatOptions::default(),
             EditOptions::new().with_parse_limits(ParseOptions::new().with_max_diagnostics(0)),
         ),
-        Err(FormatError::Limit(limit)) if limit.kind() == LimitKind::Diagnostics
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::Diagnostics
     ));
 }

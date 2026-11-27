@@ -410,7 +410,7 @@ fn sort_handles_lf_only_trailing_cr_in_crlf_and_lf_files() {
 
 #[test]
 fn sort_with_options_enforces_output_reference_and_parse_limits() {
-    use crate::{EditOptions, FormatError, LimitKind, ParseOptions};
+    use crate::{EditError, EditOptions, LimitKind, ParseOptions};
 
     let doc = parse_strict("B=2\nA=1\n").unwrap();
     // Exact byte and line bounds succeed; 1 tighter fails.
@@ -426,17 +426,17 @@ fn sort_with_options_enforces_output_reference_and_parse_limits() {
     assert_eq!(sorted.as_str(), "A=1\nB=2\n");
     assert!(matches!(
         doc.sort_with_options(EditOptions::new().with_max_output_bytes(doc.source().len() - 1)),
-        Err(FormatError::Limit(limit)) if limit.kind() == LimitKind::OutputBytes
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::OutputBytes
     ));
     assert!(matches!(
         doc.sort_with_options(EditOptions::new().with_max_output_lines(1)),
-        Err(FormatError::Limit(limit)) if limit.kind() == LimitKind::Lines
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::Lines
     ));
     assert!(matches!(
         doc.sort_with_options(
             EditOptions::new().with_parse_limits(ParseOptions::new().with_max_items(1))
         ),
-        Err(FormatError::Limit(limit)) if limit.kind() == LimitKind::Items
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::Items
     ));
 
     // Already-sorted document still enforces parse_limits (Items / Diagnostics).
@@ -445,13 +445,13 @@ fn sort_with_options_enforces_output_reference_and_parse_limits() {
         already.sort_with_options(
             EditOptions::new().with_parse_limits(ParseOptions::new().with_max_diagnostics(0))
         ),
-        Err(FormatError::Limit(limit)) if limit.kind() == LimitKind::Diagnostics
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::Diagnostics
     ));
     assert!(matches!(
         already.sort_with_options(
             EditOptions::new().with_parse_limits(ParseOptions::new().with_max_items(1))
         ),
-        Err(FormatError::Limit(limit)) if limit.kind() == LimitKind::Items
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::Items
     ));
 
     // Exact max_references boundary within a group and cumulatively across groups.
@@ -466,7 +466,7 @@ fn sort_with_options_enforces_output_reference_and_parse_limits() {
     assert!(
         matches!(
             err,
-            FormatError::Limit(limit)
+            EditError::Limit(limit)
                 if limit.kind() == LimitKind::References
                     && limit.limit() == 1
                     && limit.observed() == 2
@@ -475,7 +475,7 @@ fn sort_with_options_enforces_output_reference_and_parse_limits() {
     );
     assert_eq!(
         err.to_string(),
-        "formatting exceeded limit: references limit 1 exceeded with observed 2"
+        "edit exceeded limit: references limit 1 exceeded with observed 2"
     );
 
     // Dense repeated references deduplicate edges and stop at max_references without full scan.
@@ -483,7 +483,7 @@ fn sort_with_options_enforces_output_reference_and_parse_limits() {
     let dense = parse_strict(&dense_source).unwrap();
     assert!(matches!(
         dense.sort_with_options(EditOptions::new().with_max_references(10)),
-        Err(FormatError::Limit(limit))
+        Err(EditError::Limit(limit))
             if limit.kind() == LimitKind::References
                 && limit.limit() == 10
                 && limit.observed() == 11
@@ -506,7 +506,7 @@ fn sort_with_options_enforces_output_reference_and_parse_limits() {
 
 #[test]
 fn sort_with_options_bounds_nested_and_wide_delimiters() {
-    use crate::{EditOptions, FormatError, LimitKind};
+    use crate::{EditError, EditOptions, LimitKind};
 
     for value in [
         "$(".repeat(2_000),
@@ -523,7 +523,7 @@ fn sort_with_options_bounds_nested_and_wide_delimiters() {
             assert!(
                 matches!(
                     err,
-                    FormatError::Limit(limit)
+                    EditError::Limit(limit)
                         if limit.kind() == LimitKind::References
                             && limit.limit() == cap
                             && limit.observed() == cap + 1

@@ -525,10 +525,11 @@ pub enum EditError {
     /// configured limit.
     ///
     /// Returned by [`Document::edit_with_options`], its single-operation
-    /// helpers, and [`Document::rename_with_references_with_options`] when
-    /// [`EditOptions::max_output_bytes`], [`EditOptions::max_output_lines`],
-    /// [`EditOptions::max_references`] or [`EditOptions::parse_limits`] is
-    /// exceeded.
+    /// helpers, [`Document::rename_with_references_with_options`],
+    /// [`Document::format_with_options`], and [`Document::sort_with_options`]
+    /// when [`EditOptions::max_output_bytes`],
+    /// [`EditOptions::max_output_lines`], [`EditOptions::max_references`] or
+    /// [`EditOptions::parse_limits`] is exceeded.
     Limit(LimitExceeded),
 }
 impl fmt::Display for EditError {

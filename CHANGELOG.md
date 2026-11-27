@@ -15,7 +15,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `adotenv`: added bounded edit/format/sort helpers
   (`Document::comment_with_options`, `Document::uncomment_with_options`,
   `Document::set_export_with_options`, `Document::format_with_options`, and
-  `Document::sort_with_options`), `FormatError::Limit(LimitExceeded)`,
+  `Document::sort_with_options`, all returning `EditError`),
   `LimitKind::References`, and `EditOptions::max_references` /
   `EditOptions::with_max_references` (closing the `AUD-9` unbounded reference
   scan in `sort` and bounding reference scans in

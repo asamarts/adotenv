@@ -157,18 +157,18 @@ To bound untrusted formatting or sorting work, pass `EditOptions` to
 line caps apply to each verification round's planned edits (including edits that
 verification would otherwise drop). `sort_with_options` also enforces
 `EditOptions::max_references`, capping total reference candidates scanned across
-all groups so dense repeated `$VAR` patterns cannot amplify memory. Limit
-failures return `FormatError::Limit(LimitExceeded)` (with `LimitKind::References`
-when the reference scan budget is exceeded).
+all groups so dense repeated `$VAR` patterns cannot amplify memory. Both return
+`EditError` (`EditError::WouldChangeMeaning` or `EditError::Limit(LimitExceeded)`,
+with `LimitKind::References` when the reference scan budget is exceeded).
 
 ```rust
-use adotenv::{parse_strict, EditOptions, FormatError, FormatOptions, LimitKind};
+use adotenv::{parse_strict, EditError, EditOptions, FormatOptions, LimitKind};
 
 let doc = parse_strict("B=$A$A\nA=1\n").unwrap();
 let err = doc
     .sort_with_options(EditOptions::new().with_max_references(1))
     .unwrap_err();
-assert!(matches!(err, FormatError::Limit(limit) if limit.kind() == LimitKind::References));
+assert!(matches!(err, EditError::Limit(limit) if limit.kind() == LimitKind::References));
 
 let formatted = doc
     .format_with_options(
