@@ -407,3 +407,129 @@ fn sort_handles_lf_only_trailing_cr_in_crlf_and_lf_files() {
         }
     }
 }
+
+#[test]
+fn sort_with_options_enforces_output_reference_and_parse_limits() {
+    use crate::{EditOptions, FormatError, LimitKind, ParseOptions};
+
+    let doc = parse_strict("B=2\nA=1\n").unwrap();
+    // Exact byte and line bounds succeed; 1 tighter fails.
+    let sorted = doc
+        .sort_with_options(
+            EditOptions::new()
+                .with_max_output_bytes(doc.source().len())
+                .with_max_output_lines(2)
+                .with_max_references(0)
+                .with_parse_limits(ParseOptions::new().with_max_items(2)),
+        )
+        .unwrap();
+    assert_eq!(sorted.as_str(), "A=1\nB=2\n");
+    assert!(matches!(
+        doc.sort_with_options(EditOptions::new().with_max_output_bytes(doc.source().len() - 1)),
+        Err(FormatError::Limit(limit)) if limit.kind() == LimitKind::OutputBytes
+    ));
+    assert!(matches!(
+        doc.sort_with_options(EditOptions::new().with_max_output_lines(1)),
+        Err(FormatError::Limit(limit)) if limit.kind() == LimitKind::Lines
+    ));
+    assert!(matches!(
+        doc.sort_with_options(
+            EditOptions::new().with_parse_limits(ParseOptions::new().with_max_items(1))
+        ),
+        Err(FormatError::Limit(limit)) if limit.kind() == LimitKind::Items
+    ));
+
+    // Already-sorted document still enforces parse_limits (Items / Diagnostics).
+    let already = parse("A=1\nA=2\n").0;
+    assert!(matches!(
+        already.sort_with_options(
+            EditOptions::new().with_parse_limits(ParseOptions::new().with_max_diagnostics(0))
+        ),
+        Err(FormatError::Limit(limit)) if limit.kind() == LimitKind::Diagnostics
+    ));
+    assert!(matches!(
+        already.sort_with_options(
+            EditOptions::new().with_parse_limits(ParseOptions::new().with_max_items(1))
+        ),
+        Err(FormatError::Limit(limit)) if limit.kind() == LimitKind::Items
+    ));
+
+    // Exact max_references boundary within a group and cumulatively across groups.
+    let multi = parse_strict("B=$A\nA=1\n\nD=$C\nC=1\n").unwrap();
+    let ok = multi
+        .sort_with_options(EditOptions::new().with_max_references(2))
+        .unwrap();
+    assert_eq!(ok.as_str(), multi.source());
+    let err = multi
+        .sort_with_options(EditOptions::new().with_max_references(1))
+        .unwrap_err();
+    assert!(
+        matches!(
+            err,
+            FormatError::Limit(limit)
+                if limit.kind() == LimitKind::References
+                    && limit.limit() == 1
+                    && limit.observed() == 2
+        ),
+        "{err:?}"
+    );
+    assert_eq!(
+        err.to_string(),
+        "formatting exceeded limit: references limit 1 exceeded with observed 2"
+    );
+
+    // Dense repeated references deduplicate edges and stop at max_references without full scan.
+    let dense_source = format!("C=3\nB={}\nA=1\n", "$A".repeat(500));
+    let dense = parse_strict(&dense_source).unwrap();
+    assert!(matches!(
+        dense.sort_with_options(EditOptions::new().with_max_references(10)),
+        Err(FormatError::Limit(limit))
+            if limit.kind() == LimitKind::References
+                && limit.limit() == 10
+                && limit.observed() == 11
+    ));
+    let dense_sorted = dense
+        .sort_with_options(EditOptions::new().with_max_references(500))
+        .unwrap();
+    assert_eq!(
+        dense_sorted.as_str(),
+        format!("B={}\nA=1\nC=3\n", "$A".repeat(500))
+    );
+
+    // Unsortable single-entry group does not consume reference budget.
+    let single_group = parse_strict("ONLY=$REF\n\nZ=2\nA=1\n").unwrap();
+    let single_ok = single_group
+        .sort_with_options(EditOptions::new().with_max_references(0))
+        .unwrap();
+    assert_eq!(single_ok.as_str(), "ONLY=$REF\n\nA=1\nZ=2\n");
+}
+
+#[test]
+fn sort_with_options_bounds_nested_and_wide_delimiters() {
+    use crate::{EditOptions, FormatError, LimitKind};
+
+    for value in [
+        "$(".repeat(2_000),
+        "${".repeat(2_000),
+        format!("${{{}", "$(".repeat(2_000)),
+        format!("$({})", "${A}".repeat(2_000)),
+    ] {
+        let source = format!("B={value}\nA=1\n");
+        let doc = parse_strict(&source).unwrap();
+        for cap in [0, 4] {
+            let err = doc
+                .sort_with_options(EditOptions::new().with_max_references(cap))
+                .unwrap_err();
+            assert!(
+                matches!(
+                    err,
+                    FormatError::Limit(limit)
+                        if limit.kind() == LimitKind::References
+                            && limit.limit() == cap
+                            && limit.observed() == cap + 1
+                ),
+                "cap={cap}, err={err:?}"
+            );
+        }
+    }
+}

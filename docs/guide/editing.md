@@ -176,13 +176,17 @@ them.
 | `Unencodable` | The dialect cannot spell the value in this position. |
 | `ConflictingEdits` | Operations in one batch overlap or change the same property twice. |
 | `WouldChangeMeaning` | The output would change unrelated source or miss the requested change. |
-| `Limit(limit)` | The planned output or verification parse exceeded an `EditOptions` limit. |
+| `Limit(limit)` | The planned output, reference scan or verification parse exceeded an `EditOptions` limit. |
 
-To bound output size, output line count or verification parsing for untrusted
-edits, pass `EditOptions` to `Document::edit_with_options`, `set_with_options`,
-`remove_with_options`, `insert_with_options`, `rename_with_options` or
-`rename_with_references_with_options`. Byte and line budgets are checked from
-the planned `TextEdit`s before allocating the output string.
+To bound output size, output line count, reference scanning or verification
+parsing for untrusted edits, pass `EditOptions` to `Document::edit_with_options`,
+`set_with_options`, `remove_with_options`, `insert_with_options`,
+`rename_with_options`, `rename_with_references_with_options`,
+`comment_with_options`, `uncomment_with_options` or `set_export_with_options`.
+Byte and line budgets are checked from the planned `TextEdit`s before allocating
+the output string, and `EditOptions::max_references` caps total reference
+candidates scanned by `rename_with_references_with_options` (returning
+`EditError::Limit` with `LimitKind::References`).
 
 ## Applying text edits
 

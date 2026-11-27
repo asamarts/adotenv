@@ -2600,3 +2600,229 @@ fn rename_with_references_with_options_covers_diagnostics_ties_and_rich_forms() 
     );
     replay(rich, &rich_ok);
 }
+
+#[test]
+fn comment_uncomment_set_export_with_options_enforce_limits_and_precedence() {
+    use crate::{EditOptions, LimitKind, ParseOptions};
+
+    let doc = crate::parse_strict("A=1\n# B=2\nexport C=3\n").unwrap();
+
+    // comment_with_options: exact byte cap passes, 1 byte tighter fails.
+    let expected_comment = "# A=1\n# B=2\nexport C=3\n";
+    let commented = doc
+        .comment_with_options(
+            "A",
+            EditOptions::new().with_max_output_bytes(expected_comment.len()),
+        )
+        .unwrap();
+    assert_eq!(commented.as_str(), expected_comment);
+    replay(doc.source(), &commented);
+    assert!(matches!(
+        doc.comment_with_options(
+            "A",
+            EditOptions::new().with_max_output_bytes(expected_comment.len() - 1),
+        ),
+        Err(EditError::Limit(limit))
+            if limit.kind() == LimitKind::OutputBytes
+                && limit.limit() == expected_comment.len() - 1
+                && limit.observed() == expected_comment.len()
+    ));
+
+    // Multiline entry comment expands every line by "# " and respects line/item parse limits.
+    let multi = crate::parse_strict("M='l1\nl2'\n").unwrap();
+    let multi_commented = multi
+        .comment_with_options(
+            "M",
+            EditOptions::new()
+                .with_max_output_bytes("# M='l1\n# l2'\n".len())
+                .with_max_output_lines(2)
+                .with_parse_limits(ParseOptions::new().with_max_items(2)),
+        )
+        .unwrap();
+    assert_eq!(multi_commented.as_str(), "# M='l1\n# l2'\n");
+    assert!(matches!(
+        multi.comment_with_options(
+            "M",
+            EditOptions::new().with_parse_limits(ParseOptions::new().with_max_items(1)),
+        ),
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::Items
+    ));
+
+    // InvalidTarget still precedes Limit when a batch contains Edit::Comment.
+    assert_eq!(
+        doc.edit_with_options(
+            &[
+                Edit::Comment { item: 0 },
+                Edit::Set {
+                    entry: 99,
+                    value: "x",
+                },
+            ],
+            EditOptions::new().with_max_output_bytes(1),
+        ),
+        Err(EditError::InvalidTarget)
+    );
+    assert_eq!(
+        doc.comment_with_options("MISSING", EditOptions::new().with_max_output_bytes(1)),
+        Err(EditError::Missing)
+    );
+}
+
+#[test]
+fn uncomment_and_set_export_with_options_enforce_limits() {
+    use crate::{EditOptions, LimitKind};
+
+    let doc = crate::parse_strict("A=1\n# B=2\nexport C=3\n").unwrap();
+
+    // uncomment_with_options: shrinking output fits tighter byte cap; too tight fails.
+    let expected_uncomment = "A=1\nB=2\nexport C=3\n";
+    let uncommented = doc
+        .uncomment_with_options(
+            1,
+            EditOptions::new().with_max_output_bytes(expected_uncomment.len()),
+        )
+        .unwrap();
+    assert_eq!(uncommented.as_str(), expected_uncomment);
+    replay(doc.source(), &uncommented);
+    assert!(matches!(
+        doc.uncomment_with_options(
+            1,
+            EditOptions::new().with_max_output_bytes(expected_uncomment.len() - 1),
+        ),
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::OutputBytes
+    ));
+    assert_eq!(
+        doc.uncomment_with_options(0, EditOptions::new().with_max_output_bytes(1)),
+        Err(EditError::InvalidTarget)
+    );
+
+    // set_export_with_options: adding (+7 bytes), removing (-7 bytes), and no-op.
+    let expected_export = "export A=1\n# B=2\nexport C=3\n";
+    let exported = doc
+        .set_export_with_options(
+            "A",
+            true,
+            EditOptions::new().with_max_output_bytes(expected_export.len()),
+        )
+        .unwrap();
+    assert_eq!(exported.as_str(), expected_export);
+    replay(doc.source(), &exported);
+    assert!(matches!(
+        doc.set_export_with_options(
+            "A",
+            true,
+            EditOptions::new().with_max_output_bytes(expected_export.len() - 1),
+        ),
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::OutputBytes
+    ));
+
+    let expected_unexport = "A=1\n# B=2\nC=3\n";
+    let unexported = doc
+        .set_export_with_options(
+            "C",
+            false,
+            EditOptions::new().with_max_output_bytes(expected_unexport.len()),
+        )
+        .unwrap();
+    assert_eq!(unexported.as_str(), expected_unexport);
+    assert!(matches!(
+        doc.set_export_with_options(
+            "C",
+            true,
+            EditOptions::new().with_max_output_bytes(doc.source().len() - 1),
+        ),
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::OutputBytes
+    ));
+}
+
+#[test]
+fn rename_with_references_with_options_enforces_max_references() {
+    use crate::{EditOptions, LimitKind};
+
+    let doc = crate::parse_strict("A=1\nX=$A\nY=${A:-$OTHER}\n").unwrap();
+    // Total reference candidates across all entries: $A (in X), ${A:-$OTHER} (in Y), $OTHER (nested in Y) = 3.
+    let ok = doc
+        .rename_with_references_with_options("A", "B", EditOptions::new().with_max_references(3))
+        .unwrap();
+    assert_eq!(ok.as_str(), "B=1\nX=$B\nY=${B:-$OTHER}\n");
+    replay(doc.source(), &ok);
+
+    let err = doc
+        .rename_with_references_with_options("A", "B", EditOptions::new().with_max_references(2))
+        .unwrap_err();
+    assert!(
+        matches!(
+            err,
+            EditError::Limit(limit)
+                if limit.kind() == LimitKind::References
+                    && limit.limit() == 2
+                    && limit.observed() == 3
+        ),
+        "{err:?}"
+    );
+    assert_eq!(
+        err.to_string(),
+        "edit exceeded limit: references limit 2 exceeded with observed 3"
+    );
+
+    // Zero reference budget succeeds when there are no references, fails on even unrelated references.
+    let no_refs = crate::parse_strict("A=1\nB=2\n").unwrap();
+    assert_eq!(
+        no_refs
+            .rename_with_references_with_options(
+                "A",
+                "Z",
+                EditOptions::new().with_max_references(0),
+            )
+            .unwrap()
+            .as_str(),
+        "Z=1\nB=2\n"
+    );
+    let unrelated = crate::parse_strict("A=1\nX=$OTHER\n").unwrap();
+    assert!(matches!(
+        unrelated.rename_with_references_with_options(
+            "A",
+            "Z",
+            EditOptions::new().with_max_references(0),
+        ),
+        Err(EditError::Limit(limit))
+            if limit.kind() == LimitKind::References
+                && limit.limit() == 0
+                && limit.observed() == 1
+    ));
+
+    // Self-rename (key == new_key) does not scan references.
+    let same = doc
+        .rename_with_references_with_options("A", "A", EditOptions::new().with_max_references(0))
+        .unwrap();
+    assert_eq!(same.as_str(), doc.source());
+
+    // Deeply nested or wide delimiter forms are bounded by max_references too.
+    for value in [
+        "$(".repeat(2_000),
+        "${".repeat(2_000),
+        format!("$({})", "${A}".repeat(2_000)),
+    ] {
+        let source = format!("A=1\nX={value}\n");
+        let bomb = crate::parse_strict(&source).unwrap();
+        for cap in [0, 4] {
+            let err = bomb
+                .rename_with_references_with_options(
+                    "A",
+                    "B",
+                    EditOptions::new().with_max_references(cap),
+                )
+                .unwrap_err();
+            assert!(
+                matches!(
+                    err,
+                    EditError::Limit(limit)
+                        if limit.kind() == LimitKind::References
+                            && limit.limit() == cap
+                            && limit.observed() == cap + 1
+                ),
+                "cap={cap}, err={err:?}"
+            );
+        }
+    }
+}

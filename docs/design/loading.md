@@ -50,6 +50,11 @@ the dialect, the retained data or an explicit file list:
 | `load_cascade_values_compact_with_options(directory, mode, options)` | Cascade | `CompactValues` |
 | `load_values_compact(paths, dialect)` | Ordered file list | `CompactValues` |
 | `load_values_compact_with_options(paths, options)` | Ordered file list | `CompactValues` |
+| `load_cascade_entries_compact(directory, mode)` | Cascade, Portable | `CompactEntries` |
+| `load_cascade_entries_compact_with(directory, mode, dialect)` | Cascade | `CompactEntries` |
+| `load_cascade_entries_compact_with_options(directory, mode, options)` | Cascade | `CompactEntries` |
+| `load_entries_compact(paths, dialect)` | Ordered file list | `CompactEntries` |
+| `load_entries_compact_with_options(paths, options)` | Ordered file list | `CompactEntries` |
 
 The functions that take a file list read the files in the order given, and
 later files override earlier ones as in a cascade. Every listed file must
@@ -209,15 +214,25 @@ yourself and call `Document::resolve_with_commands`, for example with
 `exec::Shell` from the `exec` feature. See
 [References and resolution](expansion.md#commands).
 
-## Values only
+## Values only and compact entries
 
 `load_cascade_values`, `load_cascade_values_with` and `load_values` read the
 same files with the same rules and errors, but keep only the final strings.
 They parse each file like `parse_values_with`, without building a `Document`,
 and keep no origins, raw source text or reports. `LoadedValues` has
 `get(key)`, `values()` (a `BTreeMap`), `len()`, `is_empty()` and
-`into_values()`. The `*_compact` variants return `CompactValues` instead,
-using a single value buffer and one fixed-size entry per key.
+`into_values()`. The `*_values_compact*` variants return `CompactValues`
+instead, using a single value buffer and one fixed-size entry per key.
+
+The `*_entries_compact*` variants (`load_cascade_entries_compact`,
+`load_cascade_entries_compact_with`, `load_cascade_entries_compact_with_options`,
+`load_entries_compact` and `load_entries_compact_with_options`) return
+`CompactEntries`, keeping winning bare declarations as `None` under
+`BareKeys::Preserve`. Across files, cascade merge is value-preserving: a later
+file's assigned value replaces an earlier entry, while a later winning bare
+declaration preserves any earlier assigned value (or records the bare key when
+absent from earlier files). Filtering the result to assigned values matches
+`load_cascade_values_compact` and `load_cascade`.
 
 ```rust,no_run
 use adotenv::load::load_cascade_values;

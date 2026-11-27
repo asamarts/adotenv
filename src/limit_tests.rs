@@ -274,11 +274,17 @@ fn limit_kind_and_exceeded_format_clearly() {
     assert_eq!(LimitKind::Lines.as_str(), "lines");
     assert_eq!(LimitKind::Items.as_str(), "items");
     assert_eq!(LimitKind::Diagnostics.as_str(), "diagnostics");
+    assert_eq!(LimitKind::References.as_str(), "references");
     assert_eq!(LimitKind::InputBytes.to_string(), "input-bytes");
     assert_eq!(LimitKind::OutputBytes.to_string(), "output-bytes");
     assert_eq!(LimitKind::Lines.to_string(), "lines");
     assert_eq!(LimitKind::Items.to_string(), "items");
     assert_eq!(LimitKind::Diagnostics.to_string(), "diagnostics");
+    assert_eq!(LimitKind::References.to_string(), "references");
+    assert_eq!(
+        crate::LimitExceeded::new(LimitKind::References, 2, 3).to_string(),
+        "references limit 2 exceeded with observed 3"
+    );
 
     let error = parse_strict_with_options(
         "A=1\n",
@@ -343,8 +349,9 @@ fn limits_are_a_no_op_when_not_configured() {
 #[test]
 fn load_read_and_parse_limits_are_structured() {
     use crate::load::{
-        load_cascade_values_compact_with_options, load_cascade_values_with_options,
-        load_cascade_with_options, LoadError, LoadOptions,
+        load_cascade_entries_compact_with_options, load_cascade_values_compact_with_options,
+        load_cascade_values_with_options, load_cascade_with_options,
+        load_entries_compact_with_options, LoadError, LoadOptions,
     };
     use std::{
         fs,
@@ -405,6 +412,34 @@ fn load_read_and_parse_limits_are_structured() {
         load_cascade_values_compact_with_options(&directory, "", line_limits),
         Err(LoadError::Limit { limit, .. }) if limit.kind() == LimitKind::Lines && limit.observed() == 2
     ));
+    assert!(matches!(
+        load_cascade_entries_compact_with_options(&directory, "", read),
+        Err(LoadError::Limit { limit, .. }) if limit.kind() == LimitKind::InputBytes && limit.limit() == 3
+    ));
+    assert!(matches!(
+        load_cascade_entries_compact_with_options(&directory, "", items),
+        Err(LoadError::Limit { limit, .. }) if limit.kind() == LimitKind::Items
+    ));
+    assert!(matches!(
+        load_cascade_entries_compact_with_options(&directory, "", line_limits),
+        Err(LoadError::Limit { limit, .. }) if limit.kind() == LimitKind::Lines && limit.observed() == 2
+    ));
+    assert!(matches!(
+        load_entries_compact_with_options([directory.join(".env")], line_limits),
+        Err(LoadError::Limit { limit, .. }) if limit.kind() == LimitKind::Lines && limit.observed() == 2
+    ));
+    fs::write(directory.join(".env"), "A=1\nA=2\n").unwrap();
+    let diag_limits = LoadOptions::new(Dialect::PORTABLE)
+        .with_limits(ParseOptions::default().with_max_diagnostics(0));
+    // max_diagnostics applies to the recovering parser (load_cascade_with_options),
+    // not strict/compact entry loading.
+    assert!(matches!(
+        load_cascade_with_options(&directory, "", diag_limits),
+        Err(LoadError::Limit { limit, .. }) if limit.kind() == LimitKind::Diagnostics
+    ));
+    let compact_dup =
+        load_cascade_entries_compact_with_options(&directory, "", diag_limits).unwrap();
+    assert_eq!(compact_dup.get("A"), Some(Some("2")));
 
     fs::remove_dir_all(&directory).unwrap();
 }

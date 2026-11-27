@@ -66,14 +66,16 @@
 //! to call from any thread. Both return an [`ApplyError`] for the first key or
 //! value that the process environment cannot hold.
 //!
-//! `apply` takes a [`LoadedEnvironment`], and [`apply_compact`] /
+//! `apply` takes a [`LoadedEnvironment`], [`apply_compact`] /
 //! [`validate_compact`] provide the same checks and mutation for
-//! [`CompactValues`]. To set resolved values, resolve them with
-//! [`LoadedEnvironment::resolve_contextual`] and set them yourself.
+//! [`CompactValues`], and [`apply_compact_entries`] /
+//! [`validate_compact_entries`] do the same for [`CompactEntries`] (skipping
+//! bare declarations that have no value). To set resolved values, resolve them
+//! with [`LoadedEnvironment::resolve_contextual`] and set them yourself.
 
 use std::{env, fmt};
 
-use adotenv::{load::LoadedEnvironment, CompactValues};
+use adotenv::{load::LoadedEnvironment, CompactEntries, CompactValues};
 
 #[cfg(windows)]
 const WINDOWS_VALUE_LIMIT: usize = 32_767;
@@ -111,9 +113,9 @@ const WINDOWS_VALUE_LIMIT: usize = 32_767;
 pub enum ApplyError {
     /// A key is empty.
     ///
-    /// The `adotenv` loaders and [`CompactValues`] skip empty keys, so a
-    /// loaded environment or compact map does not produce this error; the
-    /// check is a safeguard.
+    /// The `adotenv` loaders, [`CompactValues`] and [`CompactEntries`] skip
+    /// empty keys, so a loaded environment or compact map does not produce this
+    /// error; the check is a safeguard.
     EmptyKey,
     /// A key contains NUL or `=`.
     InvalidKey {
@@ -275,6 +277,39 @@ pub fn validate_compact(values: &CompactValues) -> Result<(), ApplyError> {
     validate_pairs(values.iter())
 }
 
+/// Checks that the process environment can hold every assigned key and value
+/// in a [`CompactEntries`] map.
+///
+/// Bare declarations (`None` values retained under `BareKeys::Preserve`) are
+/// skipped, matching [`validate`] and [`apply`]. Bare declarations converted to
+/// empty values under `BareKeys::Empty` carry `Some("")` and are validated.
+///
+/// # Errors
+///
+/// Returns the first [`ApplyError`] found among assigned entries, in sorted key
+/// order.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::parse_entries_compact;
+/// use adotenv_process::{validate_compact_entries, ApplyError};
+///
+/// let entries = parse_entries_compact("DEBUG\nPORT=8080\nTOKEN=abc\0def\n")?;
+/// assert_eq!(
+///     validate_compact_entries(&entries),
+///     Err(ApplyError::InvalidValue { key: "TOKEN".to_string() })
+/// );
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn validate_compact_entries(entries: &CompactEntries) -> Result<(), ApplyError> {
+    validate_pairs(
+        entries
+            .iter()
+            .filter_map(|(key, value)| value.map(|value| (key, value))),
+    )
+}
+
 /// Sets every loaded key to its loaded value in the current process
 /// environment.
 ///
@@ -359,6 +394,49 @@ pub unsafe fn apply(environment: &LoadedEnvironment) -> Result<(), ApplyError> {
 pub unsafe fn apply_compact(values: &CompactValues) -> Result<(), ApplyError> {
     validate_compact(values)?;
     for (key, value) in values.iter() {
+        unsafe { env::set_var(key, value) };
+    }
+    Ok(())
+}
+
+/// Sets every assigned key and value from a [`CompactEntries`] map in the
+/// current process environment.
+///
+/// First runs [`validate_compact_entries`], so a map it rejects changes
+/// nothing. Bare declarations (`None` values) are skipped without setting or
+/// removing any process variable, matching [`apply`]. Assigned keys (including
+/// empty values such as `KEY=` or bare keys under `BareKeys::Empty`) are set
+/// with [`std::env::set_var`] in sorted order.
+///
+/// # Errors
+///
+/// Returns the [`ApplyError`] from [`validate_compact_entries`], before
+/// changing anything.
+///
+/// # Safety
+///
+/// No other thread may read or write the process environment while
+/// `apply_compact_entries` runs. See [`apply`] for the full safety contract.
+///
+/// # Examples
+///
+/// ```
+/// use adotenv::parse_entries_compact;
+/// use adotenv_process::apply_compact_entries;
+///
+/// let entries = parse_entries_compact("ADOTENV_COMPACT_ENTRIES_DOC_BARE\nADOTENV_COMPACT_ENTRIES_DOC_PORT=8080\n")?;
+/// // SAFETY: called at startup, before any other thread exists.
+/// unsafe { apply_compact_entries(&entries)? };
+/// assert_eq!(std::env::var("ADOTENV_COMPACT_ENTRIES_DOC_PORT")?, "8080");
+/// assert!(std::env::var("ADOTENV_COMPACT_ENTRIES_DOC_BARE").is_err());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub unsafe fn apply_compact_entries(entries: &CompactEntries) -> Result<(), ApplyError> {
+    validate_compact_entries(entries)?;
+    for (key, value) in entries
+        .iter()
+        .filter_map(|(key, value)| value.map(|value| (key, value)))
+    {
         unsafe { env::set_var(key, value) };
     }
     Ok(())
@@ -630,6 +708,138 @@ mod tests {
 
         assert!(validate_compact(&CompactValues::default()).is_ok());
         unsafe { apply_compact(&CompactValues::default()).unwrap() };
+    }
+
+    #[test]
+    fn validate_and_apply_compact_entries_skip_bare_and_validate_assigned() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let id = NEXT.fetch_add(1, Ordering::Relaxed);
+        let assigned_key = format!("ADOTENV_PROCESS_ENTRIES_SET_{}_{}", std::process::id(), id);
+        let bare_key = format!("ADOTENV_PROCESS_ENTRIES_BARE_{}_{}", std::process::id(), id);
+        let existing_bare_key = format!(
+            "ADOTENV_PROCESS_ENTRIES_EXIST_{}_{}",
+            std::process::id(),
+            id
+        );
+        let empty_key = format!(
+            "ADOTENV_PROCESS_ENTRIES_EMPTY_{}_{}",
+            std::process::id(),
+            id
+        );
+
+        std::env::set_var(&existing_bare_key, "keep-me");
+        let entries = adotenv::parse_entries_compact(&format!(
+            "{bare_key}\n{existing_bare_key}\n{assigned_key}=hello\n{empty_key}=\n"
+        ))
+        .unwrap();
+        assert_eq!(entries.get(&bare_key), Some(None));
+        assert!(validate_compact_entries(&entries).is_ok());
+        unsafe { apply_compact_entries(&entries).unwrap() };
+        assert_eq!(std::env::var(&assigned_key).as_deref(), Ok("hello"));
+        assert_eq!(std::env::var(&empty_key).as_deref(), Ok(""));
+        assert!(std::env::var_os(&bare_key).is_none());
+        assert_eq!(std::env::var(&existing_bare_key).as_deref(), Ok("keep-me"));
+        std::env::remove_var(&assigned_key);
+        std::env::remove_var(&empty_key);
+        std::env::remove_var(&existing_bare_key);
+
+        // Bare key with BareKeys::Empty carries Some("") and IS validated/applied.
+        let bare_empty_dialect =
+            adotenv::Dialect::PORTABLE.with_bare_keys(adotenv::BareKeys::Empty);
+        let bare_empty =
+            adotenv::parse_entries_compact_with(&format!("{bare_key}\n"), bare_empty_dialect)
+                .unwrap();
+        assert_eq!(bare_empty.get(&bare_key), Some(Some("")));
+        assert!(validate_compact_entries(&bare_empty).is_ok());
+        unsafe { apply_compact_entries(&bare_empty).unwrap() };
+        assert_eq!(std::env::var(&bare_key).as_deref(), Ok(""));
+        std::env::remove_var(&bare_key);
+
+        // A bare key that would be an invalid env name (e.g. containing '=') is skipped.
+        let invalid_bare =
+            adotenv::parse_entries_compact_with("'BAD=BARE'\n", adotenv::Dialect::PYTHON_DOTENV)
+                .unwrap();
+        assert_eq!(invalid_bare.get("BAD=BARE"), Some(None));
+        assert!(validate_compact_entries(&invalid_bare).is_ok());
+        unsafe { apply_compact_entries(&invalid_bare).unwrap() };
+
+        // Assigned invalid key/value fails before mutating any earlier valid entry.
+        let good_key = format!(
+            "A_ADOTENV_PROCESS_ENTRIES_GOOD_{}_{}",
+            std::process::id(),
+            id
+        );
+        let bad_key = format!(
+            "Z_ADOTENV_PROCESS_ENTRIES_BAD_{}_{}",
+            std::process::id(),
+            id
+        );
+        let bad = adotenv::parse_entries_compact(&format!(
+            "{good_key}=should-not-be-set\n{bad_key}=bad\0val\n"
+        ))
+        .unwrap();
+        assert_eq!(
+            validate_compact_entries(&bad),
+            Err(ApplyError::InvalidValue {
+                key: bad_key.clone()
+            })
+        );
+        assert_eq!(
+            unsafe { apply_compact_entries(&bad) },
+            Err(ApplyError::InvalidValue { key: bad_key })
+        );
+        assert!(std::env::var_os(&good_key).is_none());
+
+        let eq_assigned = adotenv::parse_entries_compact_with(
+            "'APP=PORT'=8080\n",
+            adotenv::Dialect::PYTHON_DOTENV,
+        )
+        .unwrap();
+        assert_eq!(
+            validate_compact_entries(&eq_assigned),
+            Err(ApplyError::InvalidKey {
+                key: "APP=PORT".to_string()
+            })
+        );
+
+        assert!(validate_compact_entries(&CompactEntries::default()).is_ok());
+        unsafe { apply_compact_entries(&CompactEntries::default()).unwrap() };
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_compact_entries_validation_and_apply_boundary() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        // Two assigned keys differing only by case collide.
+        let dup = adotenv::parse_entries_compact("PATH=one\nPath=two\n").unwrap();
+        assert!(matches!(
+            validate_compact_entries(&dup),
+            Err(ApplyError::DuplicateKey { ref key }) if key.eq_ignore_ascii_case("path")
+        ));
+
+        // An assigned key and a different-case bare key do not collide (bare is skipped).
+        let assigned_and_bare = adotenv::parse_entries_compact("PATH=one\nPath\n").unwrap();
+        assert!(validate_compact_entries(&assigned_and_bare).is_ok());
+
+        let too_long =
+            adotenv::parse_entries_compact(&format!("A={}\n", "x".repeat(32_768))).unwrap();
+        assert!(matches!(
+            validate_compact_entries(&too_long),
+            Err(ApplyError::ValueTooLong { ref key, limit: 32_767 }) if key == "A"
+        ));
+
+        let key = format!(
+            "ADOTENV_PROCESS_WIN_ENTRIES_{}_{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        let value = "x".repeat(32_767);
+        let boundary = adotenv::parse_entries_compact(&format!("{key}={value}\n")).unwrap();
+        assert!(validate_compact_entries(&boundary).is_ok());
+        unsafe { apply_compact_entries(&boundary).unwrap() };
+        assert_eq!(std::env::var(&key).as_deref(), Ok(value.as_str()));
+        std::env::remove_var(&key);
     }
 
     #[cfg(windows)]

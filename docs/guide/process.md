@@ -57,16 +57,22 @@ The caller must guarantee that no other thread reads or writes the process
 environment while `apply` runs. In practice, call it at the start of `main`,
 before starting threads or an async runtime.
 
-`apply` takes a `LoadedEnvironment`, and `apply_compact` / `validate_compact`
+`apply` takes a `LoadedEnvironment`, `apply_compact` / `validate_compact`
 provide the same validation and mutation semantics for `CompactValues` (such as
-values from `load_cascade_values_compact` or `load_values_compact`). To apply
+values from `load_cascade_values_compact` or `load_values_compact`), and
+`apply_compact_entries` / `validate_compact_entries` handle `CompactEntries`
+(from `parse_entries_compact` or `load_cascade_entries_compact`). Bare
+declarations (`None` values kept under `BareKeys::Preserve`) are skipped without
+setting or removing any process variable, matching `apply`, while bare keys
+converted to `Some("")` under `BareKeys::Empty` are validated and set. To apply
 resolved values, resolve them with `LoadedEnvironment::resolve_contextual` and
 set them yourself.
 
 ## Validate
 
-`validate(&LoadedEnvironment)` and `validate_compact(&CompactValues)` run the
-same checks without changing anything. Both are safe to call from any thread.
+`validate(&LoadedEnvironment)`, `validate_compact(&CompactValues)` and
+`validate_compact_entries(&CompactEntries)` run the same checks without changing
+anything. All three are safe to call from any thread.
 
 `ApplyError` reports the first problem, in key order. These are the inputs for
 which `std::env::set_var` may panic:

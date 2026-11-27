@@ -376,3 +376,149 @@ fn position_errors_have_stable_display_text() {
         assert_eq!(error.to_string(), message);
     }
 }
+
+#[test]
+fn with_bom_policy_matches_all_bom_policies_and_encodings() {
+    use crate::BomPolicy;
+
+    let source = "\u{feff}\u{feff}A=1\nB=2\n";
+    let base = LineIndex::new(source);
+
+    // Keep and Error both keep every leading BOM in line 0 columns.
+    for policy in [BomPolicy::Keep, BomPolicy::Error] {
+        let idx = base.clone().with_bom_policy(policy);
+        assert_eq!(idx.to_position(6, ColumnEncoding::Utf8), Ok(position(0, 6)));
+        assert_eq!(
+            idx.to_position(6, ColumnEncoding::Scalar),
+            Ok(position(0, 2))
+        );
+        assert_eq!(
+            idx.to_position(6, ColumnEncoding::Utf16),
+            Ok(position(0, 2))
+        );
+        for encoding in ENCODINGS {
+            assert_eq!(idx.to_offset(position(0, 0), encoding), Ok(0));
+            assert_eq!(idx.to_position(10, encoding), Ok(position(1, 0)));
+        }
+    }
+
+    // Strip hides only the first BOM (3 bytes); the second BOM remains visible.
+    let strip = base.clone().with_bom_policy(BomPolicy::Strip);
+    assert_eq!(
+        strip.to_position(6, ColumnEncoding::Utf8),
+        Ok(position(0, 3))
+    );
+    assert_eq!(
+        strip.to_position(6, ColumnEncoding::Scalar),
+        Ok(position(0, 1))
+    );
+    assert_eq!(
+        strip.to_position(6, ColumnEncoding::Utf16),
+        Ok(position(0, 1))
+    );
+    for encoding in ENCODINGS {
+        for offset in 0..=3 {
+            assert_eq!(strip.to_position(offset, encoding), Ok(position(0, 0)));
+        }
+        assert_eq!(strip.to_offset(position(0, 0), encoding), Ok(3));
+        assert_eq!(strip.to_position(10, encoding), Ok(position(1, 0)));
+        assert_eq!(strip.to_offset(position(1, 0), encoding), Ok(10));
+    }
+
+    // StripAll hides every consecutive leading BOM (6 bytes).
+    let strip_all = base.clone().with_bom_policy(BomPolicy::StripAll);
+    for encoding in ENCODINGS {
+        for offset in 0..=6 {
+            assert_eq!(strip_all.to_position(offset, encoding), Ok(position(0, 0)));
+        }
+        assert_eq!(strip_all.to_position(9, encoding), Ok(position(0, 3)));
+        assert_eq!(strip_all.to_offset(position(0, 0), encoding), Ok(6));
+        assert_eq!(strip_all.to_offset(position(0, 3), encoding), Ok(9));
+        assert_eq!(strip_all.to_position(10, encoding), Ok(position(1, 0)));
+        assert_eq!(strip_all.to_offset(position(1, 0), encoding), Ok(10));
+    }
+
+    // Re-applying with_bom_policy replaces the previous hidden prefix cleanly.
+    let restored = strip_all.clone().with_bom_policy(BomPolicy::Keep);
+    assert_eq!(
+        restored.to_position(6, ColumnEncoding::Scalar),
+        Ok(position(0, 2))
+    );
+    assert_eq!(
+        restored.to_offset(position(0, 0), ColumnEncoding::Utf8),
+        Ok(0)
+    );
+    let downgraded = strip_all.with_bom_policy(BomPolicy::Strip);
+    assert_eq!(
+        downgraded.to_position(6, ColumnEncoding::Scalar),
+        Ok(position(0, 1))
+    );
+    assert_eq!(
+        downgraded.to_offset(position(0, 0), ColumnEncoding::Utf8),
+        Ok(3)
+    );
+}
+
+#[test]
+fn with_bom_policy_handles_bom_only_newlines_and_astral_characters() {
+    use crate::BomPolicy;
+
+    // Multi-BOM-only and BOM + newline + astral characters.
+    let only = LineIndex::new("\u{feff}\u{feff}").with_bom_policy(BomPolicy::StripAll);
+    for encoding in ENCODINGS {
+        assert_eq!(only.to_position(0, encoding), Ok(position(0, 0)));
+        assert_eq!(only.to_position(6, encoding), Ok(position(0, 0)));
+        assert_eq!(only.to_offset(position(0, 0), encoding), Ok(6));
+        assert_eq!(
+            only.to_offset(position(0, 1), encoding),
+            Err(PositionError::OutOfBounds)
+        );
+    }
+
+    let bom_nl = LineIndex::new("\u{feff}\u{feff}\nA=1\n").with_bom_policy(BomPolicy::StripAll);
+    for encoding in ENCODINGS {
+        assert_eq!(bom_nl.to_position(6, encoding), Ok(position(0, 0)));
+        assert_eq!(bom_nl.to_offset(position(0, 0), encoding), Ok(6));
+        assert_eq!(bom_nl.to_position(7, encoding), Ok(position(1, 0)));
+        assert_eq!(bom_nl.to_offset(position(1, 0), encoding), Ok(7));
+    }
+
+    let bom_crlf =
+        LineIndex::new("\u{feff}\u{feff}\r\nA=1\r\n").with_bom_policy(BomPolicy::StripAll);
+    for encoding in ENCODINGS {
+        assert_eq!(bom_crlf.to_position(6, encoding), Ok(position(0, 0)));
+        assert_eq!(bom_crlf.to_offset(position(0, 0), encoding), Ok(6));
+        assert_eq!(
+            bom_crlf.to_position(7, encoding),
+            Err(PositionError::InsideCrLf)
+        );
+        assert_eq!(bom_crlf.to_position(8, encoding), Ok(position(1, 0)));
+        assert_eq!(bom_crlf.to_offset(position(1, 0), encoding), Ok(8));
+    }
+
+    let astral = LineIndex::new("\u{feff}\u{feff}é😀!\n").with_bom_policy(BomPolicy::StripAll);
+    assert_eq!(
+        astral.to_position(12, ColumnEncoding::Utf8),
+        Ok(position(0, 6))
+    );
+    assert_eq!(
+        astral.to_position(12, ColumnEncoding::Scalar),
+        Ok(position(0, 2))
+    );
+    assert_eq!(
+        astral.to_position(12, ColumnEncoding::Utf16),
+        Ok(position(0, 3))
+    );
+    assert_eq!(
+        astral.to_offset(position(0, 2), ColumnEncoding::Utf16),
+        Err(PositionError::SplitSurrogate)
+    );
+    assert_eq!(
+        astral.to_offset(position(0, 3), ColumnEncoding::Utf16),
+        Ok(12)
+    );
+    assert_eq!(
+        astral.to_position(7, ColumnEncoding::Scalar),
+        Err(PositionError::InvalidUtf8Boundary)
+    );
+}

@@ -14,6 +14,8 @@ pub enum LimitKind {
     Lines,
     /// The planned edit output contains more bytes than the configured cap.
     OutputBytes,
+    /// Reference scanning reached more candidates than the configured cap.
+    References,
 }
 
 impl LimitKind {
@@ -26,6 +28,7 @@ impl LimitKind {
             Self::Diagnostics => "diagnostics",
             Self::Lines => "lines",
             Self::OutputBytes => "output-bytes",
+            Self::References => "references",
         }
     }
 }

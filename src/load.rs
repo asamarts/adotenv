@@ -86,6 +86,9 @@
 //! | [`load_cascade_values_compact_with`] | Cascade, chosen dialect | [`CompactValues`] |
 //! | [`load_values`] | File list, chosen dialect | [`LoadedValues`] |
 //! | [`load_values_compact`] | File list, chosen dialect | [`CompactValues`] |
+//! | [`load_cascade_entries_compact`] | Cascade, Portable dialect | [`CompactEntries`] |
+//! | [`load_cascade_entries_compact_with`] | Cascade, chosen dialect | [`CompactEntries`] |
+//! | [`load_entries_compact`] | File list, chosen dialect | [`CompactEntries`] |
 //!
 //! A [`LoadedEnvironment`] holds the final values sorted by key and, by
 //! default, the [`LoadOrigin`] of each one: its file, the byte span of its
@@ -151,13 +154,16 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
-//! # Values only
+//! # Values only and compact entries
 //!
 //! [`load_cascade_values`], [`load_cascade_values_with`] and [`load_values`]
 //! read the same files with the same rules and errors, but return a
 //! [`LoadedValues`] that keeps only the final strings: no origins, reports or
 //! raw text, and no resolution. Use them when an application needs only the
-//! values; they use less memory.
+//! values; they use less memory. The `*_compact` functions store the result in
+//! [`CompactValues`] (assigned values only) or [`CompactEntries`] (also
+//! retaining winning bare declarations as `None` under
+//! [`BareKeys::Preserve`](crate::BareKeys::Preserve)).
 //!
 //! # Errors
 //!
@@ -186,8 +192,9 @@ use std::{
 };
 
 use crate::{
-    encode_value, parse_strict_with, parse_values_compact_with_options, parse_values_with_options,
-    parse_with_options, CompactValues, Diagnostic, Dialect, ExpandOptions, ExpandScope, KeySyntax,
+    encode_value, parse_entries_compact_with_options, parse_strict_with,
+    parse_values_compact_with_options, parse_values_with_options, parse_with_options,
+    CompactEntries, CompactValues, Diagnostic, Dialect, ExpandOptions, ExpandScope, KeySyntax,
     LimitExceeded, LineBreaks, ParseOptions, ResolveError, Severity,
 };
 
@@ -2087,6 +2094,116 @@ where
     load_value_paths_compact(paths, options, false)
 }
 
+/// Loads the `.env` cascade from `directory` with the Portable dialect into
+/// bare-preserving compact entries.
+///
+/// This is [`load_cascade_values_compact`] returning [`CompactEntries`] instead
+/// of [`CompactValues`], retaining winning bare declarations as `None` under
+/// [`BareKeys::Preserve`](crate::BareKeys::Preserve).
+///
+/// Across files, cascade merge is value-preserving: a later file's assigned
+/// value replaces an earlier entry, while a later winning bare declaration
+/// (`None`) keeps any earlier assigned value intact (or records the bare key
+/// when absent from earlier files). Filtering the result to assigned values
+/// therefore matches [`load_cascade_values_compact`] and [`load_cascade`].
+///
+/// # Errors
+///
+/// Returns the same errors as [`load_cascade_values_compact`].
+///
+/// # Examples
+///
+/// ```no_run
+/// # let dir = std::path::Path::new(".");
+/// let entries = adotenv::load::load_cascade_entries_compact(dir, "production")?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn load_cascade_entries_compact<P: AsRef<Path>>(
+    directory: P,
+    mode: &str,
+) -> Result<CompactEntries, LoadError> {
+    load_cascade_entries_compact_with(directory, mode, Dialect::PORTABLE)
+}
+
+/// Loads the `.env` cascade with the given dialect into bare-preserving
+/// compact entries.
+///
+/// This is [`load_cascade_values_compact_with`] returning [`CompactEntries`].
+///
+/// # Errors
+///
+/// Returns the same errors as [`load_cascade_values_compact_with`].
+pub fn load_cascade_entries_compact_with<P: AsRef<Path>>(
+    directory: P,
+    mode: &str,
+    dialect: Dialect,
+) -> Result<CompactEntries, LoadError> {
+    if !valid_mode(mode) {
+        return Err(LoadError::InvalidMode);
+    }
+    load_entry_paths_compact(
+        cascade_paths(directory.as_ref(), mode),
+        LoadOptions::new(dialect),
+        true,
+    )
+}
+
+/// Loads the `.env` cascade with options into bare-preserving compact entries.
+///
+/// Report-retention settings do not apply to compact entries; the dialect and
+/// limits do.
+///
+/// # Errors
+///
+/// Returns the same errors as [`load_cascade_values_compact_with_options`].
+pub fn load_cascade_entries_compact_with_options<P: AsRef<Path>>(
+    directory: P,
+    mode: &str,
+    options: LoadOptions,
+) -> Result<CompactEntries, LoadError> {
+    if !valid_mode(mode) {
+        return Err(LoadError::InvalidMode);
+    }
+    load_entry_paths_compact(cascade_paths(directory.as_ref(), mode), options, true)
+}
+
+/// Loads listed files in order into bare-preserving compact entries.
+///
+/// This is [`load_values_compact`] returning [`CompactEntries`]. Later files'
+/// assigned values replace earlier entries; a later winning bare declaration
+/// preserves an earlier assigned value (or records the bare key if absent).
+/// Every listed file must exist.
+///
+/// # Errors
+///
+/// Returns the same errors as [`load_values_compact`].
+pub fn load_entries_compact<I, P>(paths: I, dialect: Dialect) -> Result<CompactEntries, LoadError>
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    load_entries_compact_with_options(paths, LoadOptions::new(dialect))
+}
+
+/// Loads listed files with options into bare-preserving compact entries.
+///
+/// Report-retention settings do not apply to compact entries; the dialect and
+/// limits do.
+///
+/// # Errors
+///
+/// Returns the same errors as [`load_values_compact_with_options`].
+pub fn load_entries_compact_with_options<I, P>(
+    paths: I,
+    options: LoadOptions,
+) -> Result<CompactEntries, LoadError>
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    load_entry_paths_compact(paths, options, false)
+}
+
 fn read_load_path(
     path: &Path,
     skip_missing: bool,
@@ -2239,6 +2356,43 @@ where
         });
     }
     Ok(values.unwrap_or_default())
+}
+
+fn load_entry_paths_compact<I, P>(
+    paths: I,
+    options: LoadOptions,
+    skip_missing: bool,
+) -> Result<CompactEntries, LoadError>
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    let mut entries: Option<CompactEntries> = None;
+    for path in paths {
+        let path = path.as_ref();
+        let Some(bytes) = read_load_path(path, skip_missing, options.limits.max_input_bytes)?
+        else {
+            continue;
+        };
+        let text = String::from_utf8(bytes).map_err(|_| LoadError::InvalidUtf8 {
+            path: path.to_path_buf(),
+        })?;
+        if text.is_empty() {
+            continue;
+        }
+        let projected =
+            match parse_entries_compact_with_options(&text, options.dialect, options.limits) {
+                Ok(entries) => entries,
+                Err(diagnostic) => {
+                    return Err(load_parse_error(path, diagnostic));
+                }
+            };
+        entries = Some(match entries {
+            Some(entries) => entries.merge(&projected),
+            None => projected,
+        });
+    }
+    Ok(entries.unwrap_or_default())
 }
 
 fn load_parse_error(path: &Path, diagnostic: Diagnostic) -> LoadError {

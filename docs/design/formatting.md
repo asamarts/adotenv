@@ -146,3 +146,35 @@ resolution, so `B` stays above `A`.
 
 Sorting does not format spacing, expand values, read files or inspect the
 environment. Run `format` on the sorted output when both changes are wanted.
+
+## Limits
+
+To bound untrusted formatting or sorting work, pass `EditOptions` to
+`Document::format_with_options(&FormatOptions, EditOptions)` or
+`Document::sort_with_options(EditOptions)`. Both check `max_output_bytes` and
+`max_output_lines` before allocating the output string and forward
+`parse_limits` to verification re-parsing. In `format_with_options`, byte and
+line caps apply to each verification round's planned edits (including edits that
+verification would otherwise drop). `sort_with_options` also enforces
+`EditOptions::max_references`, capping total reference candidates scanned across
+all groups so dense repeated `$VAR` patterns cannot amplify memory. Limit
+failures return `FormatError::Limit(LimitExceeded)` (with `LimitKind::References`
+when the reference scan budget is exceeded).
+
+```rust
+use adotenv::{parse_strict, EditOptions, FormatError, FormatOptions, LimitKind};
+
+let doc = parse_strict("B=$A$A\nA=1\n").unwrap();
+let err = doc
+    .sort_with_options(EditOptions::new().with_max_references(1))
+    .unwrap_err();
+assert!(matches!(err, FormatError::Limit(limit) if limit.kind() == LimitKind::References));
+
+let formatted = doc
+    .format_with_options(
+        &FormatOptions::normalize(),
+        EditOptions::new().with_max_output_bytes(32),
+    )
+    .unwrap();
+assert_eq!(formatted.as_str(), "B = $A$A\nA = 1\n");
+```

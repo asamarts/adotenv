@@ -578,9 +578,16 @@ impl Entry<'_> {
             pending.push((tail, Quote::None, Level::TOP, true));
         }
         let closes = Closes {
-            limit: max_depth
-                .checked_add(2)
-                .filter(|_| max_references.is_some() && max_depth != usize::MAX),
+            limit: if max_references.is_some() {
+                if max_depth == usize::MAX {
+                    max_references.map(|limit| limit.max(64).saturating_add(2))
+                } else {
+                    max_depth.checked_add(2)
+                }
+            } else {
+                None
+            },
+            cache_limit: max_references,
             ..Closes::default()
         };
         let mut scanner = Scanner {
@@ -674,14 +681,25 @@ struct Scanner<'a> {
 }
 
 impl Scanner<'_> {
-    /// Records `reference`, or reports that the configured scan limit is
-    /// reached. A limit of zero rejects the first candidate.
-    fn record(&mut self, reference: Reference) -> bool {
+    /// Reports whether the configured reference limit has already been reached.
+    /// Checking before scanning delimiters keeps a zero or exhausted budget
+    /// allocation-free.
+    fn at_limit(&mut self) -> bool {
         if self
             .max_references
             .is_some_and(|limit| self.references.len() >= limit)
         {
             self.exceeded = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Records `reference`, or reports that the configured scan limit is
+    /// reached. A limit of zero rejects the first candidate.
+    fn record(&mut self, reference: Reference) -> bool {
+        if self.at_limit() {
             return false;
         }
         self.references.push(reference);
@@ -720,9 +738,16 @@ impl Scanner<'_> {
                 },
                 dollars,
             );
-            if at + 1 < range.end && bytes[at + 1] == b'{' {
-                let (reference, nested) =
-                    braced(source, range, at, quote, escaped, level, &mut self.closes);
+            if at + 1 < range.end && matches!(bytes[at + 1], b'{' | b'(') {
+                if self.at_limit() {
+                    return;
+                }
+                let is_command = bytes[at + 1] == b'(';
+                let (reference, nested) = if is_command {
+                    command(source, range, at, quote, escaped, level, &mut self.closes)
+                } else {
+                    braced(source, range, at, quote, escaped, level, &mut self.closes)
+                };
                 if self.closes.exceeded {
                     return;
                 }
@@ -732,24 +757,7 @@ impl Scanner<'_> {
                     return;
                 }
                 if let Some(nested) = nested.filter(|_| nest) {
-                    self.pending.push((nested, quote, inner, false));
-                }
-                at = end;
-                continue;
-            }
-            if at + 1 < range.end && bytes[at + 1] == b'(' {
-                let (reference, nested) =
-                    command(source, range, at, quote, escaped, level, &mut self.closes);
-                if self.closes.exceeded {
-                    return;
-                }
-                let end = reference.span.end;
-                let inner = level.inside(self.references.len(), &reference);
-                if !self.record(reference) {
-                    return;
-                }
-                if let Some(nested) = nested.filter(|_| nest) {
-                    self.pending.push((nested, quote, inner, true));
+                    self.pending.push((nested, quote, inner, is_command));
                 }
                 at = end;
                 continue;
@@ -806,6 +814,8 @@ struct Closes {
     literal: BTreeMap<usize, Close>,
     /// Maximum delimiter nesting kept while scanning, or `None` unbounded.
     limit: Option<usize>,
+    /// Maximum cached entries per memoization map, or `None` unbounded.
+    cache_limit: Option<usize>,
     /// Set when the delimiter scan exceeded `limit`.
     exceeded: bool,
 }
@@ -842,13 +852,23 @@ impl Closes {
     }
 }
 
-fn record(closes: &mut BTreeMap<usize, Close>, open: usize, close: Close) {
-    let known = closes.get(&open).is_some_and(|existing| {
-        existing.at.is_some() || (close.at.is_none() && existing.bound >= close.bound)
-    });
-    if !known {
-        closes.insert(open, close);
+fn record(
+    closes: &mut BTreeMap<usize, Close>,
+    open: usize,
+    close: Close,
+    cache_limit: Option<usize>,
+) {
+    if let Some(existing) = closes.get_mut(&open) {
+        let known = existing.at.is_some() || (close.at.is_none() && existing.bound >= close.bound);
+        if !known {
+            *existing = close;
+        }
+        return;
     }
+    if cache_limit.is_some_and(|limit| closes.len() >= limit) {
+        return;
+    }
+    closes.insert(open, close);
 }
 
 fn preceding(bytes: &[u8], start: usize, at: usize, byte: u8) -> usize {
@@ -1037,6 +1057,7 @@ fn literal_balanced(
                             at: Some(at),
                             bound: end,
                         },
+                        closes.cache_limit,
                     );
                     if stack.is_empty() {
                         return (Some(at), at);
@@ -1055,6 +1076,7 @@ fn literal_balanced(
                 at: None,
                 bound: end,
             },
+            closes.cache_limit,
         );
     }
     (None, end)
@@ -1180,6 +1202,7 @@ fn matching_delimited(
                     at: None,
                     bound: end,
                 },
+                closes.cache_limit,
             );
         }
     }
@@ -1218,6 +1241,7 @@ fn close_form(
                 at: Some(at),
                 bound: end,
             },
+            closes.cache_limit,
         );
     }
     stack.is_empty()
