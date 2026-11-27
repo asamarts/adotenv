@@ -1356,4 +1356,30 @@ fn deep_nesting_stops_at_the_depth_limit_without_scanning_every_level() {
             .map(|span| &tail_doc.source()[span.clone()]),
         Some("VAR")
     );
+
+    // Variable-name `${}` prefix does not starve `closes.forms` in compose resolution,
+    // and `with_max_depth(usize::MAX - 2)` does not disable `closes.limit`.
+    let compose_starve = alloc::format!(
+        "B=ok\nA=${{{}:-{}{}{}}}\n",
+        "${}".repeat(2_000),
+        "${B:-".repeat(32),
+        "a".repeat(2_000),
+        "}".repeat(32),
+    );
+    let resolved = resolve(
+        &compose_starve,
+        |_| None,
+        &ExpandOptions::compose().with_max_references(1_000),
+    )
+    .unwrap();
+    assert_eq!(value(&resolved, 1), Some("ok"));
+
+    let max_depth_edge = alloc::format!("A={}\n", "${".repeat(200));
+    let near_max = ExpandOptions::portable()
+        .with_max_depth(usize::MAX - 2)
+        .with_max_references(2);
+    assert!(matches!(
+        resolve(&max_depth_edge, |_| None, &near_max),
+        Err(ResolveError::TooManyReferences { .. } | ResolveError::DepthExceeded { .. })
+    ));
 }

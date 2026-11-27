@@ -1343,4 +1343,19 @@ fn completion_matches_dialect_comments_node_quotes_and_unclosed_recovery() {
         items_len("HOST=1\nURL='line1\n$H", position(2, 2), ignore_malformed),
         0
     );
+    // Quoted `)` inside `$(...)` does not exit command nesting, so `\$H` stays escaped.
+    assert_eq!(
+        items_len(
+            "HOST=1\nURL=$(echo ')' \\$H)\n",
+            position(1, 20),
+            Dialect::PORTABLE
+        ),
+        0
+    );
+    // Custom non-Node dialect with backticks treats `\`` as escaped inside backticks.
+    let custom_backtick = Dialect::PORTABLE.with_backticks(true);
+    assert_eq!(
+        items_len("HOST=1\nURL=`a\\` $H`\n", position(1, 11), custom_backtick),
+        0
+    );
 }

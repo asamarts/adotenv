@@ -573,20 +573,19 @@ impl Entry<'_> {
         if !has_dollar(&body) && !tail.as_ref().is_some_and(has_dollar) {
             return Ok(Vec::new());
         }
-        let mut pending = vec![(body, self.quote(), Level::TOP, true)];
+        // Push tail before body so DFS pre-order (`pending.pop()`) visits
+        // byte offsets in strictly ascending order.
+        let mut pending = Vec::with_capacity(1 + usize::from(tail.is_some()));
         if let Some(tail) = tail {
             pending.push((tail, Quote::None, Level::TOP, true));
         }
+        pending.push((body, self.quote(), Level::TOP, true));
         let closes = Closes {
-            limit: if max_references.is_some() {
-                if max_depth == usize::MAX {
-                    max_references.map(|limit| limit.max(64).saturating_add(2))
-                } else {
-                    max_depth.checked_add(2)
-                }
-            } else {
-                None
-            },
+            limit: max_references.map(|limit| {
+                max_depth
+                    .saturating_add(2)
+                    .min(limit.max(64).saturating_add(2))
+            }),
             cache_limit: max_references,
             ..Closes::default()
         };
@@ -601,6 +600,7 @@ impl Entry<'_> {
             exceeded: false,
         };
         while let Some((range, quote, level, backslash_escapes)) = scanner.pending.pop() {
+            scanner.closes.prune_before(range.start);
             scanner.scan(&range, quote, level, backslash_escapes);
             if scanner.exceeded {
                 return Err(ScanLimit::TooManyReferences);
@@ -712,6 +712,7 @@ impl Scanner<'_> {
         let bytes = source.as_bytes();
         let depth = level.depth;
         let nest = depth < self.max_depth;
+        let pending_start = self.pending.len();
         // The last dollar seen and how many dollars directly precede it, so a
         // run of dollars is counted once instead of once per dollar.
         let mut previous_dollar: Option<(usize, usize)> = None;
@@ -743,10 +744,16 @@ impl Scanner<'_> {
                     return;
                 }
                 let is_command = bytes[at + 1] == b'(';
+                let ctx = FormContext {
+                    quote,
+                    escaped,
+                    level,
+                    record_nested: nest,
+                };
                 let (reference, nested) = if is_command {
-                    command(source, range, at, quote, escaped, level, &mut self.closes)
+                    command(source, range, at, ctx, &mut self.closes)
                 } else {
-                    braced(source, range, at, quote, escaped, level, &mut self.closes)
+                    braced(source, range, at, ctx, &mut self.closes)
                 };
                 if self.closes.exceeded {
                     return;
@@ -795,6 +802,9 @@ impl Scanner<'_> {
             }
             at += 1;
         }
+        // Reverse child ranges pushed by this scan so `pending.pop()` visits
+        // them in ascending byte-offset (DFS pre-order) sequence.
+        self.pending[pending_start..].reverse();
     }
 }
 
@@ -850,6 +860,45 @@ impl Closes {
             false
         }
     }
+
+    /// Drops memoized entries strictly before `offset`, which DFS pre-order
+    /// scanning can never query again.
+    fn prune_before(&mut self, offset: usize) {
+        if self.cache_limit.is_some() {
+            while self
+                .forms
+                .first_key_value()
+                .is_some_and(|(&open, _)| open < offset)
+            {
+                self.forms.pop_first();
+            }
+            while self
+                .literal
+                .first_key_value()
+                .is_some_and(|(&open, _)| open < offset)
+            {
+                self.literal.pop_first();
+            }
+        }
+    }
+}
+
+/// Reserves a slot in pre-order (left-to-right source order) so deeper LIFO
+/// children cannot evict enclosing forms from a bounded cache.
+fn reserve(
+    closes: &mut BTreeMap<usize, Close>,
+    open: usize,
+    bound: usize,
+    cache_limit: Option<usize>,
+) -> bool {
+    if closes.contains_key(&open) {
+        return true;
+    }
+    if cache_limit.is_some_and(|limit| closes.len() >= limit) {
+        return false;
+    }
+    closes.insert(open, Close { at: None, bound });
+    true
 }
 
 fn record(
@@ -879,13 +928,19 @@ fn preceding(bytes: &[u8], start: usize, at: usize, byte: u8) -> usize {
         .count()
 }
 
+#[derive(Clone, Copy)]
+struct FormContext {
+    quote: Quote,
+    escaped: bool,
+    level: Level,
+    record_nested: bool,
+}
+
 fn braced(
     source: &str,
     range: &Range<usize>,
     at: usize,
-    quote: Quote,
-    escaped: bool,
-    level: Level,
+    ctx: FormContext,
     closes: &mut Closes,
 ) -> (Reference, Option<Range<usize>>) {
     let body_start = at + 2;
@@ -894,7 +949,14 @@ fn braced(
         .get(&at)
         .and_then(|known| known.within(range.end))
         .unwrap_or_else(|| {
-            matching_delimited(source, body_start, range.end, Delimiter::Brace, closes)
+            matching_delimited(
+                source,
+                body_start,
+                range.end,
+                Delimiter::Brace,
+                ctx.record_nested,
+                closes,
+            )
         });
     let end = close.map_or(range.end, |close| close + 1);
     let (name_end, operator, operator_span) = name_operator(source, body_start, body_end);
@@ -903,13 +965,13 @@ fn braced(
         Reference {
             kind: ReferenceKind::Variable,
             span: at..end,
-            quote,
-            escaped,
-            depth: level.depth,
+            quote: ctx.quote,
+            escaped: ctx.escaped,
+            depth: ctx.level.depth,
             braced: true,
             closed: close.is_some(),
-            parent: level.parent,
-            enclosing: level.enclosing,
+            parent: ctx.level.parent,
+            enclosing: ctx.level.enclosing,
             name: Some(body_start..name_end),
             operator,
             operator_span,
@@ -924,9 +986,7 @@ fn command(
     source: &str,
     range: &Range<usize>,
     at: usize,
-    quote: Quote,
-    escaped: bool,
-    level: Level,
+    ctx: FormContext,
     closes: &mut Closes,
 ) -> (Reference, Option<Range<usize>>) {
     let payload_start = at + 2;
@@ -935,7 +995,14 @@ fn command(
         .get(&at)
         .and_then(|known| known.within(range.end))
         .unwrap_or_else(|| {
-            matching_delimited(source, payload_start, range.end, Delimiter::Paren, closes)
+            matching_delimited(
+                source,
+                payload_start,
+                range.end,
+                Delimiter::Paren,
+                ctx.record_nested,
+                closes,
+            )
         });
     let end = close.map_or(range.end, |close| close + 1);
     let payload = payload_start..payload_end;
@@ -943,13 +1010,13 @@ fn command(
         Reference {
             kind: ReferenceKind::Command,
             span: at..end,
-            quote,
-            escaped,
-            depth: level.depth,
+            quote: ctx.quote,
+            escaped: ctx.escaped,
+            depth: ctx.level.depth,
             braced: false,
             closed: close.is_some(),
-            parent: level.parent,
-            enclosing: level.enclosing,
+            parent: ctx.level.parent,
+            enclosing: ctx.level.enclosing,
             name: None,
             operator: None,
             operator_span: None,
@@ -999,6 +1066,7 @@ fn literal_balanced(
     end: usize,
     open: u8,
     close: u8,
+    record_nested: bool,
     closes: &mut Closes,
 ) -> (Option<usize>, usize) {
     if let Some(known) = closes
@@ -1009,8 +1077,12 @@ fn literal_balanced(
         return known;
     }
     let bytes = source.as_bytes();
-    // Positions of the open delimiters; the length is the nesting depth.
-    let mut stack = vec![start - 1];
+    // Open delimiters that can be queried later (only `\${` / `\$(` openings)
+    // reserve slots in pre-order when `record_nested` is enabled.
+    let initial = (record_nested
+        && reserve(&mut closes.literal, start - 1, end, closes.cache_limit))
+    .then_some(start - 1);
+    let mut stack = vec![initial];
     let mut at = start;
     let mut quote = None;
     while at < end {
@@ -1045,20 +1117,28 @@ fn literal_balanced(
                     if closes.too_deep(stack.len() + 1) {
                         return (None, end);
                     }
-                    stack.push(at);
+                    let escaped_dollar_open =
+                        at >= 2 && bytes[at - 2] == b'\\' && bytes[at - 1] == b'$';
+                    let tracked = (record_nested
+                        && escaped_dollar_open
+                        && reserve(&mut closes.literal, at, end, closes.cache_limit))
+                    .then_some(at);
+                    stack.push(tracked);
                     at += 1;
                 }
                 byte if byte == close => {
                     let opened = stack.pop().expect("an open group is pending");
-                    record(
-                        &mut closes.literal,
-                        opened,
-                        Close {
-                            at: Some(at),
-                            bound: end,
-                        },
-                        closes.cache_limit,
-                    );
+                    if let Some(opened) = opened {
+                        record(
+                            &mut closes.literal,
+                            opened,
+                            Close {
+                                at: Some(at),
+                                bound: end,
+                            },
+                            closes.cache_limit,
+                        );
+                    }
                     if stack.is_empty() {
                         return (Some(at), at);
                     }
@@ -1068,7 +1148,7 @@ fn literal_balanced(
             },
         }
     }
-    for opened in stack {
+    for opened in stack.into_iter().flatten() {
         record(
             &mut closes.literal,
             opened,
@@ -1088,11 +1168,16 @@ fn matching_delimited(
     start: usize,
     end: usize,
     initial: Delimiter,
+    record_nested: bool,
     closes: &mut Closes,
 ) -> (Option<usize>, usize) {
     let bytes = source.as_bytes();
-    // Open delimiters, with the position of `$` for `${` and `$(` forms.
+    // Open delimiters, with the position of `$` for `${` and `$(` forms that
+    // can be queried by later scans. `op_until` tracks the deepest stack prefix
+    // that has already entered an operand/command payload so `${name}` prefixes
+    // before any `-`/`?`/`+` operator do not consume cache capacity.
     let mut stack = vec![(initial, None)];
+    let mut op_until = usize::from(initial == Delimiter::Paren);
     let mut at = start;
     let mut quote = None;
     while at < end {
@@ -1106,25 +1191,48 @@ fn matching_delimited(
                     if closes.too_deep(stack.len() + 1) {
                         return (None, end);
                     }
-                    stack.push((Delimiter::Brace, Some(at)));
+                    let parent_in_operand = stack.len() <= op_until;
+                    let tracked = (record_nested
+                        && parent_in_operand
+                        && reserve(&mut closes.forms, at, end, closes.cache_limit))
+                    .then_some(at);
+                    stack.push((Delimiter::Brace, tracked));
                     at += 2;
                 }
                 b'$' if bytes.get(at + 1) == Some(&b'(') => {
                     if closes.too_deep(stack.len() + 1) {
                         return (None, end);
                     }
-                    stack.push((Delimiter::Paren, Some(at)));
+                    let parent_in_operand = stack.len() <= op_until;
+                    let tracked = (record_nested
+                        && parent_in_operand
+                        && reserve(&mut closes.forms, at, end, closes.cache_limit))
+                    .then_some(at);
+                    stack.push((Delimiter::Paren, tracked));
+                    if parent_in_operand {
+                        op_until = stack.len();
+                    }
                     at += 2;
                 }
                 b'}' => {
                     if close_form(&mut stack, at, end, closes) {
                         return (Some(at), at);
                     }
+                    op_until = op_until.min(stack.len());
+                    at += 1;
+                }
+                b'-' | b'?' | b'+' => {
+                    op_until = stack.len();
                     at += 1;
                 }
                 _ => at += 1,
             }
             continue;
+        }
+        // An enclosing brace's `name_operator` scan ignores quotes inside
+        // nested commands, so `-`/`?`/`+` anywhere reveals that brace's operand.
+        if op_until < stack.len() && matches!(bytes[at], b'-' | b'?' | b'+') {
+            op_until = stack.len();
         }
         match quote {
             Some(b'\'') => {
@@ -1145,7 +1253,13 @@ fn matching_delimited(
             }
             None => match bytes[at] {
                 b'\\' if bytes.get(at + 1) == Some(&b'$') => {
-                    at = skip_escaped_form(source, at + 2, end, closes);
+                    at = skip_escaped_form(
+                        source,
+                        at + 2,
+                        end,
+                        record_nested && stack.len() <= op_until,
+                        closes,
+                    );
                 }
                 b'\\' => at = at.saturating_add(2),
                 b'\'' => {
@@ -1160,33 +1274,52 @@ fn matching_delimited(
                     if closes.too_deep(stack.len() + 1) {
                         return (None, end);
                     }
-                    stack.push((Delimiter::Brace, Some(at)));
+                    let parent_in_operand = stack.len() <= op_until;
+                    let tracked = (record_nested
+                        && parent_in_operand
+                        && reserve(&mut closes.forms, at, end, closes.cache_limit))
+                    .then_some(at);
+                    stack.push((Delimiter::Brace, tracked));
                     at += 2;
                 }
                 b'$' if bytes.get(at + 1) == Some(&b'(') => {
                     if closes.too_deep(stack.len() + 1) {
                         return (None, end);
                     }
-                    stack.push((Delimiter::Paren, Some(at)));
+                    let parent_in_operand = stack.len() <= op_until;
+                    let tracked = (record_nested
+                        && parent_in_operand
+                        && reserve(&mut closes.forms, at, end, closes.cache_limit))
+                    .then_some(at);
+                    stack.push((Delimiter::Paren, tracked));
+                    if parent_in_operand {
+                        op_until = stack.len();
+                    }
                     at += 2;
                 }
                 b'(' if top(&stack) == Some(Delimiter::Paren) => {
                     if closes.too_deep(stack.len() + 1) {
                         return (None, end);
                     }
+                    let parent_in_operand = stack.len() <= op_until;
                     stack.push((Delimiter::Paren, None));
+                    if parent_in_operand {
+                        op_until = stack.len();
+                    }
                     at += 1;
                 }
                 b'}' if top(&stack) == Some(Delimiter::Brace) => {
                     if close_form(&mut stack, at, end, closes) {
                         return (Some(at), at);
                     }
+                    op_until = op_until.min(stack.len());
                     at += 1;
                 }
                 b')' if top(&stack) == Some(Delimiter::Paren) => {
                     if close_form(&mut stack, at, end, closes) {
                         return (Some(at), at);
                     }
+                    op_until = op_until.min(stack.len());
                     at += 1;
                 }
                 _ => at += 1,
@@ -1211,13 +1344,19 @@ fn matching_delimited(
 
 /// Skip the literal group of an escaped `\${` or `\$(` form whose opening
 /// delimiter, if any, is at `at`; returns where scanning resumes.
-fn skip_escaped_form(source: &str, at: usize, end: usize, closes: &mut Closes) -> usize {
+fn skip_escaped_form(
+    source: &str,
+    at: usize,
+    end: usize,
+    record_nested: bool,
+    closes: &mut Closes,
+) -> usize {
     let (open, close) = match source.as_bytes().get(at) {
         Some(b'{') => (b'{', b'}'),
         Some(b'(') => (b'(', b')'),
         _ => return at,
     };
-    let (found, end) = literal_balanced(source, at + 1, end, open, close, closes);
+    let (found, end) = literal_balanced(source, at + 1, end, open, close, record_nested, closes);
     found.map_or(end, |found| found + 1)
 }
 

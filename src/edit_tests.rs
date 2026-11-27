@@ -2826,3 +2826,76 @@ fn rename_with_references_with_options_enforces_max_references() {
         }
     }
 }
+
+#[test]
+fn edit_options_defer_key_comment_allocs_and_prevent_cache_starvation() {
+    use crate::{EditOptions, LimitKind};
+
+    // Variable-name `${}` prefix and LIFO nested forms stay linear under max_references.
+    let m = 400usize;
+    let payload = "a".repeat(2_000);
+    let starvation = format!(
+        "A=1\nX=${{{}:-{}{}{}}}\n",
+        "${}".repeat(m),
+        "${A:-".repeat(m - 1),
+        payload,
+        "}".repeat(m - 1),
+    );
+    let doc = crate::parse_strict(&starvation).unwrap();
+    let renamed = doc
+        .rename_with_references_with_options("A", "B", EditOptions::new().with_max_references(m))
+        .unwrap();
+    assert!(renamed.as_str().starts_with("B=1\n"));
+    assert!(matches!(
+        doc.rename_with_references_with_options(
+            "A",
+            "B",
+            EditOptions::new().with_max_references(m - 1)
+        ),
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::References
+    ));
+
+    // Deferred quoted-insert, rename, and exact multiline comment byte caps.
+    let py_doc = crate::parse_strict_with("A=1\n", crate::Dialect::PYTHON_DOTENV).unwrap();
+    let big_quoted_key = format!("A {}", "x".repeat(256));
+    assert!(matches!(
+        py_doc.insert_with_options(
+            &big_quoted_key,
+            Some("1"),
+            InsertPosition::End,
+            EditOptions::new().with_max_output_bytes(32),
+        ),
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::OutputBytes
+    ));
+    assert!(matches!(
+        py_doc.rename_with_options(
+            "A",
+            &big_quoted_key,
+            EditOptions::new().with_max_output_bytes(32),
+        ),
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::OutputBytes
+    ));
+    let many_lines = format!("M='{}'\n", "\n".repeat(30));
+    let multi_doc = crate::parse_strict(&many_lines).unwrap();
+    let expected_comment_len = many_lines.len() + 2 * 31;
+    assert_eq!(
+        multi_doc
+            .comment_with_options(
+                "M",
+                EditOptions::new().with_max_output_bytes(expected_comment_len)
+            )
+            .unwrap()
+            .as_str()
+            .len(),
+        expected_comment_len
+    );
+    assert!(matches!(
+        multi_doc.comment_with_options(
+            "M",
+            EditOptions::new().with_max_output_bytes(expected_comment_len - 1)
+        ),
+        Err(EditError::Limit(limit))
+            if limit.kind() == LimitKind::OutputBytes
+                && limit.observed() == expected_comment_len
+    ));
+}

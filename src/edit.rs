@@ -560,18 +560,26 @@ impl fmt::Display for EditError {
 }
 impl Error for EditError {}
 
-fn key_token(key: &str, dialect: Dialect) -> Option<Cow<'_, str>> {
+fn validate_key_token(key: &str, dialect: Dialect) -> Option<bool> {
     if crate::parser::valid_key_in(key, dialect) && !(dialect.quoted_keys && key.starts_with('\''))
     {
-        Some(Cow::Borrowed(key))
+        Some(false)
     } else if dialect.quoted_keys && !key.is_empty() && !key.contains('\'') {
+        Some(true)
+    } else {
+        None
+    }
+}
+
+fn key_token(key: &str, dialect: Dialect) -> Option<Cow<'_, str>> {
+    if validate_key_token(key, dialect)? {
         let mut token = String::with_capacity(key.len() + 2);
         token.push('\'');
         token.push_str(key);
         token.push('\'');
         Some(Cow::Owned(token))
     } else {
-        None
+        Some(Cow::Borrowed(key))
     }
 }
 
@@ -741,7 +749,6 @@ fn edit_key(edit: &TextEdit) -> (usize, usize) {
 struct Insertion<'a> {
     offset: usize,
     desired: Desired<'a>,
-    key_token: Cow<'a, str>,
     leading: String,
     sorted: bool,
 }
@@ -753,18 +760,12 @@ impl<'a> Insertion<'a> {
         ending: &str,
     ) -> Result<(Range<usize>, Desired<'a>), EditError> {
         let start = text.len();
-        text.push_str(&self.key_token);
+        let key_token = key_token(self.desired.key, dialect).ok_or(EditError::InvalidKey)?;
+        text.push_str(&key_token);
         if let Some(value) = self.desired.value {
-            let (token, quote) = encode_native(
-                value,
-                Quote::None,
-                dialect,
-                &self.key_token,
-                ending,
-                true,
-                false,
-            )
-            .map_err(|_| EditError::Unencodable)?;
+            let (token, quote) =
+                encode_native(value, Quote::None, dialect, &key_token, ending, true, false)
+                    .map_err(|_| EditError::Unencodable)?;
             text.push('=');
             text.push_str(&token);
             self.desired.quote = quote;
@@ -1165,8 +1166,26 @@ fn whole(plan: &mut ItemPlan<'_>, action: Whole) -> Result<(), EditError> {
     plan.whole = action;
     Ok(())
 }
+fn comment_text_len(text: &str, breaks: crate::LineBreaks) -> usize {
+    let mut extra = 0usize;
+    let mut start = 0;
+    for (index, byte) in text.bytes().enumerate() {
+        if byte == b'\n'
+            || (breaks == crate::LineBreaks::Universal
+                && byte == b'\r'
+                && text.as_bytes().get(index + 1) != Some(&b'\n'))
+        {
+            extra = extra.saturating_add(2);
+            start = index + 1;
+        }
+    }
+    if start < text.len() {
+        extra = extra.saturating_add(2);
+    }
+    text.len().saturating_add(extra)
+}
 fn comment_text(text: &str, breaks: crate::LineBreaks) -> String {
-    let mut out = String::with_capacity(text.len() + 2);
+    let mut out = String::with_capacity(comment_text_len(text, breaks));
     let mut start = 0;
     for (index, byte) in text.bytes().enumerate() {
         if byte == b'\n'
@@ -1275,11 +1294,7 @@ fn check_operation_byte_budget(
                 .len()
                 .saturating_add(value.map_or(0, |text| text.len().saturating_add(1))),
             Edit::Comment { item } => document.item(item).map_or(0, |source_item| {
-                if source_item.raw().is_empty() {
-                    0
-                } else {
-                    source_item.raw().len().saturating_add(2)
-                }
+                comment_text_len(source_item.raw(), document.dialect().line_breaks)
             }),
             Edit::Remove { .. } | Edit::Uncomment { .. } | Edit::Export { .. } => 0,
         };
@@ -1472,6 +1487,7 @@ impl Document<'_> {
         let mut edits = Vec::new();
         let mut insertions = Vec::new();
         let mut comments = Vec::new();
+        let mut renames = Vec::new();
         let mut end_insertions = vec![0; self.items.len()];
         for operation in operations {
             self.plan_operation(
@@ -1480,10 +1496,23 @@ impl Document<'_> {
                 &mut edits,
                 &mut insertions,
                 &mut comments,
+                &mut renames,
                 &keys,
             )?;
         }
         check_operation_byte_budget(self, operations, options)?;
+        for (range, key, quote) in renames {
+            let replacement = if quote {
+                let mut token = String::with_capacity(key.len() + 2);
+                token.push('\'');
+                token.push_str(key);
+                token.push('\'');
+                token
+            } else {
+                key.to_string()
+            };
+            edits.push(TextEdit { range, replacement });
+        }
         for item in comments {
             let source_item = self.item(item).ok_or(EditError::InvalidTarget)?;
             edits.push(TextEdit {
@@ -1518,6 +1547,7 @@ impl Document<'_> {
         Ok(VerifiedEdits { edits, output })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn plan_operation<'a>(
         &'a self,
         operation: Edit<'a>,
@@ -1525,13 +1555,14 @@ impl Document<'_> {
         edits: &mut Vec<TextEdit>,
         insertions: &mut Vec<Insertion<'a>>,
         comments: &mut Vec<usize>,
+        renames: &mut Vec<(Range<usize>, &'a str, bool)>,
         keys: &KeyLookup<'a>,
     ) -> Result<(), EditError> {
         match operation {
             Edit::Set { entry, value } => {
                 self.plan_set(entry, value, plans)?;
             }
-            Edit::Rename { entry, key } => self.plan_rename(entry, key, plans, edits)?,
+            Edit::Rename { entry, key } => self.plan_rename(entry, key, plans, renames)?,
             Edit::Export { entry, enabled } => self.plan_export(entry, enabled, plans, edits)?,
             Edit::Remove { item } => {
                 let source_item = self.item(item).ok_or(EditError::InvalidTarget)?;
@@ -1896,23 +1927,13 @@ impl Document<'_> {
         id: usize,
         key: &'a str,
         plans: &mut [ItemPlan<'a>],
-        edits: &mut Vec<TextEdit>,
+        renames: &mut Vec<(Range<usize>, &'a str, bool)>,
     ) -> Result<(), EditError> {
         let entry = self.entry(id).ok_or(EditError::InvalidTarget)?;
         let plan = &mut plans[entry.item_id()];
         claim(plan, 2)?;
-        let (range, replacement) =
-            if entry.key_span() != entry.tokens().key && !key.is_empty() && !key.contains('\'') {
-                (entry.key_span(), key.to_string())
-            } else {
-                (
-                    entry.tokens().key.clone(),
-                    key_token(key, self.dialect())
-                        .ok_or(EditError::InvalidKey)?
-                        .into_owned(),
-                )
-            };
-        edits.push(TextEdit { range, replacement });
+        let (range, _, quote) = declaration_rename_spec(entry, key, self.dialect())?;
+        renames.push((range, key, quote));
         if let Some(desired) = &mut plan.desired {
             desired.key = key;
         }
@@ -1960,7 +1981,7 @@ impl Document<'_> {
         insertions: &mut Vec<Insertion<'a>>,
         keys: &KeyLookup<'_>,
     ) -> Result<(), EditError> {
-        let key_token = key_token(key, self.dialect()).ok_or(EditError::InvalidKey)?;
+        let _ = validate_key_token(key, self.dialect()).ok_or(EditError::InvalidKey)?;
         let offset = match position {
             InsertPosition::End => self.source().len(),
             InsertPosition::AfterKey(key) => keys.unique(key)?.line_span().end,
@@ -1980,7 +2001,6 @@ impl Document<'_> {
                 quote: Quote::None,
                 exported: false,
             },
-            key_token,
             leading: String::new(),
             sorted: matches!(position, InsertPosition::Sorted),
         });

@@ -986,7 +986,7 @@ fn validate_local_out(path: &str) -> Result<()> {
         if dir.as_os_str().is_empty() {
             break;
         }
-        if dir.exists() {
+        if fs::symlink_metadata(dir).is_ok() {
             if !dir.is_dir() {
                 return Err(format!(
                     "--out parent path is not a directory: {}",
@@ -2257,6 +2257,14 @@ mod tests {
         fs::write(&regular_file, "x").unwrap();
         let bad_ancestor = regular_file.join("nested").join("out.jsonl");
         assert!(validate_local_out(&bad_ancestor.to_string_lossy()).is_err());
+
+        #[cfg(unix)]
+        {
+            let dangling = dir.0.join("dangling-ancestor");
+            std::os::unix::fs::symlink(dir.0.join("missing-target"), &dangling).unwrap();
+            let bad_symlink_ancestor = dangling.join("nested").join("out.jsonl");
+            assert!(validate_local_out(&bad_symlink_ancestor.to_string_lossy()).is_err());
+        }
 
         // Exclusive temp file creation avoids collisions and cleans up on drop.
         let guard = create_temp_file(&dir.0, "unit", b"A=1\n").unwrap();
