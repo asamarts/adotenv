@@ -510,73 +510,105 @@ fn is_escaped_dollar(value_prefix: &str, dollar: usize, quote: Quote, dialect: D
 
 /// Tracks whether the end of `before` sits inside an unclosed `${...` or
 /// `$(...` container so backslash escape rules match `adotenv::references`.
+#[allow(clippy::too_many_lines)]
 fn reference_nesting_at(before: &str) -> (bool, bool) {
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum Container {
         Braced,
-        Command,
-        Paren,
+        Command(Option<u8>),
+        Paren(Option<u8>),
     }
     let bytes = before.as_bytes();
     let mut stack: Vec<Container> = Vec::new();
-    let mut quote: Option<u8> = None;
     let mut index = 0;
     while index < bytes.len() {
-        if stack.last() == Some(&Container::Braced) {
-            match bytes[index] {
-                b'$' if bytes.get(index + 1) == Some(&b'{') => {
-                    stack.push(Container::Braced);
-                    index += 2;
+        match stack.last_mut() {
+            Some(Container::Braced) => {
+                match bytes[index] {
+                    b'$' if bytes.get(index + 1) == Some(&b'{') => {
+                        stack.push(Container::Braced);
+                        index += 2;
+                    }
+                    b'$' if bytes.get(index + 1) == Some(&b'(') => {
+                        stack.push(Container::Command(None));
+                        index += 2;
+                    }
+                    b'}' => {
+                        stack.pop();
+                        index += 1;
+                    }
+                    _ => index += 1,
                 }
-                b'$' if bytes.get(index + 1) == Some(&b'(') => {
-                    stack.push(Container::Command);
-                    index += 2;
-                }
-                b'}' => {
-                    stack.pop();
-                    index += 1;
-                }
-                _ => index += 1,
+                continue;
             }
-            continue;
-        }
-        if matches!(stack.last(), Some(Container::Command | Container::Paren)) {
-            match quote {
+            Some(Container::Command(quote) | Container::Paren(quote)) => match *quote {
                 Some(b'\'') => {
                     if bytes[index] == b'\'' {
-                        quote = None;
+                        *quote = None;
+                        index += 1;
+                    } else if bytes[index] == b'$' && bytes.get(index + 1) == Some(&b'{') {
+                        stack.push(Container::Braced);
+                        index += 2;
+                    } else if bytes[index] == b'$' && bytes.get(index + 1) == Some(&b'(') {
+                        stack.push(Container::Command(None));
+                        index += 2;
+                    } else {
+                        index += 1;
                     }
-                    index += 1;
                     continue;
                 }
                 Some(_) => {
-                    if bytes[index] == b'\\' {
+                    if bytes[index] == b'\\' && matches!(bytes.get(index + 1), Some(b'\\' | b'"')) {
                         index = index.saturating_add(2);
+                    } else if bytes[index] == b'"' {
+                        *quote = None;
+                        index += 1;
+                    } else if bytes[index] == b'$' && bytes.get(index + 1) == Some(&b'{') {
+                        stack.push(Container::Braced);
+                        index += 2;
+                    } else if bytes[index] == b'$' && bytes.get(index + 1) == Some(&b'(') {
+                        stack.push(Container::Command(None));
+                        index += 2;
                     } else {
-                        if bytes[index] == b'"' {
-                            quote = None;
-                        }
                         index += 1;
                     }
                     continue;
                 }
                 None => match bytes[index] {
+                    b'\\' if bytes.get(index + 1) == Some(&b'$') => {
+                        if let Some((open, close, container)) = match bytes.get(index + 2) {
+                            Some(b'{') => Some((b'{', b'}', Container::Braced)),
+                            Some(b'(') => Some((b'(', b')', Container::Command(None))),
+                            _ => None,
+                        } {
+                            if let Some(closed) = find_literal_close(bytes, index + 3, open, close)
+                            {
+                                index = closed + 1;
+                            } else {
+                                stack.push(container);
+                                index += 3;
+                            }
+                        } else {
+                            index = index.saturating_add(2);
+                        }
+                        continue;
+                    }
                     b'\\' => {
                         index = index.saturating_add(2);
                         continue;
                     }
                     b'\'' => {
-                        quote = Some(b'\'');
+                        *quote = Some(b'\'');
                         index += 1;
                         continue;
                     }
                     b'"' => {
-                        quote = Some(b'"');
+                        *quote = Some(b'"');
                         index += 1;
                         continue;
                     }
                     b'(' => {
-                        stack.push(Container::Paren);
+                        stack.push(Container::Paren(None));
                         index += 1;
                         continue;
                     }
@@ -587,7 +619,8 @@ fn reference_nesting_at(before: &str) -> (bool, bool) {
                     }
                     _ => {}
                 },
-            }
+            },
+            None => {}
         }
         match bytes[index] {
             b'$' if bytes.get(index + 1) == Some(&b'{') => {
@@ -595,18 +628,70 @@ fn reference_nesting_at(before: &str) -> (bool, bool) {
                 index += 2;
             }
             b'$' if bytes.get(index + 1) == Some(&b'(') => {
-                stack.push(Container::Command);
+                stack.push(Container::Command(None));
                 index += 2;
             }
             _ => index += 1,
         }
     }
-    let in_command = stack
-        .iter()
-        .rev()
-        .find(|container| **container != Container::Paren)
-        == Some(&Container::Command);
+    let in_command = matches!(
+        stack
+            .iter()
+            .rev()
+            .find(|container| !matches!(container, Container::Paren(_))),
+        Some(Container::Command(_))
+    );
     (stack.last() == Some(&Container::Braced), in_command)
+}
+
+fn find_literal_close(bytes: &[u8], start: usize, open: u8, close: u8) -> Option<usize> {
+    let mut depth = 1usize;
+    let mut quote = None;
+    let mut at = start;
+    while at < bytes.len() {
+        match quote {
+            Some(b'\'') => {
+                if bytes[at] == b'\'' {
+                    quote = None;
+                }
+                at += 1;
+            }
+            Some(_) => {
+                if bytes[at] == b'\\' {
+                    at = at.saturating_add(2);
+                } else {
+                    if bytes[at] == b'"' {
+                        quote = None;
+                    }
+                    at += 1;
+                }
+            }
+            None => match bytes[at] {
+                b'\\' => at = at.saturating_add(2),
+                b'\'' => {
+                    quote = Some(b'\'');
+                    at += 1;
+                }
+                b'"' => {
+                    quote = Some(b'"');
+                    at += 1;
+                }
+                byte if byte == open => {
+                    depth += 1;
+                    at += 1;
+                }
+                byte if byte == close => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(at);
+                    }
+                    at += 1;
+                }
+                _ => at += 1,
+            },
+        }
+    }
+    None
 }
 
 #[derive(Debug)]
@@ -742,8 +827,15 @@ impl CompletionContext {
                         };
                     }
                 }
-                Phase::SingleValue => match dialect.single_escapes {
-                    SingleEscapes::QuoteAndBackslash => {
+                Phase::SingleValue => {
+                    if dialect.syntax == Syntax::Node {
+                        if character == '\'' {
+                            close_index = index;
+                            phase = Phase::AfterQuotedValue;
+                        }
+                    } else if dialect.syntax == Syntax::Python
+                        || dialect.single_escapes == SingleEscapes::QuoteAndBackslash
+                    {
                         if escaped {
                             escaped = false;
                         } else if character == '\\' {
@@ -752,8 +844,7 @@ impl CompletionContext {
                             close_index = index;
                             phase = Phase::AfterQuotedValue;
                         }
-                    }
-                    SingleEscapes::Quote => {
+                    } else if dialect.single_escapes == SingleEscapes::Quote {
                         if character == '\\'
                             && chars.peek().is_some_and(|(_, next)| {
                                 *next == '\''
@@ -765,14 +856,11 @@ impl CompletionContext {
                             close_index = index;
                             phase = Phase::AfterQuotedValue;
                         }
+                    } else if character == '\'' {
+                        close_index = index;
+                        phase = Phase::AfterQuotedValue;
                     }
-                    _ => {
-                        if character == '\'' {
-                            close_index = index;
-                            phase = Phase::AfterQuotedValue;
-                        }
-                    }
-                },
+                }
                 Phase::DoubleValue => {
                     if escaped {
                         escaped = false;

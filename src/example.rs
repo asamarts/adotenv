@@ -26,10 +26,12 @@ impl Document<'_> {
     /// an empty value would change how the line reads, the value becomes `""`
     /// instead of nothing: when the separator is `:`, when the value spans
     /// lines, when another statement follows on the same line, or when the
-    /// entry has an inline comment in a dialect that lets comments follow
-    /// quotes (Node, Python and Compose). Raw-value dialects such as Docker
-    /// never get a placeholder. In a custom dialect where an inline comment
-    /// cannot follow an empty value, the comment moves to its own line.
+    /// entry has an inline comment that requires a quoted placeholder (dialects
+    /// that let comments follow quotes such as Node, Python and Compose, or
+    /// custom dialects where a comment immediately follows a quote without
+    /// unquoted-comment spacing). Raw-value dialects such as Docker never get a
+    /// placeholder. In a custom dialect where an inline comment cannot follow
+    /// an empty value, the comment moves to its own line.
     ///
     /// Invalid statements, ignored statements, entries with an empty key, and
     /// bare text following a closing quote on the same physical line (under
@@ -177,7 +179,15 @@ fn push_assigned_example(
         .bytes()
         .any(|byte| matches!(byte, b'\n' | b'\r'));
     let same_line_next = item.line_ending() == crate::LineEnding::None && has_next;
-    let quoted_comment = entry.inline_comment().is_some() && dialect.quoted_comments;
+    let move_comment = entry.inline_comment().is_some()
+        && dialect.inline_comments == InlineComments::Space
+        && !dialect.quoted_comments;
+    let quoted_comment = entry.inline_comment().is_some()
+        && !move_comment
+        && (dialect.quoted_comments
+            || dialect.inline_comments == InlineComments::None
+            || (tokens.trailing_space.is_empty()
+                && dialect.inline_comments != InlineComments::AnyHash));
     if !dialect.raw_values
         && (colon_separator || multiline_value || same_line_next || quoted_comment)
     {
@@ -185,7 +195,7 @@ fn push_assigned_example(
     }
     let ending = item.line_ending();
     if let Some(comment) = &tokens.inline_comment {
-        if dialect.inline_comments == InlineComments::Space && !dialect.quoted_comments {
+        if move_comment {
             // This custom grammar cannot attach a comment to an empty value;
             // retain it on the next line.
             let break_str = if ending == crate::LineEnding::None

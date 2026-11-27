@@ -288,4 +288,30 @@ fn compose_post_quote_bare_text_becomes_a_comment_while_assignments_stay() {
         assert_eq!(after.unique("A").unwrap().value(), Some(""));
         assert_eq!(after.unique("BARE").unwrap().state(), AssignmentState::Bare);
     }
+
+    // Custom QuotedTail::NextStatement with quoted_comments: false must keep
+    // inline comments as comments instead of turning them into non-empty values.
+    let portable_next = Dialect::PORTABLE.with_quoted_tail(crate::QuotedTail::NextStatement);
+    let no_inline_next = portable_next.with_inline_comments(crate::InlineComments::None);
+    let space_no_quoted = portable_next.with_inline_comments(crate::InlineComments::Space);
+    for (dialect, source, expected) in [
+        (portable_next, "A=\"secret\"#note\n", "A=\"\"#note\n"),
+        (portable_next, "A=\"secret\" #note\n", "A= #note\n"),
+        (no_inline_next, "A=\"secret\"#note\n", "A=\"\"#note\n"),
+        (no_inline_next, "A=\"secret\" #note\n", "A=\"\" #note\n"),
+        (space_no_quoted, "A=\"secret\"#note\n", "A=\n#note\n"),
+    ] {
+        let (doc, _) = parse_with(source, dialect);
+        let example = doc.example();
+        assert_eq!(example, expected, "{dialect:?} {source:?}");
+        assert!(!example.contains("secret"));
+        let (after, _) = parse_with(&example, dialect);
+        let entry = after.unique("A").unwrap();
+        assert_eq!(
+            entry.state(),
+            AssignmentState::Empty,
+            "{dialect:?} {example:?}"
+        );
+        assert_eq!(entry.value(), Some(""));
+    }
 }

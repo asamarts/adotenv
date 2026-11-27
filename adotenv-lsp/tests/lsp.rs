@@ -1352,6 +1352,45 @@ fn completion_matches_dialect_comments_node_quotes_and_unclosed_recovery() {
         ),
         0
     );
+    // Escaped `\${a)}` inside `$(...)` does not close command nesting, so `\$H` stays escaped,
+    // while unescaped `$H` still completes.
+    assert_eq!(
+        items_len(
+            "HOST=1\nURL=$(echo \\${a)} \\$H)\n",
+            position(1, 21),
+            Dialect::PORTABLE
+        ),
+        0
+    );
+    assert_eq!(
+        items_len(
+            "HOST=1\nURL=$(echo \\${a)} $H)\n",
+            position(1, 20),
+            Dialect::PORTABLE
+        ),
+        2
+    );
+    // Braced `${A:-\$H}` inside double quotes inside `$(...)` is unescaped.
+    assert_eq!(
+        items_len(
+            "HOST=1\nURL=$(echo \"${A:-\\$H}\")\n",
+            position(1, 20),
+            Dialect::PORTABLE
+        ),
+        2
+    );
+    // Python single quotes escape `\\` before closing `'`, and Node single quotes
+    // ignore `single_escapes` just like core parsing.
+    let py_error_tail = Dialect::PYTHON_DOTENV.with_quoted_tail(adotenv::QuotedTail::Error);
+    assert_eq!(
+        items_len("HOST=1\nA='\\\\' $H", position(1, 9), py_error_tail),
+        1
+    );
+    let node_custom_sq = Dialect::NODE_DOTENV.with_single_escapes(adotenv::SingleEscapes::Quote);
+    assert_eq!(
+        items_len("HOST=1\nA='\\' $H\n", position(1, 8), node_custom_sq),
+        2
+    );
     // Custom non-Node dialect with backticks treats `\`` as escaped inside backticks.
     let custom_backtick = Dialect::PORTABLE.with_backticks(true);
     assert_eq!(

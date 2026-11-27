@@ -1013,7 +1013,7 @@ fn effective_last_byte_before(
                 if let Some(&byte) = edit.replacement.as_bytes().last() {
                     return Some(byte);
                 }
-                if edit.range.start <= start_bound {
+                if edit.range.start < start_bound {
                     return None;
                 }
                 offset = edit.range.start;
@@ -1022,6 +1022,17 @@ fn effective_last_byte_before(
             }
         }
         return Some(source.as_bytes()[offset - 1]);
+    }
+    while index > 0 {
+        let edit = &sorted_edits[index - 1];
+        if edit.range.start == start_bound && edit.range.end == start_bound {
+            if let Some(&byte) = edit.replacement.as_bytes().last() {
+                return Some(byte);
+            }
+            index -= 1;
+            continue;
+        }
+        break;
     }
     None
 }
@@ -1389,6 +1400,11 @@ mod tests {
         ];
         assert_eq!(
             effective_last_byte_before(source, &insert_then_delete, 0, 4),
+            Some(b'"')
+        );
+        // Zero-length insertion right at `start_bound` followed by deletion from `start_bound`.
+        assert_eq!(
+            effective_last_byte_before(source, &insert_then_delete, 2, 4),
             Some(b'"')
         );
     }
