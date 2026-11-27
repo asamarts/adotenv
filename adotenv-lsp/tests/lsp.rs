@@ -2017,10 +2017,16 @@ fn code_actions_cap_quickfixes_and_cover_bom_limits_and_filter_edge_cases() {
 
 #[test]
 fn hover_inline_comment_boundary_and_linemap_edge_cases() {
-    // Hover at exact end (col 21) and clamped past EOL (col 50) of inline comment returns None.
+    // Hover at exact end (col 21) and clamped past EOL (col 50) of inline comment returns None,
+    // and hovering the empty trailing line `(1, 0)` after any line ending also returns None.
     let source = "HOST=localhost # note\n";
     assert!(hover(source, position(0, 21), &opts()).is_none());
     assert!(hover(source, position(0, 50), &opts()).is_none());
+    assert!(hover(source, position(1, 0), &opts()).is_none());
+    assert!(hover("HOST=secret\n", position(1, 0), &opts()).is_none());
+    assert!(hover("HOST=secret\r\n", position(1, 0), &opts()).is_none());
+    assert!(hover("HOST=secret\r", position(1, 0), &opts()).is_none());
+    assert!(hover("HOST=secret", position(0, 11), &opts()).is_some());
 
     // Inverted range past EOL returns None instead of clamping both endpoints to EOL.
     assert_eq!(

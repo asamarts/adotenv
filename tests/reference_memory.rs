@@ -4,7 +4,10 @@
 //! measurements serialize on a mutex.
 #![cfg(target_os = "linux")]
 
-use adotenv::{parse, parse_with, DiagnosticCode, Dialect, ExpandOptions, ResolveError};
+use adotenv::{
+    parse, parse_with, DiagnosticCode, Dialect, EditError, EditOptions, ExpandOptions, LimitKind,
+    ResolveError,
+};
 
 /// The high-water mark belongs to the whole process, so only one measurement
 /// may run at a time.
@@ -157,4 +160,37 @@ fn resolution_depth_budget_bounds_delimiter_scan() {
             "the delimiter scan grew the resident set by {growth} bytes"
         );
     }
+}
+
+#[test]
+fn rename_with_references_verification_bounds_delimiter_scan() {
+    const LIMIT: usize = 8 << 20;
+    let _guard = MEMORY_LOCK.lock().unwrap();
+    // In Python dotenv, `'X"'` is a valid quoted key. Rewriting `$A` to `${X"}`
+    // inside `$(echo "$A" )` toggles quoting in the rewritten output and exposes
+    // 100,000 trailing `(` delimiters; verification must still enforce
+    // `EditOptions::max_references`.
+    let source = format!(
+        "A=1\nB=$(echo \"$A\" ) \" {}{}\n",
+        "(".repeat(100_000),
+        ")".repeat(100_000)
+    );
+    let (doc, _) = parse_with(&source, Dialect::PYTHON_DOTENV);
+    let growth = peak_growth(|| {
+        let err = doc
+            .rename_with_references_with_options(
+                "A",
+                "X\"",
+                EditOptions::new().with_max_references(2),
+            )
+            .unwrap_err();
+        assert!(
+            matches!(err, EditError::Limit(limit) if limit.kind() == LimitKind::References),
+            "expected references limit error, got {err:?}"
+        );
+    });
+    assert!(
+        growth < LIMIT,
+        "rename verification delimiter scan grew the resident set by {growth} bytes"
+    );
 }

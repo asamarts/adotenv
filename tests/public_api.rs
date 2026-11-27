@@ -207,3 +207,151 @@ fn public_1_6_api_end_to_end_flow() {
     .unwrap_err();
     assert_eq!(entries_limited.limit().unwrap().kind(), LimitKind::Lines);
 }
+
+#[test]
+fn public_1_8_api_end_to_end_flow() {
+    use adotenv::{
+        parse_strict, BomPolicy, ColumnEncoding, EditError, EditOptions, EqualsSpacing,
+        FormatOptions, LimitKind, LineIndex, ParseOptions, Position,
+    };
+
+    // Bounded edit, format, and sort helpers + LimitKind::References / max_references.
+    let doc = parse_strict("B=2\nA=1\nC=$A\n").unwrap();
+    let opts = EditOptions::new()
+        .with_max_output_bytes(64)
+        .with_max_output_lines(4)
+        .with_max_references(4)
+        .with_parse_limits(ParseOptions::new().with_max_lines(4));
+
+    let commented = doc.comment_with_options("B", opts).unwrap();
+    assert_eq!(commented.as_str(), "# B=2\nA=1\nC=$A\n");
+    let uncommented = parse_strict(commented.as_str())
+        .unwrap()
+        .uncomment_with_options(0, opts)
+        .unwrap();
+    assert_eq!(uncommented.as_str(), "B=2\nA=1\nC=$A\n");
+
+    let exported = doc.set_export_with_options("A", true, opts).unwrap();
+    assert_eq!(exported.as_str(), "B=2\nexport A=1\nC=$A\n");
+
+    let formatted = doc
+        .format_with_options(
+            &FormatOptions::default().with_equals_spacing(EqualsSpacing::Spaces),
+            opts,
+        )
+        .unwrap();
+    assert_eq!(formatted.as_str(), "B = 2\nA = 1\nC = $A\n");
+    let fmt_err = doc
+        .format_with_options(
+            &FormatOptions::default().with_equals_spacing(EqualsSpacing::Spaces),
+            EditOptions::new().with_max_output_bytes(6),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        fmt_err,
+        EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes
+    ));
+
+    let sorted = doc.sort_with_options(opts).unwrap();
+    assert_eq!(sorted.as_str(), "A=1\nB=2\nC=$A\n");
+    let sort_ref_err = doc
+        .sort_with_options(EditOptions::new().with_max_references(0))
+        .unwrap_err();
+    assert!(matches!(
+        sort_ref_err,
+        EditError::Limit(limit) if limit.kind() == LimitKind::References
+    ));
+
+    let rename_ref_err = doc
+        .rename_with_references_with_options("A", "D", EditOptions::new().with_max_references(0))
+        .unwrap_err();
+    assert!(matches!(
+        rename_ref_err,
+        EditError::Limit(limit) if limit.kind() == LimitKind::References
+    ));
+
+    // LineIndex::with_bom_policy across all four BomPolicy variants.
+    let multi_bom = "\u{feff}\u{feff}A=1\n";
+    let strip = LineIndex::new(multi_bom).with_bom_policy(BomPolicy::Strip);
+    let strip_all = LineIndex::new(multi_bom).with_bom_policy(BomPolicy::StripAll);
+    let keep = LineIndex::new(multi_bom).with_bom_policy(BomPolicy::Keep);
+    let err_policy = LineIndex::new(multi_bom).with_bom_policy(BomPolicy::Error);
+    assert_eq!(
+        strip.to_position(6, ColumnEncoding::Scalar).unwrap(),
+        Position { line: 0, column: 1 }
+    );
+    assert_eq!(
+        strip_all.to_position(6, ColumnEncoding::Scalar).unwrap(),
+        Position { line: 0, column: 0 }
+    );
+    assert_eq!(
+        keep.to_position(6, ColumnEncoding::Scalar).unwrap(),
+        Position { line: 0, column: 2 }
+    );
+    assert_eq!(
+        err_policy.to_position(6, ColumnEncoding::Scalar).unwrap(),
+        Position { line: 0, column: 2 }
+    );
+}
+
+#[cfg(feature = "load")]
+#[test]
+fn public_1_8_compact_entry_disk_loaders_end_to_end() {
+    use std::{env, fs, time::SystemTime};
+
+    use adotenv::{
+        load::{
+            load_cascade_entries_compact, load_cascade_entries_compact_with,
+            load_cascade_entries_compact_with_options, load_entries_compact,
+            load_entries_compact_with_options, LoadOptions,
+        },
+        AssignmentState, Dialect,
+    };
+
+    let unique = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = env::temp_dir().join(format!("adotenv-public-1-8-{unique}"));
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join(".env"), "PORT=3000\nBASE_ONLY=yes\n").unwrap();
+    fs::write(dir.join(".env.local"), "PORT=8080\nPORT\nBARE_LOCAL\n").unwrap();
+
+    let single = load_entries_compact([dir.join(".env.local")], Dialect::PORTABLE).unwrap();
+    assert_eq!(single.get("PORT"), Some(None));
+    assert_eq!(single.get_state("BARE_LOCAL"), Some(AssignmentState::Bare));
+
+    let single_opts =
+        load_entries_compact_with_options([dir.join(".env")], LoadOptions::new(Dialect::PORTABLE))
+            .unwrap();
+    assert_eq!(single_opts.get_value("PORT"), Some("3000"));
+
+    // Cascade merge preserves earlier assigned value when a later file declares a bare key.
+    let cascade = load_cascade_entries_compact(&dir, "").unwrap();
+    assert_eq!(cascade.get("PORT"), Some(Some("3000")));
+    assert_eq!(cascade.get("BASE_ONLY"), Some(Some("yes")));
+    assert_eq!(cascade.get("BARE_LOCAL"), Some(None));
+
+    let cascade_with = load_cascade_entries_compact_with(&dir, "", Dialect::PORTABLE).unwrap();
+    assert_eq!(cascade_with.get("PORT"), Some(Some("3000")));
+
+    let cascade_opts =
+        load_cascade_entries_compact_with_options(&dir, "", LoadOptions::new(Dialect::PORTABLE))
+            .unwrap();
+    assert_eq!(cascade_opts.get("PORT"), Some(Some("3000")));
+
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn public_1_8_serde_non_string_scalar_map_keys() {
+    use std::collections::BTreeMap;
+
+    use adotenv::{parse_strict_with, Dialect};
+
+    let doc = parse_strict_with("80=http\n443=https\n", Dialect::NODE_DOTENV).unwrap();
+    let ports: BTreeMap<u16, String> = doc.deserialize().unwrap();
+    assert_eq!(ports.get(&80).map(String::as_str), Some("http"));
+    assert_eq!(ports.get(&443).map(String::as_str), Some("https"));
+}
