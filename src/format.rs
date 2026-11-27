@@ -1468,7 +1468,8 @@ mod tests {
         assert_eq!(culprits(&checks).into_iter().collect::<Vec<_>>(), [0]);
 
         // An unmatched item immediately after a matched item has `found_end: None`,
-        // not the previous item's end.
+        // not the previous item's end; and a failing item stops before a matched
+        // item starting exactly at `expected.end`.
         let longer = parse_strict("A=1\nB=2\n").unwrap();
         let shorter = parse_strict("A=1\n").unwrap();
         let gap_checks = check_items(&longer, &shorter, &[], &[], &[false, false], true);
@@ -1476,6 +1477,13 @@ mod tests {
         assert_eq!(gap_checks[0].found_end, Some(4));
         assert!(!gap_checks[1].same);
         assert_eq!(gap_checks[1].found_end, None);
+
+        let changed_first = parse_strict("A=9\nB=2\n").unwrap();
+        let boundary_checks = check_items(&longer, &changed_first, &[], &[], &[false, false], true);
+        assert!(!boundary_checks[0].same);
+        assert_eq!(boundary_checks[0].found_end, Some(4));
+        assert!(boundary_checks[1].same);
+        assert_eq!(boundary_checks[1].found_end, Some(8));
 
         // Even if an earlier non-overlapping item fails without edits of its
         // own, a removed blank line between it and a changed entry is skipped.
@@ -1486,16 +1494,18 @@ mod tests {
         ];
         assert_eq!(culprits(&synthetic).into_iter().collect::<Vec<_>>(), [0]);
 
-        // Extending `reach` with `expected.end` merges a failing item whose
-        // `found_end` is `None` with a zero-width/subsequent check inside its span.
+        // Extending `reach` with `expected.end` for a failing item merges a
+        // subsequent failing changed item inside its span instead of falling
+        // back to an earlier innocent changed item.
         let extended_reach = [
-            check(0..5, Some(8), false, false),
+            check(0..2, Some(2), true, true),
+            check(2..5, Some(8), false, false),
             check(5..12, None, false, false),
             check(10..12, None, false, true),
         ];
         assert_eq!(
             culprits(&extended_reach).into_iter().collect::<Vec<_>>(),
-            [2]
+            [3]
         );
     }
 }

@@ -596,5 +596,11 @@ mod tests {
         assert_eq!(straddle[0].found_end, Some(12));
         assert!(!straddle[1].same);
         assert_eq!(straddle[1].found_end, Some(12));
+
+        // A group starting exactly at `expected.end` does not overlap `0..4`.
+        let shifted = crate::parse("   \nB=2\n").0;
+        let boundary = check_groups(&two, &shifted, &[]);
+        assert!(!boundary[0].same);
+        assert_eq!(boundary[0].found_end, None);
     }
 }
