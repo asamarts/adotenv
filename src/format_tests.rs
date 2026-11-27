@@ -611,6 +611,16 @@ proptest! {
         let (doc, _) = parse_with(&source, dialect);
         if let Ok(formatted) = doc.format(&options) {
             let (after, _) = parse_with(formatted.as_str(), dialect);
+            if options.blank_lines == BlankLines::Collapse {
+                let adjacent_blanks = after
+                    .items()
+                    .zip(after.items().skip(1))
+                    .any(|(left, right)| {
+                        left.kind() == crate::ItemKind::Blank
+                            && right.kind() == crate::ItemKind::Blank
+                    });
+                prop_assert!(!adjacent_blanks);
+            }
             prop_assert_eq!(doc.entries().len(), after.entries().len());
             for (left, right) in doc.entries().zip(after.entries()) {
                 prop_assert_eq!(left.key(), right.key());
@@ -1038,6 +1048,16 @@ proptest! {
         let (doc, _) = parse_with(&source, dialect);
         if let Ok(formatted) = doc.format(&options) {
             let (after, _) = parse_with(formatted.as_str(), dialect);
+            if options.blank_lines == BlankLines::Collapse {
+                let adjacent_blanks = after
+                    .items()
+                    .zip(after.items().skip(1))
+                    .any(|(left, right)| {
+                        left.kind() == crate::ItemKind::Blank
+                            && right.kind() == crate::ItemKind::Blank
+                    });
+                prop_assert!(!adjacent_blanks);
+            }
             prop_assert_eq!(doc.entries().len(), after.entries().len());
             for (left, right) in doc.entries().zip(after.entries()) {
                 prop_assert_eq!(left.key(), right.key());
@@ -1055,4 +1075,77 @@ proptest! {
             );
         }
     }
+}
+
+#[test]
+fn blank_collapse_does_not_revert_under_split_line_limit_desync() {
+    // Regression from `fuzz (format)`: under Compose with `line_byte_limit(Some(16))`,
+    // spacing/requoting item 0 splits it across lines and swallows items 1..=4 across a
+    // collapsed blank run. Verification must blame only item 0 and preserve blank collapse.
+    let fuzz_source = "B=\" # note for B\nA='1'  \n  \t\nC=\"3\"D=\"4\" # d\n\n\nEA=\"EY=  BA=\"\" #commA = '9\0liind\"4edvalue ? =\"\" #commA = '9\0liinr B\nA='1'  \n  \t\nC=\"d\"   \x0e";
+    let opt = FormatOptions::default()
+        .with_equals_spacing(EqualsSpacing::Spaces)
+        .with_trim_trailing_whitespace(false)
+        .with_blank_lines(BlankLines::Collapse)
+        .with_quote_style(QuoteStyle::Single)
+        .with_final_newline(FinalNewline::Remove);
+    for dialect in [
+        Dialect::PORTABLE,
+        Dialect::NODE_DOTENV,
+        Dialect::PYTHON_DOTENV,
+        Dialect::COMPOSE,
+        Dialect::DOCKER_RAW,
+        Dialect::PORTABLE.with_line_byte_limit(Some(16)),
+        Dialect::PORTABLE
+            .with_line_breaks(crate::LineBreaks::Lf)
+            .with_line_byte_limit(Some(16)),
+        Dialect::COMPOSE.with_line_byte_limit(Some(16)),
+    ] {
+        let (doc, _) = parse_with(fuzz_source, dialect);
+        for options in [
+            opt,
+            FormatOptions::normalize_groups(),
+            FormatOptions::normalize_groups().with_quote_style(QuoteStyle::Double),
+            FormatOptions::normalize_groups().with_quote_style(QuoteStyle::Single),
+        ] {
+            let formatted = doc.format(&options).unwrap();
+            let (after, _) = parse_with(formatted.as_str(), dialect);
+            assert!(
+                !after
+                    .items()
+                    .zip(after.items().skip(1))
+                    .any(|(left, right)| {
+                        left.kind() == crate::ItemKind::Blank
+                            && right.kind() == crate::ItemKind::Blank
+                    }),
+                "adjacent blank lines remained for {dialect:?} {options:?}: {:?}",
+                formatted.as_str()
+            );
+            assert!(
+                after.format(&options).unwrap().is_empty(),
+                "not idempotent for {dialect:?} {options:?}: {:?}",
+                formatted.as_str()
+            );
+        }
+    }
+
+    // Exact minimized check under Compose `line_byte_limit(Some(16))`:
+    // item 0 keeps its original text, the blank run collapses to one `\n`,
+    // and later entries format cleanly.
+    let (compose_doc, _) = parse_with(fuzz_source, Dialect::COMPOSE.with_line_byte_limit(Some(16)));
+    let compose_fmt = compose_doc.format(&opt).unwrap();
+    assert_eq!(
+        compose_fmt.as_str(),
+        "B=\" # note for B\nA='1'  \n  \t\nC=\"3\"D=\"4\" # d\n\nEA=\"EY=  BA=\"\" #commA = '9\0liind\"4edvalue ? =\"\" #commA = '9\0liinr B\nA = '1'  \n  \t\nC = 'd'   \x0e"
+    );
+
+    // Portable unterminated quote + blank-line run + double-quote normalization:
+    // PORT's requote is skipped, while blank-line collapse is preserved.
+    let portable_source = "BROKEN=\"\n\n\nPORT='8080'\n";
+    let (portable_doc, _) = parse(portable_source);
+    let portable_opt = FormatOptions::normalize_groups().with_quote_style(QuoteStyle::Double);
+    let portable_fmt = portable_doc.format(&portable_opt).unwrap();
+    assert_eq!(portable_fmt.as_str(), "BROKEN=\"\n\nPORT='8080'\n");
+    let (portable_after, _) = parse(portable_fmt.as_str());
+    assert!(portable_after.format(&portable_opt).unwrap().is_empty());
 }

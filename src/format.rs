@@ -580,7 +580,7 @@ impl Document<'_> {
             edits.extend(newline_edits);
             sort_and_check_edits(&mut edits)?;
         }
-        let mut removed: Vec<bool> = (0..self.items().len())
+        let removed: Vec<bool> = (0..self.items().len())
             .map(|id| removed.get(id).copied().unwrap_or(false))
             .collect();
         let mut owners = owners(self, &edits, &removed);
@@ -616,9 +616,6 @@ impl Document<'_> {
             let culprits = culprits(&checks);
             if culprits.is_empty() {
                 break;
-            }
-            for &id in &culprits {
-                removed[id] = false;
             }
             let mut kept = owners.iter().map(|owner| !culprits.contains(owner));
             edits.retain(|_| kept.next().unwrap_or(true));
@@ -1105,7 +1102,7 @@ fn owners(document: &Document<'_>, edits: &[TextEdit], removed: &[bool]) -> Vec<
 pub(crate) struct Check {
     /// The span the part should have in the output.
     pub(crate) expected: Range<usize>,
-    /// The end of the output part that starts at `expected.start`, if any.
+    /// The end of the furthest output part overlapping `expected`, if any.
     pub(crate) found_end: Option<usize>,
     /// Whether the part reads the same in the output.
     pub(crate) same: bool,
@@ -1136,7 +1133,9 @@ pub(crate) fn culprits(checks: &[Check]) -> BTreeSet<usize> {
             .max(checks[first].expected.end);
         while end < checks.len() && checks[end].expected.start < reach {
             if !checks[end].same {
-                reach = reach.max(checks[end].found_end.unwrap_or(0));
+                reach = reach
+                    .max(checks[end].found_end.unwrap_or(0))
+                    .max(checks[end].expected.end);
             }
             end += 1;
         }
@@ -1156,8 +1155,10 @@ pub(crate) fn culprits(checks: &[Check]) -> BTreeSet<usize> {
 // One check for each item of `left`, the document before formatting. Every
 // item that formatting keeps must reappear at its shifted span in `right`, as
 // the same kind with the same meaning (see `same_item`). Blank lines that the
-// edits remove have no counterpart and an empty span. When `right` holds an
-// item that no check found, every check fails, so every change is dropped.
+// edits remove have no counterpart, an empty span, and are never blamed as
+// culprits so `BlankLines::Collapse` never leaves adjacent blank lines behind.
+// When `right` holds an item that no check found, every check fails, so every
+// non-blank-collapse change is dropped.
 fn check_items(
     left: &Document<'_>,
     right: &Document<'_>,
@@ -1179,19 +1180,20 @@ fn check_items(
         starts.push(start - replaced + inserted);
     }
     let mut right_items = right.items().peekable();
+    let mut active_end = 0usize;
     let mut found = 0;
     let mut checks = Vec::with_capacity(starts.len());
     for (item, &start) in left.items().zip(&starts) {
-        let changed = owned.contains(&item.id());
         if removed[item.id()] {
             checks.push(Check {
                 expected: start..start,
                 found_end: None,
                 same: true,
-                changed,
+                changed: false,
             });
             continue;
         }
+        let changed = owned.contains(&item.id());
         let end = starts
             .get(item.id() + 1)
             .copied()
@@ -1200,7 +1202,9 @@ fn check_items(
             .peek()
             .is_some_and(|other| other.span().start < start)
         {
-            right_items.next();
+            if let Some(other) = right_items.next() {
+                active_end = other.span().end;
+            }
         }
         let other = right_items
             .peek()
@@ -1209,9 +1213,22 @@ fn check_items(
         let same = other
             .is_some_and(|other| other.span().end == end && same_item(item, other, preserve_quote));
         found += usize::from(same);
+        let found_end = if same {
+            Some(end)
+        } else {
+            while right_items
+                .peek()
+                .is_some_and(|other| other.span().start < end)
+            {
+                if let Some(other) = right_items.next() {
+                    active_end = other.span().end;
+                }
+            }
+            (active_end > start).then_some(active_end)
+        };
         checks.push(Check {
             expected: start..end,
-            found_end: other.map(|other| other.span().end),
+            found_end,
             same,
             changed,
         });
@@ -1406,6 +1423,89 @@ mod tests {
         assert_eq!(
             effective_last_byte_before(source, &insert_then_delete, 2, 4),
             Some(b'"')
+        );
+    }
+
+    #[test]
+    fn check_items_tracks_overlapping_spans_and_never_blames_removed_blanks() {
+        // When an edited multiline entry splits and a later output item
+        // swallows downstream items (including a collapsed blank line),
+        // `check_items` records the furthest overlapping span end on item 0
+        // and keeps removed blank lines non-culpable so only item 0 is blamed.
+        let source = "B=\" # note for B\nA='1'  \n  \t\nC=\"3\"D=\"4\" # d\n\n\nEA=\"EY=  BA=\"\" #commA = '9 liind\"4edvalue ? =\"\" #commA = '9 liinr B\nA='1'  \n  \t\nC=\"d\"   \n";
+        let dialect = crate::Dialect::COMPOSE.with_line_byte_limit(Some(16));
+        let (left, _) = crate::parse_with(source, dialect);
+        let edits = [
+            TextEdit {
+                range: 1..1,
+                replacement: String::from(" "),
+            },
+            TextEdit {
+                range: 2..2,
+                replacement: String::from(" "),
+            },
+            TextEdit {
+                range: 2..32,
+                replacement: String::from("' # note for B\nA=\\'1\\'  \n  \t\nC='"),
+            },
+            TextEdit {
+                range: 45..46,
+                replacement: String::new(),
+            },
+        ];
+        let mut removed = alloc::vec![false; left.items().len()];
+        removed[3] = true;
+        let owners = owners(&left, &edits, &removed);
+        let output = super::apply(source, &edits);
+        let (right, _) = crate::parse_with(&output, dialect);
+        let checks = check_items(&left, &right, &edits, &owners, &removed, false);
+        assert!(!checks[0].same);
+        assert_eq!(checks[0].found_end, Some(117));
+        assert!(!checks[1].same);
+        assert_eq!(checks[1].found_end, Some(117));
+        assert!(checks[3].same);
+        assert!(!checks[3].changed);
+        assert_eq!(culprits(&checks).into_iter().collect::<Vec<_>>(), [0]);
+
+        // An unmatched item immediately after a matched item has `found_end: None`,
+        // not the previous item's end; and a failing item stops before a matched
+        // item starting exactly at `expected.end`.
+        let longer = parse_strict("A=1\nB=2\n").unwrap();
+        let shorter = parse_strict("A=1\n").unwrap();
+        let gap_checks = check_items(&longer, &shorter, &[], &[], &[false, false], true);
+        assert!(gap_checks[0].same);
+        assert_eq!(gap_checks[0].found_end, Some(4));
+        assert!(!gap_checks[1].same);
+        assert_eq!(gap_checks[1].found_end, None);
+
+        let changed_first = parse_strict("A=9\nB=2\n").unwrap();
+        let boundary_checks = check_items(&longer, &changed_first, &[], &[], &[false, false], true);
+        assert!(!boundary_checks[0].same);
+        assert_eq!(boundary_checks[0].found_end, Some(4));
+        assert!(boundary_checks[1].same);
+        assert_eq!(boundary_checks[1].found_end, Some(8));
+
+        // Even if an earlier non-overlapping item fails without edits of its
+        // own, a removed blank line between it and a changed entry is skipped.
+        let synthetic = [
+            check(0..4, Some(4), true, true),
+            check(4..4, None, true, false),
+            check(4..8, Some(8), false, false),
+        ];
+        assert_eq!(culprits(&synthetic).into_iter().collect::<Vec<_>>(), [0]);
+
+        // Extending `reach` with `expected.end` for a failing item merges a
+        // subsequent failing changed item inside its span instead of falling
+        // back to an earlier innocent changed item.
+        let extended_reach = [
+            check(0..2, Some(2), true, true),
+            check(2..5, Some(8), false, false),
+            check(5..12, None, false, false),
+            check(10..12, None, false, true),
+        ];
+        assert_eq!(
+            culprits(&extended_reach).into_iter().collect::<Vec<_>>(),
+            [3]
         );
     }
 }

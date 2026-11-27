@@ -58,7 +58,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `adotenv`: fixed `Document::format` idempotence under `LineBreaks::Lf` (with
   and without custom `line_byte_limit`) when quote normalization combines with
-  trailing-whitespace trimming or `FinalNewline::Remove`, preserved leading
+  trailing-whitespace trimming or `FinalNewline::Remove`, fixed verification
+  culprit tracking in `Document::format` and `Document::sort` so split-and-swallow
+  parse desynchronizations track all overlapping output spans and never revert
+  collapsed blank lines under `BlankLines::Collapse`, preserved leading
   `\u{feff}` keys in `QuotedTail::Append` native tail encoding, and updated
   `Document::example` to emit bare text following a Compose closing quote on the
   same physical line as a `#` comment (`A="x"tail\n` -> `A=""\n#\n`) while
