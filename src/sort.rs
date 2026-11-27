@@ -452,6 +452,7 @@ fn facts(entry: Entry<'_>) -> EntryFacts {
 // dropped.
 fn check_groups(original: &Document<'_>, output: &Document<'_>, plans: &[Plan]) -> Vec<Check> {
     let mut after_groups = output.groups().peekable();
+    let mut active_end = 0usize;
     let mut plans = plans.iter().peekable();
     // Bytes that the earlier plans replaced and inserted.
     let (mut replaced, mut inserted) = (0, 0);
@@ -471,7 +472,9 @@ fn check_groups(original: &Document<'_>, output: &Document<'_>, plans: &[Plan]) 
             .peek()
             .is_some_and(|after| after.span().start < expected.start)
         {
-            after_groups.next();
+            if let Some(after) = after_groups.next() {
+                active_end = after.span().end;
+            }
         }
         let after = after_groups
             .peek()
@@ -482,8 +485,21 @@ fn check_groups(original: &Document<'_>, output: &Document<'_>, plans: &[Plan]) 
                 && plan.map_or(true, |plan| same_group(output, before, after, plan))
         });
         found += usize::from(same);
+        let found_end = if same {
+            Some(expected.end)
+        } else {
+            while after_groups
+                .peek()
+                .is_some_and(|after| after.span().start < expected.end)
+            {
+                if let Some(after) = after_groups.next() {
+                    active_end = after.span().end;
+                }
+            }
+            (active_end > expected.start).then_some(active_end)
+        };
         checks.push(Check {
-            found_end: after.map(|after| after.span().end),
+            found_end,
             expected,
             same,
             changed: plan.is_some(),
@@ -529,4 +545,56 @@ fn same_group(
     before_comments.sort_unstable();
     after_comments.sort_unstable();
     before_comments == after_comments
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::{string::String, vec, vec::Vec};
+
+    use super::{check_groups, Plan};
+
+    #[test]
+    fn check_groups_tracks_overlapping_spans_when_a_group_splits_and_swallows_next() {
+        // Original has three blank-separated groups: group 0 (0..8), group 1 (9..13), group 2 (14..18).
+        // Simulate an output where group 0 splits into (0..4) and a multiline quote (5..19)
+        // that swallows both group 1 and group 2.
+        let original = crate::parse("A=1\nB=2\n\nC=3\n\nD=4\n").0;
+        let output = crate::parse("A=1\n\nB=\"\nC=3\n\nD=4\"\n").0;
+        let plans = [Plan {
+            index: 0,
+            range: 0..8,
+            text: String::from("A=1\n\nB=\"\n"),
+            keys: vec![String::from("A"), String::from("B")],
+        }];
+        let checks = check_groups(&original, &output, &plans);
+        assert!(!checks[0].same);
+        assert_eq!(checks[0].found_end, Some(19));
+        assert!(!checks[1].same);
+        assert_eq!(checks[1].found_end, Some(19));
+        assert!(!checks[2].same);
+        assert_eq!(checks[2].found_end, Some(19));
+        assert_eq!(
+            crate::format::culprits(&checks)
+                .into_iter()
+                .collect::<Vec<_>>(),
+            [0]
+        );
+
+        // An unmatched group after a matched group has `found_end: None`, and an
+        // extra group starting in the blank gap before group 1 propagates its end.
+        let two = crate::parse("A=1\n\nB=2\n").0;
+        let one = crate::parse("A=1\n").0;
+        let missing = check_groups(&two, &one, &[]);
+        assert!(missing[0].same);
+        assert_eq!(missing[0].found_end, Some(4));
+        assert!(!missing[1].same);
+        assert_eq!(missing[1].found_end, None);
+
+        let bridged = crate::parse("A=1\nX=9\nB=2\n").0;
+        let straddle = check_groups(&two, &bridged, &[]);
+        assert!(!straddle[0].same);
+        assert_eq!(straddle[0].found_end, Some(12));
+        assert!(!straddle[1].same);
+        assert_eq!(straddle[1].found_end, Some(12));
+    }
 }
