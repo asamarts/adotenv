@@ -66,12 +66,13 @@ environment or run commands. `adotenv-cli diff` prints the same comparison; see
 - line endings and a BOM;
 - bare declarations, which stay bare.
 
-Invalid statements, ignored statements and empty-key entries become `#`
-comments that keep only their indentation and line ending. Value text from
-those forms cannot leak into the output. Statements that shared one physical
-line are put on separate lines. In Compose, text right after a closing quote is
-the next statement, so `A="x"tail` gives `A=""` and a bare `tail` on the next
-line.
+Invalid statements, ignored statements, empty-key entries and bare text after a
+closing quote on the same physical line (under `QuotedTail::NextStatement`,
+such as Compose) become `#` comments that keep only their indentation and line
+ending. Value text from those forms cannot leak into the output. For example,
+in Compose `A="x"tail\n` gives `A=""\n#\n`, while an explicit second assigned
+statement on the same line such as `A="x" B=2\n` is placed on its own line with
+its value removed (`A=""\n B=\n`).
 
 ```rust
 let source = "# app\nA=1\nB=\"two\" # note\nBARE\nBAD KEY=secret\n";

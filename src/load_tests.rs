@@ -184,6 +184,39 @@ fn loaded_environment_deserializes_final_values_with_origins() {
     let error = loaded.deserialize::<Config>().unwrap_err();
     assert_eq!(error.line(), 2);
     assert_eq!(error.key(), Some("port"));
+
+    let numeric_keys = TempDir::new();
+    numeric_keys.write(".env", "8080=http\n443=https\n");
+    let loaded = load_cascade(numeric_keys.path(), "").unwrap();
+    let ports: std::collections::BTreeMap<u16, String> = loaded.deserialize().unwrap();
+    assert_eq!(ports.get(&8080).map(String::as_str), Some("http"));
+    assert_eq!(ports.get(&443).map(String::as_str), Some("https"));
+
+    let bad_key = TempDir::new();
+    bad_key.write(".env", "8080=http\nnot-a-port=secret\n");
+    let with_origins = load_cascade(bad_key.path(), "").unwrap();
+    let err = with_origins
+        .deserialize::<std::collections::BTreeMap<u16, String>>()
+        .unwrap_err();
+    assert_eq!(err.line(), 2);
+    assert_eq!(err.key(), Some("not-a-port"));
+    assert_eq!(
+        err.masked().to_string(),
+        "line 2: <redacted> (key \"not-a-port\")"
+    );
+
+    let without_origins = load_cascade_with_options(
+        bad_key.path(),
+        "",
+        LoadOptions::new(Dialect::PORTABLE).with_origins(false),
+    )
+    .unwrap();
+    let err = without_origins
+        .deserialize::<std::collections::BTreeMap<u16, String>>()
+        .unwrap_err();
+    assert_eq!(err.line(), 0);
+    assert_eq!(err.key(), Some("not-a-port"));
+    assert_eq!(err.masked().to_string(), "<redacted> (key \"not-a-port\")");
 }
 
 #[test]

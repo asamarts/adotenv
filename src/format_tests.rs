@@ -866,3 +866,193 @@ fn format_with_options_enforces_line_and_parse_limits() {
         Err(EditError::Limit(limit)) if limit.kind() == LimitKind::Diagnostics
     ));
 }
+
+#[test]
+fn lf_only_quote_style_is_idempotent_with_trim_and_final_newline_remove() {
+    use crate::LineBreaks;
+
+    let lf = Dialect::PORTABLE.with_line_breaks(LineBreaks::Lf);
+    let lf_capped_8 = lf.with_line_byte_limit(Some(8));
+    let lf_capped_7 = lf.with_line_byte_limit(Some(7));
+    let dq_trim = FormatOptions::default()
+        .with_quote_style(QuoteStyle::Double)
+        .with_trim_trailing_whitespace(true);
+    let dq_remove = FormatOptions::default()
+        .with_quote_style(QuoteStyle::Double)
+        .with_final_newline(FinalNewline::Remove);
+    let sq = FormatOptions::default().with_quote_style(QuoteStyle::Single);
+
+    let cases = [
+        (lf, "A=1\r \n", dq_trim, "A=\"1\\r\"\n"),
+        (lf_capped_7, "A=1\r \n", dq_trim, "A=\"1\\r\"\n"),
+        (lf, "A=1\r ", dq_trim, "A=\"1\\r\""),
+        (
+            lf,
+            "A=1\r ",
+            dq_trim.with_final_newline(FinalNewline::Ensure),
+            "A=\"1\\r\"\n",
+        ),
+        (
+            lf,
+            "A=1\r \r",
+            dq_trim.with_final_newline(FinalNewline::Remove),
+            "A=\"1\\r\"",
+        ),
+        (lf, "A=1\r\r\n", dq_remove, "A=\"1\\r\""),
+        (lf_capped_7, "A=1\r\r\n", dq_remove, "A=\"1\\r\""),
+        (lf_capped_8, "A=1\r\r", dq_remove, "A=\"1\\r\""),
+        (
+            lf,
+            "A=1\r \n",
+            sq.with_trim_trailing_whitespace(true),
+            "A='1\r'\n",
+        ),
+        (
+            lf,
+            "A=1\r\r\n",
+            sq.with_final_newline(FinalNewline::Remove),
+            "A='1\r'",
+        ),
+        (
+            lf,
+            "A=1\r \r",
+            FormatOptions::default()
+                .with_trim_trailing_whitespace(true)
+                .with_final_newline(FinalNewline::Remove),
+            "A=1\r ",
+        ),
+        (
+            lf.with_quoted_tail(crate::QuotedTail::Append),
+            "A=\"a'b\\r\"",
+            sq.with_final_newline(FinalNewline::Ensure),
+            "A=''a'b\r\r",
+        ),
+    ];
+
+    for (dialect, source, opts, expected) in cases {
+        let (doc, _) = parse_with(source, dialect);
+        let first = doc.format(&opts).unwrap();
+        assert_eq!(first.as_str(), expected, "{source:?} {opts:?}");
+        let (after, _) = parse_with(first.as_str(), dialect);
+        assert_eq!(after.get("A"), doc.get("A"), "{source:?} {opts:?}");
+        let second = after.format(&opts).unwrap();
+        assert!(
+            second.is_empty(),
+            "{source:?} formatted to {:?}, then {:?}",
+            first.as_str(),
+            second.as_str()
+        );
+    }
+}
+
+#[test]
+fn python_quote_style_is_idempotent_for_bom_export_keys() {
+    use crate::{BomPolicy, QuotedTail};
+
+    let python = Dialect::PYTHON_DOTENV;
+    let python_keep = python.with_bom(BomPolicy::Keep);
+    let python_append = python.with_quoted_tail(QuotedTail::Append);
+
+    for (dialect, source, expected_none_double) in [
+        (
+            python,
+            "# c\n\u{feff}export = 1\n",
+            "# c\n\u{feff}export=\"1\"\n",
+        ),
+        (
+            python,
+            "\u{feff}\u{feff}export = 1\n",
+            "\u{feff}\u{feff}export=\"1\"\n",
+        ),
+        (
+            python_keep,
+            "\u{feff}export = 1\n",
+            "\u{feff}export=\"1\"\n",
+        ),
+        (
+            python_append,
+            "# c\n\u{feff}export = 1\n",
+            "# c\n\u{feff}export=\"1\"\n",
+        ),
+    ] {
+        let none_double = FormatOptions::default()
+            .with_equals_spacing(EqualsSpacing::None)
+            .with_quote_style(QuoteStyle::Double);
+        let (doc, _) = parse_with(source, dialect);
+        let first = doc.format(&none_double).unwrap();
+        assert_eq!(first.as_str(), expected_none_double, "{source:?}");
+        let (after, _) = parse_with(first.as_str(), dialect);
+        assert_eq!(after.get("\u{feff}export"), Some("1"), "{source:?}");
+        assert!(after.format(&none_double).unwrap().is_empty(), "{source:?}");
+
+        for spacing in [
+            EqualsSpacing::Preserve,
+            EqualsSpacing::Spaces,
+            EqualsSpacing::None,
+        ] {
+            for quote in [QuoteStyle::Double, QuoteStyle::Single, QuoteStyle::Unquoted] {
+                let opts = FormatOptions::default()
+                    .with_equals_spacing(spacing)
+                    .with_quote_style(quote);
+                let first = doc.format(&opts).unwrap();
+                let (after, _) = parse_with(first.as_str(), dialect);
+                assert_eq!(after.get("\u{feff}export"), Some("1"));
+                let second = after.format(&opts).unwrap();
+                assert!(
+                    second.is_empty(),
+                    "{source:?} {opts:?}: {:?} -> {:?}",
+                    first.as_str(),
+                    second.as_str()
+                );
+            }
+        }
+    }
+}
+
+proptest! {
+    #[test]
+    fn lf_only_capped_and_python_bom_dialects_stay_idempotent(
+        tokens in prop::collection::vec(
+            prop_oneof![
+                Just("A"), Just("B"), Just("="), Just("1"), Just("#"), Just(" "),
+                Just("\t"), Just("\n"), Just("\r"), Just("\""), Just("'"),
+                Just("\\"), Just("\u{feff}"), Just("export"),
+            ],
+            0..48,
+        ),
+        options in any_format_options(),
+        dialect in prop::sample::select(vec![
+            Dialect::PORTABLE.with_line_breaks(crate::LineBreaks::Lf),
+            Dialect::PORTABLE
+                .with_line_breaks(crate::LineBreaks::Lf)
+                .with_line_byte_limit(Some(8)),
+            Dialect::PORTABLE
+                .with_line_breaks(crate::LineBreaks::Lf)
+                .with_line_byte_limit(Some(16)),
+            Dialect::COMPOSE.with_line_byte_limit(Some(12)),
+            Dialect::PYTHON_DOTENV,
+            Dialect::PYTHON_DOTENV.with_quoted_tail(crate::QuotedTail::Append),
+        ]),
+    ) {
+        let source: String = tokens.into_iter().collect();
+        let (doc, _) = parse_with(&source, dialect);
+        if let Ok(formatted) = doc.format(&options) {
+            let (after, _) = parse_with(formatted.as_str(), dialect);
+            prop_assert_eq!(doc.entries().len(), after.entries().len());
+            for (left, right) in doc.entries().zip(after.entries()) {
+                prop_assert_eq!(left.key(), right.key());
+                prop_assert_eq!(left.value(), right.value());
+                prop_assert_eq!(left.state(), right.state());
+            }
+            let again = after.format(&options);
+            prop_assert!(
+                again.as_ref().is_ok_and(FormatResult::is_empty),
+                "{:?} ({:?}) formatted to {:?}, then {:?}",
+                source,
+                options,
+                formatted.as_str(),
+                again.map(FormatResult::into_string)
+            );
+        }
+    }
+}

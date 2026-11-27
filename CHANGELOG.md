@@ -23,6 +23,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `adotenv`: added `LineIndex::with_bom_policy(BomPolicy)` supporting
   `BomPolicy::Strip`, `BomPolicy::StripAll`, `BomPolicy::Keep`, and
   `BomPolicy::Error`.
+- `adotenv` (`serde`): parsed non-string scalar map keys (such as
+  `BTreeMap<u16, String>`, `bool`, `char`, integers, floats, newtypes, bytes,
+  and `Option`) in `Document::deserialize` and `LoadedEnvironment::deserialize`
+  using the same scalar rules as values, and documented the
+  `#[serde(deserialize_with = ...)]` pattern for typed fields inside
+  `#[serde(flatten)]`.
 - `adotenv-process`: added `validate_compact_entries` and
   `apply_compact_entries` for `CompactEntries` (skipping bare `None` entries and
   validating/applying assigned entries).
@@ -38,6 +44,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `adotenv`: fixed `Document::format` idempotence under `LineBreaks::Lf` (with
+  and without custom `line_byte_limit`) when quote normalization combines with
+  trailing-whitespace trimming or `FinalNewline::Remove`, preserved leading
+  `\u{feff}` keys in `QuotedTail::Append` native tail encoding, and updated
+  `Document::example` to emit bare text following a Compose closing quote on the
+  same physical line as a `#` comment (`A="x"tail\n` -> `A=""\n#\n`) while
+  keeping explicit second assigned declarations.
 - `adotenv-lsp`: snapped `PositionError::InsideCrLf` spans (such as `"\\\r\n"`
   escape diagnostics) monotonically to line end instead of falling back to
   `(0, 0)`, anchored stripped BOM diagnostics to the full UTF-16 width of the

@@ -1278,3 +1278,26 @@ fn append_tail_inverse_reserves_cr_padding_byte_under_line_byte_limit() {
     assert_eq!(after.get("A"), Some("'1234#\"\\x\n"));
     assert_eq!(after.unique("A").unwrap().inline_comment(), Some("#c"));
 }
+
+#[test]
+fn append_tail_native_encoding_keeps_leading_bom_export_keys() {
+    use crate::BomPolicy;
+
+    for policy in [BomPolicy::Strip, BomPolicy::StripAll, BomPolicy::Error] {
+        let dialect = Dialect::PYTHON_DOTENV
+            .with_quoted_tail(QuotedTail::Append)
+            .with_bom(policy);
+        let (token, actual) = crate::encode::encode_native(
+            "valtail",
+            crate::Quote::Double,
+            dialect,
+            "\u{feff}export = ",
+            "tail\n",
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(actual, crate::Quote::Double, "{policy:?}");
+        assert_eq!(token, "\"val\"", "{policy:?}");
+    }
+}
