@@ -605,9 +605,11 @@ fn decoded_uri_path(raw: &str) -> PathBuf {
     }
     String::from_utf8(decoded).map_or_else(
         |_| PathBuf::from(raw),
-        |text| {
-            let trimmed = strip_windows_drive_slash(&text);
-            PathBuf::from(trimmed)
+        |text| match strip_windows_drive_slash(&text) {
+            stripped if stripped.len() == 2 && stripped.as_bytes()[1] == b':' => {
+                PathBuf::from(format!("{stripped}/"))
+            }
+            stripped => PathBuf::from(stripped),
         },
     )
 }
@@ -1100,7 +1102,7 @@ mod tests {
             decoded_uri_path("/tmp/%FFbad"),
             PathBuf::from("/tmp/%FFbad")
         );
-        assert_eq!(decoded_uri_path("/C:"), PathBuf::from("C:"));
+        assert_eq!(decoded_uri_path("/C:"), PathBuf::from("C:/"));
         assert_eq!(
             decoded_uri_path("/c:notdrive"),
             PathBuf::from("/c:notdrive")
@@ -1119,7 +1121,7 @@ mod tests {
         let userinfo: Uri = "file://user@localhost/tmp/.env".parse().unwrap();
         assert_eq!(file_uri_path(&userinfo), None);
         let drive_only: Uri = "file:///C:".parse().unwrap();
-        assert_eq!(file_uri_path(&drive_only), Some(PathBuf::from("C:")));
+        assert_eq!(file_uri_path(&drive_only), Some(PathBuf::from("C:/")));
     }
 
     #[test]
