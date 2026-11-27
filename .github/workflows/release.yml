@@ -601,7 +601,14 @@ jobs:
   github-release-lsp:
     name: GitHub Release (adotenv-lsp)
     needs: publish-lsp
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_lsp == true
+    # `publish-lsp` depends on the optional `publish-linter` job; GitHub Actions
+    # treats a skipped transitive ancestor as failing the default `success()`
+    # guard, so guard explicitly with `always()` and `needs.publish-lsp.result`.
+    if: |
+      always() &&
+      github.event_name == 'workflow_dispatch' &&
+      inputs.publish_lsp == true &&
+      needs.publish-lsp.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
