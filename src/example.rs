@@ -185,12 +185,14 @@ fn push_assigned_example(
     let quoted_comment = entry.inline_comment().is_some()
         && !move_comment
         && (dialect.quoted_comments
-            || dialect.inline_comments == InlineComments::None
-            || (tokens.trailing_space.is_empty()
-                && dialect.inline_comments != InlineComments::AnyHash));
-    if !dialect.raw_values
-        && (colon_separator || multiline_value || same_line_next || quoted_comment)
-    {
+            || (dialect.quoted_tail == crate::QuotedTail::NextStatement
+                && (dialect.inline_comments == InlineComments::None
+                    || (tokens.trailing_space.is_empty()
+                        && tokens.space_after_eq.is_empty()
+                        && dialect.inline_comments != InlineComments::AnyHash))));
+    let placeholder = !dialect.raw_values
+        && (colon_separator || multiline_value || same_line_next || quoted_comment);
+    if placeholder {
         output.push_str("\"\"");
     }
     let ending = item.line_ending();
@@ -209,6 +211,14 @@ fn push_assigned_example(
             output.push_str(&source[comment.clone()]);
             output.push_str(break_str);
             return true;
+        }
+        if placeholder
+            && !dialect.quoted_comments
+            && dialect.quoted_tail != crate::QuotedTail::NextStatement
+            && dialect.inline_comments != InlineComments::AnyHash
+            && tokens.trailing_space.is_empty()
+        {
+            output.push(' ');
         }
         output.push_str(&source[tokens.trailing_space.clone()]);
         output.push_str(&source[comment.clone()]);

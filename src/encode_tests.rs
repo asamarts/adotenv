@@ -1299,5 +1299,33 @@ fn append_tail_native_encoding_keeps_leading_bom_export_keys() {
         .unwrap();
         assert_eq!(actual, crate::Quote::Double, "{policy:?}");
         assert_eq!(token, "\"val\"", "{policy:?}");
+
+        // Without space after `=`, `eq.end` equals `offset + before.len()`, and
+        // with `needs_eq = true`, `eq.end` equals `offset + before.len() + 1`.
+        let (tight_token, tight_actual) = crate::encode::encode_native(
+            "valtail",
+            crate::Quote::Double,
+            dialect,
+            "\u{feff}export=",
+            "tail\n",
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(tight_actual, crate::Quote::Double, "{policy:?}");
+        assert_eq!(tight_token, "\"val\"", "{policy:?}");
+
+        let (bare_token, bare_actual) = crate::encode::encode_native(
+            "valtail",
+            crate::Quote::Double,
+            dialect,
+            "\u{feff}export",
+            "tail\n",
+            true,
+            false,
+        )
+        .unwrap();
+        assert_eq!(bare_actual, crate::Quote::Double, "{policy:?}");
+        assert_eq!(bare_token, "\"val\"", "{policy:?}");
     }
 }

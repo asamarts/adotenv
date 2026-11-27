@@ -63,7 +63,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Document::example` to emit bare text following a Compose closing quote on the
   same physical line as a `#` comment (`A="x"tail\n` -> `A=""\n#\n`) while
   keeping explicit second assigned declarations and safe inline-comment
-  placeholders under custom `QuotedTail::NextStatement` dialects.
+  placeholders under custom `QuotedTail::NextStatement` and `ColonSeparator`
+  dialects (without quoting unquoted empty inline-comment lines like
+  `B = #comment` in Portable).
 - `adotenv`: hardened `src/references.rs` `Closes` memoization so escaped
   command operators (`\-`, `"\-"`, `\$(-)`, `\${-}`) and depth `max_depth + 1`
   fillers stay linear without clamping explicit finite `max_depth` bounds,

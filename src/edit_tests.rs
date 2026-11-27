@@ -2907,3 +2907,60 @@ fn edit_options_defer_key_comment_allocs_and_prevent_cache_starvation() {
                 && limit.observed() == expected_comment_len
     ));
 }
+
+#[test]
+fn comment_text_len_preallocation_budget_and_self_rename_with_references() {
+    use crate::{EditOptions, LimitKind};
+
+    // Pre-allocation `comment_text_len` budget on a 2-item document reports
+    // item 0's exact commented length (distinct from total document output length)
+    // across Universal lone CR, CRLF, LF-only lone CR, and no-trailing-newline items.
+    let two_item = "M='a\rb\r\nc'\nB=extra_payload\n";
+    let uni_doc = crate::parse_strict(two_item).unwrap();
+    let item0_len = "M='a\rb\r\nc'\n".len();
+    let expected_uni_budget = item0_len + 2 * 3;
+    assert!(matches!(
+        uni_doc.comment_with_options(
+            "M",
+            EditOptions::new().with_max_output_bytes(expected_uni_budget - 1)
+        ),
+        Err(EditError::Limit(limit))
+            if limit.kind() == LimitKind::OutputBytes
+                && limit.observed() == expected_uni_budget
+    ));
+    let lf_doc = crate::parse_strict_with(
+        two_item,
+        crate::Dialect::PORTABLE.with_line_breaks(crate::LineBreaks::Lf),
+    )
+    .unwrap();
+    let expected_lf_budget = item0_len + 2 * 2;
+    assert!(matches!(
+        lf_doc.comment_with_options(
+            "M",
+            EditOptions::new().with_max_output_bytes(expected_lf_budget - 1)
+        ),
+        Err(EditError::Limit(limit))
+            if limit.kind() == LimitKind::OutputBytes
+                && limit.observed() == expected_lf_budget
+    ));
+    // Item with no trailing newline (`start < text.len()`).
+    let no_nl_doc = crate::parse_strict("A=1\nB=extra").unwrap();
+    let expected_no_nl_budget = "B=extra".len() + 2;
+    assert!(matches!(
+        no_nl_doc.comment_with_options(
+            "B",
+            EditOptions::new().with_max_output_bytes(expected_no_nl_budget - 1)
+        ),
+        Err(EditError::Limit(limit))
+            if limit.kind() == LimitKind::OutputBytes
+                && limit.observed() == expected_no_nl_budget
+    ));
+
+    // Self-rename (`old_key == new_key`) with references succeeds and preserves source.
+    let self_ref_doc = crate::parse_strict("A=1\nB=$A\n").unwrap();
+    let self_renamed = self_ref_doc
+        .rename_with_references_with_options("A", "A", EditOptions::new().with_max_references(2))
+        .unwrap();
+    assert_eq!(self_renamed.as_str(), "A=1\nB=$A\n");
+    replay("A=1\nB=$A\n", &self_renamed);
+}

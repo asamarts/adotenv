@@ -3602,9 +3602,47 @@ fn cli_1_8_limits_bounded_fmt_compact_paths_bom_and_compose_example() {
         "check",
         "--format",
         "--dialect=node",
+        "json",
         interleaved.to_str().unwrap(),
     ]);
     assert_eq!(splice_check.status.code(), Some(2));
+    assert!(
+        stderr(&splice_check).contains("--format expects human, json or github"),
+        "{}",
+        stderr(&splice_check)
+    );
+
+    let splice_diff = run(&[
+        "diff",
+        "--format",
+        "--dialect=node",
+        "json",
+        interleaved.to_str().unwrap(),
+        interleaved.to_str().unwrap(),
+    ]);
+    assert_eq!(splice_diff.status.code(), Some(2));
+    assert!(
+        stderr(&splice_diff).contains("--format expects human, matrix or json"),
+        "{}",
+        stderr(&splice_diff)
+    );
+
+    // Non-value-taking `diff --mask` must still allow a following global `--dialect=node`.
+    let node_diff_a = dir.file("node_diff_a.env", "A=1 # comment\n");
+    let node_diff_b = dir.file("node_diff_b.env", "A=1#comment\n");
+    let diff_mask_dialect = run(&[
+        "diff",
+        "--mask",
+        "--dialect=node",
+        node_diff_a.to_str().unwrap(),
+        node_diff_b.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        diff_mask_dialect.status.code(),
+        Some(0),
+        "{}",
+        stderr(&diff_mask_dialect)
+    );
 
     // `--exclude --max-items=5` must keep `--max-items=5` as the exclude pattern rather than
     // draining it and letting `--exclude` consume `target_dir` (which would fall back to `.`).

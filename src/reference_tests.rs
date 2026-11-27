@@ -797,6 +797,95 @@ fn parents_precede_and_contain_their_nested_candidates() {
     check_reference_order(&references);
 }
 
+#[test]
+fn trailing_dollar_at_eof_and_nested_cached_escaped_literals_stay_exact() {
+    // Trailing `$` at EOF without a final newline must not index past `range.end`.
+    let eof_doc = parse_strict("A=$").unwrap();
+    assert_eq!(eof_doc.unique("A").unwrap().references(), Vec::new());
+
+    // Nested `$(...)` forms traverse an inner escaped `\$(...)` / `\${...}` literal
+    // group twice (outer scan caches `LiteralClose`, inner scan queries `LiteralClose::within`).
+    let cmd_source = "A=$(echo $(echo \\$(a-b) $X) $Y)\n";
+    let cmd_doc = parse_strict(cmd_source).unwrap();
+    let cmd_refs = cmd_doc.unique("A").unwrap().references();
+    let cmd_spans: Vec<(&str, bool, Option<usize>)> = cmd_refs
+        .iter()
+        .map(|r| (text(cmd_source, &r.span), r.escaped, r.parent))
+        .collect();
+    assert_eq!(
+        cmd_spans,
+        [
+            ("$(echo $(echo \\$(a-b) $X) $Y)", false, None),
+            ("$(echo \\$(a-b) $X)", false, Some(0)),
+            ("$(a-b)", true, Some(1)),
+            ("$X", false, Some(1)),
+            ("$Y", false, Some(0)),
+        ]
+    );
+    check_reference_order(&cmd_refs);
+
+    let brace_source = "A=$(echo $(echo \\${a-b} $X) $Y)\n";
+    let brace_doc = parse_strict(brace_source).unwrap();
+    let brace_refs = brace_doc.unique("A").unwrap().references();
+    let brace_spans: Vec<(&str, bool, Option<usize>)> = brace_refs
+        .iter()
+        .map(|r| (text(brace_source, &r.span), r.escaped, r.parent))
+        .collect();
+    assert_eq!(
+        brace_spans,
+        [
+            ("$(echo $(echo \\${a-b} $X) $Y)", false, None),
+            ("$(echo \\${a-b} $X)", false, Some(0)),
+            ("${a-b}", true, Some(1)),
+            ("$X", false, Some(1)),
+            ("$Y", false, Some(0)),
+        ]
+    );
+    check_reference_order(&brace_refs);
+
+    // Unclosed inner escaped literal inside nested commands exercises the `None`
+    // close-offset path of `LiteralClose::within`.
+    let unclosed_source = "A=$(echo $(echo \\$(a-b $X";
+    let unclosed_doc = parse_strict(unclosed_source).unwrap();
+    let unclosed_refs = unclosed_doc.unique("A").unwrap().references();
+    let unclosed_spans: Vec<(&str, bool, bool)> = unclosed_refs
+        .iter()
+        .map(|r| (text(unclosed_source, &r.span), r.closed, r.escaped))
+        .collect();
+    assert_eq!(
+        unclosed_spans,
+        [
+            ("$(echo $(echo \\$(a-b $X", false, false),
+            ("$(echo \\$(a-b $X", false, false),
+            ("$(a-b $X", false, true),
+            ("$X", true, false),
+        ]
+    );
+    check_reference_order(&unclosed_refs);
+
+    // Command-context delimiter scanning inside `literal_balanced` and `matching_delimited`:
+    // escaped closing paren inside `\$(...)`, escaped `\)` and single-quoted `')'` inside `$(...)`,
+    // and nested `${B:-)}` inside `$(...)` where `)` must not close `${...}` and `}` must close it.
+    for (source, expected_outer, expected_inner) in [
+        ("A=$(echo \\$(a\\)b) $X)\n", "$(echo \\$(a\\)b) $X)", "$X"),
+        ("A=$(echo \\) $X)\n", "$(echo \\) $X)", "$X"),
+        ("A=$(echo ')' $X)\n", "$(echo ')' $X)", "$X"),
+        ("A=$(echo ${B:-)} $X)\n", "$(echo ${B:-)} $X)", "${B:-)}"),
+    ] {
+        let doc = parse_strict(source).unwrap();
+        let refs = doc.unique("A").unwrap().references();
+        assert_eq!(text(source, &refs[0].span), expected_outer, "{source:?}");
+        assert!(refs[0].closed, "{source:?}");
+        assert!(
+            refs.iter()
+                .skip(1)
+                .any(|r| text(source, &r.span) == expected_inner && r.closed),
+            "{source:?}: {refs:?}"
+        );
+        check_reference_order(&refs);
+    }
+}
+
 fn reference_value() -> impl Strategy<Value = String> {
     let token = prop::sample::select(
         [
