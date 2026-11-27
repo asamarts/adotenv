@@ -393,6 +393,11 @@ pub struct EditOptions {
     /// operations ([`Document::sort_with_options`] and
     /// [`Document::rename_with_references_with_options`]), or `None` for no
     /// limit.
+    ///
+    /// When set, each reference scan also caps delimiter nesting depth at
+    /// `limit.saturating_mul(2).max(64).saturating_add(2)` and reports either
+    /// candidate-count or delimiter-depth exhaustion as
+    /// [`LimitKind::References`](crate::LimitKind::References).
     pub max_references: Option<usize>,
 }
 
@@ -432,6 +437,10 @@ impl EditOptions {
     /// Sets the maximum total reference candidates scanned by
     /// [`Document::sort_with_options`] and
     /// [`Document::rename_with_references_with_options`].
+    ///
+    /// Also bounds per-scan delimiter nesting depth (at least 66 nested
+    /// delimiters) and reports either bound as
+    /// [`LimitKind::References`](crate::LimitKind::References).
     #[must_use]
     pub const fn with_max_references(mut self, limit: usize) -> Self {
         self.max_references = Some(limit);
@@ -958,9 +967,14 @@ fn verify_reference_structure(
     boundaries: &Boundaries<'_>,
     old_key: &str,
     new_key: &str,
+    max_references: Option<usize>,
+    orig_scanned: &mut usize,
+    new_scanned: &mut usize,
 ) -> Result<(), EditError> {
-    let orig_refs = orig_entry.references();
-    let new_refs = new_entry.references();
+    let orig_refs = scan_entry_references(orig_entry, max_references, orig_scanned)
+        .map_err(EditError::Limit)?;
+    let new_refs =
+        scan_entry_references(new_entry, max_references, new_scanned).map_err(EditError::Limit)?;
     if orig_refs.len() != new_refs.len() {
         return Err(EditError::WouldChangeMeaning);
     }
@@ -1036,6 +1050,9 @@ fn verify_reference_entry(
     target_entry: usize,
     old_key: &str,
     new_key: &str,
+    max_references: Option<usize>,
+    orig_scanned: &mut usize,
+    new_scanned: &mut usize,
 ) -> Result<(), EditError> {
     let expected_key = if orig_entry.id() == target_entry {
         new_key
@@ -1093,6 +1110,9 @@ fn verify_reference_entry(
             boundaries,
             old_key,
             new_key,
+            max_references,
+            orig_scanned,
+            new_scanned,
         )?;
     } else {
         return Err(EditError::WouldChangeMeaning);
@@ -1126,18 +1146,34 @@ fn error_code(item: crate::Item<'_>) -> Option<&str> {
         .map(|diagnostic| diagnostic.code().as_str())
 }
 
-fn reference_count(document: &Document<'_>, key: &str) -> usize {
-    document
-        .entries()
-        .flat_map(crate::Entry::references)
-        .filter(|reference| {
-            reference
+fn reference_counts_bounded(
+    document: &Document<'_>,
+    old_key: &str,
+    new_key: &str,
+    max_references: Option<usize>,
+) -> Result<(usize, usize), EditError> {
+    let mut scanned = 0usize;
+    let mut old_count = 0usize;
+    let mut new_count = 0usize;
+    for entry in document.entries() {
+        let refs =
+            scan_entry_references(entry, max_references, &mut scanned).map_err(EditError::Limit)?;
+        for reference in refs {
+            if let Some(name) = reference
                 .name
                 .as_ref()
-                .and_then(|name| document.source().get(name.clone()))
-                == Some(key)
-        })
-        .count()
+                .and_then(|span| document.source().get(span.clone()))
+            {
+                if name == old_key {
+                    old_count += 1;
+                }
+                if name == new_key {
+                    new_count += 1;
+                }
+            }
+        }
+    }
+    Ok((old_count, new_count))
 }
 
 struct InsertGroup<'a> {
@@ -2432,6 +2468,7 @@ impl Document<'_> {
         old_references: usize,
         existing_new: usize,
         parse_limits: ParseOptions,
+        max_references: Option<usize>,
     ) -> Result<(), EditError> {
         let parsed =
             crate::parser::parse_document_with_options(output, self.dialect(), parse_limits)
@@ -2458,6 +2495,8 @@ impl Document<'_> {
         let mut planned_cursor = 0;
         let mut removed_before = 0usize;
         let mut added_before = 0usize;
+        let mut orig_scanned = 0usize;
+        let mut new_scanned = 0usize;
         for (item_id, (original, rewritten)) in before.iter().zip(after.iter()).enumerate() {
             let start_idx = planned_cursor;
             while planned_cursor < planned.len() && planned[planned_cursor].item_id == item_id {
@@ -2484,6 +2523,9 @@ impl Document<'_> {
                     target_entry,
                     old_key,
                     new_key,
+                    max_references,
+                    &mut orig_scanned,
+                    &mut new_scanned,
                 )?;
             }
             for item_edit in item_edits {
@@ -2500,10 +2542,12 @@ impl Document<'_> {
         if before_errors != after_errors {
             return Err(EditError::WouldChangeMeaning);
         }
-        if old_key != new_key && reference_count(&parsed, old_key) != 0 {
+        let (old_count, new_count) =
+            reference_counts_bounded(&parsed, old_key, new_key, max_references)?;
+        if old_key != new_key && old_count != 0 {
             return Err(EditError::WouldChangeMeaning);
         }
-        if reference_count(&parsed, new_key) != old_references + existing_new {
+        if new_count != old_references + existing_new {
             return Err(EditError::WouldChangeMeaning);
         }
         Ok(())
@@ -2871,6 +2915,7 @@ impl Document<'_> {
             references,
             existing_new,
             options.parse_limits,
+            options.max_references,
         )?;
         Ok(VerifiedEdits { edits, output })
     }

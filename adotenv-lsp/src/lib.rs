@@ -1142,11 +1142,13 @@ impl ParsedDocument {
             if batch.is_empty() {
                 return None;
             }
-            if batch.stages().len() == 1 {
-                let stage_edits = batch.stages()[0].edits();
-                if !stage_edits.is_empty() {
-                    return Some(self.text_edits_from_verified(stage_edits, batch.output()));
-                }
+            let non_empty_stages: Vec<_> = batch
+                .stages()
+                .iter()
+                .filter(|stage| !stage.edits().is_empty())
+                .collect();
+            if let [only_stage] = non_empty_stages.as_slice() {
+                return Some(self.text_edits_from_verified(only_stage.edits(), batch.output()));
             }
             return Some(vec![self.bom_preserving_full_edit(batch.output())]);
         }
@@ -2254,7 +2256,11 @@ fn name_at<'a>(document: &'a Document<'_>, offset: usize) -> Option<&'a str> {
 fn entry_at<'a>(document: &'a Document<'_>, offset: usize) -> Option<Entry<'a>> {
     document.entries().find(|entry| {
         entry.line_span().contains(&offset)
-            || (offset == document.source().len() && entry.line_span().end == offset)
+            || (offset == document.source().len()
+                && entry.line_span().end == offset
+                && document
+                    .item(entry.item_id())
+                    .is_some_and(|item| item.line_ending() == LineEnding::None))
     })
 }
 

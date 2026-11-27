@@ -293,8 +293,8 @@ impl LoadedEnvironment {
     /// process environment. Keys and values convert with the same rules as
     /// [`Document::deserialize`].
     ///
-    /// A value that does not convert reports the one-based line of its winning
-    /// declaration, but not the file; pass [`DeserializeError::key`] to
+    /// A key or value that does not convert reports the one-based line of its
+    /// winning declaration, but not the file; pass [`DeserializeError::key`] to
     /// [`LoadedEnvironment::origin`] to find it. When the load used
     /// [`LoadOptions::with_origins`](crate::load::LoadOptions::with_origins)
     /// with `false`, the line is `0`.
@@ -303,7 +303,7 @@ impl LoadedEnvironment {
     ///
     /// Returns a [`DeserializeError`] if a value or key does not convert, or if
     /// the target type rejects the map, for example because a required field
-    /// is missing. A value consumed through `#[serde(flatten)]` reports line
+    /// is missing. An entry consumed through `#[serde(flatten)]` reports line
     /// `0` and no key.
     ///
     /// # Examples

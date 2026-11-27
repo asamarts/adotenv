@@ -37,10 +37,9 @@ index_body() {
     "https://index.crates.io/$(index_path "$package")"
 }
 
-index_checksum() {
-  local package="$1"
-  local version="$2"
-  index_body "$package" | python3 -c '
+extract_index_checksum() {
+  local version="$1"
+  python3 -c '
 import json
 import sys
 version = sys.argv[1]
@@ -55,15 +54,19 @@ for line in sys.stdin:
 ' "$version"
 }
 
-wait_for_index() {
+wait_for_index_checksum() {
   local package="$1"
   local version="$2"
   local body=""
+  local checksum=""
   for _ in $(seq 1 90); do
-    if body="$(index_body "$package")" \
-      && grep -Fq "\"vers\":\"$version\"" <<<"$body"; then
-      echo "::notice::$package $version is visible in the sparse index"
-      return 0
+    if body="$(index_body "$package")"; then
+      checksum="$(extract_index_checksum "$version" <<<"$body")"
+      if [[ -n "$checksum" ]]; then
+        echo "::notice::$package $version is visible in the sparse index" >&2
+        printf '%s\n' "$checksum"
+        return 0
+      fi
     fi
     sleep 2
   done
@@ -89,12 +92,7 @@ echo "::endgroup::"
 
 echo "::group::Publishing $package $version"
 CARGO_REGISTRY_TOKEN="$token" cargo publish -p "$package" --locked
-wait_for_index "$package" "$version"
-remote_checksum="$(index_checksum "$package" "$version")"
-if [[ -z "$remote_checksum" ]]; then
-  echo "::error::crates.io index did not report a checksum for $package $version" >&2
-  exit 1
-fi
+remote_checksum="$(wait_for_index_checksum "$package" "$version")"
 if [[ "$remote_checksum" != "$local_checksum" ]]; then
   echo "::error::$package $version checksum mismatch: local $local_checksum, crates.io $remote_checksum" >&2
   exit 1

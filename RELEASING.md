@@ -178,10 +178,14 @@ at the release tag (or, for companion dispatches, at the published commit with
 
 ## Retry policy
 
-For a lockstep `vX.Y.Z` tag release, re-run the failed workflow if publication
-stops partway: the plan step skips versions that already exist on crates.io,
-and the `github-release` job skips recreating an existing release while
-uploading assets with `--clobber`.
+For a lockstep `vX.Y.Z` tag release, use GitHub Actions **Re-run failed jobs**
+if only `github-release` failed so it reuses the uploaded `release-crates`
+artifact (it skips recreating an existing release and uploads assets with
+`--clobber`). If the `publish` job itself stopped partway after crates.io
+already accepted some crates, re-running skips already-published crates and
+publishes, attests and uploads the remaining ones; verify any earlier-attempt
+lockstep `.crate` against its crates.io sparse-index checksum and attach it to
+the `vX.Y.Z` release manually if needed.
 
 For an independent companion or adapter dispatch, the `publish-*` jobs fail
 closed if the crate version is already on crates.io. If only the downstream
