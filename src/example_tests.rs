@@ -314,4 +314,31 @@ fn compose_post_quote_bare_text_becomes_a_comment_while_assignments_stay() {
         );
         assert_eq!(entry.value(), Some(""));
     }
+
+    // Fuzz regression: empty value with space after `=` followed by `#comment`
+    // must stay unquoted in Portable (where `""#comment` is invalid trailing text),
+    // and custom Portable + colon with `A: #comment` must insert a space before
+    // `#comment` when emitting the `""` colon placeholder.
+    let fuzz_input = "A= x  \nB = #comment\nC=#literal\n";
+    let (portable_doc, _) = parse_with(fuzz_input, Dialect::PORTABLE);
+    let portable_example = portable_doc.example();
+    assert_eq!(portable_example, "A= \nB = #comment\nC=\n");
+    let (portable_after, _) = parse_with(&portable_example, Dialect::PORTABLE);
+    assert_eq!(portable_after.entries().count(), 3);
+    assert_eq!(
+        portable_after.unique("B").unwrap().inline_comment(),
+        Some("#comment")
+    );
+    assert_eq!(portable_after.unique("B").unwrap().value(), Some(""));
+
+    let colon_portable = Dialect::PORTABLE.with_colon(crate::ColonSeparator::Whitespace);
+    let (colon_doc, _) = parse_with("A: #comment\n", colon_portable);
+    let colon_example = colon_doc.example();
+    assert_eq!(colon_example, "A: \"\" #comment\n");
+    let (colon_after, _) = parse_with(&colon_example, colon_portable);
+    assert_eq!(colon_after.unique("A").unwrap().value(), Some(""));
+    assert_eq!(
+        colon_after.unique("A").unwrap().inline_comment(),
+        Some("#comment")
+    );
 }
