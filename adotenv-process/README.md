@@ -24,7 +24,8 @@ the concurrency guarantee.
 and `apply_compact` provide the same validation and process-mutation semantics
 for `CompactValues` (such as values returned by `load_cascade_values_compact`
 or `load_values_compact`), and `validate_compact_entries` /
-`apply_compact_entries` handle `CompactEntries` (skipping bare `None`
+`apply_compact_entries` handle `CompactEntries` (such as entries returned by
+`load_cascade_entries_compact` or `load_entries_compact`, skipping bare `None`
 declarations while validating and setting assigned entries).
 
 Prefer passing `LoadedEnvironment::values()` to a child process, or reading them

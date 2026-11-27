@@ -11,11 +11,12 @@ The binary is `adotenv-cli`.
 
 ```text
 adotenv-cli [--dialect portable|node|python|compose|docker] [--dialect=<value>]
-            [--max-input-bytes <n>] [--max-lines <n>] <command> [options]
+            [--max-input-bytes <n>] [--max-lines <n>]
+            [--max-items <n>] [--max-diagnostics <n>] <command> [options]
 
 get <file> <key>
 check [--format human|json|github] [--json] [--source] [-r|--recursive] [--exclude <path>] <path>...
-fmt [--write|--check] [--sort] [-r|--recursive] [--exclude <path>] <path>...
+fmt [--write|--check] [--sort] [--max-output-bytes <n>] [--max-output-lines <n>] [--max-references <n>] [-r|--recursive] [--exclude <path>] <path>...
 diff [--format human|matrix|json] [--json] [--mask] <baseline> <file>...
 example <file>
 load <directory> [mode]

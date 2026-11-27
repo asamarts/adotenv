@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `adotenv-lsp`: guarded the `entry_at` EOF fallback to require
+  `LineEnding::None` so hover on a trailing empty line after a newline returns
+  `None`, preserved single-stage granular edits in `build_two_pass_fix_all_edits`,
+  and restricted Windows drive-letter normalization in `decoded_uri_path` to
+  ASCII alphabetic drive letters.
+
+## [1.8.0] - 2026-11-27
+
 ### Added
 
 - `adotenv`: added `CompactEntries` disk loaders under the `load` feature
@@ -32,6 +42,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `adotenv-process`: added `validate_compact_entries` and
   `apply_compact_entries` for `CompactEntries` (skipping bare `None` entries and
   validating/applying assigned entries).
+- `adotenv-cli`: added global `--max-items <n>` and `--max-diagnostics <n>`
+  flags, added bounded `fmt` flags (`--max-output-bytes <n>`,
+  `--max-output-lines <n>`, and `--max-references <n>`) backed by
+  `Document::sort_with_options` and `Document::format_with_options`, wired
+  `get`, `load`, and `run` to `CompactValues` (`parse_values_compact_with_options`
+  for non-empty keys and `load_cascade_values_compact_with_options`), and
+  replaced hand-rolled BOM column calculation in `check` with
+  `LineIndex::with_bom_policy`.
 - Planning docs: added `docs/design/1.8.0-plan.md` covering `adotenv-lsp 0.6.0`
   stabilization (`#248`), `adotenv 1.8.0` core additions (`#249`, `#250`), and
   `adotenv-lint 0.3.0` (`#251`).
@@ -48,7 +66,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   placeholders under custom `QuotedTail::NextStatement` dialects.
 - `adotenv`: hardened `src/references.rs` `Closes` memoization so escaped
   command operators (`\-`, `"\-"`, `\$(-)`, `\${-}`) and depth `max_depth + 1`
-  fillers stay linear without clamping explicit finite `max_depth` bounds.
+  fillers stay linear without clamping explicit finite `max_depth` bounds, and
+  enforced `EditOptions::max_references` across reference-rename verification
+  passes (`verify_reference_rename`, `verify_reference_structure`, and
+  `reference_counts_bounded`).
+- `adotenv-cli`: snapped `InsideCrLf` diagnostic offsets cleanly to line end in
+  `check` human/`--source`/GitHub output, aligned `fmt --sort` on partially
+  invalid files with `fmt` without `--sort` (formatting valid groups and exiting
+  `1` rather than failing strict re-parse), preserved two-argument subcommand
+  option values during global option extraction across `fmt`/`check`/`diff`/
+  `set`, and enforced single-occurrence validation on `set --max-output-bytes`
+  and `set --max-output-lines`.
 
 ## [adotenv-lsp 0.6.0] - 2026-11-27
 

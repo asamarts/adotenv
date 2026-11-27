@@ -2,6 +2,8 @@
 
 | Version | Date | Focus |
 |---|---|---|
+| 1.8.0 | 2026-11-27 | `CompactEntries` disk loaders and process helpers, bounded `format`/`sort`/edit `*_with_options` (`EditOptions::max_references`), `LineIndex::with_bom_policy`, Serde scalar map keys, Compose `example`/LF-format fixes, and `adotenv-cli` compact/bounded wiring |
+| adotenv-lsp 0.6.0 | 2026-11-27 | Semver-checked API stabilization (`ParsedDocument`, `Session`, unified `&LspOptions`), bounded stdio transport, `stdio` feature, `prepareRename`/`formatting`/`codeAction`/`positionEncoding`, and Rust 1.81 MSRV |
 | 1.7.3 | 2026-11-26 | `QuotedTail::Append` CR-padding `line_byte_limit` fix, tightened `$(...)` command-context key allowlist and post-`$(` enforcement, `test-audit`/`quality` refresh, and `xtask`/release-script hardening |
 | 1.7.2 | 2026-11-25 | Strict `$(...)` command-reference rename allowlist, `QuotedTail::Append` LF-to-CR encode fix, generalized benchmark docs, parameterized `xtask`, and permanent companion GitHub Releases |
 | 1.7.1 | 2026-11-25 | Reference-rename span and `$(...)` quote verification, Compose empty-key unclosed `${` fix, and benchmark/CI memory gate hardening |

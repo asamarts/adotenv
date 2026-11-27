@@ -14,10 +14,11 @@ use std::{
 use std::fmt::Write as _;
 
 use adotenv::{
-    load::{load_cascade_with_options, LoadOptions, LoadedEnvironment},
-    parse_strict_with, parse_strict_with_options, parse_with_options, AssignmentState,
-    ComparedValue, Comparison, Diagnostic, Dialect, DifferenceKind, Document, EditOptions,
-    FormatOptions, ParseOptions, Severity,
+    load::{load_cascade_values_compact_with_options, LoadOptions},
+    parse_strict_with, parse_strict_with_options, parse_values_compact_with_options,
+    parse_with_options, AssignmentState, ColumnEncoding, CompactValues, ComparedValue, Comparison,
+    Diagnostic, Dialect, DifferenceKind, Document, EditOptions, FormatOptions, LineIndex,
+    ParseOptions, Position, PositionError, Severity,
 };
 
 /// Exit code: the command succeeded.
@@ -143,6 +144,8 @@ enum GlobalOptionValue {
     Dialect(Dialect),
     MaxInputBytes(usize),
     MaxLines(usize),
+    MaxItems(usize),
+    MaxDiagnostics(usize),
 }
 
 fn extract_global_options(args: &mut Vec<String>) -> Result<GlobalOptions, ()> {
@@ -153,6 +156,8 @@ fn extract_global_options(args: &mut Vec<String>) -> Result<GlobalOptions, ()> {
     let mut dialect = None;
     let mut max_input_bytes = None;
     let mut max_lines = None;
+    let mut max_items = None;
+    let mut max_diagnostics = None;
     let mut ranges = Vec::new();
     let mut record = |start: usize, end: usize, parsed: GlobalOptionValue| -> Result<(), ()> {
         match parsed {
@@ -174,6 +179,18 @@ fn extract_global_options(args: &mut Vec<String>) -> Result<GlobalOptions, ()> {
                     return Err(());
                 }
             }
+            GlobalOptionValue::MaxItems(value) => {
+                if max_items.replace(value).is_some() {
+                    errln!("--max-items may be specified only once");
+                    return Err(());
+                }
+            }
+            GlobalOptionValue::MaxDiagnostics(value) => {
+                if max_diagnostics.replace(value).is_some() {
+                    errln!("--max-diagnostics may be specified only once");
+                    return Err(());
+                }
+            }
         }
         ranges.push((start, end));
         Ok(())
@@ -189,25 +206,21 @@ fn extract_global_options(args: &mut Vec<String>) -> Result<GlobalOptions, ()> {
     }
     let command = index;
     if command < args.len() {
-        let stop_at_first_positional = args[command] == "set";
+        let command_name = args[command].clone();
+        let stop_at_first_positional = command_name == "set";
         let mut positional_seen = false;
         index = command + 1;
         while index < args.len() {
             if args[index] == "--" || stop_at_first_positional && positional_seen {
                 break;
             }
+            if subcommand_option_takes_value(&command_name, &args[index]) {
+                index = (index + 2).min(args.len());
+                continue;
+            }
             if let Some((end, value)) = global_option(args, index)? {
                 record(index, end, value)?;
                 index = end;
-                continue;
-            }
-            if stop_at_first_positional
-                && matches!(
-                    args[index].as_str(),
-                    "--max-output-bytes" | "--max-output-lines"
-                )
-            {
-                index = (index + 2).min(args.len());
                 continue;
             }
             if stop_at_first_positional && !args[index].starts_with('-') {
@@ -226,10 +239,29 @@ fn extract_global_options(args: &mut Vec<String>) -> Result<GlobalOptions, ()> {
     if let Some(limit) = max_lines {
         parse_options = parse_options.with_max_lines(limit);
     }
+    if let Some(limit) = max_items {
+        parse_options = parse_options.with_max_items(limit);
+    }
+    if let Some(limit) = max_diagnostics {
+        parse_options = parse_options.with_max_diagnostics(limit);
+    }
     Ok(GlobalOptions {
         dialect: dialect.unwrap_or(Dialect::PORTABLE),
         parse_options,
     })
+}
+
+fn subcommand_option_takes_value(command: &str, flag: &str) -> bool {
+    match command {
+        "set" => matches!(flag, "--max-output-bytes" | "--max-output-lines"),
+        "fmt" => matches!(
+            flag,
+            "--exclude" | "--max-output-bytes" | "--max-output-lines" | "--max-references"
+        ),
+        "check" => matches!(flag, "--format" | "--exclude"),
+        "diff" => flag == "--format",
+        _ => false,
+    }
 }
 
 fn parse_limit_value(flag: &str, value: &str) -> Result<usize, ()> {
@@ -252,6 +284,16 @@ fn global_option(args: &[String], index: usize) -> Result<Option<(usize, GlobalO
             "--max-lines",
             "--max-lines=",
             GlobalOptionValue::MaxLines as fn(usize) -> GlobalOptionValue,
+        ),
+        (
+            "--max-items",
+            "--max-items=",
+            GlobalOptionValue::MaxItems as fn(usize) -> GlobalOptionValue,
+        ),
+        (
+            "--max-diagnostics",
+            "--max-diagnostics=",
+            GlobalOptionValue::MaxDiagnostics as fn(usize) -> GlobalOptionValue,
         ),
     ] {
         if args[index] == flag {
@@ -296,14 +338,17 @@ fn dialect_option(args: &[String], index: usize) -> Result<Option<(usize, Dialec
     Ok(Some((end, dialect)))
 }
 const USAGE: &str = r#"adotenv-cli [--dialect <portable|node|python|compose|docker>] [--dialect=<value>]
-            [--max-input-bytes <n>] [--max-lines <n>] <command> [options]
+            [--max-input-bytes <n>] [--max-lines <n>]
+            [--max-items <n>] [--max-diagnostics <n>] <command> [options]
 
 Commands:
   get <file> <key>             Print an effective literal value
   check [--format human|json|github] [--json] [--source]
         [-r|--recursive] [--exclude <path>] <file-or-dir>...
                                 Report parse diagnostics
-  fmt [--write|--check] [--sort] [-r|--recursive] [--exclude <path>] <file-or-dir>...
+  fmt [--write|--check] [--sort] [--max-output-bytes <n>]
+      [--max-output-lines <n>] [--max-references <n>]
+      [-r|--recursive] [--exclude <path>] <file-or-dir>...
                                 Format documents (optionally sorted)
   diff [--format human|matrix|json] [--json] [--mask] <baseline> <file>...
                                 Compare effective keys, optionally masking values
@@ -348,11 +393,24 @@ fn get(args: &[String], global: GlobalOptions) -> u8 {
         Ok(source) => source,
         Err(error) => return fail(error),
     };
-    let doc = match parse_strict_with_options(&source, global.dialect, global.parse_options) {
-        Ok(doc) => doc,
-        Err(error) => return fail(format!("{path}: {error}")),
+    let value = if args[1].is_empty() {
+        let doc = match parse_strict_with_options(&source, global.dialect, global.parse_options) {
+            Ok(doc) => doc,
+            Err(error) => return fail(format!("{path}: {error}")),
+        };
+        doc.get(&args[1]).map(str::to_owned)
+    } else {
+        let values = match parse_values_compact_with_options(
+            &source,
+            global.dialect,
+            global.parse_options,
+        ) {
+            Ok(values) => values,
+            Err(error) => return fail(format!("{path}: {error}")),
+        };
+        values.get(&args[1]).map(str::to_owned)
     };
-    match doc.get(&args[1]) {
+    match value {
         Some(value) => {
             outln!("{value}");
             SUCCESS
@@ -661,6 +719,19 @@ struct FmtArgs {
     sort: bool,
     recursive: bool,
     excludes: Vec<PathBuf>,
+    max_output_bytes: Option<usize>,
+    max_output_lines: Option<usize>,
+    max_references: Option<usize>,
+}
+
+fn set_unique_limit(slot: &mut Option<usize>, flag: &str, raw: &str) -> Result<(), String> {
+    let limit = raw
+        .parse::<usize>()
+        .map_err(|_| format!("{flag} expects a non-negative integer: {raw}"))?;
+    if slot.replace(limit).is_some() {
+        return Err(format!("{flag} may be specified only once"));
+    }
+    Ok(())
 }
 
 fn parse_fmt_args(args: &[String]) -> Result<FmtArgs, String> {
@@ -670,6 +741,9 @@ fn parse_fmt_args(args: &[String]) -> Result<FmtArgs, String> {
     let mut sort = false;
     let mut recursive = false;
     let mut excludes = Vec::new();
+    let mut max_output_bytes = None;
+    let mut max_output_lines = None;
+    let mut max_references = None;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -688,6 +762,39 @@ fn parse_fmt_args(args: &[String]) -> Result<FmtArgs, String> {
                 }
                 excludes.push(PathBuf::from(&args[index]));
             }
+            "--max-output-bytes" => {
+                index += 1;
+                if index >= args.len() {
+                    return Err("--max-output-bytes requires a value".to_string());
+                }
+                set_unique_limit(&mut max_output_bytes, "--max-output-bytes", &args[index])?;
+            }
+            "--max-output-lines" => {
+                index += 1;
+                if index >= args.len() {
+                    return Err("--max-output-lines requires a value".to_string());
+                }
+                set_unique_limit(&mut max_output_lines, "--max-output-lines", &args[index])?;
+            }
+            "--max-references" => {
+                index += 1;
+                if index >= args.len() {
+                    return Err("--max-references requires a value".to_string());
+                }
+                set_unique_limit(&mut max_references, "--max-references", &args[index])?;
+            }
+            argument if argument.starts_with("--max-output-bytes=") => {
+                let raw = &argument["--max-output-bytes=".len()..];
+                set_unique_limit(&mut max_output_bytes, "--max-output-bytes", raw)?;
+            }
+            argument if argument.starts_with("--max-output-lines=") => {
+                let raw = &argument["--max-output-lines=".len()..];
+                set_unique_limit(&mut max_output_lines, "--max-output-lines", raw)?;
+            }
+            argument if argument.starts_with("--max-references=") => {
+                let raw = &argument["--max-references=".len()..];
+                set_unique_limit(&mut max_references, "--max-references", raw)?;
+            }
             argument => {
                 reject_unknown_option(argument)?;
                 paths.push(argument.to_string());
@@ -705,6 +812,9 @@ fn parse_fmt_args(args: &[String]) -> Result<FmtArgs, String> {
         sort,
         recursive,
         excludes,
+        max_output_bytes,
+        max_output_lines,
+        max_references,
     })
 }
 
@@ -821,6 +931,8 @@ fn check(args: &[String], global: GlobalOptions) -> u8 {
             }
         };
         let (_, diagnostics) = parse_with_options(&source, global.dialect, global.parse_options);
+        let line_index = (format != CheckFormat::Json && !diagnostics.is_empty())
+            .then(|| LineIndex::new(&source).with_bom_policy(global.dialect.bom));
         let mut file_has_error = false;
         let mut rendered = Vec::new();
         for diagnostic in &diagnostics {
@@ -840,16 +952,21 @@ fn check(args: &[String], global: GlobalOptions) -> u8 {
                         render_human(
                             &path_label,
                             &source,
+                            line_index.as_ref().expect("built for non-JSON diagnostics"),
                             diagnostic,
                             show_source,
-                            global.dialect
                         )
                     );
                 }
                 CheckFormat::Github => {
                     outln!(
                         "{}",
-                        github_annotation(&path_label, &source, diagnostic, global.dialect)
+                        github_annotation(
+                            &path_label,
+                            &source,
+                            line_index.as_ref().expect("built for non-JSON diagnostics"),
+                            diagnostic,
+                        )
                     );
                 }
             }
@@ -907,13 +1024,13 @@ fn render_json_diagnostic(diagnostic: &Diagnostic) -> String {
 fn render_human(
     path: &str,
     source: &str,
+    line_index: &LineIndex<'_>,
     diagnostic: &Diagnostic,
     show_source: bool,
-    dialect: Dialect,
 ) -> String {
     let span = diagnostic.span();
-    let (line_start, line_end) = line_bounds(source, span.start);
-    let column = source_column(source, line_start, span.start, dialect);
+    let position = diagnostic_position(source, line_index, span.start);
+    let column = position.column + 1;
     let mut output = format!(
         "{}:{}:{}: {}[{}]: {}",
         path,
@@ -924,7 +1041,7 @@ fn render_human(
         diagnostic.message()
     );
     if show_source {
-        let content_start = line_content_start(source, line_start, dialect);
+        let (content_start, line_end) = line_content_bounds(source, line_index, position.line);
         let line_text = expand_tabs(&source[content_start..line_end]);
         let caret_start = floor_char_boundary(source, span.start.clamp(content_start, line_end));
         let caret_end = floor_char_boundary(source, span.end.clamp(caret_start, line_end));
@@ -952,45 +1069,25 @@ fn floor_char_boundary(source: &str, offset: usize) -> usize {
     offset
 }
 
-fn line_bounds(source: &str, offset: usize) -> (usize, usize) {
+fn diagnostic_position(source: &str, line_index: &LineIndex<'_>, offset: usize) -> Position {
     let offset = floor_char_boundary(source, offset);
-    let line_start = source[..offset]
-        .char_indices()
-        .rev()
-        .find(|(_, character)| matches!(character, '\n' | '\r'))
-        .map_or(0, |(index, _)| index + 1);
-    let line_end = source[offset..]
-        .char_indices()
-        .find(|(_, character)| matches!(character, '\n' | '\r'))
-        .map_or(source.len(), |(index, _)| offset + index);
-    (line_start, line_end)
-}
-
-fn line_content_start(source: &str, line_start: usize, dialect: Dialect) -> usize {
-    if line_start == 0 {
-        match dialect.bom {
-            adotenv::BomPolicy::Strip => {
-                if source.starts_with('\u{feff}') {
-                    '\u{feff}'.len_utf8()
-                } else {
-                    0
-                }
-            }
-            adotenv::BomPolicy::StripAll => {
-                source.len() - source.trim_start_matches('\u{feff}').len()
-            }
-            adotenv::BomPolicy::Keep | adotenv::BomPolicy::Error => 0,
-            _ => 0,
-        }
-    } else {
-        line_start
+    match line_index.to_position(offset, ColumnEncoding::Scalar) {
+        Ok(position) => position,
+        Err(PositionError::InsideCrLf) => line_index
+            .to_position(offset.saturating_sub(1), ColumnEncoding::Scalar)
+            .unwrap_or(Position { line: 0, column: 0 }),
+        Err(_) => Position { line: 0, column: 0 },
     }
 }
 
-fn source_column(source: &str, line_start: usize, offset: usize, dialect: Dialect) -> usize {
-    let content_start = line_content_start(source, line_start, dialect);
-    let offset = floor_char_boundary(source, offset.max(content_start).min(source.len()));
-    source[content_start..offset].chars().count() + 1
+fn line_content_bounds(source: &str, line_index: &LineIndex<'_>, line: usize) -> (usize, usize) {
+    let content_start = line_index
+        .to_offset(Position { line, column: 0 }, ColumnEncoding::Utf8)
+        .unwrap_or(0);
+    let line_end = source[content_start..]
+        .find(['\n', '\r'])
+        .map_or(source.len(), |offset| content_start + offset);
+    (content_start, line_end)
 }
 
 fn expand_tabs(value: &str) -> String {
@@ -1032,12 +1129,11 @@ fn display_carets(value: &str) -> String {
 fn github_annotation(
     path: &str,
     source: &str,
+    line_index: &LineIndex<'_>,
     diagnostic: &Diagnostic,
-    dialect: Dialect,
 ) -> String {
-    let span = diagnostic.span();
-    let (line_start, _) = line_bounds(source, span.start);
-    let column = source_column(source, line_start, span.start, dialect);
+    let position = diagnostic_position(source, line_index, diagnostic.span().start);
+    let column = position.column + 1;
     format!(
         "::{} file={},line={},col={},title={}::{}",
         github_severity(diagnostic.severity()),
@@ -1131,6 +1227,9 @@ fn fmt(args: &[String], global: GlobalOptions) -> u8 {
         sort,
         recursive,
         excludes,
+        max_output_bytes,
+        max_output_lines,
+        max_references,
     } = match parse_fmt_args(args) {
         Ok(parsed) => parsed,
         Err(error) => {
@@ -1144,9 +1243,19 @@ fn fmt(args: &[String], global: GlobalOptions) -> u8 {
     }
     if raw_paths.is_empty() && !recursive {
         errln!(
-            "usage: adotenv-cli fmt [--write|--check] [--sort] [-r|--recursive] [--exclude <path>] <file-or-dir>..."
+            "usage: adotenv-cli fmt [--write|--check] [--sort] [--max-output-bytes <n>] [--max-output-lines <n>] [--max-references <n>] [-r|--recursive] [--exclude <path>] <file-or-dir>..."
         );
         return FAILURE;
+    }
+    let mut edit_options = EditOptions::new().with_parse_limits(global.parse_options);
+    if let Some(limit) = max_output_bytes {
+        edit_options = edit_options.with_max_output_bytes(limit);
+    }
+    if let Some(limit) = max_output_lines {
+        edit_options = edit_options.with_max_output_lines(limit);
+    }
+    if let Some(limit) = max_references {
+        edit_options = edit_options.with_max_references(limit);
     }
     let Discovery {
         paths,
@@ -1214,36 +1323,40 @@ fn fmt(args: &[String], global: GlobalOptions) -> u8 {
         let formatting_source;
         let formatting_doc;
         let doc_ref = if sort {
-            let sorted = match doc.sort() {
+            let sorted = match doc.sort_with_options(edit_options) {
                 Ok(sorted) => sorted,
                 Err(error) => {
                     code = code.max(fail(format!("{}: {error}", path.display())));
                     continue;
                 }
             };
-            formatting_source = sorted.into_string();
-            formatting_doc = match parse_strict_with_options(
-                &formatting_source,
-                global.dialect,
-                global.parse_options,
-            ) {
-                Ok(doc) => doc,
+            if sorted.edits().is_empty() {
+                &doc
+            } else {
+                formatting_source = sorted.into_string();
+                let (reparsed, reparsed_diagnostics) =
+                    parse_with_options(&formatting_source, global.dialect, global.parse_options);
+                if let Some(diagnostic) = reparsed_diagnostics
+                    .iter()
+                    .find(|diagnostic| diagnostic.limit().is_some())
+                {
+                    code = code.max(fail(format!("{}: {diagnostic}", path.display())));
+                    continue;
+                }
+                formatting_doc = reparsed;
+                &formatting_doc
+            }
+        } else {
+            &doc
+        };
+        let formatted =
+            match doc_ref.format_with_options(&FormatOptions::normalize_groups(), edit_options) {
+                Ok(formatted) => formatted,
                 Err(error) => {
                     code = code.max(fail(format!("{}: {error}", path.display())));
                     continue;
                 }
             };
-            &formatting_doc
-        } else {
-            &doc
-        };
-        let formatted = match doc_ref.format(&FormatOptions::normalize_groups()) {
-            Ok(formatted) => formatted,
-            Err(error) => {
-                code = code.max(fail(format!("{}: {error}", path.display())));
-                continue;
-            }
-        };
         if check {
             if formatted.as_str() != source {
                 outln!("{}: would reformat", path.display());
@@ -1731,7 +1844,7 @@ fn load(args: &[String], global: GlobalOptions) -> u8 {
             return FAILURE;
         }
     }
-    let loaded = match load_cascade_with_options(
+    let loaded = match load_cascade_values_compact_with_options(
         &args[0],
         mode,
         LoadOptions::new(global.dialect).with_limits(global.parse_options),
@@ -1755,9 +1868,9 @@ fn load(args: &[String], global: GlobalOptions) -> u8 {
 /// as needed and has no spelling for control characters other than tab, CR
 /// and LF. The whole output is built first, so nothing is printed when one
 /// key or value has no exact Portable spelling.
-fn render_portable(loaded: &LoadedEnvironment) -> Result<String, String> {
+fn render_portable(loaded: &CompactValues) -> Result<String, String> {
     let mut output = String::new();
-    for (key, value) in loaded.values() {
+    for (key, value) in loaded.iter() {
         let token = adotenv::encode_value(value).ok_or_else(|| {
             format!("cannot print {key:?}: the value has no exact Portable spelling")
         })?;
@@ -1782,7 +1895,8 @@ struct SetArgs {
 }
 
 fn parse_set_args(args: &[String], parse_limits: ParseOptions) -> Result<SetArgs, String> {
-    let mut edit_options = EditOptions::new().with_parse_limits(parse_limits);
+    let mut max_output_bytes = None;
+    let mut max_output_lines = None;
     let mut index = 0;
     let mut options_ended = false;
     while index < args.len() {
@@ -1797,44 +1911,33 @@ fn parse_set_args(args: &[String], parse_limits: ParseOptions) -> Result<SetArgs
                 if index >= args.len() {
                     return Err("--max-output-bytes requires a value".to_string());
                 }
-                let limit = args[index].parse::<usize>().map_err(|_| {
-                    format!(
-                        "--max-output-bytes expects a non-negative integer: {}",
-                        args[index]
-                    )
-                })?;
-                edit_options = edit_options.with_max_output_bytes(limit);
+                set_unique_limit(&mut max_output_bytes, "--max-output-bytes", &args[index])?;
             }
             "--max-output-lines" => {
                 index += 1;
                 if index >= args.len() {
                     return Err("--max-output-lines requires a value".to_string());
                 }
-                let limit = args[index].parse::<usize>().map_err(|_| {
-                    format!(
-                        "--max-output-lines expects a non-negative integer: {}",
-                        args[index]
-                    )
-                })?;
-                edit_options = edit_options.with_max_output_lines(limit);
+                set_unique_limit(&mut max_output_lines, "--max-output-lines", &args[index])?;
             }
             argument if argument.starts_with("--max-output-bytes=") => {
                 let raw = &argument["--max-output-bytes=".len()..];
-                let limit = raw.parse::<usize>().map_err(|_| {
-                    format!("--max-output-bytes expects a non-negative integer: {raw}")
-                })?;
-                edit_options = edit_options.with_max_output_bytes(limit);
+                set_unique_limit(&mut max_output_bytes, "--max-output-bytes", raw)?;
             }
             argument if argument.starts_with("--max-output-lines=") => {
                 let raw = &argument["--max-output-lines=".len()..];
-                let limit = raw.parse::<usize>().map_err(|_| {
-                    format!("--max-output-lines expects a non-negative integer: {raw}")
-                })?;
-                edit_options = edit_options.with_max_output_lines(limit);
+                set_unique_limit(&mut max_output_lines, "--max-output-lines", raw)?;
             }
             _ => break,
         }
         index += 1;
+    }
+    let mut edit_options = EditOptions::new().with_parse_limits(parse_limits);
+    if let Some(limit) = max_output_bytes {
+        edit_options = edit_options.with_max_output_bytes(limit);
+    }
+    if let Some(limit) = max_output_lines {
+        edit_options = edit_options.with_max_output_lines(limit);
     }
     Ok(SetArgs {
         positional: args[index..].to_vec(),
@@ -1921,7 +2024,7 @@ fn run_command(args: &[String], global: GlobalOptions) -> u8 {
         .map_or("", String::as_str);
     let program = &args[separator + 1];
     let program_args = &args[separator + 2..];
-    let loaded = match load_cascade_with_options(
+    let loaded = match load_cascade_values_compact_with_options(
         directory,
         mode,
         LoadOptions::new(global.dialect).with_limits(global.parse_options),
@@ -1934,7 +2037,7 @@ fn run_command(args: &[String], global: GlobalOptions) -> u8 {
     }
     let status = Command::new(program)
         .args(program_args)
-        .envs(loaded.values())
+        .envs(loaded.iter())
         .status();
     match status {
         Ok(status) => child_exit_code(status),
@@ -1972,10 +2075,10 @@ fn exit_code_for(code: Option<i32>, signal: Option<i32>) -> u8 {
         .unwrap_or(CHILD_UNREPRESENTABLE)
 }
 
-fn validate_child_environment(loaded: &LoadedEnvironment) -> Result<(), String> {
+fn validate_child_environment(loaded: &CompactValues) -> Result<(), String> {
     #[cfg(windows)]
     let mut seen = BTreeSet::new();
-    for (key, value) in loaded.values() {
+    for (key, value) in loaded.iter() {
         if key.is_empty() || key.bytes().any(|byte| byte == 0 || byte == b'=') {
             return Err(format!("invalid child environment key: {key:?}"));
         }
@@ -2850,39 +2953,107 @@ mod tests {
     }
 
     #[test]
-    fn line_content_start_handles_every_bom_policy() {
-        use super::line_content_start;
-        use adotenv::{BomPolicy, Dialect};
+    fn line_index_positions_and_bounds_handle_every_bom_policy_and_crlf() {
+        use super::{diagnostic_position, github_annotation, line_content_bounds, render_human};
+        use adotenv::{BomPolicy, LineIndex, Position};
 
-        let double_bom = "\u{feff}\u{feff}A=1\n";
+        let double_bom = "\u{feff}\u{feff}A=1\nB=😀!\r\n";
+        let strip_one = LineIndex::new(double_bom).with_bom_policy(BomPolicy::Strip);
+        let strip_all = LineIndex::new(double_bom).with_bom_policy(BomPolicy::StripAll);
+        let keep = LineIndex::new(double_bom).with_bom_policy(BomPolicy::Keep);
+        let error = LineIndex::new(double_bom).with_bom_policy(BomPolicy::Error);
+
+        assert_eq!(line_content_bounds(double_bom, &strip_one, 0), (3, 9));
+        assert_eq!(line_content_bounds(double_bom, &strip_all, 0), (6, 9));
+        assert_eq!(line_content_bounds(double_bom, &keep, 0), (0, 9));
+        assert_eq!(line_content_bounds(double_bom, &error, 0), (0, 9));
+        assert_eq!(line_content_bounds(double_bom, &strip_all, 1), (10, 17));
+
+        // Offset 6 is 'A' after two BOMs.
         assert_eq!(
-            line_content_start(double_bom, 0, Dialect::PORTABLE.with_bom(BomPolicy::Strip)),
-            3
+            diagnostic_position(double_bom, &strip_one, 6),
+            Position { line: 0, column: 1 }
         );
         assert_eq!(
-            line_content_start(
-                double_bom,
-                0,
-                Dialect::PORTABLE.with_bom(BomPolicy::StripAll)
-            ),
-            6
+            diagnostic_position(double_bom, &strip_all, 6),
+            Position { line: 0, column: 0 }
         );
         assert_eq!(
-            line_content_start(double_bom, 0, Dialect::PORTABLE.with_bom(BomPolicy::Keep)),
-            0
+            diagnostic_position(double_bom, &keep, 6),
+            Position { line: 0, column: 2 }
         );
         assert_eq!(
-            line_content_start(double_bom, 0, Dialect::PORTABLE.with_bom(BomPolicy::Error)),
-            0
+            diagnostic_position(double_bom, &error, 0),
+            Position { line: 0, column: 0 }
         );
+
+        // Scalar column after 4-byte emoji on line 1, plus InsideCrLf snap to line end.
+        let bang = double_bom.find('!').unwrap();
         assert_eq!(
-            line_content_start(
-                double_bom,
-                7,
-                Dialect::PORTABLE.with_bom(BomPolicy::StripAll)
-            ),
-            7
+            diagnostic_position(double_bom, &strip_one, bang),
+            Position { line: 1, column: 3 }
         );
+        let inside_crlf = double_bom.len() - 1;
+        assert_eq!(
+            diagnostic_position(double_bom, &strip_one, inside_crlf),
+            Position { line: 1, column: 4 }
+        );
+
+        // BOM-only source under BomPolicy::Strip produces an empty line 0 at offset 3.
+        let bom_only = "\u{feff}";
+        let bom_only_index = LineIndex::new(bom_only).with_bom_policy(BomPolicy::Strip);
+        assert_eq!(line_content_bounds(bom_only, &bom_only_index, 0), (3, 3));
+        assert_eq!(
+            diagnostic_position(bom_only, &bom_only_index, 0),
+            Position { line: 0, column: 0 }
+        );
+
+        // Verify render_human & github_annotation across BomPolicy::Keep, BomPolicy::Error,
+        // and BomPolicy::StripAll.
+        let keep_src = "\u{feff}BAD KEY=1\n";
+        let (_, keep_diags) = adotenv::parse_with(
+            keep_src,
+            adotenv::Dialect::PORTABLE.with_bom(BomPolicy::Keep),
+        );
+        let keep_idx = LineIndex::new(keep_src).with_bom_policy(BomPolicy::Keep);
+        let rendered_keep = render_human("app.env", keep_src, &keep_idx, &keep_diags[0], true);
+        assert!(rendered_keep.contains("app.env:1:1: error[dotenv.invalid-key]:"));
+        assert!(rendered_keep.contains("1 | \u{feff}BAD KEY=1"));
+        assert!(
+            github_annotation("app.env", keep_src, &keep_idx, &keep_diags[0])
+                .contains("line=1,col=1,title=dotenv.invalid-key")
+        );
+
+        let strip_all_src = "\u{feff}\u{feff}BAD KEY=1\n";
+        let (_, strip_all_diags) = adotenv::parse_with(
+            strip_all_src,
+            adotenv::Dialect::PORTABLE.with_bom(BomPolicy::StripAll),
+        );
+        let strip_all_idx = LineIndex::new(strip_all_src).with_bom_policy(BomPolicy::StripAll);
+        let invalid_diag = strip_all_diags
+            .iter()
+            .find(|diag| diag.code() == adotenv::DiagnosticCode::InvalidKey)
+            .unwrap();
+        let rendered_strip_all =
+            render_human("app.env", strip_all_src, &strip_all_idx, invalid_diag, true);
+        assert!(rendered_strip_all.contains("app.env:1:1: error[dotenv.invalid-key]:"));
+        assert!(rendered_strip_all.contains("1 | BAD KEY=1\n  | ^^^^^^^"));
+
+        let error_bom_src = "\u{feff}A=1\n";
+        let (_, error_bom_diags) = adotenv::parse_with(
+            error_bom_src,
+            adotenv::Dialect::PORTABLE.with_bom(BomPolicy::Error),
+        );
+        let error_bom_idx = LineIndex::new(error_bom_src).with_bom_policy(BomPolicy::Error);
+        let rendered_err = render_human(
+            "app.env",
+            error_bom_src,
+            &error_bom_idx,
+            &error_bom_diags[0],
+            true,
+        );
+        assert!(rendered_err.contains("app.env:1:1: error[dotenv.forbidden-bom]:"));
+        assert!(rendered_err.contains("1 | \u{feff}A=1"));
     }
 
     #[test]

@@ -18,11 +18,12 @@ version.
 
 ```text
 adotenv-cli [--dialect <portable|node|python|compose|docker>] [--dialect=<value>]
-            [--max-input-bytes <n>] [--max-lines <n>] <command> [options]
+            [--max-input-bytes <n>] [--max-lines <n>]
+            [--max-items <n>] [--max-diagnostics <n>] <command> [options]
 
 get <file> <key>
 check [--format human|json|github] [--json] [--source] [-r|--recursive] [--exclude <path>] <path>...
-fmt [--write|--check] [--sort] [-r|--recursive] [--exclude <path>] <path>...
+fmt [--write|--check] [--sort] [--max-output-bytes <n>] [--max-output-lines <n>] [--max-references <n>] [-r|--recursive] [--exclude <path>] <path>...
 diff [--format human|matrix|json] [--json] [--mask] <baseline> <file>...
 example <file>
 load <directory> [mode]
@@ -71,15 +72,28 @@ See [Dialects](dialects.md) for what each preset accepts.
 
 ### Limits
 
-`--max-input-bytes <n>` and `--max-lines <n>` (or their `=` forms) are global
-options accepted in the same positions as `--dialect` and specified at most
-once. They forward `ParseOptions::with_max_input_bytes` and
-`ParseOptions::with_max_lines` to every file parse and cascade load. `check`
-reports limit violations as `dotenv.limit-exceeded` diagnostics (exit code 1);
-strict commands (`get`, `fmt`, `diff`, `example`, `load`, `set`, `run`) exit with code 2.
+`--max-input-bytes <n>`, `--max-lines <n>`, `--max-items <n>` and
+`--max-diagnostics <n>` (or their `=` forms) are global options accepted in the
+same positions as `--dialect` and specified at most once. They forward
+`ParseOptions::with_max_input_bytes`, `ParseOptions::with_max_lines`,
+`ParseOptions::with_max_items` and `ParseOptions::with_max_diagnostics` to
+parsing and loading. `check` reports limit violations as `dotenv.limit-exceeded`
+diagnostics (exit code 1); strict commands (`get`, `fmt`, `diff`, `example`,
+`load`, `set`, `run`) exit with code 2. Consistent with
+`ParseOptions::max_diagnostics`, `--max-diagnostics` applies to
+diagnostic-collecting parses (`check`, `fmt`, `example`, and `set` edit
+verification); strict/values-only commands (`get`, `diff`, `load`, `run`) keep
+only the first error and do not build a diagnostic list.
 
-`set` also accepts `--max-output-bytes <n>` and `--max-output-lines <n>` before
-`<file>` to bound the edited file through `EditOptions` before writing.
+`fmt` also accepts `--max-output-bytes <n>`, `--max-output-lines <n>` and
+`--max-references <n>` (and their `=` forms, each at most once) to bound sorted
+and formatted output through `EditOptions` (`Document::sort_with_options` and
+`Document::format_with_options`); `--max-references` caps reference scanning
+during `fmt --sort`.
+
+`set` also accepts `--max-output-bytes <n>` and `--max-output-lines <n>` (and
+their `=` forms, each at most once) before `<file>` to bound the edited file
+through `EditOptions` before writing.
 
 ## Values in output
 

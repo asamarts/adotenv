@@ -3167,3 +3167,538 @@ fn fmt_and_check_enforce_byte_and_line_limits_on_single_line_invalid_and_oversiz
         }
     }
 }
+
+#[test]
+fn cli_1_8_limits_bounded_fmt_compact_paths_bom_and_compose_example() {
+    let dir = TempDir::new();
+
+    // 1. Global --max-items and --max-diagnostics across commands.
+    let items_file = dir.file(".env", "A=1\nB=2\nC=3\n");
+    let other_file = dir.file(".env.other", "A=1\nB=9\n");
+
+    let check_items_json = run(&[
+        "--max-items",
+        "2",
+        "check",
+        "--json",
+        items_file.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        check_items_json.status.code(),
+        Some(1),
+        "{}",
+        stderr(&check_items_json)
+    );
+    assert!(stdout(&check_items_json).contains("dotenv.limit-exceeded"));
+
+    let check_items_human = run(&["check", "--max-items=2", items_file.to_str().unwrap()]);
+    assert_eq!(check_items_human.status.code(), Some(1));
+    assert!(stdout(&check_items_human).contains("dotenv.limit-exceeded"));
+
+    let check_items_gh = run(&[
+        "--max-items=2",
+        "check",
+        "--format=github",
+        items_file.to_str().unwrap(),
+    ]);
+    assert_eq!(check_items_gh.status.code(), Some(1));
+    assert!(stdout(&check_items_gh).contains("title=dotenv.limit-exceeded"));
+
+    // Warning-producing file triggers --max-diagnostics=1 (duplicate + second duplicate = 2 diagnostics).
+    let diag_file = dir.file("diag.env", "A=1\nA=2\nA=3\n");
+    let check_diag_json = run(&[
+        "--max-diagnostics=1",
+        "check",
+        "--json",
+        diag_file.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        check_diag_json.status.code(),
+        Some(1),
+        "{}",
+        stderr(&check_diag_json)
+    );
+    assert!(stdout(&check_diag_json).contains("dotenv.limit-exceeded"));
+
+    let check_diag_space = run(&[
+        "check",
+        "--max-diagnostics",
+        "1",
+        diag_file.to_str().unwrap(),
+    ]);
+    assert_eq!(check_diag_space.status.code(), Some(1));
+    assert!(stdout(&check_diag_space).contains("dotenv.limit-exceeded"));
+
+    // Strict commands reject --max-items and --max-diagnostics violations with exit 2 and empty stdout.
+    for cmd in [
+        &["--max-items=2", "get", items_file.to_str().unwrap(), "A"][..],
+        &[
+            "--max-items=2",
+            "diff",
+            items_file.to_str().unwrap(),
+            other_file.to_str().unwrap(),
+        ][..],
+        &["--max-items=2", "fmt", items_file.to_str().unwrap()][..],
+        &["--max-items=2", "example", items_file.to_str().unwrap()][..],
+        &["--max-items=2", "load", dir.path().to_str().unwrap()][..],
+        &[
+            "--max-items=2",
+            "run",
+            dir.path().to_str().unwrap(),
+            "--",
+            env!("CARGO_BIN_EXE_adotenv-cli"),
+            "--version",
+        ][..],
+        &[
+            "--max-items=2",
+            "set",
+            items_file.to_str().unwrap(),
+            "A",
+            "9",
+        ][..],
+        &["--max-diagnostics=0", "fmt", diag_file.to_str().unwrap()][..],
+        &[
+            "--max-diagnostics=0",
+            "example",
+            diag_file.to_str().unwrap(),
+        ][..],
+    ] {
+        let out = run(cmd);
+        assert_eq!(out.status.code(), Some(2), "{cmd:?}: {}", stderr(&out));
+        assert_eq!(stdout(&out), "", "{cmd:?}");
+        assert!(stderr(&out).contains("limit"), "{cmd:?}: {}", stderr(&out));
+    }
+
+    // `set` keeps --max-items= and --max-diagnostics= after <file> as literal values.
+    let set_literal = dir.file("set_literal.env", "A=1\n");
+    let set_ok = run(&[
+        "set",
+        "--max-items=5",
+        "--max-diagnostics=5",
+        set_literal.to_str().unwrap(),
+        "A",
+        "--max-items=99",
+    ]);
+    assert_eq!(set_ok.status.code(), Some(0), "{}", stderr(&set_ok));
+    assert_eq!(
+        fs::read_to_string(&set_literal).unwrap(),
+        "A=--max-items=99\n"
+    );
+
+    // 2. Bounded fmt (--max-output-bytes, --max-output-lines, --max-references, --max-input-bytes expansion).
+    let fmt_file = dir.file("fmt.env", "B=2\nA=1\n");
+    // Unformatted is 8 bytes, formatted "A = 1\nB = 2\n" is 12 bytes -> fails under 10 bytes.
+    let fmt_out_bytes = run(&[
+        "fmt",
+        "--write",
+        "--max-output-bytes",
+        "10",
+        fmt_file.to_str().unwrap(),
+    ]);
+    assert_eq!(fmt_out_bytes.status.code(), Some(2));
+    assert_eq!(stdout(&fmt_out_bytes), "");
+    assert!(stderr(&fmt_out_bytes).contains("limit"));
+    assert_eq!(fs::read_to_string(&fmt_file).unwrap(), "B=2\nA=1\n");
+
+    // Global --max-input-bytes=10 accepts 8-byte input, then refuses 12-byte expanded format output.
+    let fmt_input_expand = run(&[
+        "--max-input-bytes=10",
+        "fmt",
+        "--write",
+        fmt_file.to_str().unwrap(),
+    ]);
+    assert_eq!(fmt_input_expand.status.code(), Some(2));
+    assert_eq!(stdout(&fmt_input_expand), "");
+    assert!(stderr(&fmt_input_expand).contains("limit"));
+    assert_eq!(fs::read_to_string(&fmt_file).unwrap(), "B=2\nA=1\n");
+
+    // --max-output-lines rejects output exceeding line cap.
+    let fmt_out_lines = run(&["fmt", "--max-output-lines=1", fmt_file.to_str().unwrap()]);
+    assert_eq!(fmt_out_lines.status.code(), Some(2));
+    assert_eq!(stdout(&fmt_out_lines), "");
+    assert!(stderr(&fmt_out_lines).contains("limit"));
+
+    // --max-references bounds fmt --sort reference scanning (and is accepted without --sort).
+    let ref_file = dir.file("refs.env", "B=$A$A\nA=1\n");
+    let fmt_refs_fail = run(&[
+        "fmt",
+        "--sort",
+        "--max-references=1",
+        ref_file.to_str().unwrap(),
+    ]);
+    assert_eq!(fmt_refs_fail.status.code(), Some(2));
+    assert_eq!(stdout(&fmt_refs_fail), "");
+    assert!(stderr(&fmt_refs_fail).contains("limit"));
+
+    let fmt_refs_ok = run(&[
+        "fmt",
+        "--sort",
+        "--max-references",
+        "2",
+        "--max-output-bytes=64",
+        "--max-output-lines",
+        "4",
+        ref_file.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        fmt_refs_ok.status.code(),
+        Some(0),
+        "{}",
+        stderr(&fmt_refs_ok)
+    );
+    assert_eq!(stdout(&fmt_refs_ok), "B = $A$A\nA = 1\n");
+
+    let fmt_refs_no_sort = run(&["fmt", "--max-references=0", ref_file.to_str().unwrap()]);
+    assert_eq!(
+        fmt_refs_no_sort.status.code(),
+        Some(0),
+        "{}",
+        stderr(&fmt_refs_no_sort)
+    );
+    assert_eq!(stdout(&fmt_refs_no_sort), "B = $A$A\nA = 1\n");
+
+    // fmt --sort on a file with an invalid group + a separate unsorted valid group exits 1
+    // (consistent with fmt without --sort) and still sorts and formats the valid group.
+    let partial_invalid = dir.file("partial_invalid.env", "BAD KEY=1\n\nB=2\nA=1\n");
+    let fmt_partial = run(&["fmt", "--sort", partial_invalid.to_str().unwrap()]);
+    assert_eq!(
+        fmt_partial.status.code(),
+        Some(1),
+        "{}",
+        stderr(&fmt_partial)
+    );
+    assert_eq!(stdout(&fmt_partial), "BAD KEY=1\n\nA = 1\nB = 2\n");
+    assert!(stderr(&fmt_partial).contains("invalid"));
+
+    // Duplicate / missing / invalid limit flags fail with exit code 2.
+    for bad in [
+        &["--max-items"][..],
+        &["--max-items=abc", "get", "x", "A"][..],
+        &["--max-items=1", "--max-items=2", "get", "x", "A"][..],
+        &["--max-diagnostics"][..],
+        &["--max-diagnostics=abc", "check", "x"][..],
+        &[
+            "--max-diagnostics",
+            "1",
+            "--max-diagnostics",
+            "2",
+            "check",
+            "x",
+        ][..],
+        &["fmt", "--max-output-bytes"][..],
+        &["fmt", "--max-output-bytes=abc", "x"][..],
+        &["fmt", "--max-output-bytes=1", "--max-output-bytes=2", "x"][..],
+        &["fmt", "--max-output-lines"][..],
+        &[
+            "fmt",
+            "--max-output-lines=1",
+            "--max-output-lines",
+            "2",
+            "x",
+        ][..],
+        &["fmt", "--max-references"][..],
+        &["fmt", "--max-references=abc", "x"][..],
+        &["fmt", "--max-references=1", "--max-references=2", "x"][..],
+        &[
+            "set",
+            "--max-output-bytes=1",
+            "--max-output-bytes=2",
+            "x",
+            "A",
+            "1",
+        ][..],
+        &[
+            "set",
+            "--max-output-lines",
+            "1",
+            "--max-output-lines=2",
+            "x",
+            "A",
+            "1",
+        ][..],
+    ] {
+        let out = run(bad);
+        assert_eq!(out.status.code(), Some(2), "{bad:?}");
+    }
+
+    // 3. Compact get (Compose empty key fallback + normal key + bare key).
+    let compose_empty_key = dir.file("compose_empty.env", "=empty-key-val\nA=1\nB=2\nB\n");
+    let get_empty = run(&[
+        "--dialect=compose",
+        "get",
+        compose_empty_key.to_str().unwrap(),
+        "",
+    ]);
+    assert_eq!(get_empty.status.code(), Some(0), "{}", stderr(&get_empty));
+    assert_eq!(stdout(&get_empty), "empty-key-val\n");
+
+    let get_normal = run(&[
+        "--dialect=compose",
+        "get",
+        compose_empty_key.to_str().unwrap(),
+        "A",
+    ]);
+    assert_eq!(get_normal.status.code(), Some(0), "{}", stderr(&get_normal));
+    assert_eq!(stdout(&get_normal), "1\n");
+
+    // Under Compose (`BareKeys::Ignore`), bare `B` is ignored so earlier `B=2` wins.
+    let get_compose_bare = run(&[
+        "--dialect=compose",
+        "get",
+        compose_empty_key.to_str().unwrap(),
+        "B",
+    ]);
+    assert_eq!(
+        get_compose_bare.status.code(),
+        Some(0),
+        "{}",
+        stderr(&get_compose_bare)
+    );
+    assert_eq!(stdout(&get_compose_bare), "2\n");
+
+    // Under Portable (`BareKeys::Preserve`), winning bare `B` has no value -> missing key (exit 1).
+    let portable_bare = dir.file("portable_bare.env", "B=2\nB\n");
+    let get_portable_bare = run(&["get", portable_bare.to_str().unwrap(), "B"]);
+    assert_eq!(
+        get_portable_bare.status.code(),
+        Some(1),
+        "{}",
+        stderr(&get_portable_bare)
+    );
+
+    // 4. Compact load/run cascade preserves an earlier assigned value when a later file has bare KEY.
+    let cascade_dir = TempDir::new();
+    cascade_dir.file(".env", "KEEP=from-base\nOVERRIDE=base\n");
+    cascade_dir.file(".env.local", "KEEP\nOVERRIDE=local\n");
+    let load_out = run(&["load", cascade_dir.path().to_str().unwrap()]);
+    assert_eq!(load_out.status.code(), Some(0), "{}", stderr(&load_out));
+    assert_eq!(stdout(&load_out), "KEEP=from-base\nOVERRIDE=local\n");
+
+    // 5. LineIndex::with_bom_policy in check (stripped BOM columns + CRLF unknown escape).
+    // Every built-in preset uses BomPolicy::Strip, so the leading BOM is hidden in columns and --source.
+    let bom_docker_file = dir.file("bom_docker.env", "\u{feff}A=1\n");
+    let docker_check = run(&[
+        "--dialect=docker",
+        "check",
+        "--source",
+        bom_docker_file.to_str().unwrap(),
+    ]);
+    assert_eq!(docker_check.status.code(), Some(0));
+    let docker_stdout = stdout(&docker_check);
+    assert!(
+        docker_stdout.contains(":1:1: info[dotenv.bom]:"),
+        "{docker_stdout}"
+    );
+    assert!(
+        docker_stdout.contains("1 | A=1\n  | ^\n"),
+        "{docker_stdout}"
+    );
+
+    let bom_strip_file = dir.file("bom_strip.env", "\u{feff}BAD KEY=1\n");
+    let portable_check = run(&["check", "--source", bom_strip_file.to_str().unwrap()]);
+    assert_eq!(portable_check.status.code(), Some(1));
+    let portable_stdout = stdout(&portable_check);
+    assert!(
+        portable_stdout.contains(":1:1: error[dotenv.invalid-key]:"),
+        "{portable_stdout}"
+    );
+    assert!(
+        portable_stdout.contains("1 | BAD KEY=1\n  | ^^^^^^^\n"),
+        "{portable_stdout}"
+    );
+
+    let bom_tight_hash = dir.file("bom_tight_hash.env", "\u{feff}A=1#tight\n");
+    let tight_check = run(&["check", bom_tight_hash.to_str().unwrap()]);
+    assert_eq!(tight_check.status.code(), Some(0));
+    let tight_stdout = stdout(&tight_check);
+    assert!(
+        tight_stdout.contains(":1:4: warning[dotenv.tight-hash]:"),
+        "{tight_stdout}"
+    );
+
+    // Unknown escape on CRLF: span covers `\r` or lands inside CRLF; human/--source/github stay exact.
+    let crlf_escape = dir.file("crlf_escape.env", "A=\"\\\r\n\"\n");
+    let crlf_human = run(&["check", "--source", crlf_escape.to_str().unwrap()]);
+    assert_eq!(crlf_human.status.code(), Some(0), "{}", stderr(&crlf_human));
+    let crlf_out = stdout(&crlf_human);
+    assert!(crlf_out.contains("dotenv.unknown-escape"), "{crlf_out}");
+    assert!(crlf_out.contains("1 | A=\"\\"), "{crlf_out}");
+
+    let crlf_gh = run(&["check", "--format=github", crlf_escape.to_str().unwrap()]);
+    assert_eq!(crlf_gh.status.code(), Some(0), "{}", stderr(&crlf_gh));
+    assert!(stdout(&crlf_gh).contains("title=dotenv.unknown-escape"));
+
+    // 6. Compose 1.8.0 Document::example regression through CLI.
+    let compose_tail = dir.file(
+        "compose_tail.env",
+        "A=\"secret\"tail\nB=\"secret1\" C=secret2\n",
+    );
+    let ex_out = run(&[
+        "--dialect=compose",
+        "example",
+        compose_tail.to_str().unwrap(),
+    ]);
+    assert_eq!(ex_out.status.code(), Some(0), "{}", stderr(&ex_out));
+    assert_eq!(stdout(&ex_out), "A=\"\"\n#\nB=\"\"\n C=\n");
+
+    // 7. Interleaved subcommand + global limit flags, option-value splicing rejection,
+    // `--` path handling, zero-reference bounds, --write atomicity, and `run` cascade.
+    let interleaved = dir.file("interleaved.env", "B=2\nA=1\n");
+    let fmt_interleaved = run(&[
+        "fmt",
+        "--max-output-bytes",
+        "64",
+        "--max-items",
+        "5",
+        interleaved.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        fmt_interleaved.status.code(),
+        Some(0),
+        "{}",
+        stderr(&fmt_interleaved)
+    );
+    assert_eq!(stdout(&fmt_interleaved), "B = 2\nA = 1\n");
+
+    let set_interleaved = dir.file("set_interleaved.env", "A=1\n");
+    let set_interleaved_out = run(&[
+        "set",
+        "--max-output-bytes",
+        "64",
+        "--max-items",
+        "10",
+        set_interleaved.to_str().unwrap(),
+        "A",
+        "--max-items=99",
+    ]);
+    assert_eq!(
+        set_interleaved_out.status.code(),
+        Some(0),
+        "{}",
+        stderr(&set_interleaved_out)
+    );
+    assert_eq!(
+        fs::read_to_string(&set_interleaved).unwrap(),
+        "A=--max-items=99\n"
+    );
+
+    // Global options must NOT be spliced out of two-argument subcommand option values.
+    let splice_fmt = run(&[
+        "fmt",
+        "--max-output-bytes",
+        "--max-items",
+        "5",
+        "64",
+        interleaved.to_str().unwrap(),
+    ]);
+    assert_eq!(splice_fmt.status.code(), Some(2));
+    assert!(
+        stderr(&splice_fmt).contains("--max-output-bytes expects a non-negative integer"),
+        "{}",
+        stderr(&splice_fmt)
+    );
+
+    let splice_check = run(&[
+        "check",
+        "--format",
+        "--dialect=node",
+        interleaved.to_str().unwrap(),
+    ]);
+    assert_eq!(splice_check.status.code(), Some(2));
+
+    // `--exclude --max-items=5` must keep `--max-items=5` as the exclude pattern rather than
+    // draining it and letting `--exclude` consume `target_dir` (which would fall back to `.`).
+    let splice_root = TempDir::new();
+    splice_root.file(".env", "OUTSIDE=1\n");
+    let target_dir = splice_root.path().join("target_dir");
+    fs::create_dir(&target_dir).unwrap();
+    fs::write(target_dir.join(".env"), "INSIDE=1\n").unwrap();
+    let splice_exclude = run_in(
+        splice_root.path(),
+        &[
+            "fmt",
+            "-r",
+            "--write",
+            "--exclude",
+            "--max-items=5",
+            "target_dir",
+        ],
+    );
+    assert_eq!(
+        splice_exclude.status.code(),
+        Some(0),
+        "{}",
+        stderr(&splice_exclude)
+    );
+    assert_eq!(
+        fs::read_to_string(splice_root.path().join(".env")).unwrap(),
+        "OUTSIDE=1\n"
+    );
+    assert_eq!(
+        fs::read_to_string(target_dir.join(".env")).unwrap(),
+        "INSIDE = 1\n"
+    );
+
+    // Leading-dash filename matching a global option after `--` is treated as a file path.
+    let dash_dir = TempDir::new();
+    dash_dir.file("--max-items=5", "A=1\n");
+    let dash_fmt = run_in(dash_dir.path(), &["fmt", "--", "--max-items=5"]);
+    assert_eq!(dash_fmt.status.code(), Some(0), "{}", stderr(&dash_fmt));
+    assert_eq!(stdout(&dash_fmt), "A = 1\n");
+
+    // `fmt --sort --max-references=0` allows 0-ref files and refuses 1-ref files without writing.
+    let zero_ref = dir.file("zero_ref.env", "B=2\nA=1\n");
+    let zero_ref_ok = run(&[
+        "fmt",
+        "--sort",
+        "--max-references=0",
+        zero_ref.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        zero_ref_ok.status.code(),
+        Some(0),
+        "{}",
+        stderr(&zero_ref_ok)
+    );
+    assert_eq!(stdout(&zero_ref_ok), "A = 1\nB = 2\n");
+
+    let one_ref = dir.file("one_ref.env", "B=$A\nA=1\n");
+    let one_ref_fail = run(&[
+        "fmt",
+        "--write",
+        "--sort",
+        "--max-references=0",
+        one_ref.to_str().unwrap(),
+    ]);
+    assert_eq!(one_ref_fail.status.code(), Some(2));
+    assert_eq!(fs::read_to_string(&one_ref).unwrap(), "B=$A\nA=1\n");
+
+    let lines_write_fail = run(&[
+        "fmt",
+        "--write",
+        "--max-output-lines=1",
+        one_ref.to_str().unwrap(),
+    ]);
+    assert_eq!(lines_write_fail.status.code(), Some(2));
+    assert_eq!(fs::read_to_string(&one_ref).unwrap(), "B=$A\nA=1\n");
+
+    // `run` preserves earlier assigned values across a bare declaration in a later cascade file.
+    #[cfg(unix)]
+    {
+        let run_cascade = run(&[
+            "run",
+            cascade_dir.path().to_str().unwrap(),
+            "--",
+            "sh",
+            "-c",
+            "printf '%s|%s' \"$KEEP\" \"$OVERRIDE\"",
+        ]);
+        assert_eq!(
+            run_cascade.status.code(),
+            Some(0),
+            "{}",
+            stderr(&run_cascade)
+        );
+        assert_eq!(stdout(&run_cascade), "from-base|local");
+    }
+}
