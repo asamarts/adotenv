@@ -540,8 +540,8 @@ fn sort_with_options_avoids_quadratic_cache_starvation() {
 
     // Variable-name `${}` prefix before `:-` must not starve `closes.forms` for
     // deeply nested operand forms (stays linear and succeeds at exact budget).
-    let m = 400usize;
-    let payload = "a".repeat(2_000);
+    let m = 1_500usize;
+    let payload = "a".repeat(20_000);
     let source = format!(
         "B=1\nA=${{{}:-{}{}{}}}\n",
         "${}".repeat(m),
@@ -558,6 +558,17 @@ fn sort_with_options_avoids_quadratic_cache_starvation() {
         doc.sort_with_options(EditOptions::new().with_max_references(m - 1)),
         Err(EditError::Limit(limit)) if limit.kind() == LimitKind::References
     ));
+
+    // Plain shell parentheses inside `$(...)` stay within the delimiter bound.
+    let parens = format!("B=1\nA=$({}x{})\n", "(".repeat(60), ")".repeat(60));
+    let parens_doc = parse_strict(&parens).unwrap();
+    let parens_sorted = parens_doc
+        .sort_with_options(EditOptions::new().with_max_references(2))
+        .unwrap();
+    assert_eq!(
+        parens_sorted.as_str(),
+        format!("A=$({}x{})\nB=1\n", "(".repeat(60), ")".repeat(60))
+    );
 
     // LIFO reverse-order attack: enclosing `${B:-` precede `${}` siblings at bottom.
     let lifo = format!(

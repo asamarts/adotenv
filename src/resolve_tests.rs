@@ -1374,12 +1374,61 @@ fn deep_nesting_stops_at_the_depth_limit_without_scanning_every_level() {
     .unwrap();
     assert_eq!(value(&resolved, 1), Some("ok"));
 
-    let max_depth_edge = alloc::format!("A={}\n", "${".repeat(200));
+    let max_depth_edge = alloc::format!("A={}\n", "${X:-".repeat(200));
     let near_max = ExpandOptions::portable()
         .with_max_depth(usize::MAX - 2)
         .with_max_references(2);
     assert!(matches!(
         resolve(&max_depth_edge, |_| None, &near_max),
-        Err(ResolveError::TooManyReferences { .. } | ResolveError::DepthExceeded { .. })
+        Err(ResolveError::TooManyReferences { limit: 2, .. })
     ));
+}
+
+#[test]
+fn wide_depth_bounds_and_depth_plus_one_fillers_stay_accurate_and_linear() {
+    // P2-1: Explicit finite max_depth > max(max_references, 64) must not be
+    // silently clamped by max_references.
+    let nested_refs = alloc::format!("A={}x{}\n", "${X:-".repeat(70), "}".repeat(70));
+    let wide_depth = ExpandOptions::compose()
+        .with_max_depth(100)
+        .with_max_references(10);
+    assert!(matches!(
+        resolve(&nested_refs, |_| None, &wide_depth),
+        Err(ResolveError::TooManyReferences { limit: 10, .. })
+    ));
+    let plain_parens = alloc::format!("A=$({}x{})\n", "(".repeat(66), ")".repeat(66));
+    let resolved_parens = resolve(&plain_parens, |_| None, &wide_depth).unwrap();
+    assert_eq!(
+        value(&resolved_parens, 0),
+        Some(&plain_parens[2..plain_parens.len() - 1])
+    );
+
+    // P1-2: Sibling fillers sitting at depth `max_depth + 1` (never scanned) must
+    // not fill `closes.forms` and starve nested payload memoization.
+    let d_limit = 24usize;
+    let m_limit = 500usize;
+    let payload = "a".repeat(50_000);
+    let mut g = payload;
+    for level in (0..=d_limit).rev() {
+        let wrap = d_limit + 1 - level;
+        let filler = alloc::format!(
+            "{}{}{}",
+            "${f:-".repeat(wrap),
+            "${x}".repeat(m_limit),
+            "}".repeat(wrap)
+        );
+        g = alloc::format!("${{g:-{filler}{g}}}");
+    }
+    let filler_source = alloc::format!("g=ok\nA={g}\n");
+    assert_completes_within(core::time::Duration::from_secs(15), || {
+        let resolved = resolve(
+            &filler_source,
+            |_| None,
+            &ExpandOptions::compose()
+                .with_max_depth(d_limit)
+                .with_max_references(m_limit),
+        )
+        .unwrap();
+        assert_eq!(value(&resolved, 1), Some("ok"));
+    });
 }

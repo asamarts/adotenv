@@ -232,7 +232,7 @@ impl Document<'_> {
     ///
     /// An empty value is still present: `PORT=` read as `Option<u16>` is an
     /// error, not `None`. Sequences, nested maps and structs, tuples and enums
-    /// are rejected as values, even enums with only unit variants and
+    /// are rejected as keys and values, even enums with only unit variants and
     /// `Vec<u8>`, which Serde reads as a sequence. Untagged enums are the
     /// exception: Serde buffers the string and may choose a string-compatible
     /// variant, so `value=hello` can deserialize as `Text("hello")`. Deserialize
@@ -254,9 +254,9 @@ impl Document<'_> {
     ///
     /// Returns a [`DeserializeError`] if a value or key does not convert, or if
     /// the target type rejects the map, for example because a required field
-    /// is missing. A value error names the key and the line of its declaration,
-    /// except for a value consumed through `#[serde(flatten)]`: serde decodes
-    /// those after map access and reports line `0` and no key.
+    /// is missing. A key or value error names the key and the line of its
+    /// declaration, except for entries consumed through `#[serde(flatten)]`:
+    /// serde decodes those after map access and reports line `0` and no key.
     ///
     /// # Examples
     ///

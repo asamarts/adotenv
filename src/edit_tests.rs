@@ -2832,8 +2832,8 @@ fn edit_options_defer_key_comment_allocs_and_prevent_cache_starvation() {
     use crate::{EditOptions, LimitKind};
 
     // Variable-name `${}` prefix and LIFO nested forms stay linear under max_references.
-    let m = 400usize;
-    let payload = "a".repeat(2_000);
+    let m = 1_500usize;
+    let payload = "a".repeat(20_000);
     let starvation = format!(
         "A=1\nX=${{{}:-{}{}{}}}\n",
         "${}".repeat(m),
@@ -2854,6 +2854,14 @@ fn edit_options_defer_key_comment_allocs_and_prevent_cache_starvation() {
         ),
         Err(EditError::Limit(limit)) if limit.kind() == LimitKind::References
     ));
+
+    // Plain shell parentheses inside `$(...)` stay within the delimiter bound.
+    let parens = format!("A=1\nX=$({}echo $A{})\n", "(".repeat(60), ")".repeat(60));
+    let parens_doc = crate::parse_strict(&parens).unwrap();
+    let parens_renamed = parens_doc
+        .rename_with_references_with_options("A", "B", EditOptions::new().with_max_references(2))
+        .unwrap();
+    assert!(parens_renamed.as_str().contains("echo $B"));
 
     // Deferred quoted-insert, rename, and exact multiline comment byte caps.
     let py_doc = crate::parse_strict_with("A=1\n", crate::Dialect::PYTHON_DOTENV).unwrap();

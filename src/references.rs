@@ -582,9 +582,11 @@ impl Entry<'_> {
         pending.push((body, self.quote(), Level::TOP, true));
         let closes = Closes {
             limit: max_references.map(|limit| {
-                max_depth
-                    .saturating_add(2)
-                    .min(limit.max(64).saturating_add(2))
+                if max_depth == usize::MAX {
+                    limit.saturating_mul(2).max(64).saturating_add(2)
+                } else {
+                    max_depth.saturating_add(2)
+                }
             }),
             cache_limit: max_references,
             ..Closes::default()
@@ -748,7 +750,7 @@ impl Scanner<'_> {
                     quote,
                     escaped,
                     level,
-                    record_nested: nest,
+                    remaining_depth: self.max_depth.saturating_sub(depth),
                 };
                 let (reference, nested) = if is_command {
                     command(source, range, at, ctx, &mut self.closes)
@@ -819,9 +821,11 @@ impl Scanner<'_> {
 #[derive(Default)]
 struct Closes {
     /// `${` and `$(` forms, keyed by the position of `$`.
-    forms: BTreeMap<usize, Close>,
+    /// `None` reserves a slot in pre-order before the close is known.
+    forms: BTreeMap<usize, Option<Close>>,
     /// Literal brace or parenthesis groups, keyed by the opening delimiter.
-    literal: BTreeMap<usize, Close>,
+    /// `None` reserves a slot in pre-order before the close is known.
+    literal: BTreeMap<usize, Option<LiteralClose>>,
     /// Maximum delimiter nesting kept while scanning, or `None` unbounded.
     limit: Option<usize>,
     /// Maximum cached entries per memoization map, or `None` unbounded.
@@ -847,6 +851,23 @@ impl Close {
             None if self.bound >= end => Some((None, end)),
             None => None,
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct LiteralClose {
+    close: Close,
+    /// Earliest `-`, `?` or `+` byte inside the scanned literal group.
+    first_op: Option<usize>,
+}
+
+impl LiteralClose {
+    /// The result of a fresh literal scan bounded by `end`, including whether
+    /// any `-`, `?` or `+` byte appears within the scanned group.
+    fn within(self, end: usize) -> Option<(Option<usize>, usize, bool)> {
+        let (found, resolved_end) = self.close.within(end)?;
+        let has_op = self.first_op.is_some_and(|pos| pos < resolved_end);
+        Some((found, resolved_end, has_op))
     }
 }
 
@@ -885,10 +906,9 @@ impl Closes {
 
 /// Reserves a slot in pre-order (left-to-right source order) so deeper LIFO
 /// children cannot evict enclosing forms from a bounded cache.
-fn reserve(
-    closes: &mut BTreeMap<usize, Close>,
+fn reserve_slot<V>(
+    closes: &mut BTreeMap<usize, Option<V>>,
     open: usize,
-    bound: usize,
     cache_limit: Option<usize>,
 ) -> bool {
     if closes.contains_key(&open) {
@@ -897,27 +917,51 @@ fn reserve(
     if cache_limit.is_some_and(|limit| closes.len() >= limit) {
         return false;
     }
-    closes.insert(open, Close { at: None, bound });
+    closes.insert(open, None);
     true
 }
 
-fn record(
-    closes: &mut BTreeMap<usize, Close>,
+fn record_close(
+    closes: &mut BTreeMap<usize, Option<Close>>,
     open: usize,
     close: Close,
     cache_limit: Option<usize>,
 ) {
-    if let Some(existing) = closes.get_mut(&open) {
-        let known = existing.at.is_some() || (close.at.is_none() && existing.bound >= close.bound);
+    if let Some(slot) = closes.get_mut(&open) {
+        let known = slot.is_some_and(|existing| {
+            existing.at.is_some() || (close.at.is_none() && existing.bound >= close.bound)
+        });
         if !known {
-            *existing = close;
+            *slot = Some(close);
         }
         return;
     }
     if cache_limit.is_some_and(|limit| closes.len() >= limit) {
         return;
     }
-    closes.insert(open, close);
+    closes.insert(open, Some(close));
+}
+
+fn record_literal_close(
+    closes: &mut BTreeMap<usize, Option<LiteralClose>>,
+    open: usize,
+    entry: LiteralClose,
+    cache_limit: Option<usize>,
+) {
+    if let Some(slot) = closes.get_mut(&open) {
+        let known = slot.is_some_and(|existing| {
+            existing.close.at.is_some()
+                || (entry.close.at.is_none() && existing.close.bound >= entry.close.bound)
+        });
+        if !known {
+            *slot = Some(entry);
+        }
+        return;
+    }
+    if cache_limit.is_some_and(|limit| closes.len() >= limit) {
+        return;
+    }
+    closes.insert(open, Some(entry));
 }
 
 fn preceding(bytes: &[u8], start: usize, at: usize, byte: u8) -> usize {
@@ -933,7 +977,7 @@ struct FormContext {
     quote: Quote,
     escaped: bool,
     level: Level,
-    record_nested: bool,
+    remaining_depth: usize,
 }
 
 fn braced(
@@ -947,6 +991,7 @@ fn braced(
     let (close, body_end) = closes
         .forms
         .get(&at)
+        .and_then(|slot| slot.as_ref())
         .and_then(|known| known.within(range.end))
         .unwrap_or_else(|| {
             matching_delimited(
@@ -954,7 +999,7 @@ fn braced(
                 body_start,
                 range.end,
                 Delimiter::Brace,
-                ctx.record_nested,
+                ctx.remaining_depth,
                 closes,
             )
         });
@@ -993,6 +1038,7 @@ fn command(
     let (close, payload_end) = closes
         .forms
         .get(&at)
+        .and_then(|slot| slot.as_ref())
         .and_then(|known| known.within(range.end))
         .unwrap_or_else(|| {
             matching_delimited(
@@ -1000,7 +1046,7 @@ fn command(
                 payload_start,
                 range.end,
                 Delimiter::Paren,
-                ctx.record_nested,
+                ctx.remaining_depth,
                 closes,
             )
         });
@@ -1032,7 +1078,7 @@ fn name_operator(
     start: usize,
     end: usize,
 ) -> (usize, Option<ReferenceOperator>, Option<Range<usize>>) {
-    let bytes = source.as_bytes();
+    let bytes = &source.as_bytes()[..end];
     let mut at = start;
     while at < end {
         let found = match (bytes[at], bytes.get(at + 1).copied()) {
@@ -1058,34 +1104,68 @@ enum Delimiter {
     Paren,
 }
 
+#[derive(Clone, Copy)]
+struct FormFrame {
+    delimiter: Delimiter,
+    tracked: Option<usize>,
+    operand_form: bool,
+}
+
+#[derive(Clone, Copy)]
+struct LiteralFrame {
+    tracked: Option<usize>,
+    first_op: Option<usize>,
+    escaped_form: bool,
+}
+
+fn note_op(frame: Option<&mut LiteralFrame>, pos: usize) {
+    if let Some(frame) = frame {
+        if frame.first_op.is_none() {
+            frame.first_op = Some(pos);
+        }
+    }
+}
+
 /// Find the delimiter closing the group opened at `start - 1`, counting only
 /// that delimiter pair and skipping quoted text and backslash escapes.
+/// Also returns whether any `-`, `?` or `+` byte appears within the scanned group.
+#[allow(clippy::too_many_lines)]
 fn literal_balanced(
     source: &str,
     start: usize,
     end: usize,
-    open: u8,
-    close: u8,
-    record_nested: bool,
+    pair: (u8, u8),
+    remaining_depth: usize,
+    record_outer: bool,
     closes: &mut Closes,
-) -> (Option<usize>, usize) {
+) -> (Option<usize>, usize, bool) {
+    let (open, close) = pair;
     if let Some(known) = closes
         .literal
         .get(&(start - 1))
+        .and_then(|slot| slot.as_ref())
         .and_then(|known| known.within(end))
     {
         return known;
     }
-    let bytes = source.as_bytes();
-    // Open delimiters that can be queried later (only `\${` / `\$(` openings)
-    // reserve slots in pre-order when `record_nested` is enabled.
-    let initial = (record_nested
-        && reserve(&mut closes.literal, start - 1, end, closes.cache_limit))
+    let bytes = &source.as_bytes()[..end];
+    // Open delimiters that can be queried later (only odd-backslash `\${` / `\$(`
+    // openings within `remaining_depth`) reserve slots in pre-order.
+    let initial = (record_outer
+        && reserve_slot(&mut closes.literal, start - 1, closes.cache_limit))
     .then_some(start - 1);
-    let mut stack = vec![initial];
+    let mut stack = vec![LiteralFrame {
+        tracked: initial,
+        first_op: None,
+        escaped_form: false,
+    }];
+    let mut escaped_depth = 0usize;
     let mut at = start;
     let mut quote = None;
     while at < end {
+        if matches!(bytes[at], b'-' | b'?' | b'+') {
+            note_op(stack.last_mut(), at);
+        }
         match quote {
             Some(b'\'') => {
                 if bytes[at] == b'\'' {
@@ -1095,6 +1175,12 @@ fn literal_balanced(
             }
             Some(_) => {
                 if bytes[at] == b'\\' {
+                    if bytes
+                        .get(at + 1)
+                        .is_some_and(|byte| matches!(byte, b'-' | b'?' | b'+'))
+                    {
+                        note_op(stack.last_mut(), at + 1);
+                    }
                     at = at.saturating_add(2);
                 } else {
                     if bytes[at] == b'"' {
@@ -1104,7 +1190,15 @@ fn literal_balanced(
                 }
             }
             None => match bytes[at] {
-                b'\\' => at = at.saturating_add(2),
+                b'\\' => {
+                    if bytes
+                        .get(at + 1)
+                        .is_some_and(|byte| matches!(byte, b'-' | b'?' | b'+'))
+                    {
+                        note_op(stack.last_mut(), at + 1);
+                    }
+                    at = at.saturating_add(2);
+                }
                 b'\'' => {
                     quote = Some(b'\'');
                     at += 1;
@@ -1115,32 +1209,49 @@ fn literal_balanced(
                 }
                 byte if byte == open => {
                     if closes.too_deep(stack.len() + 1) {
-                        return (None, end);
+                        return (None, end, false);
                     }
-                    let escaped_dollar_open =
-                        at >= 2 && bytes[at - 2] == b'\\' && bytes[at - 1] == b'$';
-                    let tracked = (record_nested
-                        && escaped_dollar_open
-                        && reserve(&mut closes.literal, at, end, closes.cache_limit))
+                    let escaped_dollar_open = at >= 2
+                        && bytes[at - 1] == b'$'
+                        && preceding(bytes, start, at - 1, b'\\') % 2 == 1;
+                    let tracked = (escaped_dollar_open
+                        && escaped_depth < remaining_depth
+                        && reserve_slot(&mut closes.literal, at, closes.cache_limit))
                     .then_some(at);
-                    stack.push(tracked);
+                    if escaped_dollar_open {
+                        escaped_depth += 1;
+                    }
+                    stack.push(LiteralFrame {
+                        tracked,
+                        first_op: None,
+                        escaped_form: escaped_dollar_open,
+                    });
                     at += 1;
                 }
                 byte if byte == close => {
-                    let opened = stack.pop().expect("an open group is pending");
-                    if let Some(opened) = opened {
-                        record(
+                    let popped = stack.pop().expect("an open group is pending");
+                    if popped.escaped_form {
+                        escaped_depth -= 1;
+                    }
+                    if let Some(pos) = popped.first_op {
+                        note_op(stack.last_mut(), pos);
+                    }
+                    if let Some(opened) = popped.tracked {
+                        record_literal_close(
                             &mut closes.literal,
                             opened,
-                            Close {
-                                at: Some(at),
-                                bound: end,
+                            LiteralClose {
+                                close: Close {
+                                    at: Some(at),
+                                    bound: end,
+                                },
+                                first_op: popped.first_op,
                             },
                             closes.cache_limit,
                         );
                     }
                     if stack.is_empty() {
-                        return (Some(at), at);
+                        return (Some(at), at, popped.first_op.is_some());
                     }
                     at += 1;
                 }
@@ -1148,18 +1259,28 @@ fn literal_balanced(
             },
         }
     }
-    for opened in stack.into_iter().flatten() {
-        record(
-            &mut closes.literal,
-            opened,
-            Close {
-                at: None,
-                bound: end,
-            },
-            closes.cache_limit,
-        );
+    let mut root_first_op = None;
+    while let Some(popped) = stack.pop() {
+        if let Some(pos) = popped.first_op {
+            note_op(stack.last_mut(), pos);
+        }
+        if let Some(opened) = popped.tracked {
+            record_literal_close(
+                &mut closes.literal,
+                opened,
+                LiteralClose {
+                    close: Close {
+                        at: None,
+                        bound: end,
+                    },
+                    first_op: popped.first_op,
+                },
+                closes.cache_limit,
+            );
+        }
+        root_first_op = popped.first_op;
     }
-    (None, end)
+    (None, end, root_first_op.is_some())
 }
 
 #[allow(clippy::too_many_lines)]
@@ -1168,16 +1289,21 @@ fn matching_delimited(
     start: usize,
     end: usize,
     initial: Delimiter,
-    record_nested: bool,
+    remaining_depth: usize,
     closes: &mut Closes,
 ) -> (Option<usize>, usize) {
-    let bytes = source.as_bytes();
+    let bytes = &source.as_bytes()[..end];
     // Open delimiters, with the position of `$` for `${` and `$(` forms that
     // can be queried by later scans. `op_until` tracks the deepest stack prefix
     // that has already entered an operand/command payload so `${name}` prefixes
     // before any `-`/`?`/`+` operator do not consume cache capacity.
-    let mut stack = vec![(initial, None)];
+    let mut stack = vec![FormFrame {
+        delimiter: initial,
+        tracked: None,
+        operand_form: false,
+    }];
     let mut op_until = usize::from(initial == Delimiter::Paren);
+    let mut operand_form_depth = 0usize;
     let mut at = start;
     let mut quote = None;
     while at < end {
@@ -1187,35 +1313,27 @@ fn matching_delimited(
         // quotes and backslashes protect the closing `)`.
         if top(&stack) == Some(Delimiter::Brace) {
             match bytes[at] {
-                b'$' if bytes.get(at + 1) == Some(&b'{') => {
-                    if closes.too_deep(stack.len() + 1) {
+                b'$' if matches!(bytes.get(at + 1), Some(b'{' | b'(')) => {
+                    let delimiter = if bytes[at + 1] == b'{' {
+                        Delimiter::Brace
+                    } else {
+                        Delimiter::Paren
+                    };
+                    if !push_nested_form(
+                        &mut stack,
+                        &mut op_until,
+                        &mut operand_form_depth,
+                        delimiter,
+                        at,
+                        remaining_depth,
+                        closes,
+                    ) {
                         return (None, end);
-                    }
-                    let parent_in_operand = stack.len() <= op_until;
-                    let tracked = (record_nested
-                        && parent_in_operand
-                        && reserve(&mut closes.forms, at, end, closes.cache_limit))
-                    .then_some(at);
-                    stack.push((Delimiter::Brace, tracked));
-                    at += 2;
-                }
-                b'$' if bytes.get(at + 1) == Some(&b'(') => {
-                    if closes.too_deep(stack.len() + 1) {
-                        return (None, end);
-                    }
-                    let parent_in_operand = stack.len() <= op_until;
-                    let tracked = (record_nested
-                        && parent_in_operand
-                        && reserve(&mut closes.forms, at, end, closes.cache_limit))
-                    .then_some(at);
-                    stack.push((Delimiter::Paren, tracked));
-                    if parent_in_operand {
-                        op_until = stack.len();
                     }
                     at += 2;
                 }
                 b'}' => {
-                    if close_form(&mut stack, at, end, closes) {
+                    if close_form(&mut stack, &mut operand_form_depth, at, end, closes) {
                         return (Some(at), at);
                     }
                     op_until = op_until.min(stack.len());
@@ -1229,8 +1347,8 @@ fn matching_delimited(
             }
             continue;
         }
-        // An enclosing brace's `name_operator` scan ignores quotes inside
-        // nested commands, so `-`/`?`/`+` anywhere reveals that brace's operand.
+        // An enclosing brace's `name_operator` scan ignores quotes and escapes
+        // inside nested commands, so `-`/`?`/`+` anywhere reveals that brace's operand.
         if op_until < stack.len() && matches!(bytes[at], b'-' | b'?' | b'+') {
             op_until = stack.len();
         }
@@ -1243,6 +1361,13 @@ fn matching_delimited(
             }
             Some(_) => {
                 if bytes[at] == b'\\' {
+                    if op_until < stack.len()
+                        && bytes
+                            .get(at + 1)
+                            .is_some_and(|byte| matches!(byte, b'-' | b'?' | b'+'))
+                    {
+                        op_until = stack.len();
+                    }
                     at = at.saturating_add(2);
                 } else {
                     if bytes[at] == b'"' {
@@ -1253,15 +1378,35 @@ fn matching_delimited(
             }
             None => match bytes[at] {
                 b'\\' if bytes.get(at + 1) == Some(&b'$') => {
-                    at = skip_escaped_form(
-                        source,
-                        at + 2,
-                        end,
-                        record_nested && stack.len() <= op_until,
-                        closes,
-                    );
+                    let parent_in_operand = stack.len() <= op_until;
+                    let lit_depth = if parent_in_operand {
+                        remaining_depth.saturating_sub(operand_form_depth)
+                    } else {
+                        0
+                    };
+                    let record_outer = parent_in_operand
+                        && operand_form_depth > 0
+                        && operand_form_depth <= remaining_depth;
+                    let (next_at, has_op) =
+                        skip_escaped_form(source, at + 2, end, lit_depth, record_outer, closes);
+                    if closes.exceeded {
+                        return (None, end);
+                    }
+                    if has_op && op_until < stack.len() {
+                        op_until = stack.len();
+                    }
+                    at = next_at;
                 }
-                b'\\' => at = at.saturating_add(2),
+                b'\\' => {
+                    if op_until < stack.len()
+                        && bytes
+                            .get(at + 1)
+                            .is_some_and(|byte| matches!(byte, b'-' | b'?' | b'+'))
+                    {
+                        op_until = stack.len();
+                    }
+                    at = at.saturating_add(2);
+                }
                 b'\'' => {
                     quote = Some(b'\'');
                     at += 1;
@@ -1270,30 +1415,22 @@ fn matching_delimited(
                     quote = Some(b'"');
                     at += 1;
                 }
-                b'$' if bytes.get(at + 1) == Some(&b'{') => {
-                    if closes.too_deep(stack.len() + 1) {
+                b'$' if matches!(bytes.get(at + 1), Some(b'{' | b'(')) => {
+                    let delimiter = if bytes[at + 1] == b'{' {
+                        Delimiter::Brace
+                    } else {
+                        Delimiter::Paren
+                    };
+                    if !push_nested_form(
+                        &mut stack,
+                        &mut op_until,
+                        &mut operand_form_depth,
+                        delimiter,
+                        at,
+                        remaining_depth,
+                        closes,
+                    ) {
                         return (None, end);
-                    }
-                    let parent_in_operand = stack.len() <= op_until;
-                    let tracked = (record_nested
-                        && parent_in_operand
-                        && reserve(&mut closes.forms, at, end, closes.cache_limit))
-                    .then_some(at);
-                    stack.push((Delimiter::Brace, tracked));
-                    at += 2;
-                }
-                b'$' if bytes.get(at + 1) == Some(&b'(') => {
-                    if closes.too_deep(stack.len() + 1) {
-                        return (None, end);
-                    }
-                    let parent_in_operand = stack.len() <= op_until;
-                    let tracked = (record_nested
-                        && parent_in_operand
-                        && reserve(&mut closes.forms, at, end, closes.cache_limit))
-                    .then_some(at);
-                    stack.push((Delimiter::Paren, tracked));
-                    if parent_in_operand {
-                        op_until = stack.len();
                     }
                     at += 2;
                 }
@@ -1302,21 +1439,25 @@ fn matching_delimited(
                         return (None, end);
                     }
                     let parent_in_operand = stack.len() <= op_until;
-                    stack.push((Delimiter::Paren, None));
+                    stack.push(FormFrame {
+                        delimiter: Delimiter::Paren,
+                        tracked: None,
+                        operand_form: false,
+                    });
                     if parent_in_operand {
                         op_until = stack.len();
                     }
                     at += 1;
                 }
                 b'}' if top(&stack) == Some(Delimiter::Brace) => {
-                    if close_form(&mut stack, at, end, closes) {
+                    if close_form(&mut stack, &mut operand_form_depth, at, end, closes) {
                         return (Some(at), at);
                     }
                     op_until = op_until.min(stack.len());
                     at += 1;
                 }
                 b')' if top(&stack) == Some(Delimiter::Paren) => {
-                    if close_form(&mut stack, at, end, closes) {
+                    if close_form(&mut stack, &mut operand_form_depth, at, end, closes) {
                         return (Some(at), at);
                     }
                     op_until = op_until.min(stack.len());
@@ -1326,9 +1467,9 @@ fn matching_delimited(
             },
         }
     }
-    for (_, opened) in stack {
-        if let Some(opened) = opened {
-            record(
+    for frame in stack {
+        if let Some(opened) = frame.tracked {
+            record_close(
                 &mut closes.forms,
                 opened,
                 Close {
@@ -1342,46 +1483,93 @@ fn matching_delimited(
     (None, end)
 }
 
+fn push_nested_form(
+    stack: &mut Vec<FormFrame>,
+    op_until: &mut usize,
+    operand_form_depth: &mut usize,
+    delimiter: Delimiter,
+    at: usize,
+    remaining_depth: usize,
+    closes: &mut Closes,
+) -> bool {
+    if closes.too_deep(stack.len() + 1) {
+        return false;
+    }
+    let parent_in_operand = stack.len() <= *op_until;
+    let reachable = parent_in_operand && *operand_form_depth < remaining_depth;
+    let tracked =
+        (reachable && reserve_slot(&mut closes.forms, at, closes.cache_limit)).then_some(at);
+    stack.push(FormFrame {
+        delimiter,
+        tracked,
+        operand_form: parent_in_operand,
+    });
+    if parent_in_operand {
+        *operand_form_depth += 1;
+        if delimiter == Delimiter::Paren {
+            *op_until = stack.len();
+        }
+    }
+    true
+}
+
 /// Skip the literal group of an escaped `\${` or `\$(` form whose opening
-/// delimiter, if any, is at `at`; returns where scanning resumes.
+/// delimiter, if any, is at `at`; returns where scanning resumes and whether
+/// any `-`, `?` or `+` byte appeared inside the skipped group.
 fn skip_escaped_form(
     source: &str,
     at: usize,
     end: usize,
-    record_nested: bool,
+    remaining_depth: usize,
+    record_outer: bool,
     closes: &mut Closes,
-) -> usize {
-    let (open, close) = match source.as_bytes().get(at) {
+) -> (usize, bool) {
+    let bytes = &source.as_bytes()[..end];
+    let (open, close) = match bytes.get(at) {
         Some(b'{') => (b'{', b'}'),
         Some(b'(') => (b'(', b')'),
-        _ => return at,
+        _ => return (at, false),
     };
-    let (found, end) = literal_balanced(source, at + 1, end, open, close, record_nested, closes);
-    found.map_or(end, |found| found + 1)
+    let (found, resolved_end, has_op) = literal_balanced(
+        source,
+        at + 1,
+        end,
+        (open, close),
+        remaining_depth,
+        record_outer,
+        closes,
+    );
+    (found.map_or(resolved_end, |found| found + 1), has_op)
 }
 
-fn top(stack: &[(Delimiter, Option<usize>)]) -> Option<Delimiter> {
-    stack.last().map(|(delimiter, _)| *delimiter)
+fn top(stack: &[FormFrame]) -> Option<Delimiter> {
+    stack.last().map(|frame| frame.delimiter)
 }
 
 /// Pop the innermost delimiter closed at `at`, recording a `$` form's close.
 /// Returns whether the scan's initial delimiter closed.
 fn close_form(
-    stack: &mut Vec<(Delimiter, Option<usize>)>,
+    stack: &mut Vec<FormFrame>,
+    operand_form_depth: &mut usize,
     at: usize,
     end: usize,
     closes: &mut Closes,
 ) -> bool {
-    if let Some((_, Some(opened))) = stack.pop() {
-        record(
-            &mut closes.forms,
-            opened,
-            Close {
-                at: Some(at),
-                bound: end,
-            },
-            closes.cache_limit,
-        );
+    if let Some(frame) = stack.pop() {
+        if frame.operand_form {
+            *operand_form_depth -= 1;
+        }
+        if let Some(opened) = frame.tracked {
+            record_close(
+                &mut closes.forms,
+                opened,
+                Close {
+                    at: Some(at),
+                    bound: end,
+                },
+                closes.cache_limit,
+            );
+        }
     }
     stack.is_empty()
 }

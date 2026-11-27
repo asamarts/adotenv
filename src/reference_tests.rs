@@ -604,6 +604,55 @@ fn deep_nesting_scans_each_level_once() {
     });
 }
 
+#[test]
+fn escaped_command_operators_and_depth_fillers_stay_linear() {
+    // P1-1: `\-`, `"\-"`, and `\$(-)`/`\${-}` inside `$(...)` in a `${...}` name
+    // must still advance `op_until` so nested forms hit `closes.forms` in linear time.
+    let depth = 1_500usize;
+    let filler = "x".repeat(100_000);
+    assert_completes_within(core::time::Duration::from_secs(15), || {
+        for open in ["${a$(\\-", "${a$(\"\\-\"", "${a$(\\$(-)", "${a$(\\${-}"] {
+            let mut source = String::from("A=");
+            for _ in 0..depth {
+                source.push_str(open);
+            }
+            source.push_str(&filler);
+            for _ in 0..depth {
+                source.push_str(")}");
+            }
+            source.push('\n');
+            let (doc, _) = parse(&source);
+            let references = doc.unique("A").unwrap().references();
+            assert_eq!(references.len(), depth);
+            check_reference_order(&references);
+            let bounded = doc
+                .unique("A")
+                .unwrap()
+                .references_within_depth_bounded(usize::MAX, depth)
+                .unwrap();
+            assert_eq!(bounded.len(), depth);
+            assert!(matches!(
+                doc.unique("A")
+                    .unwrap()
+                    .references_within_depth_bounded(usize::MAX, depth - 1),
+                Err(crate::references::ScanLimit::TooManyReferences)
+            ));
+        }
+    });
+
+    // Even backslash runs before `${` / `$(` inside literal groups do not waste
+    // `closes.literal` cache slots or corrupt operator detection.
+    let even_bs = "A=$(echo \\\\${x} \\$(a-b) ${B})\n";
+    let (doc, _) = parse(even_bs);
+    let refs = doc.unique("A").unwrap().references();
+    check_reference_order(&refs);
+    assert!(refs.iter().any(|r| {
+        r.name
+            .as_ref()
+            .is_some_and(|span| &even_bs[span.clone()] == "B")
+    }));
+}
+
 const DIALECTS: [Dialect; 5] = [
     Dialect::PORTABLE,
     Dialect::NODE_DOTENV,
