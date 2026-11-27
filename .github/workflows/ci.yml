@@ -41,6 +41,7 @@ jobs:
       - name: lint workflows
         run: '"$(go env GOPATH)/bin/actionlint"'
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo clippy -p adotenv-lsp --lib --no-default-features --locked -- -D warnings
       - run: cargo clippy -p adotenv-config -p adotenv-figment --features load --all-targets --locked -- -D warnings
       - run: cargo clippy -p adotenv --features exec --all-targets --locked -- -D warnings
       - run: cargo clippy -p adotenv --features load --all-targets --locked -- -D warnings
@@ -88,7 +89,7 @@ jobs:
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2
         with:
           tool: cargo-semver-checks@0.51.0
-      - run: cargo semver-checks check-release --package adotenv --package adotenv-process --package adotenv-config --package adotenv-figment --package adotenv-lint
+      - run: cargo semver-checks check-release --package adotenv --package adotenv-process --package adotenv-config --package adotenv-figment --package adotenv-lint --package adotenv-lsp
 
   coverage:
     name: coverage report
@@ -142,6 +143,7 @@ jobs:
           PROPTEST_CASES: "2000"
       - run: cargo test -p adotenv-config --features load --locked
       - run: cargo test -p adotenv-figment --features load --locked
+      - run: cargo test -p adotenv-lsp --no-default-features --locked
       - run: cargo test -p adotenv --features exec --locked
       - run: cargo test -p adotenv --features load --locked
       - run: cargo test -p adotenv --features serde --locked
@@ -171,6 +173,8 @@ jobs:
       - run: cargo build -p adotenv-process --locked
       - run: cargo build -p adotenv-cli --locked
       - run: cargo build -p adotenv-lint --locked
+      - run: cargo build -p adotenv-lsp --all-targets --locked
+      - run: cargo build -p adotenv-lsp --lib --no-default-features --locked
       - run: cargo build -p adotenv-figment --locked
       - run: cargo build -p adotenv-figment --features load --locked
 
@@ -191,8 +195,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           toolchain: nightly
-      # The LSP crate has its own 1.85 MSRV check and protocol dependencies
-      # pinned for 1.85 compatibility, so exclude it from nightly minimal-versions.
+      # `lsp-types` 0.97 declares 2018-era minimum versions (`serde_repr 0.1.0`,
+      # `serde 1.0.34`, `bitflags 1.0.1`) that fail to build under nightly
+      # `-Z minimal-versions`, so exclude `adotenv-lsp` from this job.
       - run: cargo +nightly update -Z minimal-versions
       - run: cargo +nightly test --workspace --all-features --locked --exclude adotenv-lsp
 
@@ -211,20 +216,6 @@ jobs:
       # config 0.15 requires Rust 1.88; the rest of the workspace stays on 1.81.
       - run: cargo build -p adotenv-config --locked
       - run: cargo build -p adotenv-config --features load --locked
-
-  msrv-lsp:
-    name: MSRV adotenv-lsp (1.85)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-        with:
-          toolchain: "1.85"
-      - run: cargo build -p adotenv-lsp --all-targets --locked
 
   package:
     name: package

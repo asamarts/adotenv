@@ -26,6 +26,26 @@ impl Drop for TempFile {
     }
 }
 
+struct TempDir(std::path::PathBuf);
+
+impl TempDir {
+    fn new(name: &str) -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "adotenv-lsp-cli-{name}-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("main")
+        ));
+        fs::create_dir_all(&path).unwrap();
+        Self(path)
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 #[test]
 fn invalid_explicit_config_fails_before_the_server_starts() {
     let file = TempFile::new("invalid", "unknown = true\n");
@@ -63,6 +83,7 @@ fn help_and_version_flags_exit_successfully() {
     assert!(stdout.contains("--max-lines"));
     assert!(stdout.contains("--max-items"));
     assert!(stdout.contains("--max-diagnostics"));
+    assert!(stdout.contains("--max-message-bytes"));
 
     let version = Command::new(env!("CARGO_BIN_EXE_adotenv-lsp"))
         .arg("--version")
@@ -132,6 +153,7 @@ fn stdio_server_handles_initialize_diagnostics_hover_and_shutdown() {
         init["result"]["capabilities"]["hoverProvider"].as_bool(),
         Some(true)
     );
+    assert!(init["result"]["capabilities"]["codeActionProvider"].is_null());
 
     write_lsp_message(
         &mut stdin,
@@ -259,4 +281,175 @@ fn stdio_server_replies_invalid_params_and_exits_without_hanging_on_bad_initiali
     let status = child.wait().unwrap();
     assert!(!status.success());
     drop(stdin);
+}
+
+#[test]
+fn stdio_server_rejects_oversized_content_length_before_allocating() {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_adotenv-lsp"))
+        .args(["--max-message-bytes", "64"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    write!(stdin, "Content-Length: 999999999999\r\n\r\n").unwrap();
+    stdin.flush().unwrap();
+    drop(stdin);
+
+    let output = child.wait_with_output().unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("exceeded limit of 64 bytes"), "{stderr}");
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn stdio_server_discovers_config_from_workspace_folder_and_serves_code_actions_and_formatting() {
+    let dir = TempDir::new("ws");
+    let sub = dir.0.join("nested");
+    fs::create_dir_all(&sub).unwrap();
+    fs::write(
+        dir.0.join(".adotenv-lint.toml"),
+        "key_case = \"upper\"\ntrim_trailing_whitespace = true\n",
+    )
+    .unwrap();
+    let raw = sub.to_string_lossy().replace('\\', "/").replace(' ', "%20");
+    let folder_uri = if raw.starts_with('/') {
+        format!("file://{raw}")
+    } else {
+        format!("file:///{raw}")
+    };
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_adotenv-lsp"))
+        .arg("--discover-lint-config")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+
+    write_lsp_message(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "capabilities": {
+                    "general": { "positionEncodings": ["utf-8", "utf-16"] }
+                },
+                "workspaceFolders": [{ "uri": folder_uri, "name": "nested" }]
+            }
+        }),
+    );
+    let init = read_lsp_message(&mut stdout);
+    assert_eq!(init["result"]["capabilities"]["positionEncoding"], "utf-8");
+    assert_eq!(
+        init["result"]["capabilities"]["renameProvider"]["prepareProvider"],
+        true
+    );
+    assert_eq!(
+        init["result"]["capabilities"]["documentFormattingProvider"],
+        true
+    );
+    assert_eq!(
+        init["result"]["capabilities"]["codeActionProvider"]["codeActionKinds"],
+        serde_json::json!(["quickfix", "source.fixAll"])
+    );
+
+    write_lsp_message(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "initialized",
+            "params": {}
+        }),
+    );
+    let doc_uri = "file:///tmp/.env";
+    write_lsp_message(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": {
+                "textDocument": {
+                    "uri": doc_uri,
+                    "languageId": "dotenv",
+                    "version": 1,
+                    "text": "host=localhost  \n"
+                }
+            }
+        }),
+    );
+    let diag = read_lsp_message(&mut stdout);
+    assert_eq!(diag["params"]["diagnostics"].as_array().unwrap().len(), 2);
+
+    write_lsp_message(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "textDocument/prepareRename",
+            "params": {
+                "textDocument": { "uri": doc_uri },
+                "position": { "line": 0, "character": 1 }
+            }
+        }),
+    );
+    let prep = read_lsp_message(&mut stdout);
+    assert_eq!(prep["result"]["placeholder"], "host");
+
+    write_lsp_message(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "textDocument/formatting",
+            "params": {
+                "textDocument": { "uri": doc_uri },
+                "options": { "tabSize": 2, "insertSpaces": true }
+            }
+        }),
+    );
+    let fmt_resp = read_lsp_message(&mut stdout);
+    assert_eq!(fmt_resp["result"].as_array().unwrap().len(), 1);
+
+    write_lsp_message(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "textDocument/codeAction",
+            "params": {
+                "textDocument": { "uri": doc_uri },
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": 0, "character": 4 }
+                },
+                "context": { "diagnostics": [] }
+            }
+        }),
+    );
+    let actions = read_lsp_message(&mut stdout);
+    assert!(actions["result"].as_array().unwrap().len() >= 2);
+
+    write_lsp_message(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null
+        }),
+    );
+    let _ = read_lsp_message(&mut stdout);
+    write_lsp_message(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0", "method": "exit", "params": null
+        }),
+    );
+    drop(stdin);
+    let status = child.wait().unwrap();
+    assert!(status.success());
 }

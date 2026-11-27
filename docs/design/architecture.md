@@ -99,7 +99,7 @@ lookup closure and limits as arguments. See
 | `adotenv-config` | 0.x | A `config` source |
 | `adotenv-figment` | 0.x | A Figment provider |
 | `adotenv-lint` | 0.x | Opt-in lint policy and verified fixes |
-| `adotenv-lsp` | 0.x | Language-server prototype |
+| `adotenv-lsp` | 0.x | Language server and transport-free LSP library |
 
 `adotenv`, `adotenv-process` and `adotenv-cli` release together with the same
 version. The adapters follow their own 0.x line, so a new major version of

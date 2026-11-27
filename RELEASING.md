@@ -38,8 +38,9 @@ using OIDC, which validated the Trusted Publisher path.
 
 For each later `adotenv-lsp` version:
 
-1. Freeze the public API for the intended 0.x line and document remaining
-   prototype limitations.
+1. Verify public API compatibility with `cargo semver-checks` for the `0.x`
+   line (and document any breaking `0.x` minor migration notes in
+   `CHANGELOG.md`).
 2. Add an `## [adotenv-lsp X.Y.Z] - YYYY-MM-DD` changelog section rather than
    relying on the core release entry.
 3. Update the `adotenv` and `adotenv-lint` dependency constraints if needed.
@@ -73,8 +74,8 @@ For each later `adotenv-lsp` version:
    cargo semver-checks check-release -p adotenv --baseline-version <previous-version> --release-type <patch|minor|major>
    ```
 
-   Repeat for `adotenv-process`, `adotenv-config`, `adotenv-figment` and
-   `adotenv-lint`. Review any failure before release.
+   Repeat for `adotenv-process`, `adotenv-config`, `adotenv-figment`,
+   `adotenv-lint` and `adotenv-lsp`. Review any failure before release.
 
 4. Update package manifests and path dependency constraints explicitly. Do not
    replace every matching version string in `Cargo.lock`. Third-party crates can

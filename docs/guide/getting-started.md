@@ -57,7 +57,7 @@ and the exit codes.
 | `adotenv-config` | `0.12` | A `config` 0.15 source. Needs Rust 1.88. See [config and Figment](../design/integrations.md). |
 | `adotenv-figment` | `0.12` | A Figment 0.10 provider. See [config and Figment](../design/integrations.md). |
 | `adotenv-lint` | `0.2` | Policy checks and verified fixes. See [`adotenv-lint` on docs.rs](https://docs.rs/adotenv-lint). |
-| `adotenv-lsp` | `0.5` | Language server for editors. Needs Rust 1.85. See [Language server](../design/lsp.md). |
+| `adotenv-lsp` | `0.6` | Language server and transport-free LSP library. See [Language server](../design/lsp.md). |
 
 The adapters keep their own 0.x versions, so a new major version of `config`
 or Figment is a minor release of the adapter.

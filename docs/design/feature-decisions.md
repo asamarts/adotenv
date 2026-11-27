@@ -38,12 +38,14 @@ core parsing.
 
 ## LSP companion
 
-An editor integration needs completion, definition, hover, references, rename,
-diagnostics and value masking.
+An editor integration needs completion, definition, hover, references,
+`prepareRename`, rename, formatting, code actions, diagnostics and value
+masking.
 
-The `adotenv-lsp` 0.5.1 prototype is a separate workspace crate. It reuses
-`Document` spans and `VerifiedEdits`, keeps value masking opt-in and does not
-read the process environment.
+`adotenv-lsp` is a separate semver-checked `0.x` companion crate (starting with
+`0.6.0`). It reuses `Document` spans, formatting and `VerifiedEdits`, keeps
+value masking opt-in, bounds incoming stdio frames before allocation, and does
+not read the process environment.
 
 ## Syntax presets
 

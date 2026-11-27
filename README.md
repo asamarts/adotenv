@@ -528,8 +528,10 @@ whitespace are opt-in.
 
 ## Language server
 
-`adotenv-lsp` provides diagnostics, completion, definition, hover, references
-and verified key rename for editors. It reads only the text an editor sends,
+`adotenv-lsp` provides diagnostics, completion, definition, hover, references,
+document and workspace symbols, `prepareRename`, verified key rename,
+formatting and lint-backed code actions for editors, both as a transport-free
+library and as a bounded stdio server. It reads only the text an editor sends,
 does not resolve references or inspect the process environment, and supports
 opt-in hover value masking.
 
@@ -582,10 +584,10 @@ let config = config::Config::builder()
 
 ## Rust version
 
-Rust 1.81, edition 2021. `adotenv-lsp` requires Rust 1.85 because its LSP
-transport uses the 2024 edition. `adotenv-config` requires Rust 1.88 because
-`config` 0.15 does. Development and fuzz dependencies may require a newer
-toolchain.
+Rust 1.81, edition 2021 across `adotenv`, `adotenv-process`, `adotenv-cli`,
+`adotenv-lint`, `adotenv-lsp` and `adotenv-figment`. `adotenv-config` requires
+Rust 1.88 because `config` 0.15 does. Development and fuzz dependencies may
+require a newer toolchain.
 
 ## License
 
