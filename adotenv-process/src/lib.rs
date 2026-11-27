@@ -68,10 +68,14 @@
 //!
 //! `apply` takes a [`LoadedEnvironment`], [`apply_compact`] /
 //! [`validate_compact`] provide the same checks and mutation for
-//! [`CompactValues`], and [`apply_compact_entries`] /
-//! [`validate_compact_entries`] do the same for [`CompactEntries`] (skipping
-//! bare declarations that have no value). To set resolved values, resolve them
-//! with [`LoadedEnvironment::resolve_contextual`] and set them yourself.
+//! [`CompactValues`] (such as values returned by
+//! [`adotenv::load::load_cascade_values_compact`] or
+//! [`adotenv::load::load_values_compact`]), and [`apply_compact_entries`] /
+//! [`validate_compact_entries`] do the same for [`CompactEntries`] (such as
+//! entries returned by [`adotenv::load::load_cascade_entries_compact`] or
+//! [`adotenv::load::load_entries_compact`], skipping bare declarations that
+//! have no value). To set resolved values, resolve them with
+//! [`LoadedEnvironment::resolve_contextual`] and set them yourself.
 
 use std::{env, fmt};
 
@@ -804,6 +808,66 @@ mod tests {
 
         assert!(validate_compact_entries(&CompactEntries::default()).is_ok());
         unsafe { apply_compact_entries(&CompactEntries::default()).unwrap() };
+    }
+
+    #[test]
+    fn load_compact_entries_from_disk_and_apply_with_cascade_preservation() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let id = NEXT.fetch_add(1, Ordering::Relaxed);
+        let keep_key = format!("ADOTENV_PROCESS_DISK_KEEP_{}_{}", std::process::id(), id);
+        let bare_only_key = format!("ADOTENV_PROCESS_DISK_BARE_{}_{}", std::process::id(), id);
+        let prod_key = format!("ADOTENV_PROCESS_DISK_PROD_{}_{}", std::process::id(), id);
+
+        let dir = TempDir::new();
+        fs::write(
+            dir.path().join(".env"),
+            format!("{keep_key}=from-base\n{bare_only_key}\n"),
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join(".env.production"),
+            format!("{keep_key}\n{prod_key}=prod-val\n"),
+        )
+        .unwrap();
+
+        // Cascade merge preserves earlier assigned value when a later file declares it bare,
+        // while keeping purely bare declarations as None.
+        let entries =
+            adotenv::load::load_cascade_entries_compact(dir.path(), "production").unwrap();
+        assert_eq!(entries.get(&keep_key), Some(Some("from-base")));
+        assert_eq!(entries.get(&prod_key), Some(Some("prod-val")));
+        assert_eq!(entries.get(&bare_only_key), Some(None));
+        assert!(validate_compact_entries(&entries).is_ok());
+        unsafe { apply_compact_entries(&entries).unwrap() };
+        assert_eq!(std::env::var(&keep_key).as_deref(), Ok("from-base"));
+        assert_eq!(std::env::var(&prod_key).as_deref(), Ok("prod-val"));
+        assert!(std::env::var_os(&bare_only_key).is_none());
+        std::env::remove_var(&keep_key);
+        std::env::remove_var(&prod_key);
+
+        // load_cascade_entries_compact_with_options and load_entries_compact flow into validation too.
+        let options = adotenv::load::LoadOptions::new(adotenv::Dialect::PORTABLE)
+            .with_limits(adotenv::ParseOptions::new().with_max_lines(4));
+        let bounded = adotenv::load::load_cascade_entries_compact_with_options(
+            dir.path(),
+            "production",
+            options,
+        )
+        .unwrap();
+        assert_eq!(bounded, entries);
+
+        let invalid_file = dir.path().join("invalid.env");
+        fs::write(&invalid_file, "'APP=PORT'=8080\nBARE_ONLY\n").unwrap();
+        let loaded_files =
+            adotenv::load::load_entries_compact([&invalid_file], adotenv::Dialect::PYTHON_DOTENV)
+                .unwrap();
+        assert_eq!(loaded_files.get("BARE_ONLY"), Some(None));
+        assert_eq!(
+            validate_compact_entries(&loaded_files),
+            Err(ApplyError::InvalidKey {
+                key: "APP=PORT".to_string()
+            })
+        );
     }
 
     #[cfg(windows)]

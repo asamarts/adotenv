@@ -18,8 +18,18 @@ The current release provides:
 
 ## Current status
 
-`adotenv`, `adotenv-process` and `adotenv-cli` 1.7.3 were published on
-2026-11-26 with `QuotedTail::Append` CR-padding `line_byte_limit` budget
+`adotenv-lsp` 0.6.0 was published on 2026-11-27, graduating out of unstable
+prototype status into a semver-checked `0.6.x` line with unified `&LspOptions`
+APIs, stateful `ParsedDocument`/`Session` handles, a bounded stdio transport
+gated behind the `stdio` feature, `prepareRename`/`formatting`/`codeAction`/
+`positionEncoding`, and Rust 1.81 MSRV. `adotenv`, `adotenv-process` and
+`adotenv-cli` 1.8.0 are prepared on `main` (pending final remote release
+verification and tag publication) with `CompactEntries` disk loaders and
+process helpers, bounded `Document::{comment,uncomment,set_export,format,sort}_with_options`
+(`EditOptions::max_references`), `LineIndex::with_bom_policy`, Serde scalar map
+keys, Compose `example` and `LineBreaks::Lf` format fixes, and `adotenv-cli`
+compact/bounded wiring. `adotenv`, `adotenv-process` and `adotenv-cli` 1.7.3
+were published on 2026-11-26 with `QuotedTail::Append` CR-padding `line_byte_limit` budget
 accounting, tightened `$(...)` command-context key allowlist rules (rejecting
 positional/leading-digit/dot-bounded keys and enforcing the allowlist after any
 `$(` in the same entry), refreshed `1.7.x` test-audit and quality records, and
@@ -111,15 +121,14 @@ companion work are recorded there.
 9. Maintain the compact values API. Compact parsing/loading and compact memory
    now have deterministic gates, and compact speed evidence is published. The
    1.4.1 map-based claim remains historical release evidence.
-10. Execute the [1.8.0 and LSP stabilization plan](docs/design/1.8.0-plan.md):
-    graduate `adotenv-lsp` to a semver-checked `0.6.0` release
-    ([#248](https://github.com/asamarts/adotenv/issues/248)), ship additive
-    `1.8.0` core capabilities (`CompactEntries` loaders, bounded
-    `format`/`sort`/edit helpers, `LineIndex::with_bom_policy`, and the
-    remaining After-1.0 edge cases;
-    [#249](https://github.com/asamarts/adotenv/issues/249),
-    [#250](https://github.com/asamarts/adotenv/issues/250)), and follow up with
-    `adotenv-lint 0.3.0` ([#251](https://github.com/asamarts/adotenv/issues/251)).
+10. Complete the [1.8.0 and LSP stabilization plan](docs/design/1.8.0-plan.md):
+    `adotenv-lsp 0.6.0` is published
+    ([#248](https://github.com/asamarts/adotenv/issues/248)), `adotenv 1.8.0`
+    core additions, After-1.0 fixes and lockstep CLI/process wiring are landed
+    ([#249](https://github.com/asamarts/adotenv/issues/249),
+    [#250](https://github.com/asamarts/adotenv/issues/250)) pending final remote
+    release verification and tag publication, and `adotenv-lint 0.3.0` follows
+    ([#251](https://github.com/asamarts/adotenv/issues/251)).
 
 ## 1.0 criteria
 
