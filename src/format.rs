@@ -8,7 +8,10 @@
 use alloc::{collections::BTreeSet, string::String, vec, vec::Vec};
 use core::{fmt, ops::Range};
 
-use crate::{ColonSeparator, Document, InlineComments, ItemKind, Quote, TextEdit};
+use crate::{
+    ColonSeparator, Document, EditError, EditOptions, InlineComments, ItemKind, LimitExceeded,
+    LimitKind, Quote, TextEdit,
+};
 
 /// The spacing that [`Document::format`] puts around assignment separators.
 ///
@@ -392,6 +395,10 @@ impl FormatResult {
 /// input still fails after that, so this error is a safeguard: handle it like
 /// any other failure, for example by keeping the file as it is.
 ///
+/// [`Document::format_with_options`] and [`Document::sort_with_options`]
+/// return [`EditError`] instead so configured [`EditOptions`] limits can report
+/// a structured [`LimitExceeded`] payload through [`EditError::Limit`].
+///
 /// # Examples
 ///
 /// ```
@@ -422,7 +429,11 @@ pub enum FormatError {
 
 impl fmt::Display for FormatError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("formatting would change document meaning")
+        match self {
+            Self::WouldChangeMeaning => {
+                formatter.write_str("formatting would change document meaning")
+            }
+        }
     }
 }
 
@@ -494,8 +505,51 @@ impl Document<'_> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn format(&self, options: &FormatOptions) -> Result<FormatResult, FormatError> {
+        self.format_with_options(options, EditOptions::new())
+            .map_err(|_| FormatError::WouldChangeMeaning)
+    }
+
+    /// Formats the layout of this document as `options` select, enforcing
+    /// opt-in [`EditOptions`] output and verification bounds.
+    ///
+    /// This is [`Document::format`] with [`EditOptions`]. Output byte and
+    /// physical-line caps are checked from the planned [`TextEdit`]s before
+    /// allocating the output string on each verification round (including edits
+    /// that verification would otherwise drop), and [`EditOptions::parse_limits`]
+    /// bounds verification re-parsing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EditError::WouldChangeMeaning`] under the same verification
+    /// rules as [`Document::format`], and [`EditError::Limit`] when a
+    /// configured [`EditOptions`] limit is exceeded.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::{EditError, EditOptions, FormatOptions, LimitKind};
+    ///
+    /// let doc = adotenv::parse_strict("PORT=8080\n")?;
+    /// let err = doc
+    ///     .format_with_options(
+    ///         &FormatOptions::normalize(),
+    ///         EditOptions::new().with_max_output_bytes(10),
+    ///     )
+    ///     .unwrap_err();
+    /// assert!(matches!(err, EditError::Limit(limit) if limit.kind() == LimitKind::OutputBytes));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn format_with_options(
+        &self,
+        options: &FormatOptions,
+        edit_options: EditOptions,
+    ) -> Result<FormatResult, EditError> {
         let mut edits = Vec::new();
-        self.plan_quotes(*options, &mut edits);
+        self.plan_quotes(
+            *options,
+            &mut edits,
+            crate::edit::effective_byte_cap(edit_options),
+        )?;
         // The value spans that get new quotes, for the spacing rules.
         let requoted: BTreeSet<usize> = edits.iter().map(|edit| edit.range.start).collect();
         self.plan_equals_spacing(*options, &requoted, &mut edits);
@@ -514,7 +568,7 @@ impl Document<'_> {
             .windows(2)
             .any(|pair| pair[1].range.start < pair[0].range.end)
         {
-            return Err(FormatError::WouldChangeMeaning);
+            return Err(EditError::WouldChangeMeaning);
         }
         let mut removed: Vec<bool> = (0..self.items().len())
             .map(|id| removed.get(id).copied().unwrap_or(false))
@@ -525,8 +579,19 @@ impl Document<'_> {
         // Compose bare key. Each round drops the changes of the items that did
         // not verify; a fixed bound keeps the work linear.
         for _ in 0..VERIFY_ROUNDS {
+            crate::edit::check_planned_output_limits(
+                self.source(),
+                &edits,
+                self.dialect().line_breaks,
+                edit_options,
+            )?;
             let output = apply(self.source(), &edits);
-            let (formatted, _) = crate::parse_with(&output, self.dialect());
+            let formatted = crate::parser::parse_document_with_options(
+                &output,
+                self.dialect(),
+                edit_options.parse_limits,
+            )
+            .map_err(EditError::Limit)?;
             let checks = check_items(
                 self,
                 &formatted,
@@ -549,7 +614,7 @@ impl Document<'_> {
             edits.retain(|_| kept.next().unwrap_or(true));
             owners.retain(|owner| !culprits.contains(owner));
         }
-        Err(FormatError::WouldChangeMeaning)
+        Err(EditError::WouldChangeMeaning)
     }
 
     fn plan_equals_spacing(
@@ -628,9 +693,14 @@ impl Document<'_> {
         }
     }
 
-    fn plan_quotes(&self, options: FormatOptions, edits: &mut Vec<TextEdit>) {
+    fn plan_quotes(
+        &self,
+        options: FormatOptions,
+        edits: &mut Vec<TextEdit>,
+        byte_cap: Option<(LimitKind, usize)>,
+    ) -> Result<(), EditError> {
         let preferred = match options.quote_style {
-            QuoteStyle::Preserve => return,
+            QuoteStyle::Preserve => return Ok(()),
             QuoteStyle::Double => Quote::Double,
             QuoteStyle::Single => Quote::Single,
             QuoteStyle::Unquoted => Quote::None,
@@ -650,11 +720,12 @@ impl Document<'_> {
         {
             // Removing quotes changes the declaration boundary; keep that
             // conservative operation separate from other trivia rewrites.
-            return;
+            return Ok(());
         }
         if self.dialect().raw_values {
-            return;
+            return Ok(());
         }
+        let mut min_required = 0usize;
         for item in self.items() {
             let Some(entry) = item.entry() else {
                 continue;
@@ -678,6 +749,16 @@ impl Document<'_> {
                 // style could change what resolution returns.
                 continue;
             }
+            if let Some((kind, limit)) = byte_cap {
+                min_required = min_required.saturating_add(decoded.len());
+                if min_required > limit {
+                    return Err(EditError::Limit(LimitExceeded::new(
+                        kind,
+                        limit,
+                        min_required,
+                    )));
+                }
+            }
             let before = &self.source()[item.span().start..value.start];
             let after = &self.source()[value.end..item.span().end];
             let Ok((token, actual)) = crate::encode::encode_native(
@@ -689,6 +770,7 @@ impl Document<'_> {
                 push(self.source(), edits, value, token);
             }
         }
+        Ok(())
     }
 
     fn plan_blank_lines(&self, options: FormatOptions, edits: &mut Vec<TextEdit>) -> Vec<bool> {

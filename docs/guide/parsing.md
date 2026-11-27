@@ -256,7 +256,11 @@ assert_eq!(
 ```
 
 The default still counts the mark in 1.x. Offsets inside a hidden mark map to
-column 0, and column 0 converts back to the first byte after it.
+column 0, and column 0 converts back to the first byte after it. When a dialect
+uses another `BomPolicy`, call `LineIndex::with_bom_policy(policy)` to match it:
+`BomPolicy::Strip` hides one leading mark (matching `without_bom()`),
+`BomPolicy::StripAll` hides every consecutive leading mark, and `BomPolicy::Keep`
+and `BomPolicy::Error` keep leading marks in line 0 columns.
 
 ## Groups and comments
 

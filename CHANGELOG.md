@@ -8,6 +8,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `adotenv`: added `CompactEntries` disk loaders under the `load` feature
+  (`load_cascade_entries_compact`, `load_cascade_entries_compact_with`,
+  `load_cascade_entries_compact_with_options`, `load_entries_compact`, and
+  `load_entries_compact_with_options`) with value-preserving cascade merge.
+- `adotenv`: added bounded edit/format/sort helpers
+  (`Document::comment_with_options`, `Document::uncomment_with_options`,
+  `Document::set_export_with_options`, `Document::format_with_options`, and
+  `Document::sort_with_options`, all returning `EditError`),
+  `LimitKind::References`, and `EditOptions::max_references` /
+  `EditOptions::with_max_references` (closing the `AUD-9` unbounded reference
+  scan in `sort` and bounding reference scans in
+  `rename_with_references_with_options`).
+- `adotenv`: added `LineIndex::with_bom_policy(BomPolicy)` supporting
+  `BomPolicy::Strip`, `BomPolicy::StripAll`, `BomPolicy::Keep`, and
+  `BomPolicy::Error`.
+- `adotenv-process`: added `validate_compact_entries` and
+  `apply_compact_entries` for `CompactEntries` (skipping bare `None` entries and
+  validating/applying assigned entries).
 - `adotenv-lsp`: re-exported `BomPolicy` and `EditError`, added
   `LspOptions::without_lint_options`, derived `Clone`/`PartialEq`/`Eq` on
   `RenameError`, added CLI flags `--dialect`, `--max-items`, and

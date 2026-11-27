@@ -57,12 +57,12 @@
 //! | Edit | [`Document::set`], [`Document::remove`], [`Document::rename`], [`Document::rename_with_references`], [`Document::rename_with_references_with_options`], [`Document::insert`], [`Document::comment`], [`Document::uncomment`], [`Document::set_export`], [`Document::edit`], or [`Document::edit_with_options`] with a batch of [`Edit`]s |
 //! | Set or remove one key of Portable text in one call | [`set`], [`remove`] |
 //! | Quote a value for a file | [`encode_value`], [`encode_value_with`] |
-//! | Format and sort | [`Document::format`] with [`FormatOptions`], [`Document::sort`] |
+//! | Format and sort | [`Document::format`], [`Document::format_with_options`] with [`FormatOptions`], [`Document::sort`], [`Document::sort_with_options`] |
 //! | Compare two files | [`Document::compare`] |
 //! | Write an example file | [`Document::example`] |
 //! | Check portability across dialects | [`Document::portability`] |
 //! | Groups and comments | [`Document::groups`], [`Document::header`], [`Entry::leading_comments`] |
-//! | Lines and columns | [`Document::line_index`], [`LineIndex`], [`Position`], [`ColumnEncoding`] |
+//! | Lines and columns | [`Document::line_index`], [`LineIndex`], [`LineIndex::with_bom_policy`], [`Position`], [`ColumnEncoding`] |
 //! | Find `$VAR` references | [`Entry::references`], [`ReferenceRules`] |
 //! | Resolve references | [`Document::resolve`] with [`ExpandOptions`] |
 //! | Load files from disk | the [`load`] module |

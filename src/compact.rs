@@ -291,6 +291,60 @@ impl CompactEntries {
     }
 }
 
+impl CompactEntries {
+    /// Merges two compact entry maps across files using value-preserving
+    /// cascade semantics: a later file's assigned value replaces an earlier
+    /// entry, while a later winning bare declaration (`None`) preserves any
+    /// earlier entry (or records a new bare key if absent from `self`).
+    #[cfg(feature = "load")]
+    pub(crate) fn merge(self, later: &Self) -> Self {
+        let mut builder =
+            CompactBuilder::with_capacity(self.data.len().saturating_add(later.data.len()));
+        let mut left = 0;
+        let mut right = 0;
+        while left < self.entries.len() || right < later.entries.len() {
+            match (left < self.entries.len(), right < later.entries.len()) {
+                (false, true) => {
+                    let entry = later.entries[right];
+                    builder.push(entry.key(&later.data), entry.value(&later.data));
+                    right += 1;
+                }
+                (true, false) => {
+                    let entry = self.entries[left];
+                    builder.push(entry.key(&self.data), entry.value(&self.data));
+                    left += 1;
+                }
+                (true, true) => {
+                    let left_entry = self.entries[left];
+                    let right_entry = later.entries[right];
+                    let left_key = left_entry.key(&self.data);
+                    let right_key = right_entry.key(&later.data);
+                    match left_key.cmp(right_key) {
+                        core::cmp::Ordering::Less => {
+                            builder.push(left_key, left_entry.value(&self.data));
+                            left += 1;
+                        }
+                        core::cmp::Ordering::Greater => {
+                            builder.push(right_key, right_entry.value(&later.data));
+                            right += 1;
+                        }
+                        core::cmp::Ordering::Equal => {
+                            let value = right_entry
+                                .value(&later.data)
+                                .or_else(|| left_entry.value(&self.data));
+                            builder.push(left_key, value);
+                            left += 1;
+                            right += 1;
+                        }
+                    }
+                }
+                (false, false) => break,
+            }
+        }
+        builder.finish_entries(Duplicates::Last, true)
+    }
+}
+
 impl Default for CompactEntries {
     fn default() -> Self {
         Self {

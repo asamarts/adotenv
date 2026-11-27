@@ -7,12 +7,14 @@ use std::{
 
 use crate::{
     load::{
-        load_cascade, load_cascade_values, load_cascade_values_compact,
-        load_cascade_values_compact_with, load_cascade_values_with, load_cascade_with,
-        load_cascade_with_options, load_files, load_files_with_options, load_values,
+        load_cascade, load_cascade_entries_compact, load_cascade_entries_compact_with,
+        load_cascade_entries_compact_with_options, load_cascade_values,
+        load_cascade_values_compact, load_cascade_values_compact_with, load_cascade_values_with,
+        load_cascade_with, load_cascade_with_options, load_entries_compact,
+        load_entries_compact_with_options, load_files, load_files_with_options, load_values,
         load_values_compact, LoadError, LoadOptions, SkipReason,
     },
-    BareKeys, Dialect, ExpandOptions, ExpandScope, Unresolved,
+    AssignmentState, BareKeys, Dialect, ExpandOptions, ExpandScope, Unresolved,
 };
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -1219,8 +1221,154 @@ fn unreadable_empty_file_fails_without_max_input_bytes() {
             load_values_compact([&path], Dialect::PORTABLE),
             Err(LoadError::Io { .. })
         ));
+        assert!(matches!(
+            load_entries_compact([&path], Dialect::PORTABLE),
+            Err(LoadError::Io { .. })
+        ));
     }
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+}
+
+#[test]
+fn compact_entries_loading_preserves_bare_keys_and_value_preserving_cascade() {
+    let dir = TempDir::new();
+    // Missing cascade directory yields an empty CompactEntries.
+    let empty_dir = dir.path().join("nonexistent");
+    let empty = load_cascade_entries_compact(&empty_dir, "production").unwrap();
+    assert!(empty.is_empty());
+    assert_eq!(empty.len(), 0);
+
+    // Value-preserving cascade semantics across all four cascade files.
+    dir.write(
+        ".env",
+        "PORT=3000\nDEBUG\nOVERRIDE=base\nEMPTY=\nSTAY_BARE\n",
+    );
+    // Winning bare PORT in .env.local preserves PORT=3000 from .env;
+    // DEBUG=1 replaces earlier bare DEBUG; NEW_BARE is recorded as bare.
+    dir.write(
+        ".env.local",
+        "PORT=8080\nPORT\nDEBUG=1\nNEW_BARE\nSTAY_BARE\n",
+    );
+    dir.write(".env.production", "OVERRIDE=prod\nPROD_BARE\n");
+    dir.write(".env.production.local", "EMPTY=filled\nLATER_EMPTY=\n");
+
+    let entries = load_cascade_entries_compact(dir.path(), "production").unwrap();
+    assert_eq!(entries.get("PORT"), Some(Some("3000")));
+    assert_eq!(entries.get("DEBUG"), Some(Some("1")));
+    assert_eq!(entries.get("OVERRIDE"), Some(Some("prod")));
+    assert_eq!(entries.get("EMPTY"), Some(Some("filled")));
+    assert_eq!(entries.get("LATER_EMPTY"), Some(Some("")));
+    assert_eq!(entries.get("NEW_BARE"), Some(None));
+    assert_eq!(entries.get("STAY_BARE"), Some(None));
+    assert_eq!(entries.get("PROD_BARE"), Some(None));
+    assert_eq!(entries.get("MISSING"), None);
+    assert_eq!(entries.get_state("PORT"), Some(AssignmentState::Value));
+    assert_eq!(
+        entries.get_state("LATER_EMPTY"),
+        Some(AssignmentState::Empty)
+    );
+    assert_eq!(entries.get_state("NEW_BARE"), Some(AssignmentState::Bare));
+
+    // Assigned subset matches load_cascade_values_compact and load_cascade exactly.
+    let values = load_cascade_values_compact(dir.path(), "production").unwrap();
+    let full = load_cascade(dir.path(), "production").unwrap();
+    let assigned: Vec<_> = entries
+        .iter()
+        .filter_map(|(k, v)| v.map(|v| (k, v)))
+        .collect();
+    assert_eq!(assigned, values.iter().collect::<Vec<_>>());
+    assert_eq!(assigned, full.values().collect::<Vec<_>>());
+
+    // Explicit file list with empty file in between matches cascade.
+    dir.write("empty.env", "");
+    let files = [
+        dir.path().join(".env"),
+        dir.path().join("empty.env"),
+        dir.path().join(".env.local"),
+        dir.path().join(".env.production"),
+        dir.path().join(".env.production.local"),
+    ];
+    let from_files = load_entries_compact(files.clone(), Dialect::PORTABLE).unwrap();
+    assert_eq!(from_files, entries);
+    let from_files_opts =
+        load_entries_compact_with_options(files, LoadOptions::new(Dialect::PORTABLE)).unwrap();
+    assert_eq!(from_files_opts, entries);
+}
+
+#[test]
+fn compact_entries_loading_enforces_bare_key_policies_and_errors() {
+    let dir = TempDir::new();
+    dir.write(".env", "PORT=3000\nSTAY_BARE\n");
+    dir.write(".env.local", "PORT=8080\nPORT\nNEW_BARE\nSTAY_BARE\n");
+
+    // Dialect bare-key policies: Empty, Ignore, Error.
+    let empty_bare = Dialect::PORTABLE.with_bare_keys(BareKeys::Empty);
+    let loaded_empty =
+        load_cascade_entries_compact_with(dir.path(), "production", empty_bare).unwrap();
+    assert_eq!(loaded_empty.get("PORT"), Some(Some("")));
+    assert_eq!(loaded_empty.get("NEW_BARE"), Some(Some("")));
+    assert_eq!(
+        loaded_empty.get_state("NEW_BARE"),
+        Some(AssignmentState::Empty)
+    );
+
+    let ignore_bare = Dialect::PORTABLE.with_bare_keys(BareKeys::Ignore);
+    let loaded_ignored = load_cascade_entries_compact_with_options(
+        dir.path(),
+        "production",
+        LoadOptions::new(ignore_bare),
+    )
+    .unwrap();
+    assert_eq!(loaded_ignored.get("PORT"), Some(Some("8080")));
+    assert_eq!(loaded_ignored.get("NEW_BARE"), None);
+    assert_eq!(loaded_ignored.get("STAY_BARE"), None);
+
+    let error_bare = Dialect::PORTABLE.with_bare_keys(BareKeys::Error);
+    assert!(matches!(
+        load_cascade_entries_compact_with(dir.path(), "production", error_bare),
+        Err(LoadError::Invalid { .. })
+    ));
+
+    // Duplicates::First picks first declaration per file, while later files still override.
+    let first_dup = Dialect::PORTABLE.with_duplicates(crate::Duplicates::First);
+    let loaded_first =
+        load_cascade_entries_compact_with(dir.path(), "production", first_dup).unwrap();
+    assert_eq!(loaded_first.get("PORT"), Some(Some("8080")));
+    assert_eq!(loaded_first.get("NEW_BARE"), Some(None));
+    assert_eq!(loaded_first.get("STAY_BARE"), Some(None));
+
+    // Mode, missing file, UTF-8, and syntax error handling.
+    for bad_mode in ["..", "../prod", "prod/file", "prod\\file", "prod\0mode"] {
+        assert!(matches!(
+            load_cascade_entries_compact_with(dir.path(), bad_mode, Dialect::PORTABLE),
+            Err(LoadError::InvalidMode)
+        ));
+        assert!(matches!(
+            load_cascade_entries_compact_with_options(
+                dir.path(),
+                bad_mode,
+                LoadOptions::new(Dialect::PORTABLE)
+            ),
+            Err(LoadError::InvalidMode)
+        ));
+    }
+    assert!(matches!(
+        load_entries_compact([dir.path().join("missing.env")], Dialect::PORTABLE),
+        Err(LoadError::Io { .. })
+    ));
+    dir.write_bytes("bad-utf8.env", b"A=\xff\n");
+    assert!(matches!(
+        load_entries_compact([dir.path().join("bad-utf8.env")], Dialect::PORTABLE),
+        Err(LoadError::InvalidUtf8 { .. })
+    ));
+    dir.write("bad-syntax.env", "BAD KEY=1\n");
+    assert!(matches!(
+        load_entries_compact([dir.path().join("bad-syntax.env")], Dialect::PORTABLE),
+        Err(LoadError::Invalid { .. })
+    ));
+    let empty_list =
+        load_entries_compact(std::iter::empty::<PathBuf>(), Dialect::PORTABLE).unwrap();
+    assert!(empty_list.is_empty());
 }
 
 #[cfg(unix)]

@@ -17,8 +17,8 @@ use alloc::{
 };
 
 use crate::{
-    format::Check, AssignmentState, Document, Entry, FormatError, FormatResult, Item, ItemKind,
-    LineEnding, Quote, ReferenceKind, TextEdit,
+    format::Check, AssignmentState, Document, EditError, EditOptions, Entry, FormatError,
+    FormatResult, Item, ItemKind, LineEnding, ParseOptions, Quote, ReferenceKind, TextEdit,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,17 +112,73 @@ impl Document<'_> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn sort(&self) -> Result<FormatResult, FormatError> {
-        let mut plans: Vec<Plan> = self
-            .groups()
-            .enumerate()
-            .filter_map(|(index, group)| self.plan_group(index, group))
-            .collect();
+        self.sort_with_options(EditOptions::new())
+            .map_err(|_| FormatError::WouldChangeMeaning)
+    }
+
+    /// Sorts the declarations of each blank-line group by key, enforcing
+    /// opt-in [`EditOptions`] output, reference-scan and verification bounds.
+    ///
+    /// This is [`Document::sort`] with [`EditOptions`]. Output byte and
+    /// physical-line caps are checked before planning any group reorder,
+    /// [`EditOptions::max_references`] bounds total reference candidates
+    /// scanned across all groups, and [`EditOptions::parse_limits`] bounds
+    /// verification re-parsing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EditError::WouldChangeMeaning`] under the same verification
+    /// rules as [`Document::sort`], and [`EditError::Limit`] when a configured
+    /// [`EditOptions`] limit is exceeded.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use adotenv::{EditError, EditOptions, LimitKind};
+    ///
+    /// let doc = adotenv::parse_strict("B=$A$A\nA=1\n")?;
+    /// let err = doc
+    ///     .sort_with_options(EditOptions::new().with_max_references(1))
+    ///     .unwrap_err();
+    /// assert!(matches!(err, EditError::Limit(limit) if limit.kind() == LimitKind::References));
+    ///
+    /// let ok = doc.sort_with_options(EditOptions::new().with_max_references(2))?;
+    /// assert_eq!(ok.as_str(), "B=$A$A\nA=1\n");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn sort_with_options(&self, options: EditOptions) -> Result<FormatResult, EditError> {
+        crate::edit::check_planned_output_limits(
+            self.source(),
+            &[],
+            self.dialect().line_breaks,
+            options,
+        )?;
+        let mut scanned_references = 0usize;
+        let mut plans: Vec<Plan> = Vec::new();
+        for (index, group) in self.groups().enumerate() {
+            if let Some(plan) = self.plan_group(
+                index,
+                group,
+                options.max_references,
+                &mut scanned_references,
+            )? {
+                plans.push(plan);
+            }
+        }
         // A group can sort cleanly on its own and still read differently in
         // the whole output, for example when a lone CR moves in front of an
         // LF. Such groups keep their source text. Each round drops the plans
         // that did not verify; a fixed bound keeps the work linear.
         for _ in 0..crate::format::VERIFY_ROUNDS {
             if plans.is_empty() {
+                if options.parse_limits != ParseOptions::new() {
+                    let _ = crate::parser::parse_document_with_options(
+                        self.source(),
+                        self.dialect(),
+                        options.parse_limits,
+                    )
+                    .map_err(EditError::Limit)?;
+                }
                 return Ok(FormatResult::from_parts(
                     Vec::new(),
                     self.source().to_string(),
@@ -137,7 +193,12 @@ impl Document<'_> {
             }
             output.push_str(&self.source()[cursor..]);
 
-            let (parsed, _) = crate::parse_with(&output, self.dialect());
+            let parsed = crate::parser::parse_document_with_options(
+                &output,
+                self.dialect(),
+                options.parse_limits,
+            )
+            .map_err(EditError::Limit)?;
             let checks = check_groups(self, &parsed, &plans);
             if checks.iter().all(|check| check.same) {
                 let edits = plans
@@ -155,10 +216,16 @@ impl Document<'_> {
             }
             plans.retain(|plan| !culprits.contains(&plan.index));
         }
-        Err(FormatError::WouldChangeMeaning)
+        Err(EditError::WouldChangeMeaning)
     }
 
-    fn plan_group(&self, index: usize, group: crate::Group<'_>) -> Option<Plan> {
+    fn plan_group(
+        &self,
+        index: usize,
+        group: crate::Group<'_>,
+        max_references: Option<usize>,
+        scanned_references: &mut usize,
+    ) -> Result<Option<Plan>, EditError> {
         let items: Vec<Item<'_>> = group.items().collect();
         let entries: Vec<Entry<'_>> = items.iter().filter_map(|item| item.entry()).collect();
         if entries.len() < 2
@@ -166,22 +233,25 @@ impl Document<'_> {
                 .iter()
                 .any(|item| !matches!(item.kind(), ItemKind::Entry | ItemKind::Comment))
         {
-            return None;
+            return Ok(None);
         }
 
-        let first_entry = items
+        let Some(first_entry) = items.iter().position(|item| item.kind() == ItemKind::Entry) else {
+            return Ok(None);
+        };
+        let Some(last_entry) = items
             .iter()
-            .position(|item| item.kind() == ItemKind::Entry)?;
-        let last_entry = items
-            .iter()
-            .rposition(|item| item.kind() == ItemKind::Entry)?;
+            .rposition(|item| item.kind() == ItemKind::Entry)
+        else {
+            return Ok(None);
+        };
         let source = self.source();
         let mut key_index = BTreeMap::new();
         let mut keys = Vec::with_capacity(entries.len());
         for (index, entry) in entries.iter().enumerate() {
             let key = entry.key();
             if key.is_empty() || key_index.insert(key.to_string(), index).is_some() {
-                return None;
+                return Ok(None);
             }
             keys.push(key.to_string());
         }
@@ -213,56 +283,78 @@ impl Document<'_> {
             .collect();
         let last = entries.len() - 1;
         if endings[..last].contains(&LineEnding::None) {
-            return None;
+            return Ok(None);
         }
         let open_end = endings[last] == LineEnding::None
             || (self.dialect().line_breaks == crate::LineBreaks::Lf
                 && endings[last] == LineEnding::Cr);
         if open_end && items[last_entry].span().end != source.len() {
-            return None;
+            return Ok(None);
         }
 
-        let order = reference_order(&entries, &keys, &key_index, source)?;
+        let Some(order) = reference_order(
+            &entries,
+            &keys,
+            &key_index,
+            source,
+            max_references,
+            scanned_references,
+        )?
+        else {
+            return Ok(None);
+        };
 
         let header = &source[group.span().start..items[first_entry].span().start];
         let trailing = &source[items[last_entry].span().end..group.span().end];
-        // When the file ends without a usable mid-file line ending (no ending,
-        // or an EOF-only CR under `LineBreaks::Lf`) and its last declaration
-        // moves up, it swaps endings with the declaration that becomes last so
-        // every interior line keeps a real separator and the file keeps its
-        // original final ending.
-        let last_ending = endings[last].as_str();
-        let moved_ending = order
-            .last()
-            .filter(|&&final_entry| open_end && final_entry != last)
-            .map(|&final_entry| endings[final_entry].as_str());
-        let mut text = String::new();
-        text.push_str(header);
-        for (position, &entry) in order.iter().enumerate() {
-            let chunk = chunks[entry];
-            match moved_ending {
-                Some(ending) if position + 1 == order.len() => {
-                    text.push_str(&chunk[..chunk.len() - ending.len()]);
-                    text.push_str(last_ending);
-                }
-                Some(ending) if entry == last => {
-                    text.push_str(&chunk[..chunk.len() - last_ending.len()]);
-                    text.push_str(ending);
-                }
-                _ => text.push_str(chunk),
-            }
-        }
-        text.push_str(trailing);
+        let text = assemble_group_text(header, trailing, &chunks, &endings, &order, open_end);
         if text == source[group.span()] {
-            return None;
+            return Ok(None);
         }
-        Some(Plan {
+        Ok(Some(Plan {
             index,
             range: group.span(),
             text,
             keys: order.into_iter().map(|entry| keys[entry].clone()).collect(),
-        })
+        }))
     }
+}
+
+// When the file ends without a usable mid-file line ending (no ending, or an
+// EOF-only CR under `LineBreaks::Lf`) and its last declaration moves up, it
+// swaps endings with the declaration that becomes last so every interior line
+// keeps a real separator and the file keeps its original final ending.
+fn assemble_group_text(
+    header: &str,
+    trailing: &str,
+    chunks: &[&str],
+    endings: &[LineEnding],
+    order: &[usize],
+    open_end: bool,
+) -> String {
+    let last = chunks.len() - 1;
+    let last_ending = endings[last].as_str();
+    let moved_ending = order
+        .last()
+        .filter(|&&final_entry| open_end && final_entry != last)
+        .map(|&final_entry| endings[final_entry].as_str());
+    let mut text = String::new();
+    text.push_str(header);
+    for (position, &entry) in order.iter().enumerate() {
+        let chunk = chunks[entry];
+        match moved_ending {
+            Some(ending) if position + 1 == order.len() => {
+                text.push_str(&chunk[..chunk.len() - ending.len()]);
+                text.push_str(last_ending);
+            }
+            Some(ending) if entry == last => {
+                text.push_str(&chunk[..chunk.len() - last_ending.len()]);
+                text.push_str(ending);
+            }
+            _ => text.push_str(chunk),
+        }
+    }
+    text.push_str(trailing);
+    text
 }
 
 // The sorted order of a group's entries by source ordinal, or `None` for a
@@ -272,13 +364,17 @@ fn reference_order(
     keys: &[String],
     key_index: &BTreeMap<String, usize>,
     source: &str,
-) -> Option<Vec<usize>> {
+    max_references: Option<usize>,
+    scanned_references: &mut usize,
+) -> Result<Option<Vec<usize>>, EditError> {
     // (dependent, dependency) pairs between entries of this group, by
     // source ordinal. Every reference candidate counts, eligible or not,
     // so the order is safe under any reference rules.
-    let mut references = Vec::new();
+    let mut references = BTreeSet::new();
     for (index, entry) in entries.iter().enumerate() {
-        for reference in entry.references() {
+        let found = crate::edit::scan_entry_references(*entry, max_references, scanned_references)
+            .map_err(EditError::Limit)?;
+        for reference in found {
             if reference.kind != ReferenceKind::Variable {
                 continue;
             }
@@ -289,9 +385,9 @@ fn reference_order(
                 continue;
             };
             if dependency == index {
-                return None;
+                return Ok(None);
             }
-            references.push((index, dependency));
+            references.insert((index, dependency));
         }
     }
     // Reordering a referencing pair changes which declaration a sequential
@@ -305,9 +401,9 @@ fn reference_order(
         constraints[dependent.min(dependency)].push(dependent.max(dependency));
     }
     if topological_order(&dependencies, keys).len() != entries.len() {
-        return None;
+        return Ok(None);
     }
-    Some(topological_order(&constraints, keys))
+    Ok(Some(topological_order(&constraints, keys)))
 }
 
 // Kahn's algorithm, always taking the smallest ready key. A result shorter

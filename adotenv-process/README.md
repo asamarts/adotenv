@@ -23,7 +23,9 @@ the concurrency guarantee.
 `validate` runs the same checks without changing anything. `validate_compact`
 and `apply_compact` provide the same validation and process-mutation semantics
 for `CompactValues` (such as values returned by `load_cascade_values_compact`
-or `load_values_compact`).
+or `load_values_compact`), and `validate_compact_entries` /
+`apply_compact_entries` handle `CompactEntries` (skipping bare `None`
+declarations while validating and setting assigned entries).
 
 Prefer passing `LoadedEnvironment::values()` to a child process, or reading them
 directly, when mutation is not required. See the

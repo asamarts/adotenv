@@ -1,4 +1,5 @@
 use alloc::{
+    format,
     string::{String, ToString},
     vec,
     vec::Vec,
@@ -718,4 +719,150 @@ fn quote_planning_is_idempotent_after_trailing_whitespace_trimming() {
     assert_eq!(first.as_str(), "A=\"1\"\n");
     let (again, _) = parse_with(first.as_str(), dialect);
     assert_eq!(again.format(&options).unwrap().as_str(), first.as_str());
+}
+
+#[test]
+fn format_with_options_enforces_output_parse_and_pre_encode_limits() {
+    use crate::{EditError, EditOptions, LimitKind};
+
+    // Expanding format: exact byte cap passes, 1 byte tighter fails.
+    let doc = parse_strict("A=1\n").unwrap();
+    let ok = doc
+        .format_with_options(
+            &FormatOptions::normalize(),
+            EditOptions::new().with_max_output_bytes(6),
+        )
+        .unwrap();
+    assert_eq!(ok.as_str(), "A = 1\n");
+    let err = doc
+        .format_with_options(
+            &FormatOptions::normalize(),
+            EditOptions::new().with_max_output_bytes(5),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(
+            err,
+            EditError::Limit(limit)
+                if limit.kind() == LimitKind::OutputBytes
+                    && limit.limit() == 5
+                    && limit.observed() == 6
+        ),
+        "{err:?}"
+    );
+    assert_eq!(
+        err.to_string(),
+        "edit exceeded limit: output-bytes limit 5 exceeded with observed 6"
+    );
+
+    // Shrinking format fits tighter output cap even though original source is larger.
+    let roomy = parse_strict("A =   1   \n\n\n").unwrap();
+    assert!(roomy.source().len() > 6);
+    let shrunk = roomy
+        .format_with_options(
+            &FormatOptions::normalize_groups(),
+            EditOptions::new().with_max_output_bytes(7),
+        )
+        .unwrap();
+    assert_eq!(shrunk.as_str(), "A = 1\n\n");
+    assert!(matches!(
+        roomy.format_with_options(
+            &FormatOptions::normalize_groups(),
+            EditOptions::new().with_max_output_bytes(6),
+        ),
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::OutputBytes
+    ));
+
+    // Pre-encode byte cap in plan_quotes rejects oversized decoded value before re-encoding.
+    let big_val = "x".repeat(64);
+    let big_source = format!("A={big_val}\n");
+    let big_doc = parse_strict(&big_source).unwrap();
+    let pre_encode = big_doc
+        .format_with_options(
+            &FormatOptions::default().with_quote_style(QuoteStyle::Double),
+            EditOptions::new().with_max_output_bytes(32),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        pre_encode,
+        EditError::Limit(limit)
+            if limit.kind() == LimitKind::OutputBytes
+                && limit.limit() == 32
+                && limit.observed() == 64
+    ));
+
+    // Cumulative pre-encode byte cap rejects many small entries before encoding all of them.
+    let multi_doc = parse_strict("A=123456\nB=123456\nC=123456\n").unwrap();
+    let cumulative = multi_doc
+        .format_with_options(
+            &FormatOptions::default().with_quote_style(QuoteStyle::Double),
+            EditOptions::new().with_max_output_bytes(15),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        cumulative,
+        EditError::Limit(limit)
+            if limit.kind() == LimitKind::OutputBytes
+                && limit.limit() == 15
+                && limit.observed() == 18
+    ));
+}
+
+#[test]
+fn format_with_options_enforces_line_and_parse_limits() {
+    use crate::{EditError, EditOptions, LimitKind, ParseOptions};
+
+    let doc = parse_strict("A=1\n").unwrap();
+
+    // Output line budget: Single quote expands escaped newline to 2 lines; Double collapses to 1.
+    let escaped = parse_strict("A=\"a\\nb\"\n").unwrap();
+    assert!(matches!(
+        escaped.format_with_options(
+            &FormatOptions::default().with_quote_style(QuoteStyle::Single),
+            EditOptions::new().with_max_output_lines(1),
+        ),
+        Err(EditError::Limit(limit))
+            if limit.kind() == LimitKind::Lines && limit.limit() == 1 && limit.observed() == 2
+    ));
+    let expanded = escaped
+        .format_with_options(
+            &FormatOptions::default().with_quote_style(QuoteStyle::Single),
+            EditOptions::new().with_max_output_lines(2),
+        )
+        .unwrap();
+    assert_eq!(expanded.as_str(), "A='a\nb'\n");
+    let collapsed = parse_strict(expanded.as_str())
+        .unwrap()
+        .format_with_options(
+            &FormatOptions::default().with_quote_style(QuoteStyle::Double),
+            EditOptions::new().with_max_output_lines(1),
+        )
+        .unwrap();
+    assert_eq!(collapsed.as_str(), "A=\"a\\nb\"\n");
+
+    // parse_limits forwards InputBytes, Items, Lines, Diagnostics and tightest cap wins.
+    assert!(matches!(
+        doc.format_with_options(
+            &FormatOptions::normalize(),
+            EditOptions::new()
+                .with_max_output_bytes(20)
+                .with_parse_limits(ParseOptions::new().with_max_input_bytes(5)),
+        ),
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::InputBytes
+    ));
+    assert!(matches!(
+        doc.format_with_options(
+            &FormatOptions::default(),
+            EditOptions::new().with_parse_limits(ParseOptions::new().with_max_items(0)),
+        ),
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::Items
+    ));
+    let dup = parse("A=1\nA=2\n").0;
+    assert!(matches!(
+        dup.format_with_options(
+            &FormatOptions::default(),
+            EditOptions::new().with_parse_limits(ParseOptions::new().with_max_diagnostics(0)),
+        ),
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::Diagnostics
+    ));
 }

@@ -8,8 +8,8 @@ use alloc::{
 use core::{error::Error, fmt, ops::Range};
 
 use crate::{
-    encode::encode_native, AssignmentState, Dialect, Document, ItemKind, LimitExceeded, LimitKind,
-    LineBreaks, ParseOptions, Quote, Severity,
+    encode::encode_native, references::ScanLimit, AssignmentState, Dialect, Document, ItemKind,
+    LimitExceeded, LimitKind, LineBreaks, ParseOptions, Quote, Severity,
 };
 
 /// A replacement of one byte range of the original source.
@@ -348,14 +348,17 @@ pub enum Edit<'a> {
     },
 }
 
-/// Optional bounds for verified edits.
+/// Optional bounds for verified edits, formatting and sorting.
 ///
-/// All limits are opt-in and default to unbounded, matching [`Document::edit`].
-/// When configured, [`Document::edit_with_options`] and
-/// [`Document::rename_with_references_with_options`] enforce output byte and
-/// physical-line caps from the planned [`TextEdit`]s before allocating the
-/// output string, and forward [`parse_limits`](Self::parse_limits) when
-/// verification parses the edited output.
+/// All limits are opt-in and default to unbounded, matching [`Document::edit`],
+/// [`Document::format`] and [`Document::sort`]. When configured,
+/// [`Document::edit_with_options`], its single-operation helpers,
+/// [`Document::rename_with_references_with_options`],
+/// [`Document::format_with_options`] and [`Document::sort_with_options`]
+/// enforce output byte and physical-line caps from the planned [`TextEdit`]s
+/// before allocating the output string, forward [`parse_limits`](Self::parse_limits)
+/// when verification parses the edited output, and bound reference scanning
+/// through [`max_references`](Self::max_references).
 ///
 /// For single operations whose value or inserted text alone exceeds a byte cap,
 /// enforcement may stop before encoding that operation so an oversized value
@@ -386,16 +389,22 @@ pub struct EditOptions {
     pub max_output_lines: Option<usize>,
     /// Optional [`ParseOptions`] applied when verification parses the output.
     pub parse_limits: ParseOptions,
+    /// The maximum total reference candidates scanned during reference-aware
+    /// operations ([`Document::sort_with_options`] and
+    /// [`Document::rename_with_references_with_options`]), or `None` for no
+    /// limit.
+    pub max_references: Option<usize>,
 }
 
 impl EditOptions {
-    /// Returns options with no output or verification parse limits.
+    /// Returns options with no output, reference or verification parse limits.
     #[must_use]
     pub const fn new() -> Self {
         Self {
             max_output_bytes: None,
             max_output_lines: None,
             parse_limits: ParseOptions::new(),
+            max_references: None,
         }
     }
 
@@ -417,6 +426,15 @@ impl EditOptions {
     #[must_use]
     pub const fn with_parse_limits(mut self, limits: ParseOptions) -> Self {
         self.parse_limits = limits;
+        self
+    }
+
+    /// Sets the maximum total reference candidates scanned by
+    /// [`Document::sort_with_options`] and
+    /// [`Document::rename_with_references_with_options`].
+    #[must_use]
+    pub const fn with_max_references(mut self, limit: usize) -> Self {
+        self.max_references = Some(limit);
         self
     }
 }
@@ -503,11 +521,14 @@ pub enum EditError {
     /// without it, or removing a line so that a byte order mark on the next
     /// line would start the file.
     WouldChangeMeaning,
-    /// The planned output or verification parse exceeded a configured limit.
+    /// The planned output, reference scan or verification parse exceeded a
+    /// configured limit.
     ///
     /// Returned by [`Document::edit_with_options`], its single-operation
-    /// helpers, and [`Document::rename_with_references_with_options`] when
-    /// [`EditOptions::max_output_bytes`], [`EditOptions::max_output_lines`], or
+    /// helpers, [`Document::rename_with_references_with_options`],
+    /// [`Document::format_with_options`], and [`Document::sort_with_options`]
+    /// when [`EditOptions::max_output_bytes`],
+    /// [`EditOptions::max_output_lines`], [`EditOptions::max_references`] or
     /// [`EditOptions::parse_limits`] is exceeded.
     Limit(LimitExceeded),
 }
@@ -1198,7 +1219,28 @@ impl<'a> Boundaries<'a> {
     }
 }
 
-fn effective_byte_cap(options: EditOptions) -> Option<(LimitKind, usize)> {
+pub(crate) fn scan_entry_references(
+    entry: crate::Entry<'_>,
+    max_references: Option<usize>,
+    scanned_references: &mut usize,
+) -> Result<Vec<crate::Reference>, LimitExceeded> {
+    if let Some(limit) = max_references {
+        let remaining = limit.saturating_sub(*scanned_references);
+        let found = entry
+            .references_within_depth_bounded(usize::MAX, remaining)
+            .map_err(|limit_err| match limit_err {
+                ScanLimit::TooManyReferences | ScanLimit::DepthExceeded => {
+                    LimitExceeded::new(LimitKind::References, limit, limit.saturating_add(1))
+                }
+            })?;
+        *scanned_references = scanned_references.saturating_add(found.len());
+        Ok(found)
+    } else {
+        Ok(entry.references())
+    }
+}
+
+pub(crate) fn effective_byte_cap(options: EditOptions) -> Option<(LimitKind, usize)> {
     match (
         options.max_output_bytes,
         options.parse_limits.max_input_bytes,
@@ -1217,6 +1259,7 @@ fn effective_byte_cap(options: EditOptions) -> Option<(LimitKind, usize)> {
 }
 
 fn check_operation_byte_budget(
+    document: &Document<'_>,
     operations: &[Edit<'_>],
     options: EditOptions,
 ) -> Result<(), EditError> {
@@ -1231,10 +1274,14 @@ fn check_operation_byte_budget(
             Edit::Insert { key, value, .. } => key
                 .len()
                 .saturating_add(value.map_or(0, |text| text.len().saturating_add(1))),
-            Edit::Remove { .. }
-            | Edit::Comment { .. }
-            | Edit::Uncomment { .. }
-            | Edit::Export { .. } => 0,
+            Edit::Comment { item } => document.item(item).map_or(0, |source_item| {
+                if source_item.raw().is_empty() {
+                    0
+                } else {
+                    source_item.raw().len().saturating_add(2)
+                }
+            }),
+            Edit::Remove { .. } | Edit::Uncomment { .. } | Edit::Export { .. } => 0,
         };
         min_required = min_required.saturating_add(needed);
         if min_required > limit {
@@ -1248,7 +1295,7 @@ fn check_operation_byte_budget(
     Ok(())
 }
 
-fn check_planned_output_limits(
+pub(crate) fn check_planned_output_limits(
     source: &str,
     edits: &[TextEdit],
     breaks: LineBreaks,
@@ -1424,11 +1471,26 @@ impl Document<'_> {
             .collect();
         let mut edits = Vec::new();
         let mut insertions = Vec::new();
+        let mut comments = Vec::new();
         let mut end_insertions = vec![0; self.items.len()];
         for operation in operations {
-            self.plan_operation(*operation, &mut plans, &mut edits, &mut insertions, &keys)?;
+            self.plan_operation(
+                *operation,
+                &mut plans,
+                &mut edits,
+                &mut insertions,
+                &mut comments,
+                &keys,
+            )?;
         }
-        check_operation_byte_budget(operations, options)?;
+        check_operation_byte_budget(self, operations, options)?;
+        for item in comments {
+            let source_item = self.item(item).ok_or(EditError::InvalidTarget)?;
+            edits.push(TextEdit {
+                range: source_item.span(),
+                replacement: comment_text(source_item.raw(), self.dialect().line_breaks),
+            });
+        }
         insertions.sort_by_key(|insertion| insertion.offset);
         // The dominant line ending scans the whole source; compute it once per
         // batch, and only when a new line can be added.
@@ -1462,6 +1524,7 @@ impl Document<'_> {
         plans: &mut [ItemPlan<'a>],
         edits: &mut Vec<TextEdit>,
         insertions: &mut Vec<Insertion<'a>>,
+        comments: &mut Vec<usize>,
         keys: &KeyLookup<'a>,
     ) -> Result<(), EditError> {
         match operation {
@@ -1479,12 +1542,9 @@ impl Document<'_> {
                 });
             }
             Edit::Comment { item } => {
-                let source_item = self.item(item).ok_or(EditError::InvalidTarget)?;
+                let _ = self.item(item).ok_or(EditError::InvalidTarget)?;
                 whole(&mut plans[item], Whole::Comment)?;
-                edits.push(TextEdit {
-                    range: source_item.span(),
-                    replacement: comment_text(source_item.raw(), self.dialect().line_breaks),
-                });
+                comments.push(item);
             }
             Edit::Uncomment { item } => {
                 let source_item = self.item(item).ok_or(EditError::InvalidTarget)?;
@@ -2684,7 +2744,9 @@ impl Document<'_> {
     /// This is [`Document::rename_with_references`] with [`EditOptions`].
     /// Output byte and physical-line caps are checked against the combined
     /// declaration and reference edits before allocating the output string,
-    /// and [`EditOptions::parse_limits`] bounds verification re-parsing.
+    /// [`EditOptions::max_references`] bounds total reference candidates
+    /// scanned across the document, and [`EditOptions::parse_limits`] bounds
+    /// verification re-parsing.
     ///
     /// # Errors
     ///
@@ -2716,8 +2778,12 @@ impl Document<'_> {
         let mut total_added = decl_len;
         let mut references = 0usize;
         let mut existing_new = 0usize;
+        let mut scanned_references = 0usize;
         for entry in self.entries() {
-            for reference in entry.references() {
+            let entry_references =
+                scan_entry_references(entry, options.max_references, &mut scanned_references)
+                    .map_err(EditError::Limit)?;
+            for reference in entry_references {
                 let Some(name) = reference.name.as_ref() else {
                     continue;
                 };
@@ -2882,9 +2948,28 @@ impl Document<'_> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn comment(&self, key: &str) -> Result<VerifiedEdits, EditError> {
-        self.edit(&[Edit::Comment {
-            item: self.unique(key)?.item_id(),
-        }])
+        self.comment_with_options(key, EditOptions::new())
+    }
+    /// Comments out the only declaration of `key`, with opt-in output and
+    /// verification limits.
+    ///
+    /// This is [`Document::comment`] with [`EditOptions`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Document::comment`], plus
+    /// [`EditError::Limit`] when an [`EditOptions`] limit is exceeded.
+    pub fn comment_with_options(
+        &self,
+        key: &str,
+        options: EditOptions,
+    ) -> Result<VerifiedEdits, EditError> {
+        self.edit_with_options(
+            &[Edit::Comment {
+                item: self.unique(key)?.item_id(),
+            }],
+            options,
+        )
     }
     /// Removes the comment marker from the comment item with ID `item`.
     ///
@@ -2932,7 +3017,23 @@ impl Document<'_> {
     ///
     /// [`Item::id`]: crate::Item::id
     pub fn uncomment(&self, item: usize) -> Result<VerifiedEdits, EditError> {
-        self.edit(&[Edit::Uncomment { item }])
+        self.uncomment_with_options(item, EditOptions::new())
+    }
+    /// Removes the comment marker from the comment item with ID `item`, with
+    /// opt-in output and verification limits.
+    ///
+    /// This is [`Document::uncomment`] with [`EditOptions`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Document::uncomment`], plus
+    /// [`EditError::Limit`] when an [`EditOptions`] limit is exceeded.
+    pub fn uncomment_with_options(
+        &self,
+        item: usize,
+        options: EditOptions,
+    ) -> Result<VerifiedEdits, EditError> {
+        self.edit_with_options(&[Edit::Uncomment { item }], options)
     }
     /// Adds or removes the `export` prefix of the only declaration of `key`.
     ///
@@ -2959,10 +3060,30 @@ impl Document<'_> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn set_export(&self, key: &str, enabled: bool) -> Result<VerifiedEdits, EditError> {
-        self.edit(&[Edit::Export {
-            entry: self.unique(key)?.id(),
-            enabled,
-        }])
+        self.set_export_with_options(key, enabled, EditOptions::new())
+    }
+    /// Adds or removes the `export` prefix of the only declaration of `key`,
+    /// with opt-in output and verification limits.
+    ///
+    /// This is [`Document::set_export`] with [`EditOptions`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Document::set_export`], plus
+    /// [`EditError::Limit`] when an [`EditOptions`] limit is exceeded.
+    pub fn set_export_with_options(
+        &self,
+        key: &str,
+        enabled: bool,
+        options: EditOptions,
+    ) -> Result<VerifiedEdits, EditError> {
+        self.edit_with_options(
+            &[Edit::Export {
+                entry: self.unique(key)?.id(),
+                enabled,
+            }],
+            options,
+        )
     }
 }
 
