@@ -604,7 +604,7 @@ impl Entry<'_> {
         while let Some((range, quote, level, backslash_escapes)) = scanner.pending.pop() {
             scanner.closes.prune_before(range.start);
             scanner.scan(&range, quote, level, backslash_escapes);
-            if scanner.exceeded || scanner.closes.refs_exceeded {
+            if scanner.exceeded {
                 return Err(ScanLimit::TooManyReferences);
             }
             if scanner.closes.exceeded {
@@ -750,19 +750,14 @@ impl Scanner<'_> {
                     quote,
                     escaped,
                     level,
-                    budget: DelimitBudget {
-                        remaining_depth: self.max_depth.saturating_sub(depth),
-                        remaining_refs: self
-                            .max_references
-                            .map(|limit| limit.saturating_sub(self.references.len())),
-                    },
+                    remaining_depth: self.max_depth.saturating_sub(depth),
                 };
                 let (reference, nested) = if is_command {
                     command(source, range, at, ctx, &mut self.closes)
                 } else {
                     braced(source, range, at, ctx, &mut self.closes)
                 };
-                if self.closes.refs_exceeded || self.closes.exceeded {
+                if self.closes.exceeded {
                     return;
                 }
                 let end = reference.span.end;
@@ -837,8 +832,6 @@ struct Closes {
     cache_limit: Option<usize>,
     /// Set when the delimiter scan exceeded `limit`.
     exceeded: bool,
-    /// Set when reachable nested `$` forms exceeded the remaining reference budget.
-    refs_exceeded: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -980,17 +973,11 @@ fn preceding(bytes: &[u8], start: usize, at: usize, byte: u8) -> usize {
 }
 
 #[derive(Clone, Copy)]
-struct DelimitBudget {
-    remaining_depth: usize,
-    remaining_refs: Option<usize>,
-}
-
-#[derive(Clone, Copy)]
 struct FormContext {
     quote: Quote,
     escaped: bool,
     level: Level,
-    budget: DelimitBudget,
+    remaining_depth: usize,
 }
 
 fn braced(
@@ -1012,7 +999,7 @@ fn braced(
                 body_start,
                 range.end,
                 Delimiter::Brace,
-                ctx.budget,
+                ctx.remaining_depth,
                 closes,
             )
         });
@@ -1059,7 +1046,7 @@ fn command(
                 payload_start,
                 range.end,
                 Delimiter::Paren,
-                ctx.budget,
+                ctx.remaining_depth,
                 closes,
             )
         });
@@ -1302,7 +1289,7 @@ fn matching_delimited(
     start: usize,
     end: usize,
     initial: Delimiter,
-    budget: DelimitBudget,
+    remaining_depth: usize,
     closes: &mut Closes,
 ) -> (Option<usize>, usize) {
     let bytes = &source.as_bytes()[..end];
@@ -1317,7 +1304,6 @@ fn matching_delimited(
     }];
     let mut op_until = usize::from(initial == Delimiter::Paren);
     let mut operand_form_depth = 0usize;
-    let mut seen_forms = 1usize;
     let mut at = start;
     let mut quote = None;
     while at < end {
@@ -1337,10 +1323,9 @@ fn matching_delimited(
                         &mut stack,
                         &mut op_until,
                         &mut operand_form_depth,
-                        &mut seen_forms,
                         delimiter,
                         at,
-                        budget,
+                        remaining_depth,
                         closes,
                     ) {
                         return (None, end);
@@ -1395,13 +1380,13 @@ fn matching_delimited(
                 b'\\' if bytes.get(at + 1) == Some(&b'$') => {
                     let parent_in_operand = stack.len() <= op_until;
                     let lit_depth = if parent_in_operand {
-                        budget.remaining_depth.saturating_sub(operand_form_depth)
+                        remaining_depth.saturating_sub(operand_form_depth)
                     } else {
                         0
                     };
                     let record_outer = parent_in_operand
                         && operand_form_depth > 0
-                        && operand_form_depth <= budget.remaining_depth;
+                        && operand_form_depth <= remaining_depth;
                     let (next_at, has_op) =
                         skip_escaped_form(source, at + 2, end, lit_depth, record_outer, closes);
                     if closes.exceeded {
@@ -1440,10 +1425,9 @@ fn matching_delimited(
                         &mut stack,
                         &mut op_until,
                         &mut operand_form_depth,
-                        &mut seen_forms,
                         delimiter,
                         at,
-                        budget,
+                        remaining_depth,
                         closes,
                     ) {
                         return (None, end);
@@ -1499,32 +1483,20 @@ fn matching_delimited(
     (None, end)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn push_nested_form(
     stack: &mut Vec<FormFrame>,
     op_until: &mut usize,
     operand_form_depth: &mut usize,
-    seen_forms: &mut usize,
     delimiter: Delimiter,
     at: usize,
-    budget: DelimitBudget,
+    remaining_depth: usize,
     closes: &mut Closes,
 ) -> bool {
     if closes.too_deep(stack.len() + 1) {
         return false;
     }
     let parent_in_operand = stack.len() <= *op_until;
-    let reachable = parent_in_operand && *operand_form_depth < budget.remaining_depth;
-    if reachable {
-        *seen_forms = seen_forms.saturating_add(1);
-        if budget
-            .remaining_refs
-            .is_some_and(|limit| *seen_forms > limit)
-        {
-            closes.refs_exceeded = true;
-            return false;
-        }
-    }
+    let reachable = parent_in_operand && *operand_form_depth < remaining_depth;
     let tracked =
         (reachable && reserve_slot(&mut closes.forms, at, closes.cache_limit)).then_some(at);
     stack.push(FormFrame {
