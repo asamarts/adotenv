@@ -533,3 +533,58 @@ fn sort_with_options_bounds_nested_and_wide_delimiters() {
         }
     }
 }
+
+#[test]
+fn sort_with_options_avoids_quadratic_cache_starvation() {
+    use crate::{EditError, EditOptions, LimitKind};
+
+    // Variable-name `${}` prefix before `:-` must not starve `closes.forms` for
+    // deeply nested operand forms (stays linear and succeeds at exact budget).
+    let m = 400usize;
+    let payload = "a".repeat(2_000);
+    let source = format!(
+        "B=1\nA=${{{}:-{}{}{}}}\n",
+        "${}".repeat(m),
+        "${B:-".repeat(m - 1),
+        payload,
+        "}".repeat(m - 1),
+    );
+    let doc = parse_strict(&source).unwrap();
+    let sorted = doc
+        .sort_with_options(EditOptions::new().with_max_references(m))
+        .unwrap();
+    assert_eq!(sorted.as_str(), source);
+    assert!(matches!(
+        doc.sort_with_options(EditOptions::new().with_max_references(m - 1)),
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::References
+    ));
+
+    // LIFO reverse-order attack: enclosing `${B:-` precede `${}` siblings at bottom.
+    let lifo = format!(
+        "B=1\nA=${{X:-{}{}{}{}}}\n",
+        "${B:-".repeat(m - 1),
+        "${}".repeat(m),
+        payload,
+        "}".repeat(m - 1),
+    );
+    let lifo_doc = parse_strict(&lifo).unwrap();
+    assert!(matches!(
+        lifo_doc.sort_with_options(EditOptions::new().with_max_references(m)),
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::References
+    ));
+
+    // Command substitution with `\${}` literal groups + nested `$()`.
+    let cmd = format!(
+        "B=1\nA=$({}{}{}\\${{{}}}{})\n",
+        "${}".repeat(m),
+        "\\${}".repeat(m),
+        "$(".repeat(m - 1),
+        payload,
+        ")".repeat(m - 1),
+    );
+    let cmd_doc = parse_strict(&cmd).unwrap();
+    assert!(matches!(
+        cmd_doc.sort_with_options(EditOptions::new().with_max_references(m)),
+        Err(EditError::Limit(limit)) if limit.kind() == LimitKind::References
+    ));
+}

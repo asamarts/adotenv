@@ -515,11 +515,80 @@ fn reference_nesting_at(before: &str) -> (bool, bool) {
     enum Container {
         Braced,
         Command,
+        Paren,
     }
     let bytes = before.as_bytes();
     let mut stack: Vec<Container> = Vec::new();
+    let mut quote: Option<u8> = None;
     let mut index = 0;
     while index < bytes.len() {
+        if stack.last() == Some(&Container::Braced) {
+            match bytes[index] {
+                b'$' if bytes.get(index + 1) == Some(&b'{') => {
+                    stack.push(Container::Braced);
+                    index += 2;
+                }
+                b'$' if bytes.get(index + 1) == Some(&b'(') => {
+                    stack.push(Container::Command);
+                    index += 2;
+                }
+                b'}' => {
+                    stack.pop();
+                    index += 1;
+                }
+                _ => index += 1,
+            }
+            continue;
+        }
+        if matches!(stack.last(), Some(Container::Command | Container::Paren)) {
+            match quote {
+                Some(b'\'') => {
+                    if bytes[index] == b'\'' {
+                        quote = None;
+                    }
+                    index += 1;
+                    continue;
+                }
+                Some(_) => {
+                    if bytes[index] == b'\\' {
+                        index = index.saturating_add(2);
+                    } else {
+                        if bytes[index] == b'"' {
+                            quote = None;
+                        }
+                        index += 1;
+                    }
+                    continue;
+                }
+                None => match bytes[index] {
+                    b'\\' => {
+                        index = index.saturating_add(2);
+                        continue;
+                    }
+                    b'\'' => {
+                        quote = Some(b'\'');
+                        index += 1;
+                        continue;
+                    }
+                    b'"' => {
+                        quote = Some(b'"');
+                        index += 1;
+                        continue;
+                    }
+                    b'(' => {
+                        stack.push(Container::Paren);
+                        index += 1;
+                        continue;
+                    }
+                    b')' => {
+                        stack.pop();
+                        index += 1;
+                        continue;
+                    }
+                    _ => {}
+                },
+            }
+        }
         match bytes[index] {
             b'$' if bytes.get(index + 1) == Some(&b'{') => {
                 stack.push(Container::Braced);
@@ -529,21 +598,15 @@ fn reference_nesting_at(before: &str) -> (bool, bool) {
                 stack.push(Container::Command);
                 index += 2;
             }
-            b'}' if stack.last() == Some(&Container::Braced) => {
-                stack.pop();
-                index += 1;
-            }
-            b')' if stack.last() == Some(&Container::Command) => {
-                stack.pop();
-                index += 1;
-            }
             _ => index += 1,
         }
     }
-    (
-        stack.last() == Some(&Container::Braced),
-        stack.last() == Some(&Container::Command),
-    )
+    let in_command = stack
+        .iter()
+        .rev()
+        .find(|container| **container != Container::Paren)
+        == Some(&Container::Command);
+    (stack.last() == Some(&Container::Braced), in_command)
 }
 
 #[derive(Debug)]
@@ -721,7 +784,11 @@ impl CompletionContext {
                     }
                 }
                 Phase::BacktickValue => {
-                    if character == '`' {
+                    if escaped {
+                        escaped = false;
+                    } else if character == '\\' && dialect.syntax != Syntax::Node {
+                        escaped = true;
+                    } else if character == '`' {
                         close_index = index;
                         phase = Phase::AfterQuotedValue;
                     }

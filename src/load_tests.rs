@@ -1136,6 +1136,7 @@ fn cascade_does_not_treat_a_dangling_symlink_as_missing() {
     )
     .unwrap();
     assert!(load_cascade(dir.path(), "production").is_err());
+    assert!(load_cascade_entries_compact(dir.path(), "production").is_err());
 }
 
 #[cfg(windows)]
@@ -1369,6 +1370,40 @@ fn compact_entries_loading_enforces_bare_key_policies_and_errors() {
     let empty_list =
         load_entries_compact(std::iter::empty::<PathBuf>(), Dialect::PORTABLE).unwrap();
     assert!(empty_list.is_empty());
+
+    // BOM-only file under BomPolicy::Error fails (not skipped as empty).
+    dir.write("bom-only.env", "\u{feff}");
+    let bom_err = Dialect::PORTABLE.with_bom(crate::BomPolicy::Error);
+    assert!(matches!(
+        load_entries_compact([dir.path().join("bom-only.env")], bom_err),
+        Err(LoadError::Invalid { .. })
+    ));
+
+    // Mode "local" deduplicates .env.local and zero byte/line limits reject non-empty files.
+    let local_dir = TempDir::new();
+    local_dir.write(".env", "A=base\n");
+    local_dir.write(".env.local", "A=local\nBARE\n");
+    let local_entries = load_cascade_entries_compact(local_dir.path(), "local").unwrap();
+    assert_eq!(local_entries.get("A"), Some(Some("local")));
+    assert_eq!(local_entries.get("BARE"), Some(None));
+    assert!(matches!(
+        load_cascade_entries_compact_with_options(
+            local_dir.path(),
+            "",
+            LoadOptions::new(Dialect::PORTABLE)
+                .with_limits(crate::ParseOptions::new().with_max_input_bytes(0)),
+        ),
+        Err(LoadError::Limit { limit, .. }) if limit.kind() == crate::LimitKind::InputBytes
+    ));
+    assert!(matches!(
+        load_cascade_entries_compact_with_options(
+            local_dir.path(),
+            "",
+            LoadOptions::new(Dialect::PORTABLE)
+                .with_limits(crate::ParseOptions::new().with_max_lines(0)),
+        ),
+        Err(LoadError::Limit { limit, .. }) if limit.kind() == crate::LimitKind::Lines
+    ));
 }
 
 #[cfg(unix)]
@@ -1383,6 +1418,10 @@ fn fifo_path_is_rejected_without_blocking() {
     {
         assert!(matches!(
             load_files([&fifo], Dialect::PORTABLE),
+            Err(LoadError::Io { ref source, .. }) if source.kind() == std::io::ErrorKind::InvalidInput
+        ));
+        assert!(matches!(
+            load_entries_compact([&fifo], Dialect::PORTABLE),
             Err(LoadError::Io { ref source, .. }) if source.kind() == std::io::ErrorKind::InvalidInput
         ));
     }

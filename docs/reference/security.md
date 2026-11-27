@@ -32,13 +32,16 @@ files, `Document::resolve` substitutes references from a lookup you pass,
   Limits are opt-in; the 1.x default keeps accepting valid input. A future
   major release may choose default limits. `parse_values`, `parse_values_compact`
   and `parse_entries_compact` skip the document model and use much less memory.
-- For untrusted edits, pass `EditOptions` to `Document::edit_with_options`,
-  `set_with_options`, `remove_with_options`, `insert_with_options`,
-  `rename_with_options` or `rename_with_references_with_options` to bound
-  output bytes (`LimitKind::OutputBytes`), output physical lines
-  (`LimitKind::Lines`) and verification re-parsing (`parse_limits`). Planned
-  byte and line budgets are checked before allocating the output string;
-  exceeding a limit fails with `EditError::Limit`.
+- For untrusted edits, formatting or sorting, pass `EditOptions` to
+  `Document::edit_with_options`, `set_with_options`, `remove_with_options`,
+  `insert_with_options`, `rename_with_options`,
+  `rename_with_references_with_options`, `comment_with_options`,
+  `uncomment_with_options`, `set_export_with_options`, `format_with_options` or
+  `sort_with_options` to bound output bytes (`LimitKind::OutputBytes`), output
+  physical lines (`LimitKind::Lines`), total scanned reference candidates
+  (`EditOptions::max_references`, `LimitKind::References`) and verification
+  re-parsing (`parse_limits`). Planned byte and line budgets are checked before
+  allocating the output string; exceeding a limit fails with `EditError::Limit`.
 - The loader accepts the same limits with `LoadOptions::with_limits`.
   `max_input_bytes` bounds the file size and the read itself, so a file that
   changes after its metadata check cannot grow without bound. Exceeding a
@@ -113,11 +116,12 @@ Values may be secrets. These outputs include them:
   loaded values. Loaded files are trusted like code: a loaded `PATH` changes
   which program runs, and variables such as `LD_PRELOAD` change how it runs.
   `run` never expands references or runs command substitutions.
-- `adotenv_process::apply` and `apply_compact` change the environment of the
-  current process. Both are unsafe because the environment is shared by every
-  thread. `validate` and `validate_compact` run the same checks without
-  changing anything. On Windows, keys that differ only by case and values
-  longer than 32,767 UTF-16 code units are rejected.
+- `adotenv_process::apply`, `apply_compact` and `apply_compact_entries` change
+  the environment of the current process. All three are unsafe because the
+  environment is shared by every thread. `validate`, `validate_compact` and
+  `validate_compact_entries` run the same checks without changing anything. On
+  Windows, keys that differ only by case and values longer than 32,767 UTF-16
+  code units are rejected.
 - `adotenv-cli run` applies the same Windows key-case and value-length checks
   before starting a child.
 

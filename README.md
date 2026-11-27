@@ -334,9 +334,11 @@ assert_eq!(text, verified.as_str());
 `uncomment`, `set_export` and `edit` verify the whole batch and reject changes
 that alter unrelated syntax.
 Pass `EditOptions` to `edit_with_options`, `set_with_options`,
-`remove_with_options`, `insert_with_options`, `rename_with_options` or
-`rename_with_references_with_options` to bound output bytes, output line counts
-and verification parsing.
+`remove_with_options`, `insert_with_options`, `rename_with_options`,
+`rename_with_references_with_options`, `comment_with_options`,
+`uncomment_with_options`, `set_export_with_options`, `format_with_options` or
+`sort_with_options` to bound output bytes, output line counts, scanned
+references (`max_references`) and verification parsing.
 
 Use `encode_value_with(value, dialect)` when you need a standalone literal token:
 
@@ -375,7 +377,8 @@ assert_eq!(
 Out-of-range positions and split surrogates return an error instead of being
 clamped. Entry and diagnostic lines are one-based; `Position` is zero-based.
 A leading byte-order mark counts in line 1 columns by default; chain
-`without_bom()` on the index when the consumer hides it.
+`without_bom()` or `with_bom_policy(policy)` on the index when the consumer
+hides leading marks.
 
 ## Load files
 
@@ -420,7 +423,9 @@ for entry in loaded.entries() {
 
 `LoadOptions::new(dialect)` is the default profile. Builders turn the raw source
 text, origins and reports on or off, and `LoadOptions::full` keeps the reports.
-`load_values` and `load_cascade_values` keep only the final strings.
+`load_values`, `load_cascade_values` and their `*_values_compact*` /
+`*_entries_compact*` variants keep only the final strings or bare-preserving
+compact entries.
 
 `LoadedEnvironment::resolve_contextual` resolves merged values with their original
 quote and escape context. `resolve_decoded` treats final values as unquoted text.
@@ -440,8 +445,10 @@ let loaded = load_cascade("/srv/my-app", "production")?;
 unsafe { apply(&loaded)? };
 ```
 
-`validate` runs the same checks without changing anything, and
-`validate_compact` / `apply_compact` accept `CompactValues`. Prefer passing
+`validate` runs the same checks without changing anything,
+`validate_compact` / `apply_compact` accept `CompactValues`, and
+`validate_compact_entries` / `apply_compact_entries` accept `CompactEntries`
+(skipping bare `None` declarations). Prefer passing
 `LoadedEnvironment::values()` to a child process or reading them directly when
 mutation is not required.
 
