@@ -4,127 +4,151 @@ This page records test coverage at the last release and the known gaps.
 Coverage is a guide, not a release gate. How the tests are organized is
 described in [Quality](quality.md).
 
-## Coverage at 1.7.3
+## Coverage at 1.8.0
 
-From CI run `45774141013` (`cargo llvm-cov --workspace --all-features`) on
-2026-11-26 at release commit `c5c199f` (`v1.7.3`). The core crate
-(`coverage-summary.txt`) covers 94.8 percent of regions (10,859 of 11,459),
-97.2 percent of functions (1,131 of 1,163) and 95.5 percent of lines (10,328 of
-10,815), up from 94.7 percent of regions at 1.7.2 (CI run `45751750161`, commit
+From CI run `46083909376` (`cargo llvm-cov --workspace --all-features`) on
+2026-11-27 at `1.8.0` code commit `28ffe7b`. The core crate
+(`coverage-summary.txt`) covers 94.8 percent of regions (11,744 of 12,390),
+97.0 percent of functions (1,179 of 1,215) and 95.6 percent of lines (11,207 of
+11,719), up from 95.5 percent of lines at 1.7.3 (CI run `45774141013`, commit
+`c5c199f`), 94.7 percent of regions at 1.7.2 (CI run `45751750161`, commit
 `8c1c782`) and 94.2 percent of regions / 94.9 percent of lines at 1.6.0 (CI run
 `45107927491`, commit `ca38775`). Across all seven published crates
 (`lcov.info`, production source files excluding tests, benchmarks and `xtask`),
-line coverage is 95.5 percent (16,018 of 16,773 lines). The earlier `1.2.0`
-local workspace baseline (94.4 percent of regions and 94.8 percent of lines on
-2026-11-04) predates `compact.rs`, `limit.rs`, `adotenv-lint` and `adotenv-lsp`.
+line coverage is 94.9 percent (19,074 of 20,096 lines), reflecting the
+`adotenv-lsp 0.6.0` transport and session additions (`transport.rs`,
+`Session`, `codeAction` and `formatting`). The earlier `1.2.0` local workspace
+baseline (94.4 percent of regions and 94.8 percent of lines on 2026-11-04)
+predates `compact.rs`, `limit.rs`, `adotenv-lint` and `adotenv-lsp`.
 
 ### Core crate
 
 | Scope | Regions | Lines |
 |---|---:|---:|
-| Core crate total | 94.8% | 95.5% |
+| Core crate total | 94.8% | 95.6% |
 | `compare.rs`, `limit.rs`, `parser/unicode.rs` | 100.0% | 100.0% |
-| `compact.rs` | 99.6% | 99.5% |
 | `parser/docker.rs` | 99.4% | 99.3% |
-| `example.rs` | 99.0% | 98.8% |
+| `example.rs` | 99.3% | 99.3% |
+| `compact.rs` | 99.3% | 99.2% |
 | `structure.rs` | 98.5% | 99.0% |
 | `parser/decode.rs` | 98.5% | 99.4% |
-| `position.rs` | 98.1% | 98.2% |
+| `position.rs` | 98.2% | 98.3% |
 | `portability.rs` | 97.8% | 97.5% |
 | `diagnostic.rs` | 97.7% | 97.8% |
 | `dialect.rs` | 97.6% | 97.6% |
 | `parser.rs` | 97.5% | 97.0% |
 | `model.rs` | 97.5% | 98.4% |
-| `format.rs` | 97.4% | 97.0% |
-| `sort.rs` | 96.5% | 96.1% |
-| `encode.rs` | 96.1% | 97.4% |
+| `serde_support.rs` | 97.5% | 99.4% |
+| `format.rs` | 97.5% | 97.5% |
+| `sort.rs` | 97.3% | 97.0% |
+| `encode.rs` | 96.3% | 97.6% |
 | `parser/python.rs` | 95.5% | 94.5% |
-| `edit.rs` | 95.4% | 97.1% |
-| `references.rs` | 94.8% | 95.3% |
-| `serde_support.rs` | 94.3% | 98.3% |
+| `edit.rs` | 95.0% | 96.9% |
 | `parser/compose.rs` | 94.1% | 94.0% |
 | `parser/node.rs` | 94.0% | 97.0% |
-| `load.rs` | 88.6% | 89.4% |
+| `references.rs` | 92.6% | 94.6% |
+| `load.rs` | 89.6% | 90.3% |
 | `exec.rs` | 88.5% | 88.8% |
 | `mask.rs` | 85.1% | 87.5% |
 | `resolve.rs` | 84.7% | 89.6% |
 
 ### Published companion crates
 
-Line coverage from the workspace `lcov.info` artifact (CI run `45774141013` at
-release commit `c5c199f`, following `adotenv-config 0.12.1`,
-`adotenv-figment 0.12.2`, `adotenv-lint 0.2.3`, `adotenv-lsp 0.5.1` and
-`1.7.0`-`1.7.3`; production source files across all seven published crates,
-excluding tests, benchmarks and `xtask`):
+Line coverage from the workspace `lcov.info` artifact (CI run `46083909376` at
+`1.8.0` code commit `28ffe7b`, following `adotenv-config 0.12.1`,
+`adotenv-figment 0.12.2`, `adotenv-lint 0.2.3`, `adotenv-lsp 0.6.0` and
+`1.8.0` core/process/CLI additions; production source files across all seven
+published crates, excluding tests, benchmarks and `xtask`):
 
 | Scope | Lines |
 |---|---:|
-| Published crates total (7 crates) | 95.5% |
+| Published crates total (7 crates) | 94.9% |
 | `adotenv-figment/src/lib.rs` | 100.0% |
-| `adotenv-process/src/lib.rs` | 99.5% |
-| `adotenv-lsp/src/lib.rs` | 99.0% |
+| `adotenv-process/src/lib.rs` | 99.7% |
 | `adotenv-config/src/lib.rs` | 98.7% |
-| `adotenv-lsp/src/main.rs` | 98.5% |
 | `adotenv-lint/src/config.rs` | 98.3% |
-| `adotenv-lint/src/lib.rs` | 96.0% |
-| `adotenv-cli/src/main.rs` | 93.2% |
+| `adotenv-lsp/src/main.rs` | 97.7% |
+| `adotenv-lint/src/lib.rs` | 96.1% |
+| `adotenv-cli/src/main.rs` | 94.9% |
+| `adotenv-lsp/src/transport.rs` | 89.6% |
 | `adotenv-lint/src/main.rs` | 89.1% |
+| `adotenv-lsp/src/lib.rs` | 87.5% |
 
 `limit.rs`, `compare.rs`, `parser/unicode.rs` and `adotenv-figment/src/lib.rs`
-are at 100.0 percent line coverage, `compact.rs` and
-`adotenv-process/src/lib.rs` at 99.5 percent, `parser/decode.rs` at 99.4
-percent, `adotenv-lsp/src/lib.rs` at 99.0 percent, `example.rs` at 98.8
-percent, `adotenv-config/src/lib.rs` at 98.7 percent, `adotenv-lsp/src/main.rs`
-at 98.5 percent, `model.rs` at 98.4 percent, `adotenv-lint/src/config.rs` at
-98.3 percent, `encode.rs` at 97.4 percent, `edit.rs` at 97.1 percent,
-`parser.rs` at 97.0 percent, `adotenv-lint/src/lib.rs` at 96.0 percent,
-`references.rs` at 95.3 percent, `adotenv-cli/src/main.rs` at 93.2 percent,
-`adotenv-lint/src/main.rs` at 89.1 percent and `mask.rs` at 87.5 percent.
-Across all seven published crates, line coverage at 1.7.3 is 95.5 percent
-(16,018 of 16,773 lines, CI run `45774141013` at `c5c199f`), matching 95.5
-percent at 1.7.2 (16,008 of 16,763 lines, CI run `45751750161` at `8c1c782`),
-compared with 96.0 percent at `9d852ec` (14,853 of 15,471 lines, before
-pre-1.7.0 CLI and linter I/O and platform error-handling additions), 95.3
-percent at `adotenv-lsp 0.5.0` (`94835f1`), 93.3 percent at 1.6.0 (`ca38775`)
-and 92.0 percent at 1.5.4 (`8a50850`). `exec.rs`, `load.rs`, `resolve.rs`,
-`adotenv-cli/src/main.rs` and `adotenv-lint/src/main.rs` retain defensive I/O
-and Windows-only error branches (the Windows branches are exercised by the
-Windows CI job rather than Linux coverage).
+are at 100.0 percent line coverage, `adotenv-process/src/lib.rs` at 99.7
+percent, `parser/decode.rs` and `serde_support.rs` at 99.4 percent,
+`example.rs` and `parser/docker.rs` at 99.3 percent, `compact.rs` at 99.2
+percent, `structure.rs` at 99.0 percent, `adotenv-config/src/lib.rs` at 98.7
+percent, `model.rs` at 98.4 percent, `position.rs` and
+`adotenv-lint/src/config.rs` at 98.3 percent, `adotenv-lsp/src/main.rs` at 97.7
+percent, `encode.rs` at 97.6 percent, `format.rs` at 97.5 percent, `parser.rs`
+and `sort.rs` at 97.0 percent, `edit.rs` at 96.9 percent,
+`adotenv-lint/src/lib.rs` at 96.1 percent, `adotenv-cli/src/main.rs` at 94.9
+percent (up from 93.2 percent at 1.7.3), `references.rs` at 94.6 percent,
+`load.rs` at 90.3 percent (up from 89.4 percent at 1.7.3),
+`adotenv-lsp/src/transport.rs` at 89.6 percent, `adotenv-lint/src/main.rs` at
+89.1 percent and `adotenv-lsp/src/lib.rs` at 87.5 percent. Across all seven
+published crates, line coverage at 1.8.0 is 94.9 percent (19,074 of 20,096
+lines, CI run `46083909376` at `28ffe7b`), compared with 95.5 percent at 1.7.3
+(16,018 of 16,773 lines, CI run `45774141013` at `c5c199f`), 95.5 percent at
+1.7.2 (16,008 of 16,763 lines, CI run `45751750161` at `8c1c782`), 95.3 percent
+at `adotenv-lsp 0.5.0` (`94835f1`), 93.3 percent at 1.6.0 (`ca38775`) and 92.0
+percent at 1.5.4 (`8a50850`). `exec.rs`, `load.rs`, `resolve.rs`,
+`adotenv-cli/src/main.rs`, `adotenv-lint/src/main.rs` and
+`adotenv-lsp/src/transport.rs` retain defensive I/O and Windows-only error
+branches (the Windows branches are exercised by the Windows CI job rather than
+Linux coverage).
 
 
 ## What the tests cover
 
 - **Parsing and limits:** every preset's grammar, recovery boundaries,
-  diagnostics with their codes, severities and spans, positions, BOM and
-  line-ending handling, long single-line inputs, and `ParseOptions` bounds
-  (`max_input_bytes`, `max_lines`, `max_items` and `max_diagnostics`).
-- **Compact retention:** `CompactValues` and `CompactEntries` parsing, lookup,
+  diagnostics with their codes, severities and spans, positions (including
+  `LineIndex::with_bom_policy` across `Strip`, `StripAll`, `Keep` and `Error`),
+  BOM and line-ending handling, long single-line inputs, and `ParseOptions`
+  bounds (`max_input_bytes`, `max_lines`, `max_items` and `max_diagnostics`).
+- **Compact retention:** `CompactValues` and `CompactEntries` parsing, disk
+  loading (`load_entries_compact*`, `load_cascade_entries_compact*`), lookup,
   provenance/span retention, duplicate policies and portability equivalence
   against full `Document` parsing.
-- **Edits:** every `Edit` variant, `EditOptions` output-byte/line/parse limits,
-  insert positions, key collision rules, batches, edit ordering, verification
-  failures, `rename_with_references` / `rename_with_references_with_options`,
-  and `$(...)` command-context allowlist and span verification.
-- **Formatting and sorting:** every option, quote changes, idempotent
-  normalization, reference-preserving order and files without a final line
-  ending.
+- **Edits:** every `Edit` variant, `EditOptions` output-byte/line/reference/
+  parse limits, `comment_with_options`, `uncomment_with_options`,
+  `set_export_with_options`, insert positions, key collision rules, batches,
+  edit ordering, verification failures, `rename_with_references` /
+  `rename_with_references_with_options`, and `$(...)` command-context allowlist
+  and span verification.
+- **Formatting and sorting:** every option, `format_with_options` and
+  `sort_with_options` (with `EditOptions::max_references`), quote changes,
+  idempotent normalization (including `LineBreaks::Lf` and capped line limits),
+  overlapping-span verification and blank-collapse retention, reference-preserving
+  order and files without a final line ending.
 - **References and resolution:** every operator, rule builder and structured
   error, command callbacks, limits including the total output budget, and
-  linear time and memory for deep nesting and long `$` runs.
-- **Loading:** compact and full retention, origins, reports, values-only
-  loading, both resolution methods, mode names and every error.
-- **Serde:** scalar, option, unit, newtype and byte shapes, structural and
-  value errors, duplicate and bare policies, and loaded origins.
-- **CLI:** every command, the JSON schemas, GitHub output, standard input,
-  recursion and excludes, symbolic links, file permissions, exit codes and
-  child processes.
+  linear time and memory for deep nesting, escaped command forms and long `$`
+  runs.
+- **Loading:** compact values, compact entries and full retention, origins,
+  reports, values-only loading, both resolution methods, mode names and every
+  error.
+- **Serde:** scalar, option, unit, newtype, byte and non-string scalar map-key
+  shapes, structural and value errors, duplicate and bare policies, and loaded
+  origins.
+- **CLI:** every command, global `--max-items`/`--max-diagnostics`, bounded
+  `fmt` (`--max-output-bytes`, `--max-output-lines`, `--max-references`),
+  `CompactValues` in `get`/`load`/`run`, `LineIndex::with_bom_policy` and
+  `InsideCrLf` offset snapping in `check`, the JSON schemas, GitHub output,
+  standard input, recursion and excludes, symbolic links, file permissions,
+  exit codes and child processes.
 - **Linter and LSP (`adotenv-lint`, `adotenv-lsp`):** rule configuration,
   ignore/walk filters, fix ordering and atomic writes, SARIF/JSON/human
-  reports, hover, go-to-definition, completion, diagnostics, BOM/UTF-16 range
-  mapping, `textDocument/rename`, and stdio transport limits.
+  reports, stateful `ParsedDocument`/`Session` handles, hover,
+  go-to-definition, completion, diagnostics, BOM/UTF-16/UTF-8/UTF-32 range
+  mapping, `textDocument/prepareRename`, `textDocument/rename`,
+  `textDocument/formatting`, `textDocument/codeAction`, and bounded stdio
+  transport framing (`transport.rs`).
 - **Adapters:** `config` and Figment typed loading (including `CompactValues`
   and `CompactEntries`), and `adotenv-process` validation and compact helpers
-  (`validate_compact` / `apply_compact`).
+  (`validate_compact` / `apply_compact` / `validate_compact_entries` /
+  `apply_compact_entries`).
 - **End-to-end regressions:** contextual loaded resolution, Compose and
   dotenv-expand operands, and `FinalNewline::Remove` idempotence, through the
   public API.
@@ -236,6 +260,29 @@ key allowlists):
   `c5c199f`, validating the removal of the subsumed `has_command_ancestor`
   helper in `src/edit.rs` and `fuzz/fuzz_targets/edits.rs`): 7 of 7 targets
   passed with zero crashes and zero timeouts.
+
+On 2026-11-27, pre-release seven-target `fuzz.yml` runs on `1.8.0` caught two
+real regressions in `fuzz (format)` and then completed four consecutive clean
+runs on the fixed release code commit `28ffe7b`:
+
+- `46063451677` (`ae4f798`): `fuzz (format)` caught a `Document::example`
+  regression on Portable `B = #comment\n` (emitting invalid `B = ""#comment\n`
+  when `trailing_space` was empty under `quoted_comments: false`). PR #264
+  (`a7aff24`) restricted the `quoted_comment` heuristic and added regression
+  tests.
+- `46079035490` (`a7aff24`): 7 of 7 targets passed.
+- `46080336322` (`a7aff24`): `fuzz (format)` caught a `BlankLines::Collapse`
+  verification bug (`crash-c799b17b4dcd5dc07a8b7f16f6ab712ee671c721`) under
+  `Dialect::COMPOSE.with_line_byte_limit(Some(16))`, where an edited multiline
+  entry split and swallowed downstream items across a collapsed blank run,
+  causing `culprits` to blame and restore the removed blank line. PR #265
+  (`28ffe7b`) updated `check_items` and `check_groups` to track overlapping
+  output spans, kept removed blank lines non-culpable under
+  `BlankLines::Collapse`, and added regression tests and a tracked seed corpus
+  file (`fuzz/corpus/format/collapse-line-limit-desync`).
+- Four consecutive clean seven-target runs on `1.8.0` code commit `28ffe7b`:
+  `46083949786`, `46084542222`, `46085149551` and `46085722039` (**28 of 28
+  target jobs passed**, with zero crashes and zero timeouts).
 
 ## Mutation testing at 1.2.0
 
@@ -579,6 +626,44 @@ in `lint`, where `group.iter().skip(1)` already yields nothing for length 1).
   (the remaining 14 `tail_raw_char`/`tail_starts` survivors are oracle-checked
   split heuristics guarded by `Context::verify`).
 
+### `1.8.0` diff mutation sweeps (`2026-11-27`)
+
+- **`v1.7.3..ae4f798` `--in-diff` sweep (`adotenv`, `adotenv-process`,
+  `adotenv-cli`):** evaluated all **609 mutants** across four one-worker
+  `--in-place` shards on the remote validation host (8 GiB `ulimit -v`,
+  `CARGO_BUILD_JOBS=2`, `RUST_TEST_THREADS=1`, `--timeout 120`):
+  - `adotenv-process`: **1 mutant; 1 caught, 0 missed**.
+  - `adotenv-cli`: **74 mutants; 63 caught, 6 unviable, 1 timeout, 4 missed**
+    (3 genuine gaps in `subcommand_option_takes_value` for `check`/`diff` + 1
+    equivalent performance guard).
+  - `adotenv` core excluding `edit.rs` and `references.rs`: **205 mutants; 169
+    caught, 26 unviable, 0 timeouts, 10 missed** (3 genuine `appended_body_end`
+    gaps in `src/encode.rs` + 7 equivalent/defensive guards in
+    `CompactEntries::merge`, `Document::example`, `plan_quotes` and
+    `effective_last_byte_before`).
+  - `src/edit.rs`: **67 mutants; 40 caught, 17 unviable, 0 timeouts, 10
+    missed** (7 pre-allocation `comment_text_len` budget assertions + 1
+    self-rename `old_key == new_key` gap + 2 defensive
+    `reference_counts_bounded` invariants).
+  - `src/references.rs` (`0/2` and `1/2`): **262 mutants; 67 caught, 51
+    unviable, 30 timeouts, 114 missed** (pure `Closes`/`op_until`/
+    `operand_form_depth` memoization/cache-eviction optimizations covered by
+    `tests/reference_memory.rs`, plus genuine gaps in `Scanner::scan` EOF `$`,
+    `LiteralClose::within`, `literal_balanced`, `skip_escaped_form` and
+    `matching_delimited`).
+  - PR #264 (`a7aff24`) added regression tests across `adotenv-cli/tests/cli.rs`,
+    `src/encode_tests.rs`, `src/edit_tests.rs`, `src/reference_tests.rs` and
+    `src/example_tests.rs`. Targeted remote confirmation reruns verified **5 of
+    5 caught** in `adotenv-cli`'s `subcommand_option_takes_value` and **59 of
+    68 caught, 0 timeouts** across the targeted core functions (leaving only
+    documented equivalent/defensive survivors and 0 genuine gaps).
+- **PR #265 (`a7aff24..28ffe7b`) `--in-diff` sweep (`src/format.rs` and
+  `src/sort.rs`):** evaluated all **22 mutants** across the verification
+  overlap-tracking fix (14 in `src/format.rs`, 8 in `src/sort.rs`). Adding two
+  boundary assertions in `format::tests` and `sort::tests` closed both initial
+  boundary gaps; the final confirmation rerun verified **19 caught, 3 unviable,
+  0 missed and 0 timeouts** (100 percent of viable mutants caught).
+
 ## Mutation policy
 
 A surviving mutant is a test-coverage question, not automatically a product
@@ -615,9 +700,9 @@ overflow and popover bounds (originally established on 2026-11-15 with
    the core summary, but does not enforce a threshold.
 3. Mutation testing is focused/sharded rather than run as one unsharded whole-workspace
    campaign; the 1.5.4 baseline listed 5,502 workspace mutants, and the
-   subsequent 1.6.0, 1.6.1 and 1.7.x per-crate and `--in-diff` confirmation
-   shards are recorded above. Windows-only validation branches are exercised by
-   the Windows CI job rather than Linux mutation runs.
+   subsequent 1.6.0, 1.6.1, 1.7.x and 1.8.0 per-crate and `--in-diff`
+   confirmation shards are recorded above. Windows-only validation branches are
+   exercised by the Windows CI job rather than Linux mutation runs.
 4. Every published crate in the workspace (`adotenv` core, `adotenv-process`,
    `adotenv-config`, `adotenv-figment`, `adotenv-lsp`, `adotenv-lint`, and
    `adotenv-cli`) has completed sharded or full-file mutation runs on the

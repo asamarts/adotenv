@@ -50,11 +50,11 @@ cargo run --release -p adotenv-xtask -- queue \
 ```
 
 The local equivalent accepts the same flag and defaults to
-`docs/benchmarks/compact-memory.jsonl`. The 1.7.3 publication run records both
-`adotenv-compact` and `adotenv-compact-entries` (post-realloc fix) in
-`docs/benchmarks/compact-memory-1.7.3.jsonl` and
-`docs/benchmarks/speed-1.7.3.txt`; the 1.6.0, 1.5.0 and 1.4.1 matrices remain
-as historical evidence.
+`docs/benchmarks/compact-memory.jsonl`. The 1.8.0 publication run records both
+`adotenv-compact` and `adotenv-compact-entries` in
+`docs/benchmarks/compact-memory-1.8.0.jsonl` and
+`docs/benchmarks/speed-1.8.0.txt`; the 1.7.3, 1.6.0, 1.5.0 and 1.4.1 matrices
+remain as historical evidence.
 
 ## Reproduce one speed cell
 
@@ -133,7 +133,8 @@ cargo run --release -p adotenv-xtask -- gate \
 ```
 
 Publication speed files, including `speed.txt`, `speed-1.5.0.txt`,
-`speed-1.6.0.txt` and `speed-1.7.3.txt`, are evidence and are not PR gates.
+`speed-1.6.0.txt`, `speed-1.7.3.txt` and `speed-1.8.0.txt`, are evidence and
+are not PR gates.
 
 ## Publication run on a reference host
 

@@ -225,13 +225,18 @@ publication run at RC SHA `79860ac` reproduces all 25/25 `CompactValues` speed
 wins and 20/20 non-empty retained-heap wins (30/30 peak and allocation wins)
 and adds bare-preserving `CompactEntries` with 10/10 `values` speed wins and
 identical memory to `CompactValues`; see
-[the 1.6.0 results](../benchmarks/RESULTS-1.6.0.md). The current 1.7.3
-publication run at tagged release SHA `c5c199f` is the first versioned snapshot
-after the `realloc` accounting fix, recording 20/20 non-empty `CompactValues`
-speed wins (with 5/5 empty `load` losses from intentional 1.7.0 FIFO/permission
+[the 1.6.0 results](../benchmarks/RESULTS-1.6.0.md). The 1.7.3 publication run
+at tagged release SHA `c5c199f` is the first versioned snapshot after the
+`realloc` accounting fix, recording 20/20 non-empty `CompactValues` speed wins
+(with 5/5 empty `load` losses from intentional 1.7.0 FIFO/permission
 file-opening checks), 10/10 `CompactEntries` speed wins, 20/20 non-empty
 retained-heap wins and 30/30 peak-heap and allocation wins; see
-[the 1.7.3 results](../benchmarks/RESULTS-1.7.3.md). The map-based 1.4.1
+[the 1.7.3 results](../benchmarks/RESULTS-1.7.3.md). The current 1.8.0
+publication run at clean code SHA `28ffe7b` reproduces all 20/20 non-empty
+`CompactValues` speed wins (with 5/5 empty `load` losses), 10/10
+`CompactEntries` speed wins, 20/20 non-empty retained-heap wins and 30/30
+peak-heap and allocation wins with zero deterministic memory diffs; see
+[the 1.8.0 results](../benchmarks/RESULTS-1.8.0.md). The map-based 1.4.1
 claim remains historical release evidence.
 
 ## Earlier measurements
