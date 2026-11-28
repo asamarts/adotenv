@@ -23,12 +23,13 @@ prototype status into a semver-checked `0.6.x` line with unified `&LspOptions`
 APIs, stateful `ParsedDocument`/`Session` handles, a bounded stdio transport
 gated behind the `stdio` feature, `prepareRename`/`formatting`/`codeAction`/
 `positionEncoding`, and Rust 1.81 MSRV. `adotenv`, `adotenv-process` and
-`adotenv-cli` 1.8.0 are prepared on `main` (pending final remote release
-verification and tag publication) with `CompactEntries` disk loaders and
+`adotenv-cli` 1.8.0 are verified on `main` for `v1.8.0` publication (with
+clean-SHA benchmarks, 631-mutant diff sweeps and four consecutive clean
+seven-target fuzz runs) with `CompactEntries` disk loaders and
 process helpers, bounded `Document::{comment,uncomment,set_export,format,sort}_with_options`
 (`EditOptions::max_references`), `LineIndex::with_bom_policy`, Serde scalar map
-keys, Compose `example` and `LineBreaks::Lf` format fixes, and `adotenv-cli`
-compact/bounded wiring. `adotenv`, `adotenv-process` and `adotenv-cli` 1.7.3
+keys, Compose `example`, `LineBreaks::Lf` format and blank-collapse verification
+fixes, and `adotenv-cli` compact/bounded wiring. `adotenv`, `adotenv-process` and `adotenv-cli` 1.7.3
 were published on 2026-11-26 with `QuotedTail::Append` CR-padding `line_byte_limit` budget
 accounting, tightened `$(...)` command-context key allowlist rules (rejecting
 positional/leading-digit/dot-bounded keys and enforcing the allowlist after any
@@ -125,9 +126,9 @@ companion work are recorded there.
     `adotenv-lsp 0.6.0` is published
     ([#248](https://github.com/asamarts/adotenv/issues/248)), `adotenv 1.8.0`
     core additions, After-1.0 fixes and lockstep CLI/process wiring are landed
-    ([#249](https://github.com/asamarts/adotenv/issues/249),
-    [#250](https://github.com/asamarts/adotenv/issues/250)) pending final remote
-    release verification and tag publication, and `adotenv-lint 0.3.0` follows
+    and verified ([#249](https://github.com/asamarts/adotenv/issues/249),
+    [#250](https://github.com/asamarts/adotenv/issues/250)) for `v1.8.0`
+    publication, and `adotenv-lint 0.3.0` follows
     ([#251](https://github.com/asamarts/adotenv/issues/251)).
 
 ## 1.0 criteria

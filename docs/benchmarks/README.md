@@ -5,26 +5,26 @@ commands, fixture catalogue, result schema and raw per-release evidence for
 `adotenv`.
 
 <div class="bench-callouts">
-<a class="bench-callout" href="RESULTS-1.7.3.html"><strong>1.7.3 results</strong><span>Post-realloc-fix CompactValues, CompactEntries and map memory and speed evidence from tagged release v1.7.3.</span></a>
-<a class="bench-callout" href="compact-memory-1.7.3.html"><strong>Memory chart</strong><span>Compare all available libraries, compact vs map, or the best-competitor view.</span></a>
-<a class="bench-callout" href="speed-1.7.3.html"><strong>Speed chart</strong><span>Compare values and load timings across every size and shape.</span></a>
+<a class="bench-callout" href="RESULTS-1.8.0.html"><strong>1.8.0 results</strong><span>Current CompactValues, CompactEntries and map memory and speed evidence for release 1.8.0.</span></a>
+<a class="bench-callout" href="compact-memory-1.8.0.html"><strong>Memory chart</strong><span>Compare all available libraries, compact vs map, or the best-competitor view.</span></a>
+<a class="bench-callout" href="speed-1.8.0.html"><strong>Speed chart</strong><span>Compare values and load timings across every size and shape.</span></a>
 <a class="bench-callout" href="METHODOLOGY.html"><strong>Methodology</strong><span>How the comparable matrix, gates and publication runs work.</span></a>
 </div>
 
-The current published evidence is the [1.7.3 result page](RESULTS-1.7.3.md),
-recorded from clean release tag `v1.7.3` (`c5c199f`). It records 20/20
-non-empty strict speed wins (with 5/5 empty `load` losses from intentional
-1.7.0 FIFO/permission file-opening checks) and 20/20 non-empty retained-heap
-wins (10/10 empty ties and 30/30 peak/allocation wins, post-realloc fix) for
-`CompactValues`, plus 10/10 strict speed wins and byte-for-byte identical
-memory to `CompactValues` across all 15 `values` cells for bare-preserving
-`CompactEntries`.
+The current published evidence is the [1.8.0 result page](RESULTS-1.8.0.md),
+recorded from clean `1.8.0` code commit `28ffe7b`. It records 20/20 non-empty
+strict speed wins (with 5/5 empty `load` losses from intentional 1.7.0
+FIFO/permission file-opening checks) and 20/20 non-empty retained-heap wins
+(10/10 empty ties and 30/30 peak/allocation wins) for `CompactValues`, plus
+10/10 strict speed wins and byte-for-byte identical memory to `CompactValues`
+across all 15 `values` cells for bare-preserving `CompactEntries`.
 
-The [1.6.0 result page](RESULTS-1.6.0.md) remains historical evidence from
-release-candidate commit `79860ac` (pre-realloc fix and pre-1.7.0 `load`
-hardening). The [1.5.0 result page](RESULTS-1.5.0.md) remains historical
-compact-values evidence (memory from `0a9fc92`, post-release speed from
-`79937cc`).
+The [1.7.3 result page](RESULTS-1.7.3.md) remains historical evidence from
+tagged release `v1.7.3` (`c5c199f`). The [1.6.0 result page](RESULTS-1.6.0.md)
+remains historical evidence from release-candidate commit `79860ac`
+(pre-realloc fix and pre-1.7.0 `load` hardening). The
+[1.5.0 result page](RESULTS-1.5.0.md) remains historical compact-values
+evidence (memory from `0a9fc92`, post-release speed from `79937cc`).
 
 Charts can show **all available pinned libraries**, isolate **compact vs map**, or show
 only the **best competitor** per cell. Compact is the opt-in `CompactValues`
@@ -45,7 +45,8 @@ cells. Retained heap is a tie in all 30 map-based cells and a loss in none.
 - [1.4.1 results](RESULTS-1.4.1.md) -- historical speed and map-based evidence.
 - [1.5.0 results](RESULTS-1.5.0.md) -- historical compact-values memory and speed evidence.
 - [1.6.0 results](RESULTS-1.6.0.md) -- historical 1.6.0 compact-values, compact-entries and map evidence.
-- [1.7.3 results](RESULTS-1.7.3.md) -- current post-realloc-fix compact-values, compact-entries and map evidence.
+- [1.7.3 results](RESULTS-1.7.3.md) -- historical 1.7.3 compact-values, compact-entries and map evidence.
+- [1.8.0 results](RESULTS-1.8.0.md) -- current 1.8.0 compact-values, compact-entries and map evidence.
 
 The rendered tables are also available directly:
 
@@ -54,6 +55,10 @@ The rendered tables are also available directly:
   `adotenv-compact-entries` and pinned competitors, post-realloc fix)
 - [Current CI map memory baseline](memory.md) and
   [raw JSONL](memory.jsonl) (165 cases, post-realloc fix)
+- [1.8.0 compact memory results](compact-memory-1.8.0.md) and
+  [raw JSONL](compact-memory-1.8.0.jsonl)
+- [1.8.0 speed results](speed-1.8.0.md) and
+  [raw bencher output](speed-1.8.0.txt)
 - [1.7.3 compact memory results](compact-memory-1.7.3.md) and
   [raw JSONL](compact-memory-1.7.3.jsonl)
 - [1.7.3 speed results](speed-1.7.3.md) and
@@ -72,6 +77,8 @@ The rendered tables are also available directly:
 - Fingerprints:
   [current compact memory](compact-memory.fingerprint.json),
   [current map memory](memory.fingerprint.json),
+  [1.8.0 memory](compact-memory-1.8.0.fingerprint.json),
+  [1.8.0 speed](speed-1.8.0.fingerprint.json),
   [1.7.3 memory](compact-memory-1.7.3.fingerprint.json),
   [1.7.3 speed](speed-1.7.3.fingerprint.json),
   [1.6.0 memory](compact-memory-1.6.0.fingerprint.json),

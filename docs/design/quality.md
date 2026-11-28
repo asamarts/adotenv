@@ -130,8 +130,8 @@ release.
 Mutation testing runs weekly and on demand in four shards. It targets parser
 diagnostics, key validation, edit verification and formatting equivalence,
 with a 90-second timeout and two jobs per shard. The 1.4.1 focused campaign
-and the subsequent 1.5.4, 1.6.0, 1.6.1 and 1.7.x per-crate and `--in-diff`
-sweeps across all seven published crates are recorded in the
+and the subsequent 1.5.4, 1.6.0, 1.6.1, 1.7.x and 1.8.0 per-crate and
+`--in-diff` sweeps across all seven published crates are recorded in the
 [test audit](test-audit.md). Survivors are input for targeted regression tests,
 not an automatic release blocker.
 
